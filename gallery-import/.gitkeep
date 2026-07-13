@@ -1,0 +1,14 @@
+# Place convention photos here for bulk upload.
+#
+# Folder structure:
+#   gallery-import/
+#     2025/
+#       photo-01.jpg
+#       photo-02.jpg
+#     2024/
+#       ...
+#
+# Before running npm run upload-gallery:
+# 1. Create matching gallery albums in Admin → Galleries
+# 2. Set IMPORT_SECRET in Convex dashboard and .env.local
+# 3. Run: npm run upload-gallery

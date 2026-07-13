@@ -1,0 +1,183 @@
+import { defineSchema, defineTable } from "convex/server";
+import { v } from "convex/values";
+import { authTables } from "@convex-dev/auth/server";
+
+export default defineSchema({
+  ...authTables,
+
+  users: defineTable({
+    name: v.optional(v.string()),
+    image: v.optional(v.string()),
+    email: v.optional(v.string()),
+    emailVerificationTime: v.optional(v.number()),
+    phone: v.optional(v.string()),
+    phoneVerificationTime: v.optional(v.number()),
+    isAnonymous: v.optional(v.boolean()),
+    role: v.optional(
+      v.union(
+        v.literal("admin"),
+        v.literal("editor"),
+        v.literal("registration"),
+        v.literal("accommodation"),
+      ),
+    ),
+  })
+    .index("email", ["email"])
+    .index("phone", ["phone"]),
+
+  registrations: defineTable({
+    type: v.union(v.literal("individual"), v.literal("group")),
+    fullName: v.optional(v.string()),
+    email: v.string(),
+    phone: v.string(),
+    countryCode: v.string(),
+    region: v.string(),
+    church: v.optional(v.string()),
+    ticketQuantity: v.number(),
+    addOns: v.array(v.string()),
+    accommodationInterest: v.boolean(),
+    priceAmount: v.number(),
+    addOnAmount: v.number(),
+    totalAmount: v.number(),
+    currency: v.string(),
+    gateway: v.union(v.literal("paystack"), v.literal("paypal")),
+    paymentStatus: v.union(
+      v.literal("pending_payment"),
+      v.literal("paid"),
+      v.literal("failed"),
+      v.literal("mock_paid"),
+    ),
+    paymentReference: v.optional(v.string()),
+    referenceNumber: v.optional(v.string()),
+    consent: v.boolean(),
+    createdAt: v.number(),
+  })
+    .index("by_email", ["email"])
+    .index("by_payment_status", ["paymentStatus"])
+    .index("by_created_at", ["createdAt"])
+    .index("by_reference_number", ["referenceNumber"]),
+
+  faqs: defineTable({
+    category: v.string(),
+    question: v.string(),
+    answer: v.string(),
+    order: v.number(),
+  }).index("by_order", ["order"]),
+
+  galleries: defineTable({
+    year: v.number(),
+    theme: v.string(),
+    title: v.string(),
+    coverImageUrl: v.optional(v.string()),
+    coverStorageId: v.optional(v.id("_storage")),
+  }).index("by_year", ["year"]),
+
+  galleryImages: defineTable({
+    galleryId: v.id("galleries"),
+    storageId: v.optional(v.id("_storage")),
+    imageUrl: v.optional(v.string()),
+    caption: v.optional(v.string()),
+    order: v.number(),
+  }).index("by_gallery", ["galleryId"]),
+
+  messages: defineTable({
+    year: v.number(),
+    title: v.string(),
+    speaker: v.string(),
+    mediaType: v.union(
+      v.literal("audio"),
+      v.literal("video"),
+      v.literal("message"),
+    ),
+    url: v.string(),
+    order: v.number(),
+  }).index("by_year", ["year"]),
+
+  hotels: defineTable({
+    name: v.string(),
+    contact: v.optional(v.string()),
+    rate: v.optional(v.string()),
+    distance: v.optional(v.string()),
+    instructions: v.optional(v.string()),
+    discountCode: v.optional(v.string()),
+    order: v.number(),
+  }).index("by_order", ["order"]),
+
+  stats: defineTable({
+    label: v.string(),
+    value: v.string(),
+    order: v.number(),
+  }).index("by_order", ["order"]),
+
+  announcements: defineTable({
+    title: v.string(),
+    body: v.string(),
+    active: v.boolean(),
+    createdAt: v.number(),
+  }).index("by_active", ["active"]),
+
+  aboutContent: defineTable({
+    slug: v.literal("about"),
+    history: v.string(),
+    purpose: v.string(),
+    vision: v.string(),
+    impact: v.string(),
+    firstLadyMessage: v.string(),
+    updatedAt: v.number(),
+  }).index("by_slug", ["slug"]),
+
+  housing: defineTable({
+    type: v.union(
+      v.literal("condo"),
+      v.literal("hostel"),
+      v.literal("apartment"),
+    ),
+    pricePerStay: v.number(),
+    capacityLimit: v.number(),
+    booked: v.number(),
+    notes: v.string(),
+  }).index("by_type", ["type"]),
+
+  housingBookings: defineTable({
+    housingId: v.id("housing"),
+    housingType: v.union(
+      v.literal("condo"),
+      v.literal("hostel"),
+      v.literal("apartment"),
+    ),
+    guestName: v.string(),
+    guestEmail: v.string(),
+    guestPhone: v.string(),
+    checkIn: v.string(),
+    checkOut: v.string(),
+    guests: v.number(),
+    pricePerStay: v.number(),
+    totalAmount: v.number(),
+    currency: v.literal("USD"),
+    paymentStatus: v.union(
+      v.literal("pending_payment"),
+      v.literal("paid"),
+      v.literal("failed"),
+      v.literal("mock_paid"),
+    ),
+    paymentReference: v.optional(v.string()),
+    referenceNumber: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_housing", ["housingId"])
+    .index("by_email", ["guestEmail"])
+    .index("by_payment_status", ["paymentStatus"])
+    .index("by_created_at", ["createdAt"])
+    .index("by_reference_number", ["referenceNumber"]),
+
+  emailLogs: defineTable({
+    to: v.string(),
+    subject: v.string(),
+    body: v.string(),
+    type: v.string(),
+    referenceId: v.optional(v.string()),
+    status: v.union(v.literal("stub"), v.literal("sent"), v.literal("failed")),
+    createdAt: v.number(),
+  }).index("by_created_at", ["createdAt"]),
+});
