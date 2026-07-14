@@ -1,5 +1,9 @@
+import type { Metadata } from "next";
 import { Section } from "@/components/ui/Section";
 import { RegistrationForm } from "@/components/registration/RegistrationForm";
+import { createPageMetadata, PAGE_SEO } from "@/lib/seo";
+
+export const metadata: Metadata = createPageMetadata(PAGE_SEO.registration);
 
 export default function RegistrationPage() {
   return (
