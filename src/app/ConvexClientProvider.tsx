@@ -3,7 +3,10 @@
 import { ConvexProvider, ConvexReactClient } from "convex/react";
 import { ReactNode, useMemo } from "react";
 import { isConvexConfigured } from "@/lib/convex-config";
-import { AdminSessionProvider } from "@/components/admin/AdminSessionProvider";
+import {
+  AdminSessionFallbackProvider,
+  AdminSessionProvider,
+} from "@/components/admin/AdminSessionProvider";
 
 export function ConvexClientProvider({ children }: { children: ReactNode }) {
   const convex = useMemo(() => {
@@ -11,8 +14,13 @@ export function ConvexClientProvider({ children }: { children: ReactNode }) {
     return new ConvexReactClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
   }, []);
 
+  // Always wrap with a session provider so admin pages can prerender/SSR
+  // without throwing when NEXT_PUBLIC_CONVEX_URL is missing (common on
+  // Production if the env var is only scoped to Preview).
   if (!convex) {
-    return <>{children}</>;
+    return (
+      <AdminSessionFallbackProvider>{children}</AdminSessionFallbackProvider>
+    );
   }
 
   return (

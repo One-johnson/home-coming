@@ -34,6 +34,29 @@ const AdminSessionContext = createContext<AdminSessionContextValue | null>(
   null,
 );
 
+const UNAVAILABLE_SESSION: AdminSessionContextValue = {
+  sessionToken: null,
+  isReady: true,
+  user: null,
+  setSession: () => {
+    throw new Error("Admin session is unavailable without Convex configured.");
+  },
+  clearSession: async () => {},
+};
+
+/** Used when Convex is not configured so useAdminSession never throws. */
+export function AdminSessionFallbackProvider({
+  children,
+}: {
+  children: ReactNode;
+}) {
+  return (
+    <AdminSessionContext.Provider value={UNAVAILABLE_SESSION}>
+      {children}
+    </AdminSessionContext.Provider>
+  );
+}
+
 export function AdminSessionProvider({ children }: { children: ReactNode }) {
   const [sessionToken, setSessionToken] = useState<string | null>(null);
   const [isReady, setIsReady] = useState(false);
