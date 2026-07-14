@@ -1,5 +1,9 @@
+import type { Metadata } from "next";
 import { Section } from "@/components/ui/Section";
 import { AccommodationPortal } from "@/components/accommodation/AccommodationPortal";
+import { createPageMetadata, PAGE_SEO } from "@/lib/seo";
+
+export const metadata: Metadata = createPageMetadata(PAGE_SEO.accommodation);
 
 export default function AccommodationPage() {
   return (
