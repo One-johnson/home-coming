@@ -67,13 +67,9 @@ npm run seed
 
 ## Admin Setup
 
-1. Create an admin account via Convex Auth (Password provider):
-
-```bash
-npx convex run auth:signIn --args '{"provider":"password","params":{"email":"admin@example.com","password":"your-password","flow":"signUp"}}'
-```
-
-2. Assign the admin role in the Convex dashboard for that user document (`role: "admin"`).
+1. Open `/admin/register` and create the first admin (email + password). Registration closes after the first user exists.
+2. Sign in at `/admin`. Create additional staff from the **Team** tab (name, email, password, role).
+3. Passwords are hashed with bcryptjs. Auth uses opaque session tokens stored in the browser (no JWT / Convex Auth).
 
 ## Payment Integration (Phase 2)
 

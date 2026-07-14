@@ -18,9 +18,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useAdminSession } from "@/components/admin/AdminSessionProvider";
 import { uploadFilesToConvex } from "@/lib/galleryUpload";
 
 export function GalleryManager() {
+  const { sessionToken } = useAdminSession();
   const galleries = useQuery(api.content.listGalleries);
   const generateUploadUrl = useMutation(api.galleryStorage.generateUploadUrl);
   const createGallery = useMutation(api.galleryStorage.createGallery);
@@ -47,8 +49,12 @@ export function GalleryManager() {
 
   const handleCreateGallery = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!sessionToken) {
+      toast.error("Not signed in");
+      return;
+    }
     try {
-      const id = await createGallery(newGallery);
+      const id = await createGallery({ sessionToken, ...newGallery });
       setSelectedGalleryId(id);
       setNewGallery({
         year: new Date().getFullYear(),
@@ -62,6 +68,10 @@ export function GalleryManager() {
   };
 
   const handleUpload = async (files: FileList | null) => {
+    if (!sessionToken) {
+      toast.error("Not signed in");
+      return;
+    }
     if (!files?.length || !selectedGalleryId) {
       toast.error("Select a gallery first");
       return;
@@ -88,7 +98,7 @@ export function GalleryManager() {
         setUploadLabel(`Uploading ${file.name}...`);
         const storageIds = await uploadFilesToConvex(
           [file],
-          () => generateUploadUrl(),
+          () => generateUploadUrl({ sessionToken }),
           (done, total, name) => {
             setUploadProgress(Math.round(((completed + done / total) / imageFiles.length) * 100));
             setUploadLabel(name === "done" ? file.name : `Uploading ${name}...`);
@@ -96,6 +106,7 @@ export function GalleryManager() {
         );
 
         await addGalleryImage({
+          sessionToken,
           galleryId,
           storageId: storageIds[0],
           caption: file.name.replace(/\.[^.]+$/, "").replace(/[-_]/g, " "),
@@ -119,8 +130,9 @@ export function GalleryManager() {
   };
 
   const handleDeleteImage = async (id: Id<"galleryImages">) => {
+    if (!sessionToken) return;
     try {
-      await deleteGalleryImage({ id });
+      await deleteGalleryImage({ sessionToken, id });
       toast.success("Image deleted");
     } catch {
       toast.error("Failed to delete image");
@@ -128,12 +140,15 @@ export function GalleryManager() {
   };
 
   const handleDeleteGallery = async () => {
-    if (!selectedGalleryId) return;
+    if (!sessionToken || !selectedGalleryId) return;
     if (!confirm("Delete this gallery and all its images? This cannot be undone.")) {
       return;
     }
     try {
-      await deleteGallery({ id: selectedGalleryId as Id<"galleries"> });
+      await deleteGallery({
+        sessionToken,
+        id: selectedGalleryId as Id<"galleries">,
+      });
       setSelectedGalleryId("");
       toast.success("Gallery deleted");
     } catch {

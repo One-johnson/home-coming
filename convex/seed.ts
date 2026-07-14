@@ -1,6 +1,6 @@
 import { mutation } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
-import { requireRole } from "./users";
+import { requireRole, sessionTokenValidator } from "./users";
 
 const FAQS = [
   {
@@ -180,9 +180,9 @@ const HOUSING = [
 ];
 
 export const seed = mutation({
-  args: {},
-  handler: async (ctx) => {
-    await requireRole(ctx, ["admin"]);
+  args: { sessionToken: sessionTokenValidator },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, args.sessionToken, ["admin"]);
 
     const existingFaqs = await ctx.db.query("faqs").first();
     if (!existingFaqs) {
@@ -262,8 +262,10 @@ export const seed = mutation({
 });
 
 export const seedPublic = mutation({
-  args: {},
-  handler: async (ctx) => {
+  args: { sessionToken: sessionTokenValidator },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, args.sessionToken, ["admin"]);
+
     const existingFaqs = await ctx.db.query("faqs").first();
     if (existingFaqs) {
       return { success: true, message: "Already seeded" };
@@ -325,16 +327,18 @@ export const seedPublic = mutation({
 });
 
 export const syncStatsPublic = mutation({
-  args: {},
-  handler: async (ctx) => {
+  args: { sessionToken: sessionTokenValidator },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, args.sessionToken, ["admin"]);
     await syncStats(ctx);
     return { success: true };
   },
 });
 
 export const syncHomecomingMessagesPublic = mutation({
-  args: {},
-  handler: async (ctx) => {
+  args: { sessionToken: sessionTokenValidator },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, args.sessionToken, ["admin"]);
     await syncHomecomingMessages(ctx);
     return { success: true };
   },
