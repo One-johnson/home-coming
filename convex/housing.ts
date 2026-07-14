@@ -1,7 +1,15 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { createUniqueReferenceNumber } from "./lib/referenceNumbers";
-import { requireRole } from "./users";
+import { writeAuditLog } from "./lib/audit";
+import { requireRole, sessionTokenValidator } from "./users";
+
+const paymentStatusValidator = v.union(
+  v.literal("pending_payment"),
+  v.literal("paid"),
+  v.literal("failed"),
+  v.literal("mock_paid"),
+);
 
 export const listHousing = query({
   args: {},
@@ -10,15 +18,34 @@ export const listHousing = query({
   },
 });
 
+export const listHousingAdmin = query({
+  args: { sessionToken: sessionTokenValidator },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, args.sessionToken, ["admin", "accommodation"]);
+    return await ctx.db.query("housing").collect();
+  },
+});
+
 export const listBookings = query({
-  args: {},
-  handler: async (ctx) => {
-    await requireRole(ctx, ["admin", "accommodation"]);
+  args: { sessionToken: sessionTokenValidator },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, args.sessionToken, ["admin", "accommodation"]);
     return await ctx.db
       .query("housingBookings")
       .withIndex("by_created_at")
       .order("desc")
       .collect();
+  },
+});
+
+export const getBookingById = query({
+  args: {
+    sessionToken: sessionTokenValidator,
+    id: v.id("housingBookings"),
+  },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, args.sessionToken, ["admin", "accommodation"]);
+    return await ctx.db.get(args.id);
   },
 });
 
@@ -97,17 +124,148 @@ export const createBooking = mutation({
   },
 });
 
+export const updateHousing = mutation({
+  args: {
+    sessionToken: sessionTokenValidator,
+    id: v.id("housing"),
+    capacityLimit: v.number(),
+    pricePerStay: v.number(),
+    notes: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireRole(ctx, args.sessionToken, [
+      "admin",
+      "accommodation",
+    ]);
+    const existing = await ctx.db.get(args.id);
+    if (!existing) throw new Error("Housing not found");
+    if (args.capacityLimit < existing.booked) {
+      throw new Error(
+        `Capacity cannot be below current bookings (${existing.booked})`,
+      );
+    }
+    if (args.pricePerStay < 0) {
+      throw new Error("Price must be non-negative");
+    }
+
+    await ctx.db.patch(args.id, {
+      capacityLimit: args.capacityLimit,
+      pricePerStay: args.pricePerStay,
+      notes: args.notes,
+    });
+
+    await writeAuditLog(ctx, {
+      actorUserId: actor._id,
+      actorEmail: actor.email,
+      action: "housing.updated",
+      entityType: "housing",
+      entityId: args.id,
+      summary: `Updated ${existing.type} inventory`,
+      metadata: {
+        capacityLimit: args.capacityLimit,
+        pricePerStay: args.pricePerStay,
+      },
+    });
+  },
+});
+
 export const updateHousingCapacity = mutation({
   args: {
+    sessionToken: sessionTokenValidator,
     id: v.id("housing"),
     capacityLimit: v.number(),
     notes: v.string(),
   },
   handler: async (ctx, args) => {
-    await requireRole(ctx, ["admin", "accommodation"]);
+    const actor = await requireRole(ctx, args.sessionToken, [
+      "admin",
+      "accommodation",
+    ]);
+    const housing = await ctx.db.get(args.id);
+    if (!housing) throw new Error("Housing not found");
+    if (args.capacityLimit < housing.booked) {
+      throw new Error(
+        `Capacity cannot be below current bookings (${housing.booked})`,
+      );
+    }
     await ctx.db.patch(args.id, {
       capacityLimit: args.capacityLimit,
       notes: args.notes,
     });
+    await writeAuditLog(ctx, {
+      actorUserId: actor._id,
+      actorEmail: actor.email,
+      action: "housing.capacity_updated",
+      entityType: "housing",
+      entityId: args.id,
+      summary: `Updated ${housing.type} capacity to ${args.capacityLimit}`,
+    });
+  },
+});
+
+export const updateBookingPaymentStatus = mutation({
+  args: {
+    sessionToken: sessionTokenValidator,
+    id: v.id("housingBookings"),
+    paymentStatus: paymentStatusValidator,
+    paymentReference: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireRole(ctx, args.sessionToken, [
+      "admin",
+      "accommodation",
+    ]);
+    const existing = await ctx.db.get(args.id);
+    if (!existing) throw new Error("Booking not found");
+
+    await ctx.db.patch(args.id, {
+      paymentStatus: args.paymentStatus,
+      paymentReference: args.paymentReference,
+    });
+
+    await writeAuditLog(ctx, {
+      actorUserId: actor._id,
+      actorEmail: actor.email,
+      action: "booking.payment_status",
+      entityType: "housingBookings",
+      entityId: args.id,
+      summary: `Set booking ${existing.referenceNumber ?? args.id} to ${args.paymentStatus}`,
+      metadata: {
+        previous: existing.paymentStatus,
+        next: args.paymentStatus,
+      },
+    });
+  },
+});
+
+export const bulkUpdateBookingPaymentStatus = mutation({
+  args: {
+    sessionToken: sessionTokenValidator,
+    ids: v.array(v.id("housingBookings")),
+    paymentStatus: paymentStatusValidator,
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireRole(ctx, args.sessionToken, [
+      "admin",
+      "accommodation",
+    ]);
+    let updated = 0;
+    for (const id of args.ids) {
+      const existing = await ctx.db.get(id);
+      if (!existing) continue;
+      await ctx.db.patch(id, { paymentStatus: args.paymentStatus });
+      updated += 1;
+    }
+
+    await writeAuditLog(ctx, {
+      actorUserId: actor._id,
+      actorEmail: actor.email,
+      action: "booking.bulk_payment_status",
+      entityType: "housingBookings",
+      summary: `Bulk set ${updated} booking(s) to ${args.paymentStatus}`,
+      metadata: { count: updated, status: args.paymentStatus },
+    });
+
+    return { updated };
   },
 });

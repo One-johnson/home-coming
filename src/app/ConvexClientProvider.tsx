@@ -1,9 +1,9 @@
 "use client";
 
-import { ConvexAuthProvider } from "@convex-dev/auth/react";
-import { ConvexReactClient } from "convex/react";
+import { ConvexProvider, ConvexReactClient } from "convex/react";
 import { ReactNode, useMemo } from "react";
 import { isConvexConfigured } from "@/lib/convex-config";
+import { AdminSessionProvider } from "@/components/admin/AdminSessionProvider";
 
 export function ConvexClientProvider({ children }: { children: ReactNode }) {
   const convex = useMemo(() => {
@@ -15,5 +15,9 @@ export function ConvexClientProvider({ children }: { children: ReactNode }) {
     return <>{children}</>;
   }
 
-  return <ConvexAuthProvider client={convex}>{children}</ConvexAuthProvider>;
+  return (
+    <ConvexProvider client={convex}>
+      <AdminSessionProvider>{children}</AdminSessionProvider>
+    </ConvexProvider>
+  );
 }

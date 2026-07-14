@@ -1,29 +1,45 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
-import { authTables } from "@convex-dev/auth/server";
+
+const adminRole = v.union(
+  v.literal("admin"),
+  v.literal("content"),
+  v.literal("registration"),
+  v.literal("accommodation"),
+);
 
 export default defineSchema({
-  ...authTables,
-
   users: defineTable({
-    name: v.optional(v.string()),
-    image: v.optional(v.string()),
-    email: v.optional(v.string()),
-    emailVerificationTime: v.optional(v.number()),
-    phone: v.optional(v.string()),
-    phoneVerificationTime: v.optional(v.number()),
-    isAnonymous: v.optional(v.boolean()),
-    role: v.optional(
-      v.union(
-        v.literal("admin"),
-        v.literal("editor"),
-        v.literal("registration"),
-        v.literal("accommodation"),
-      ),
-    ),
+    name: v.string(),
+    email: v.string(),
+    passwordHash: v.string(),
+    role: adminRole,
+    active: v.optional(v.boolean()),
+    disabledAt: v.optional(v.number()),
+    createdAt: v.number(),
+  }).index("by_email", ["email"]),
+
+  sessions: defineTable({
+    userId: v.id("users"),
+    token: v.string(),
+    expiresAt: v.number(),
+    createdAt: v.number(),
   })
-    .index("email", ["email"])
-    .index("phone", ["phone"]),
+    .index("by_token", ["token"])
+    .index("by_user", ["userId"]),
+
+  auditLogs: defineTable({
+    actorUserId: v.optional(v.id("users")),
+    actorEmail: v.optional(v.string()),
+    action: v.string(),
+    entityType: v.string(),
+    entityId: v.optional(v.string()),
+    summary: v.string(),
+    metadata: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_created_at", ["createdAt"])
+    .index("by_entity", ["entityType", "entityId"]),
 
   registrations: defineTable({
     type: v.union(v.literal("individual"), v.literal("group")),
@@ -179,5 +195,7 @@ export default defineSchema({
     referenceId: v.optional(v.string()),
     status: v.union(v.literal("stub"), v.literal("sent"), v.literal("failed")),
     createdAt: v.number(),
-  }).index("by_created_at", ["createdAt"]),
+  })
+    .index("by_created_at", ["createdAt"])
+    .index("by_status", ["status"]),
 });

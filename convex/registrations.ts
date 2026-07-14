@@ -2,7 +2,15 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { REGION_CONFIG, type RegistrationRegion } from "./lib/registrationConfig";
 import { createUniqueReferenceNumber } from "./lib/referenceNumbers";
-import { requireRole } from "./users";
+import { writeAuditLog } from "./lib/audit";
+import { requireRole, sessionTokenValidator } from "./users";
+
+const paymentStatusValidator = v.union(
+  v.literal("pending_payment"),
+  v.literal("paid"),
+  v.literal("failed"),
+  v.literal("mock_paid"),
+);
 
 export const create = mutation({
   args: {
@@ -93,9 +101,9 @@ export const create = mutation({
 });
 
 export const list = query({
-  args: {},
-  handler: async (ctx) => {
-    await requireRole(ctx, ["admin", "registration"]);
+  args: { sessionToken: sessionTokenValidator },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, args.sessionToken, ["admin", "registration"]);
     return await ctx.db
       .query("registrations")
       .withIndex("by_created_at")
@@ -105,27 +113,76 @@ export const list = query({
 });
 
 export const getById = query({
-  args: { id: v.id("registrations") },
+  args: { sessionToken: sessionTokenValidator, id: v.id("registrations") },
   handler: async (ctx, args) => {
+    await requireRole(ctx, args.sessionToken, ["admin", "registration"]);
     return await ctx.db.get(args.id);
   },
 });
 
 export const updatePaymentStatus = mutation({
   args: {
+    sessionToken: sessionTokenValidator,
     id: v.id("registrations"),
-    paymentStatus: v.union(
-      v.literal("pending_payment"),
-      v.literal("paid"),
-      v.literal("failed"),
-      v.literal("mock_paid"),
-    ),
+    paymentStatus: paymentStatusValidator,
     paymentReference: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const actor = await requireRole(ctx, args.sessionToken, [
+      "admin",
+      "registration",
+    ]);
+    const existing = await ctx.db.get(args.id);
+    if (!existing) throw new Error("Registration not found");
+
     await ctx.db.patch(args.id, {
       paymentStatus: args.paymentStatus,
       paymentReference: args.paymentReference,
     });
+
+    await writeAuditLog(ctx, {
+      actorUserId: actor._id,
+      actorEmail: actor.email,
+      action: "registration.payment_status",
+      entityType: "registrations",
+      entityId: args.id,
+      summary: `Set registration ${existing.referenceNumber ?? args.id} to ${args.paymentStatus}`,
+      metadata: {
+        previous: existing.paymentStatus,
+        next: args.paymentStatus,
+      },
+    });
+  },
+});
+
+export const bulkUpdatePaymentStatus = mutation({
+  args: {
+    sessionToken: sessionTokenValidator,
+    ids: v.array(v.id("registrations")),
+    paymentStatus: paymentStatusValidator,
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireRole(ctx, args.sessionToken, [
+      "admin",
+      "registration",
+    ]);
+    let updated = 0;
+    for (const id of args.ids) {
+      const existing = await ctx.db.get(id);
+      if (!existing) continue;
+      await ctx.db.patch(id, { paymentStatus: args.paymentStatus });
+      updated += 1;
+    }
+
+    await writeAuditLog(ctx, {
+      actorUserId: actor._id,
+      actorEmail: actor.email,
+      action: "registration.bulk_payment_status",
+      entityType: "registrations",
+      summary: `Bulk set ${updated} registration(s) to ${args.paymentStatus}`,
+      metadata: { count: updated, status: args.paymentStatus },
+    });
+
+    return { updated };
   },
 });

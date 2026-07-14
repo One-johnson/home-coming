@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation } from "./_generated/server";
-import { requireRole } from "./users";
+import { requireRole, sessionTokenValidator } from "./users";
 
 type ImageDoc = Doc<"galleryImages">;
 type GalleryDoc = Doc<"galleries">;
@@ -49,9 +49,9 @@ export async function resolveGalleryImages(
 }
 
 export const generateUploadUrl = mutation({
-  args: {},
-  handler: async (ctx) => {
-    await requireRole(ctx, ["admin", "editor"]);
+  args: { sessionToken: sessionTokenValidator },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, args.sessionToken, ["admin", "content"]);
     return await ctx.storage.generateUploadUrl();
   },
 });
@@ -69,25 +69,31 @@ export const generateBulkUploadUrl = mutation({
 
 export const createGallery = mutation({
   args: {
+    sessionToken: sessionTokenValidator,
     year: v.number(),
     theme: v.string(),
     title: v.string(),
   },
   handler: async (ctx, args) => {
-    await requireRole(ctx, ["admin", "editor"]);
-    return await ctx.db.insert("galleries", args);
+    await requireRole(ctx, args.sessionToken, ["admin", "content"]);
+    return await ctx.db.insert("galleries", {
+      year: args.year,
+      theme: args.theme,
+      title: args.title,
+    });
   },
 });
 
 export const addGalleryImage = mutation({
   args: {
+    sessionToken: sessionTokenValidator,
     galleryId: v.id("galleries"),
     storageId: v.id("_storage"),
     caption: v.optional(v.string()),
     order: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    await requireRole(ctx, ["admin", "editor"]);
+    await requireRole(ctx, args.sessionToken, ["admin", "content"]);
 
     const gallery = await ctx.db.get(args.galleryId);
     if (!gallery) {
@@ -257,9 +263,9 @@ export const registerBulkGalleryImages = mutation({
 });
 
 export const deleteGalleryImage = mutation({
-  args: { id: v.id("galleryImages") },
+  args: { sessionToken: sessionTokenValidator, id: v.id("galleryImages") },
   handler: async (ctx, args) => {
-    await requireRole(ctx, ["admin", "editor"]);
+    await requireRole(ctx, args.sessionToken, ["admin", "content"]);
 
     const image = await ctx.db.get(args.id);
     if (!image) {
@@ -275,9 +281,9 @@ export const deleteGalleryImage = mutation({
 });
 
 export const deleteGallery = mutation({
-  args: { id: v.id("galleries") },
+  args: { sessionToken: sessionTokenValidator, id: v.id("galleries") },
   handler: async (ctx, args) => {
-    await requireRole(ctx, ["admin", "editor"]);
+    await requireRole(ctx, args.sessionToken, ["admin", "content"]);
 
     const images = await ctx.db
       .query("galleryImages")

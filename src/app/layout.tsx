@@ -2,9 +2,7 @@ import type { Metadata } from "next";
 import { Cormorant_Garamond, Manrope } from "next/font/google";
 import { ConvexClientProvider } from "./ConvexClientProvider";
 import { Providers } from "@/components/providers";
-import { Header } from "@/components/layout/Header";
-import { Footer } from "@/components/layout/Footer";
-import { StickyMobileCTA } from "@/components/layout/StickyMobileCTA";
+import { SiteChrome } from "@/components/layout/SiteChrome";
 import { SeedInitializer } from "@/components/SeedInitializer";
 import { Analytics } from "@/components/Analytics";
 import { ConvexSetupBanner } from "@/components/ConvexSetupBanner";
@@ -40,16 +38,13 @@ export default function RootLayout({
       className={`${displayFont.variable} ${bodyFont.variable} h-full`}
       suppressHydrationWarning
     >
-      <body className="min-h-full flex flex-col pb-20 md:pb-0" suppressHydrationWarning>
+      <body className="min-h-full flex flex-col" suppressHydrationWarning>
         <ConvexClientProvider>
           <Providers>
             <ConvexSetupBanner />
             <SeedInitializer />
             <Analytics />
-            <Header />
-            <main className="flex-1">{children}</main>
-            <Footer />
-            <StickyMobileCTA />
+            <SiteChrome>{children}</SiteChrome>
           </Providers>
         </ConvexClientProvider>
       </body>
