@@ -77,12 +77,6 @@ function RegistrationsTable() {
 
   return (
     <div className="w-full min-w-0 space-y-4">
-      <div>
-        <h2 className="text-lg font-semibold tracking-tight">Registrations</h2>
-        <p className="text-sm text-muted-foreground">
-          Search, filter, update payment status, and export records.
-        </p>
-      </div>
       <DataTable
         columns={registrationColumns}
         data={registrations ?? []}
@@ -163,11 +157,29 @@ function RegistrationsTable() {
           selected
             ? [
                 { label: "Email", value: selected.email },
-                { label: "Phone", value: selected.phone },
+                {
+                  label: "Phone",
+                  value: `${selected.countryCode} ${selected.phone}`,
+                },
                 { label: "Type", value: selected.type },
                 { label: "Region", value: selected.region },
-                { label: "Church", value: selected.church ?? "—" },
+                { label: "Group", value: selected.group ?? "—" },
+                { label: "Denomination", value: selected.denomination ?? "—" },
+                { label: "Church / Ministry", value: selected.church ?? "—" },
                 { label: "Tickets", value: selected.ticketQuantity },
+                {
+                  label: "Add-ons",
+                  value:
+                    selected.addOns.length === 0
+                      ? "—"
+                      : selected.addOns
+                          .map((item) =>
+                            typeof item === "string"
+                              ? item
+                              : `${item.id} × ${item.quantity}`,
+                          )
+                          .join(", "),
+                },
                 {
                   label: "Total",
                   value: `${selected.totalAmount} ${selected.currency}`,

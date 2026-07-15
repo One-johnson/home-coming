@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Cormorant_Garamond, Manrope } from "next/font/google";
 import { ConvexClientProvider } from "./ConvexClientProvider";
 import { Providers } from "@/components/providers";
@@ -35,6 +35,13 @@ const bodyFont = Manrope({
 
 const siteUrl = getSiteUrl();
 const ogImage = `${siteUrl}${DEFAULT_OG_IMAGE}`;
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#1a1a1a",
+};
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),

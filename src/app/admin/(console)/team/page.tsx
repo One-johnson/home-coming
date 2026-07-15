@@ -102,13 +102,6 @@ export default function AdminTeamPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold tracking-tight">Team</h2>
-        <p className="text-sm text-muted-foreground">
-          Create staff accounts and assign roles.
-        </p>
-      </div>
-
       <div className="grid gap-6 xl:grid-cols-[22rem_minmax(0,1fr)]">
         <Card>
           <CardHeader>

@@ -121,7 +121,10 @@ function AccommodationPortalInner() {
           <CardContent>
             <p className="text-sm text-muted-foreground">
               Reference:{" "}
-              <Badge variant="secondary" className="font-mono">
+              <Badge
+                variant="secondary"
+                className="font-mono text-base tracking-wider"
+              >
                 {referenceNumber}
               </Badge>
             </p>
@@ -132,10 +135,14 @@ function AccommodationPortalInner() {
   }
 
   return (
-    <Tabs defaultValue="campus" className="space-y-8">
-      <TabsList>
-        <TabsTrigger value="campus">Campus Housing</TabsTrigger>
-        <TabsTrigger value="hotels">Preferred Hotels</TabsTrigger>
+    <Tabs defaultValue="campus" className="w-full space-y-8">
+      <TabsList className="grid h-auto w-full grid-cols-2 gap-1 p-1">
+        <TabsTrigger value="campus" className="min-h-11 px-2 text-sm sm:text-base">
+          Campus Housing
+        </TabsTrigger>
+        <TabsTrigger value="hotels" className="min-h-11 px-2 text-sm sm:text-base">
+          Preferred Hotels
+        </TabsTrigger>
       </TabsList>
 
       <TabsContent value="campus">

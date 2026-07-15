@@ -1,4 +1,6 @@
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
 import { requireRole, sessionTokenValidator } from "./users";
 import { writeAuditLog } from "./lib/audit";
@@ -331,5 +333,158 @@ export const upsertAbout = mutation({
       summary: "Created about page content",
     });
     return id;
+  },
+});
+
+const mediaTypeValidator = v.union(
+  v.literal("audio"),
+  v.literal("video"),
+  v.literal("message"),
+);
+
+export const upsertMessage = mutation({
+  args: {
+    sessionToken: sessionTokenValidator,
+    id: v.optional(v.id("messages")),
+    year: v.number(),
+    title: v.string(),
+    speaker: v.string(),
+    mediaType: mediaTypeValidator,
+    url: v.string(),
+    order: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireRole(ctx, args.sessionToken, ["admin", "content"]);
+    const url = args.url.trim();
+    if (!url) {
+      throw new Error("Video URL is required");
+    }
+
+    const payload = {
+      year: args.year,
+      title: args.title.trim(),
+      speaker: args.speaker.trim(),
+      mediaType: args.mediaType,
+      url,
+      order: args.order,
+      // Clear until the resolver fills YouTube/Rumble thumbnails.
+      thumbnailUrl: undefined,
+    };
+
+    let messageId = args.id;
+    if (args.id) {
+      await ctx.db.patch(args.id, payload);
+      await writeAuditLog(ctx, {
+        actorUserId: actor._id,
+        actorEmail: actor.email,
+        action: "message.updated",
+        entityType: "messages",
+        entityId: args.id,
+        summary: `Updated message: ${payload.title}`,
+      });
+    } else {
+      messageId = await ctx.db.insert("messages", payload);
+      await writeAuditLog(ctx, {
+        actorUserId: actor._id,
+        actorEmail: actor.email,
+        action: "message.created",
+        entityType: "messages",
+        entityId: messageId,
+        summary: `Created message: ${payload.title}`,
+      });
+    }
+
+    await ctx.scheduler.runAfter(
+      0,
+      internal.mediaThumbnails.resolveMessageThumbnail,
+      { messageId: messageId!, url },
+    );
+
+    return messageId!;
+  },
+});
+
+export const bulkCreateMessages = mutation({
+  args: {
+    sessionToken: sessionTokenValidator,
+    items: v.array(
+      v.object({
+        year: v.number(),
+        title: v.string(),
+        speaker: v.string(),
+        mediaType: mediaTypeValidator,
+        url: v.string(),
+        order: v.number(),
+      }),
+    ),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireRole(ctx, args.sessionToken, ["admin", "content"]);
+    if (args.items.length === 0) {
+      throw new Error("Add at least one video");
+    }
+
+    const messageIds: Id<"messages">[] = [];
+
+    for (let i = 0; i < args.items.length; i++) {
+      const item = args.items[i];
+      const url = item.url.trim();
+      const title = item.title.trim();
+      const speaker = item.speaker.trim();
+      if (!url) {
+        throw new Error(`Video URL is required (row ${i + 1})`);
+      }
+      if (!title) {
+        throw new Error(`Video title is required (row ${i + 1})`);
+      }
+      if (!speaker) {
+        throw new Error(`Speaker is required (row ${i + 1})`);
+      }
+
+      const messageId = await ctx.db.insert("messages", {
+        year: item.year,
+        title,
+        speaker,
+        mediaType: item.mediaType,
+        url,
+        order: item.order,
+        thumbnailUrl: undefined,
+      });
+      messageIds.push(messageId);
+
+      await ctx.scheduler.runAfter(
+        0,
+        internal.mediaThumbnails.resolveMessageThumbnail,
+        { messageId, url },
+      );
+    }
+
+    await writeAuditLog(ctx, {
+      actorUserId: actor._id,
+      actorEmail: actor.email,
+      action: "message.bulk_created",
+      entityType: "messages",
+      summary: `Created ${messageIds.length} messages`,
+      metadata: { count: messageIds.length },
+    });
+
+    return messageIds;
+  },
+});
+
+export const deleteMessage = mutation({
+  args: { sessionToken: sessionTokenValidator, id: v.id("messages") },
+  handler: async (ctx, args) => {
+    const actor = await requireRole(ctx, args.sessionToken, ["admin", "content"]);
+    const existing = await ctx.db.get(args.id);
+    await ctx.db.delete(args.id);
+    await writeAuditLog(ctx, {
+      actorUserId: actor._id,
+      actorEmail: actor.email,
+      action: "message.deleted",
+      entityType: "messages",
+      entityId: args.id,
+      summary: `Deleted message: ${existing?.title ?? args.id}`,
+    });
   },
 });

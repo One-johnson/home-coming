@@ -12,6 +12,11 @@ const paymentStatusValidator = v.union(
   v.literal("mock_paid"),
 );
 
+const addOnSelectionValidator = v.object({
+  id: v.string(),
+  quantity: v.number(),
+});
+
 export const create = mutation({
   args: {
     type: v.union(v.literal("individual"), v.literal("group")),
@@ -20,9 +25,11 @@ export const create = mutation({
     phone: v.string(),
     countryCode: v.string(),
     region: v.string(),
+    group: v.optional(v.string()),
+    denomination: v.optional(v.string()),
     church: v.optional(v.string()),
     ticketQuantity: v.number(),
-    addOns: v.array(v.string()),
+    addOns: v.array(addOnSelectionValidator),
     accommodationInterest: v.boolean(),
     priceAmount: v.number(),
     addOnAmount: v.number(),
@@ -50,6 +57,12 @@ export const create = mutation({
       throw new Error("Ticket quantity must be at least 1");
     }
 
+    for (const addOn of args.addOns) {
+      if (!Number.isInteger(addOn.quantity) || addOn.quantity < 1) {
+        throw new Error("Add-on quantities must be whole numbers of at least 1");
+      }
+    }
+
     const regionConfig = REGION_CONFIG[args.region as RegistrationRegion];
     if (!regionConfig) {
       throw new Error("Invalid region selected");
@@ -68,7 +81,9 @@ export const create = mutation({
       phone: args.phone.trim(),
       countryCode: args.countryCode.trim(),
       region: args.region,
-      church: args.church?.trim(),
+      group: args.group?.trim() || undefined,
+      denomination: args.denomination?.trim() || undefined,
+      church: args.church?.trim() || undefined,
       ticketQuantity: args.ticketQuantity,
       addOns: args.addOns,
       accommodationInterest: args.accommodationInterest,

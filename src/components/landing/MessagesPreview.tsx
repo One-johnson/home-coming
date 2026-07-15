@@ -15,6 +15,7 @@ type VideoItem = {
   title: string;
   speaker: string;
   url: string;
+  thumbnailUrl?: string;
 };
 
 function MessagesPreviewContent({ videos }: { videos: VideoItem[] }) {
@@ -33,6 +34,7 @@ function MessagesPreviewContent({ videos }: { videos: VideoItem[] }) {
               title={video.title}
               speaker={video.speaker}
               url={video.url}
+              thumbnailUrl={video.thumbnailUrl}
             />
           </MotionItem>
         ))}

@@ -78,20 +78,22 @@ function GalleryPageContent({ gallery }: { gallery: Gallery | null }) {
           </p>
 
           <Tabs defaultValue={defaultGroupId} className="w-full">
-            <TabsList className="mx-auto mb-8 flex h-auto w-full max-w-3xl flex-wrap justify-center gap-1 bg-cream p-1">
-              {groups.map((group) => (
-                <TabsTrigger
-                  key={group.id}
-                  value={group.id}
-                  className="rounded-full px-4 py-2 text-sm data-active:bg-primary data-active:text-primary-foreground"
-                >
-                  {group.label}
-                  <span className="ml-2 text-xs opacity-70">
-                    ({group.images.length})
-                  </span>
-                </TabsTrigger>
-              ))}
-            </TabsList>
+            <div className="-mx-4 mb-8 overflow-x-auto px-4 [scrollbar-width:none] sm:mx-0 sm:px-0 [&::-webkit-scrollbar]:hidden">
+              <TabsList className="mx-auto flex h-auto w-max min-w-full max-w-3xl flex-nowrap justify-start gap-1 bg-cream p-1 sm:flex-wrap sm:justify-center">
+                {groups.map((group) => (
+                  <TabsTrigger
+                    key={group.id}
+                    value={group.id}
+                    className="shrink-0 rounded-full px-4 py-2.5 text-sm data-active:bg-primary data-active:text-primary-foreground"
+                  >
+                    {group.label}
+                    <span className="ml-2 text-xs opacity-70">
+                      ({group.images.length})
+                    </span>
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </div>
 
             {groups.map((group) => (
               <TabsContent key={group.id} value={group.id} className="mt-0">

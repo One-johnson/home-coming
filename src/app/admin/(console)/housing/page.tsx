@@ -68,13 +68,6 @@ export default function AdminHousingPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold tracking-tight">Housing</h2>
-        <p className="text-sm text-muted-foreground">
-          Manage capacity, pricing, and notes for each inventory type.
-        </p>
-      </div>
-
       {housing === undefined ? (
         <div className="grid gap-4 md:grid-cols-3">
           {[1, 2, 3].map((i) => (

@@ -52,12 +52,6 @@ export default function AdminEmailsPage() {
 
   return (
     <div className="w-full min-w-0 space-y-4">
-      <div>
-        <h2 className="text-lg font-semibold tracking-tight">Email logs</h2>
-        <p className="text-sm text-muted-foreground">
-          Filter stubs, mark sent/failed, and recreate stub sends.
-        </p>
-      </div>
       <DataTable
         columns={emailLogColumns}
         data={emailLogs ?? []}

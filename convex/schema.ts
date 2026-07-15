@@ -48,9 +48,20 @@ export default defineSchema({
     phone: v.string(),
     countryCode: v.string(),
     region: v.string(),
+    group: v.optional(v.string()),
+    denomination: v.optional(v.string()),
     church: v.optional(v.string()),
     ticketQuantity: v.number(),
-    addOns: v.array(v.string()),
+    // Legacy rows may store string IDs; new rows store { id, quantity }.
+    addOns: v.array(
+      v.union(
+        v.string(),
+        v.object({
+          id: v.string(),
+          quantity: v.number(),
+        }),
+      ),
+    ),
     accommodationInterest: v.boolean(),
     priceAmount: v.number(),
     addOnAmount: v.number(),
@@ -106,6 +117,7 @@ export default defineSchema({
       v.literal("message"),
     ),
     url: v.string(),
+    thumbnailUrl: v.optional(v.string()),
     order: v.number(),
   }).index("by_year", ["year"]),
 
