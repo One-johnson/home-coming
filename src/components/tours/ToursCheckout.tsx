@@ -321,10 +321,10 @@ function ToursCheckoutInner() {
         className="flex flex-wrap items-end justify-between gap-3 scroll-mt-28"
       >
         <div>
-          <h2 className="font-display text-xl text-primary">
+          <h2 className="font-display text-xl text-gold-light">
             Homecoming tour packages
           </h2>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <p className="mt-1 text-sm text-white/70">
             {packages === undefined
               ? "Loading packages…"
               : `${packages.length} package${packages.length === 1 ? "" : "s"}`}
