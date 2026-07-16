@@ -162,6 +162,38 @@ export const deleteFaq = mutation({
   },
 });
 
+export const bulkDeleteFaqs = mutation({
+  args: {
+    sessionToken: sessionTokenValidator,
+    ids: v.array(v.id("faqs")),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireRole(ctx, args.sessionToken, ["admin", "content"]);
+    if (args.ids.length === 0) {
+      throw new Error("Select at least one FAQ");
+    }
+
+    let deleted = 0;
+    for (const id of args.ids) {
+      const existing = await ctx.db.get(id);
+      if (!existing) continue;
+      await ctx.db.delete(id);
+      deleted += 1;
+    }
+
+    await writeAuditLog(ctx, {
+      actorUserId: actor._id,
+      actorEmail: actor.email,
+      action: "faq.bulk_deleted",
+      entityType: "faqs",
+      summary: `Deleted ${deleted} FAQ${deleted === 1 ? "" : "s"}`,
+      metadata: { count: deleted },
+    });
+
+    return { deleted };
+  },
+});
+
 export const upsertStat = mutation({
   args: {
     sessionToken: sessionTokenValidator,
@@ -486,5 +518,37 @@ export const deleteMessage = mutation({
       entityId: args.id,
       summary: `Deleted message: ${existing?.title ?? args.id}`,
     });
+  },
+});
+
+export const bulkDeleteMessages = mutation({
+  args: {
+    sessionToken: sessionTokenValidator,
+    ids: v.array(v.id("messages")),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireRole(ctx, args.sessionToken, ["admin", "content"]);
+    if (args.ids.length === 0) {
+      throw new Error("Select at least one video");
+    }
+
+    let deleted = 0;
+    for (const id of args.ids) {
+      const existing = await ctx.db.get(id);
+      if (!existing) continue;
+      await ctx.db.delete(id);
+      deleted += 1;
+    }
+
+    await writeAuditLog(ctx, {
+      actorUserId: actor._id,
+      actorEmail: actor.email,
+      action: "message.bulk_deleted",
+      entityType: "messages",
+      summary: `Deleted ${deleted} message${deleted === 1 ? "" : "s"}`,
+      metadata: { count: deleted },
+    });
+
+    return { deleted };
   },
 });

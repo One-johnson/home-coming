@@ -1,8 +1,8 @@
 "use client";
 
 import { useMutation, useQuery } from "convex/react";
-import { LayoutGrid, Table2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { LayoutGrid, MoreHorizontal, Pencil, Table2, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import type { Doc, Id } from "@convex/_generated/dataModel";
@@ -11,12 +11,19 @@ import {
   messageColumns,
   messageExportRow,
 } from "@/components/admin/columns";
+import { ConfirmDeleteDialog } from "@/components/admin/ConfirmDeleteDialog";
 import { useAdminSession } from "@/components/admin/AdminSessionProvider";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { LinkButton as Button } from "@/components/ui/app-button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DataTable } from "@/components/ui/data-table";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -83,18 +90,158 @@ function parsePasteLines(text: string): { title: string; url: string }[] {
     });
 }
 
+function parseCsvField(raw: string) {
+  const value = raw.trim();
+  if (
+    (value.startsWith('"') && value.endsWith('"')) ||
+    (value.startsWith("'") && value.endsWith("'"))
+  ) {
+    return value.slice(1, -1).replace(/""/g, '"');
+  }
+  return value;
+}
+
+function splitCsvLine(line: string): string[] {
+  const fields: string[] = [];
+  let current = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (char === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"';
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+    if (char === "," && !inQuotes) {
+      fields.push(parseCsvField(current));
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  fields.push(parseCsvField(current));
+  return fields;
+}
+
+function normalizeMediaType(value: string): MediaType {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "audio" || normalized === "message") return normalized;
+  return "video";
+}
+
+/** CSV headers: year,title,speaker,mediaType,url,order (order optional). */
+function parseVideoCsv(text: string): Omit<VideoRow, "key">[] {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length < 2) {
+    throw new Error("CSV needs a header row and at least one data row");
+  }
+
+  const headers = splitCsvLine(lines[0]).map((header) =>
+    header.trim().toLowerCase(),
+  );
+  const indexOf = (name: string) => headers.indexOf(name);
+  const required = ["title", "url"] as const;
+  for (const name of required) {
+    if (indexOf(name) < 0) {
+      throw new Error(`CSV is missing a "${name}" column`);
+    }
+  }
+
+  const yearIdx = indexOf("year");
+  const titleIdx = indexOf("title");
+  const speakerIdx = indexOf("speaker");
+  const mediaTypeIdx = indexOf("mediatype");
+  const urlIdx = indexOf("url");
+  const orderIdx = indexOf("order");
+
+  return lines.slice(1).map((line, index) => {
+    const cols = splitCsvLine(line);
+    const title = cols[titleIdx]?.trim() ?? "";
+    const url = cols[urlIdx]?.trim() ?? "";
+    if (!title || !url) {
+      throw new Error(`Row ${index + 2} needs both title and url`);
+    }
+    if (!looksLikeUrl(url)) {
+      throw new Error(`Row ${index + 2} has an invalid url`);
+    }
+
+    const yearRaw = yearIdx >= 0 ? cols[yearIdx] : "";
+    const orderRaw = orderIdx >= 0 ? cols[orderIdx] : "";
+    const year = Number(yearRaw);
+    const order = Number(orderRaw);
+
+    return {
+      year: Number.isFinite(year) && year > 0 ? year : DEFAULT_YEAR,
+      title,
+      speaker:
+        (speakerIdx >= 0 ? cols[speakerIdx]?.trim() : "") || DEFAULT_SPEAKER,
+      mediaType: normalizeMediaType(
+        mediaTypeIdx >= 0 ? (cols[mediaTypeIdx] ?? "video") : "video",
+      ),
+      url,
+      order: Number.isFinite(order) && order > 0 ? order : index + 1,
+    };
+  });
+}
+
+function VideoActionsMenu({
+  onEdit,
+  onDelete,
+}: {
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        className="inline-flex size-8 items-center justify-center rounded-lg border border-border bg-background hover:bg-muted"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <MoreHorizontal className="size-4" />
+        <span className="sr-only">Actions</span>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+        <DropdownMenuItem onClick={onEdit}>
+          <Pencil />
+          Edit
+        </DropdownMenuItem>
+        <DropdownMenuItem variant="destructive" onClick={onDelete}>
+          <Trash2 />
+          Delete
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export function VideoManager() {
   const { sessionToken } = useAdminSession();
   const messages = useQuery(api.content.listMessages);
   const upsertMessage = useMutation(api.content.upsertMessage);
   const bulkCreateMessages = useMutation(api.content.bulkCreateMessages);
   const deleteMessage = useMutation(api.content.deleteMessage);
+  const bulkDeleteMessages = useMutation(api.content.bulkDeleteMessages);
 
+  const csvInputRef = useRef<HTMLInputElement>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("table");
   const [formOpen, setFormOpen] = useState(false);
   const [editingMessage, setEditingMessage] = useState<Id<"messages"> | null>(
     null,
   );
+  const [deleteTarget, setDeleteTarget] = useState<
+    | { type: "single"; id: Id<"messages">; title: string }
+    | { type: "bulk"; ids: Id<"messages">[]; clearSelection: () => void }
+    | null
+  >(null);
+  const [deleting, setDeleting] = useState(false);
   const [editForm, setEditForm] = useState<{
     year: number;
     title: string;
@@ -231,36 +378,80 @@ export function VideoManager() {
     );
   };
 
-  const handleDelete = async (id: Id<"messages">) => {
-    if (!sessionToken) return;
+  const applyCsvFile = async (file: File | null) => {
+    if (!file) return;
     try {
-      await deleteMessage({ sessionToken, id });
-      toast.success("Video deleted");
-      if (editingMessage === id) cancelEdit();
+      const text = await file.text();
+      const parsed = parseVideoCsv(text);
+      const startOrder = nextMessageOrder();
+      const template = videoRows[0];
+      setVideoRows(
+        parsed.map((item, index) =>
+          newVideoRow(item.order || startOrder + index, {
+            year: item.year || template?.year,
+            title: item.title,
+            speaker: item.speaker || template?.speaker,
+            mediaType: item.mediaType || template?.mediaType,
+            url: item.url,
+          }),
+        ),
+      );
+      setFormOpen(true);
+      toast.success(
+        `Imported ${parsed.length} video${parsed.length === 1 ? "" : "s"} from CSV — review and save`,
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "CSV import failed");
+    } finally {
+      if (csvInputRef.current) csvInputRef.current.value = "";
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!sessionToken || !deleteTarget) return;
+    setDeleting(true);
+    try {
+      if (deleteTarget.type === "single") {
+        await deleteMessage({ sessionToken, id: deleteTarget.id });
+        toast.success("Video deleted");
+        if (editingMessage === deleteTarget.id) cancelEdit();
+      } else {
+        const result = await bulkDeleteMessages({
+          sessionToken,
+          ids: deleteTarget.ids,
+        });
+        toast.success(
+          `Deleted ${result.deleted} video${result.deleted === 1 ? "" : "s"}`,
+        );
+        if (
+          editingMessage &&
+          deleteTarget.ids.includes(editingMessage)
+        ) {
+          cancelEdit();
+        }
+        deleteTarget.clearSelection();
+      }
+      setDeleteTarget(null);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Delete failed");
+    } finally {
+      setDeleting(false);
     }
   };
 
   const columns = [
     ...messageColumns,
     createActionsColumn<Doc<"messages">>((message) => (
-      <div className="flex gap-1">
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => startEditMessage(message)}
-        >
-          Edit
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => void handleDelete(message._id)}
-        >
-          Delete
-        </Button>
-      </div>
+      <VideoActionsMenu
+        onEdit={() => startEditMessage(message)}
+        onDelete={() =>
+          setDeleteTarget({
+            type: "single",
+            id: message._id,
+            title: message.title,
+          })
+        }
+      />
     )),
   ];
 
@@ -269,23 +460,40 @@ export function VideoManager() {
       <AdminPageHeader
         actions={
           !editingMessage ? (
-            <Button
-              type="button"
-              variant={formOpen ? "outline" : "default"}
-              onClick={() => {
-                if (formOpen) {
-                  setFormOpen(false);
-                  resetCreateRows();
-                } else {
-                  resetCreateRows();
-                  setFormOpen(true);
-                }
-              }}
-            >
-              {formOpen ? "Close form" : "Add videos"}
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => csvInputRef.current?.click()}
+              >
+                Import CSV
+              </Button>
+              <Button
+                type="button"
+                variant={formOpen ? "outline" : "default"}
+                onClick={() => {
+                  if (formOpen) {
+                    setFormOpen(false);
+                    resetCreateRows();
+                  } else {
+                    resetCreateRows();
+                    setFormOpen(true);
+                  }
+                }}
+              >
+                {formOpen ? "Close form" : "Add videos"}
+              </Button>
+            </div>
           ) : undefined
         }
+      />
+
+      <input
+        ref={csvInputRef}
+        type="file"
+        accept=".csv,text/csv"
+        className="hidden"
+        onChange={(e) => void applyCsvFile(e.target.files?.[0] ?? null)}
       />
 
       {(formOpen || editingMessage) && (
@@ -456,15 +664,29 @@ export function VideoManager() {
                       value={pasteText}
                       onChange={(e) => setPasteText(e.target.value)}
                     />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={applyPasteToRows}
-                      disabled={!pasteText.trim()}
-                    >
-                      Apply paste to rows
-                    </Button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={applyPasteToRows}
+                        disabled={!pasteText.trim()}
+                      >
+                        Apply paste to rows
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => csvInputRef.current?.click()}
+                      >
+                        Import CSV
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      CSV columns: year, title, speaker, mediaType, url, order
+                      (order optional).
+                    </p>
                   </div>
 
                   <div className="space-y-4">
@@ -630,6 +852,21 @@ export function VideoManager() {
               },
             ]}
             onRowClick={startEditMessage}
+            bulkActions={({ selectedRows, clearSelection }) => (
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={() =>
+                  setDeleteTarget({
+                    type: "bulk",
+                    ids: selectedRows.map((row) => row._id),
+                    clearSelection,
+                  })
+                }
+              >
+                Delete selected
+              </Button>
+            )}
           />
         ) : (
           <div
@@ -654,25 +891,37 @@ export function VideoManager() {
                   </div>
                 ) : null}
                 <div className="space-y-3 p-3">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge
-                      variant="outline"
-                      className="border-gold/30 bg-gold/10 text-gold-dark"
-                    >
-                      {message.year}
-                    </Badge>
-                    <Badge
-                      variant="outline"
-                      className={cn(
-                        "capitalize",
-                        mediaTypeBadgeClass(message.mediaType),
-                      )}
-                    >
-                      {message.mediaType}
-                    </Badge>
-                    <span className="text-xs text-muted-foreground">
-                      Order {message.order}
-                    </span>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge
+                        variant="outline"
+                        className="border-gold/30 bg-gold/10 text-gold-dark"
+                      >
+                        {message.year}
+                      </Badge>
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          "capitalize",
+                          mediaTypeBadgeClass(message.mediaType),
+                        )}
+                      >
+                        {message.mediaType}
+                      </Badge>
+                      <span className="text-xs text-muted-foreground">
+                        Order {message.order}
+                      </span>
+                    </div>
+                    <VideoActionsMenu
+                      onEdit={() => startEditMessage(message)}
+                      onDelete={() =>
+                        setDeleteTarget({
+                          type: "single",
+                          id: message._id,
+                          title: message.title,
+                        })
+                      }
+                    />
                   </div>
                   <div className="min-w-0">
                     <p className="font-medium leading-snug">{message.title}</p>
@@ -688,22 +937,6 @@ export function VideoManager() {
                       {message.url}
                     </a>
                   </div>
-                  <div className="flex gap-1">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => startEditMessage(message)}
-                    >
-                      Edit
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => void handleDelete(message._id)}
-                    >
-                      Delete
-                    </Button>
-                  </div>
                 </div>
               </div>
             ))}
@@ -715,6 +948,30 @@ export function VideoManager() {
           </div>
         )}
       </div>
+
+      <ConfirmDeleteDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+        title={
+          deleteTarget?.type === "bulk"
+            ? `Delete ${deleteTarget.ids.length} video${deleteTarget.ids.length === 1 ? "" : "s"}?`
+            : "Delete video?"
+        }
+        description={
+          deleteTarget?.type === "bulk"
+            ? "Selected videos will be permanently removed."
+            : `“${deleteTarget?.title ?? "This video"}” will be permanently removed.`
+        }
+        confirmLabel={
+          deleteTarget?.type === "bulk"
+            ? `Delete ${deleteTarget.ids.length}`
+            : "Delete video"
+        }
+        loading={deleting}
+        onConfirm={handleConfirmDelete}
+      />
     </div>
   );
 }
