@@ -1,7 +1,13 @@
 "use client";
 
 import { useMutation, useQuery } from "convex/react";
-import { LayoutGrid, MoreHorizontal, Pencil, Table2, Trash2 } from "lucide-react";
+import {
+  LayoutGrid,
+  MoreHorizontal,
+  Pencil,
+  Table2,
+  Trash2,
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
@@ -16,8 +22,15 @@ import { useAdminSession } from "@/components/admin/AdminSessionProvider";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { LinkButton as Button } from "@/components/ui/app-button";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DataTable } from "@/components/ui/data-table";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,14 +45,24 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { useIsCompact } from "@/hooks/use-media-query";
 import { mediaTypeBadgeClass } from "@/lib/adminColors";
 import { EVENT } from "@/lib/eventConfig";
 import { cn } from "@/lib/utils";
 
 type MediaType = "audio" | "video" | "message";
 type ViewMode = "table" | "card";
+type EditorMode = "create" | "edit";
 
 type VideoRow = {
   key: string;
@@ -166,13 +189,6 @@ function parseVideoCsv(text: string): Omit<VideoRow, "key">[] {
     const cols = splitCsvLine(line);
     const title = cols[titleIdx]?.trim() ?? "";
     const url = cols[urlIdx]?.trim() ?? "";
-    if (!title || !url) {
-      throw new Error(`Row ${index + 2} needs both title and url`);
-    }
-    if (!looksLikeUrl(url)) {
-      throw new Error(`Row ${index + 2} has an invalid url`);
-    }
-
     const yearRaw = yearIdx >= 0 ? cols[yearIdx] : "";
     const orderRaw = orderIdx >= 0 ? cols[orderIdx] : "";
     const year = Number(yearRaw);
@@ -190,6 +206,18 @@ function parseVideoCsv(text: string): Omit<VideoRow, "key">[] {
       order: Number.isFinite(order) && order > 0 ? order : index + 1,
     };
   });
+}
+
+function validateVideoItems(
+  items: Array<{ title: string; url: string; speaker: string }>,
+) {
+  if (items.some((item) => !item.title || !item.url || !item.speaker)) {
+    return "Each video needs a title, URL, and speaker";
+  }
+  if (items.some((item) => !looksLikeUrl(item.url))) {
+    return "Each video URL must start with http:// or https://";
+  }
+  return null;
 }
 
 function VideoActionsMenu({
@@ -222,6 +250,223 @@ function VideoActionsMenu({
   );
 }
 
+function MediaTypeSelect({
+  value,
+  onValueChange,
+}: {
+  value: MediaType;
+  onValueChange: (value: MediaType) => void;
+}) {
+  return (
+    <Select
+      value={value}
+      onValueChange={(next) => onValueChange((next ?? "video") as MediaType)}
+    >
+      <SelectTrigger className="w-full">
+        <SelectValue placeholder="Media type" />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="video">Video</SelectItem>
+        <SelectItem value="audio">Audio</SelectItem>
+        <SelectItem value="message">Message</SelectItem>
+      </SelectContent>
+    </Select>
+  );
+}
+
+function VideoRowEditor({
+  row,
+  index,
+  canRemove,
+  onChange,
+  onRemove,
+}: {
+  row: VideoRow;
+  index: number;
+  canRemove: boolean;
+  onChange: (patch: Partial<VideoRow>) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="grid gap-3 rounded-lg border border-border p-3 md:grid-cols-2">
+      <div className="flex items-center justify-between gap-2 md:col-span-2">
+        <p className="text-sm font-medium">Video {index + 1}</p>
+        {canRemove ? (
+          <Button type="button" size="sm" variant="ghost" onClick={onRemove}>
+            Remove
+          </Button>
+        ) : null}
+      </div>
+      <Input
+        placeholder="Title"
+        required
+        className="md:col-span-2"
+        value={row.title}
+        onChange={(e) => onChange({ title: e.target.value })}
+      />
+      <Input
+        placeholder="Video / media URL"
+        required
+        type="url"
+        className="md:col-span-2"
+        value={row.url}
+        onChange={(e) => onChange({ url: e.target.value })}
+      />
+      <Input
+        placeholder="Speaker"
+        required
+        value={row.speaker}
+        onChange={(e) => onChange({ speaker: e.target.value })}
+      />
+      <Input
+        type="number"
+        placeholder="Year"
+        required
+        value={row.year}
+        onChange={(e) => onChange({ year: Number(e.target.value) })}
+      />
+      <Input
+        type="number"
+        placeholder="Order"
+        required
+        value={row.order}
+        onChange={(e) => onChange({ order: Number(e.target.value) })}
+      />
+      <MediaTypeSelect
+        value={row.mediaType}
+        onValueChange={(mediaType) => onChange({ mediaType })}
+      />
+    </div>
+  );
+}
+
+function VideoRowsList({
+  rows,
+  pasteText,
+  showPaste,
+  onPasteTextChange,
+  onApplyPaste,
+  onChangeRow,
+  onRemoveRow,
+  onAddRow,
+}: {
+  rows: VideoRow[];
+  pasteText?: string;
+  showPaste?: boolean;
+  onPasteTextChange?: (value: string) => void;
+  onApplyPaste?: () => void;
+  onChangeRow: (key: string, patch: Partial<VideoRow>) => void;
+  onRemoveRow: (key: string) => void;
+  onAddRow: () => void;
+}) {
+  return (
+    <div className="space-y-4">
+      {showPaste ? (
+        <div className="space-y-2 rounded-lg border border-dashed border-border p-3">
+          <p className="text-sm font-medium">Quick paste (optional)</p>
+          <Textarea
+            placeholder={
+              "Paste URLs to create rows, one per line.\nOptional: Title | https://…"
+            }
+            rows={3}
+            value={pasteText ?? ""}
+            onChange={(e) => onPasteTextChange?.(e.target.value)}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onApplyPaste}
+            disabled={!pasteText?.trim()}
+          >
+            Apply paste to rows
+          </Button>
+        </div>
+      ) : null}
+
+      {rows.map((row, index) => (
+        <VideoRowEditor
+          key={row.key}
+          row={row}
+          index={index}
+          canRemove={rows.length > 1}
+          onChange={(patch) => onChangeRow(row.key, patch)}
+          onRemove={() => onRemoveRow(row.key)}
+        />
+      ))}
+
+      <Button type="button" variant="outline" onClick={onAddRow}>
+        Add another video
+      </Button>
+    </div>
+  );
+}
+
+function ResponsiveEditorShell({
+  open,
+  onOpenChange,
+  title,
+  description,
+  children,
+  footer,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+  footer: React.ReactNode;
+}) {
+  const isCompact = useIsCompact();
+
+  if (isCompact) {
+    return (
+      <Sheet open={open} onOpenChange={onOpenChange}>
+        <SheetContent
+          side="bottom"
+          className="gap-0 overflow-hidden rounded-t-2xl p-0 sm:max-w-none data-[side=bottom]:max-h-[92dvh]"
+        >
+          <div
+            className="mx-auto mt-3 h-1.5 w-12 shrink-0 rounded-full bg-muted-foreground/30"
+            aria-hidden
+          />
+          <SheetHeader className="shrink-0 border-b border-border px-4 py-4 pr-14 text-left">
+            <SheetTitle>{title}</SheetTitle>
+            {description ? (
+              <SheetDescription>{description}</SheetDescription>
+            ) : null}
+          </SheetHeader>
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+            {children}
+          </div>
+          <SheetFooter className="shrink-0 border-t border-border pb-[max(1rem,env(safe-area-inset-bottom))]">
+            {footer}
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+    );
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="flex max-h-[90vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
+        <DialogHeader className="border-b border-border p-4 pr-12 text-left sm:p-5">
+          <DialogTitle>{title}</DialogTitle>
+          {description ? (
+            <DialogDescription>{description}</DialogDescription>
+          ) : null}
+        </DialogHeader>
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
+          {children}
+        </div>
+        <DialogFooter className="border-t border-border bg-muted/30 p-4 sm:justify-end">
+          {footer}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function VideoManager() {
   const { sessionToken } = useAdminSession();
   const messages = useQuery(api.content.listMessages);
@@ -232,10 +477,12 @@ export function VideoManager() {
 
   const csvInputRef = useRef<HTMLInputElement>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("table");
-  const [formOpen, setFormOpen] = useState(false);
+  const [editorMode, setEditorMode] = useState<EditorMode | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
   const [editingMessage, setEditingMessage] = useState<Id<"messages"> | null>(
     null,
   );
+  const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<
     | { type: "single"; id: Id<"messages">; title: string }
     | { type: "bulk"; ids: Id<"messages">[]; clearSelection: () => void }
@@ -258,6 +505,7 @@ export function VideoManager() {
     order: 1,
   });
   const [videoRows, setVideoRows] = useState<VideoRow[]>([newVideoRow(1)]);
+  const [importRows, setImportRows] = useState<VideoRow[]>([]);
   const [pasteText, setPasteText] = useState("");
 
   const nextMessageOrder = () =>
@@ -270,7 +518,7 @@ export function VideoManager() {
   };
 
   useEffect(() => {
-    if (!messages || editingMessage) return;
+    if (!messages || editorMode === "edit") return;
     setVideoRows((rows) => {
       if (
         rows.length !== 1 ||
@@ -285,7 +533,7 @@ export function VideoManager() {
         ? rows
         : [{ ...rows[0], order: nextOrder }];
     });
-  }, [messages, editingMessage]);
+  }, [messages, editorMode]);
 
   const sortedMessages = useMemo(
     () =>
@@ -303,7 +551,15 @@ export function VideoManager() {
       .map((value) => ({ label: value, value }));
   }, [sortedMessages]);
 
+  const openCreate = () => {
+    setEditingMessage(null);
+    resetCreateRows();
+    setImportOpen(false);
+    setEditorMode("create");
+  };
+
   const startEditMessage = (message: Doc<"messages">) => {
+    setImportOpen(false);
     setEditingMessage(message._id);
     setEditForm({
       year: message.year,
@@ -313,17 +569,28 @@ export function VideoManager() {
       url: message.url,
       order: message.order,
     });
-    setFormOpen(true);
+    setEditorMode("edit");
   };
 
-  const cancelEdit = () => {
+  const closeEditor = () => {
+    setEditorMode(null);
     setEditingMessage(null);
     resetCreateRows();
-    setFormOpen(false);
+  };
+
+  const closeImport = () => {
+    setImportOpen(false);
+    setImportRows([]);
   };
 
   const updateVideoRow = (key: string, patch: Partial<VideoRow>) => {
     setVideoRows((rows) =>
+      rows.map((row) => (row.key === key ? { ...row, ...patch } : row)),
+    );
+  };
+
+  const updateImportRow = (key: string, patch: Partial<VideoRow>) => {
+    setImportRows((rows) =>
       rows.map((row) => (row.key === key ? { ...row, ...patch } : row)),
     );
   };
@@ -342,8 +609,28 @@ export function VideoManager() {
     });
   };
 
+  const addImportRow = () => {
+    setImportRows((rows) => {
+      const last = rows[rows.length - 1];
+      return [
+        ...rows,
+        newVideoRow((last?.order ?? nextMessageOrder() - 1) + 1, {
+          year: last?.year,
+          speaker: last?.speaker,
+          mediaType: last?.mediaType,
+        }),
+      ];
+    });
+  };
+
   const removeVideoRow = (key: string) => {
     setVideoRows((rows) =>
+      rows.length <= 1 ? rows : rows.filter((row) => row.key !== key),
+    );
+  };
+
+  const removeImportRow = (key: string) => {
+    setImportRows((rows) =>
       rows.length <= 1 ? rows : rows.filter((row) => row.key !== key),
     );
   };
@@ -383,27 +670,131 @@ export function VideoManager() {
     try {
       const text = await file.text();
       const parsed = parseVideoCsv(text);
+      if (parsed.length === 0) {
+        toast.error("No video rows found in CSV");
+        return;
+      }
       const startOrder = nextMessageOrder();
-      const template = videoRows[0];
-      setVideoRows(
+      setImportRows(
         parsed.map((item, index) =>
           newVideoRow(item.order || startOrder + index, {
-            year: item.year || template?.year,
+            year: item.year,
             title: item.title,
-            speaker: item.speaker || template?.speaker,
-            mediaType: item.mediaType || template?.mediaType,
+            speaker: item.speaker,
+            mediaType: item.mediaType,
             url: item.url,
           }),
         ),
       );
-      setFormOpen(true);
-      toast.success(
-        `Imported ${parsed.length} video${parsed.length === 1 ? "" : "s"} from CSV — review and save`,
-      );
+      setEditorMode(null);
+      setEditingMessage(null);
+      setImportOpen(true);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "CSV import failed");
     } finally {
       if (csvInputRef.current) csvInputRef.current.value = "";
+    }
+  };
+
+  const saveCreateRows = async () => {
+    if (!sessionToken) return;
+    const items = videoRows.map((row) => ({
+      year: row.year,
+      title: row.title.trim(),
+      speaker: row.speaker.trim(),
+      mediaType: row.mediaType,
+      url: row.url.trim(),
+      order: row.order,
+    }));
+    const error = validateVideoItems(items);
+    if (error) {
+      toast.error(error);
+      return;
+    }
+
+    setSaving(true);
+    try {
+      if (items.length === 1) {
+        await upsertMessage({ sessionToken, ...items[0] });
+        toast.success("Video saved");
+      } else {
+        await bulkCreateMessages({ sessionToken, items });
+        toast.success(`${items.length} videos saved`);
+      }
+      resetCreateRows(Math.max(...items.map((item) => item.order)) + 1);
+      setEditorMode(null);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save video");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveEdit = async () => {
+    if (!sessionToken || !editingMessage) return;
+    const error = validateVideoItems([
+      {
+        title: editForm.title.trim(),
+        url: editForm.url.trim(),
+        speaker: editForm.speaker.trim(),
+      },
+    ]);
+    if (error) {
+      toast.error(error);
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await upsertMessage({
+        sessionToken,
+        id: editingMessage,
+        ...editForm,
+        title: editForm.title.trim(),
+        speaker: editForm.speaker.trim(),
+        url: editForm.url.trim(),
+      });
+      toast.success("Video updated");
+      closeEditor();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save video");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveImportRows = async () => {
+    if (!sessionToken) return;
+    const items = importRows.map((row) => ({
+      year: row.year,
+      title: row.title.trim(),
+      speaker: row.speaker.trim(),
+      mediaType: row.mediaType,
+      url: row.url.trim(),
+      order: row.order,
+    }));
+    const error = validateVideoItems(items);
+    if (error) {
+      toast.error(error);
+      return;
+    }
+
+    setSaving(true);
+    try {
+      if (items.length === 1) {
+        await upsertMessage({ sessionToken, ...items[0] });
+        toast.success("Video saved");
+      } else {
+        await bulkCreateMessages({ sessionToken, items });
+        toast.success(`${items.length} videos imported`);
+      }
+      closeImport();
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to import videos",
+      );
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -414,7 +805,7 @@ export function VideoManager() {
       if (deleteTarget.type === "single") {
         await deleteMessage({ sessionToken, id: deleteTarget.id });
         toast.success("Video deleted");
-        if (editingMessage === deleteTarget.id) cancelEdit();
+        if (editingMessage === deleteTarget.id) closeEditor();
       } else {
         const result = await bulkDeleteMessages({
           sessionToken,
@@ -423,11 +814,8 @@ export function VideoManager() {
         toast.success(
           `Deleted ${result.deleted} video${result.deleted === 1 ? "" : "s"}`,
         );
-        if (
-          editingMessage &&
-          deleteTarget.ids.includes(editingMessage)
-        ) {
-          cancelEdit();
+        if (editingMessage && deleteTarget.ids.includes(editingMessage)) {
+          closeEditor();
         }
         deleteTarget.clearSelection();
       }
@@ -455,36 +843,24 @@ export function VideoManager() {
     )),
   ];
 
+  const editorOpen = editorMode !== null;
+
   return (
     <div className="space-y-6">
       <AdminPageHeader
         actions={
-          !editingMessage ? (
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => csvInputRef.current?.click()}
-              >
-                Import CSV
-              </Button>
-              <Button
-                type="button"
-                variant={formOpen ? "outline" : "default"}
-                onClick={() => {
-                  if (formOpen) {
-                    setFormOpen(false);
-                    resetCreateRows();
-                  } else {
-                    resetCreateRows();
-                    setFormOpen(true);
-                  }
-                }}
-              >
-                {formOpen ? "Close form" : "Add videos"}
-              </Button>
-            </div>
-          ) : undefined
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => csvInputRef.current?.click()}
+            >
+              Import CSV
+            </Button>
+            <Button type="button" onClick={openCreate}>
+              Add videos
+            </Button>
+          </div>
         }
       />
 
@@ -496,310 +872,159 @@ export function VideoManager() {
         onChange={(e) => void applyCsvFile(e.target.files?.[0] ?? null)}
       />
 
-      {(formOpen || editingMessage) && (
-        <Card>
-          <CardHeader>
-            <CardTitle>
-              {editingMessage
-                ? "Edit Homecoming video"
-                : "Add Homecoming videos"}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <form
-              className="space-y-4"
-              onSubmit={async (e) => {
-                e.preventDefault();
-                if (!sessionToken) return;
-                try {
-                  if (editingMessage) {
-                    await upsertMessage({
-                      sessionToken,
-                      id: editingMessage,
-                      ...editForm,
-                    });
-                    toast.success("Video updated");
-                    setEditingMessage(null);
-                    resetCreateRows();
-                    setFormOpen(false);
-                    return;
-                  }
-
-                  const items = videoRows.map((row) => ({
-                    year: row.year,
-                    title: row.title.trim(),
-                    speaker: row.speaker.trim(),
-                    mediaType: row.mediaType,
-                    url: row.url.trim(),
-                    order: row.order,
-                  }));
-
-                  if (
-                    items.some(
-                      (item) => !item.title || !item.url || !item.speaker,
-                    )
-                  ) {
-                    toast.error("Each video needs a title, URL, and speaker");
-                    return;
-                  }
-                  if (items.some((item) => !looksLikeUrl(item.url))) {
-                    toast.error(
-                      "Each video URL must start with http:// or https://",
-                    );
-                    return;
-                  }
-
-                  if (items.length === 1) {
-                    await upsertMessage({
-                      sessionToken,
-                      ...items[0],
-                    });
-                    toast.success("Video saved");
-                  } else {
-                    await bulkCreateMessages({
-                      sessionToken,
-                      items,
-                    });
-                    toast.success(`${items.length} videos saved`);
-                  }
-
-                  resetCreateRows(
-                    Math.max(...items.map((item) => item.order)) + 1,
-                  );
-                  setFormOpen(false);
-                } catch (err) {
-                  toast.error(
-                    err instanceof Error ? err.message : "Failed to save video",
-                  );
-                }
-              }}
+      <ResponsiveEditorShell
+        open={editorOpen}
+        onOpenChange={(open) => {
+          if (!open && !saving) closeEditor();
+        }}
+        title={
+          editorMode === "edit"
+            ? "Edit Homecoming video"
+            : "Add Homecoming videos"
+        }
+        description={
+          editorMode === "edit"
+            ? "Update title, URL, speaker, and ordering."
+            : "Add one or more videos. Paste URLs or fill rows manually."
+        }
+        footer={
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={saving}
+              onClick={closeEditor}
             >
-              {editingMessage ? (
-                <div className="grid gap-3 md:grid-cols-2">
-                  <Input
-                    placeholder="Title"
-                    required
-                    className="md:col-span-2"
-                    value={editForm.title}
-                    onChange={(e) =>
-                      setEditForm({ ...editForm, title: e.target.value })
-                    }
-                  />
-                  <Input
-                    placeholder="Video / media URL (Rumble, YouTube, or any link)"
-                    required
-                    type="url"
-                    className="md:col-span-2"
-                    value={editForm.url}
-                    onChange={(e) =>
-                      setEditForm({ ...editForm, url: e.target.value })
-                    }
-                  />
-                  <Input
-                    placeholder="Speaker"
-                    required
-                    value={editForm.speaker}
-                    onChange={(e) =>
-                      setEditForm({ ...editForm, speaker: e.target.value })
-                    }
-                  />
-                  <Input
-                    type="number"
-                    placeholder="Year"
-                    required
-                    value={editForm.year}
-                    onChange={(e) =>
-                      setEditForm({
-                        ...editForm,
-                        year: Number(e.target.value),
-                      })
-                    }
-                  />
-                  <Input
-                    type="number"
-                    placeholder="Order"
-                    required
-                    value={editForm.order}
-                    onChange={(e) =>
-                      setEditForm({
-                        ...editForm,
-                        order: Number(e.target.value),
-                      })
-                    }
-                  />
-                  <Select
-                    value={editForm.mediaType}
-                    onValueChange={(value) =>
-                      setEditForm({
-                        ...editForm,
-                        mediaType: (value ?? "video") as MediaType,
-                      })
-                    }
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Media type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="video">Video</SelectItem>
-                      <SelectItem value="audio">Audio</SelectItem>
-                      <SelectItem value="message">Message</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <div className="flex flex-wrap gap-2 md:col-span-2">
-                    <Button type="submit">Update video</Button>
-                    <Button type="button" variant="outline" onClick={cancelEdit}>
-                      Cancel
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <div className="space-y-2 rounded-lg border border-dashed border-border p-3">
-                    <p className="text-sm font-medium">Quick paste (optional)</p>
-                    <Textarea
-                      placeholder={
-                        "Paste URLs to create rows, one per line.\nOptional: Title | https://…"
-                      }
-                      rows={3}
-                      value={pasteText}
-                      onChange={(e) => setPasteText(e.target.value)}
-                    />
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={applyPasteToRows}
-                        disabled={!pasteText.trim()}
-                      >
-                        Apply paste to rows
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => csvInputRef.current?.click()}
-                      >
-                        Import CSV
-                      </Button>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      CSV columns: year, title, speaker, mediaType, url, order
-                      (order optional).
-                    </p>
-                  </div>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={saving}
+              onClick={() =>
+                void (editorMode === "edit" ? saveEdit() : saveCreateRows())
+              }
+            >
+              {saving
+                ? "Saving…"
+                : editorMode === "edit"
+                  ? "Update video"
+                  : `Save ${videoRows.length === 1 ? "video" : "videos"}`}
+            </Button>
+          </>
+        }
+      >
+        {editorMode === "edit" ? (
+          <div className="grid gap-3 md:grid-cols-2">
+            <Input
+              placeholder="Title"
+              required
+              className="md:col-span-2"
+              value={editForm.title}
+              onChange={(e) =>
+                setEditForm({ ...editForm, title: e.target.value })
+              }
+            />
+            <Input
+              placeholder="Video / media URL (Rumble, YouTube, or any link)"
+              required
+              type="url"
+              className="md:col-span-2"
+              value={editForm.url}
+              onChange={(e) =>
+                setEditForm({ ...editForm, url: e.target.value })
+              }
+            />
+            <Input
+              placeholder="Speaker"
+              required
+              value={editForm.speaker}
+              onChange={(e) =>
+                setEditForm({ ...editForm, speaker: e.target.value })
+              }
+            />
+            <Input
+              type="number"
+              placeholder="Year"
+              required
+              value={editForm.year}
+              onChange={(e) =>
+                setEditForm({ ...editForm, year: Number(e.target.value) })
+              }
+            />
+            <Input
+              type="number"
+              placeholder="Order"
+              required
+              value={editForm.order}
+              onChange={(e) =>
+                setEditForm({ ...editForm, order: Number(e.target.value) })
+              }
+            />
+            <MediaTypeSelect
+              value={editForm.mediaType}
+              onValueChange={(mediaType) =>
+                setEditForm({ ...editForm, mediaType })
+              }
+            />
+          </div>
+        ) : (
+          <VideoRowsList
+            rows={videoRows}
+            showPaste
+            pasteText={pasteText}
+            onPasteTextChange={setPasteText}
+            onApplyPaste={applyPasteToRows}
+            onChangeRow={updateVideoRow}
+            onRemoveRow={removeVideoRow}
+            onAddRow={addVideoRow}
+          />
+        )}
+      </ResponsiveEditorShell>
 
-                  <div className="space-y-4">
-                    {videoRows.map((row, index) => (
-                      <div
-                        key={row.key}
-                        className="grid gap-3 rounded-lg border border-border p-3 md:grid-cols-2"
-                      >
-                        <div className="flex items-center justify-between gap-2 md:col-span-2">
-                          <p className="text-sm font-medium">
-                            Video {index + 1}
-                          </p>
-                          {videoRows.length > 1 && (
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => removeVideoRow(row.key)}
-                            >
-                              Remove
-                            </Button>
-                          )}
-                        </div>
-                        <Input
-                          placeholder="Title"
-                          required
-                          className="md:col-span-2"
-                          value={row.title}
-                          onChange={(e) =>
-                            updateVideoRow(row.key, { title: e.target.value })
-                          }
-                        />
-                        <Input
-                          placeholder="Video / media URL"
-                          required
-                          type="url"
-                          className="md:col-span-2"
-                          value={row.url}
-                          onChange={(e) =>
-                            updateVideoRow(row.key, { url: e.target.value })
-                          }
-                        />
-                        <Input
-                          placeholder="Speaker"
-                          required
-                          value={row.speaker}
-                          onChange={(e) =>
-                            updateVideoRow(row.key, {
-                              speaker: e.target.value,
-                            })
-                          }
-                        />
-                        <Input
-                          type="number"
-                          placeholder="Year"
-                          required
-                          value={row.year}
-                          onChange={(e) =>
-                            updateVideoRow(row.key, {
-                              year: Number(e.target.value),
-                            })
-                          }
-                        />
-                        <Input
-                          type="number"
-                          placeholder="Order"
-                          required
-                          value={row.order}
-                          onChange={(e) =>
-                            updateVideoRow(row.key, {
-                              order: Number(e.target.value),
-                            })
-                          }
-                        />
-                        <Select
-                          value={row.mediaType}
-                          onValueChange={(value) =>
-                            updateVideoRow(row.key, {
-                              mediaType: (value ?? "video") as MediaType,
-                            })
-                          }
-                        >
-                          <SelectTrigger className="w-full">
-                            <SelectValue placeholder="Media type" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="video">Video</SelectItem>
-                            <SelectItem value="audio">Audio</SelectItem>
-                            <SelectItem value="message">Message</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={addVideoRow}
-                    >
-                      Add another video
-                    </Button>
-                    <Button type="submit">
-                      Save {videoRows.length === 1 ? "video" : "videos"}
-                    </Button>
-                  </div>
-                </>
-              )}
-            </form>
-          </CardContent>
-        </Card>
-      )}
+      <Dialog
+        open={importOpen}
+        onOpenChange={(open) => {
+          if (!open && !saving) closeImport();
+        }}
+      >
+        <DialogContent className="flex max-h-[90vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
+          <DialogHeader className="border-b border-border p-4 pr-12 text-left sm:p-5">
+            <DialogTitle>Preview CSV import</DialogTitle>
+            <DialogDescription>
+              Review and edit {importRows.length} video
+              {importRows.length === 1 ? "" : "s"} before saving. You can add or
+              remove rows.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
+            <VideoRowsList
+              rows={importRows}
+              onChangeRow={updateImportRow}
+              onRemoveRow={removeImportRow}
+              onAddRow={addImportRow}
+            />
+          </div>
+          <DialogFooter className="border-t border-border bg-muted/30 p-4 sm:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={saving}
+              onClick={closeImport}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={saving || importRows.length === 0}
+              onClick={() => void saveImportRows()}
+            >
+              {saving
+                ? "Saving…"
+                : `Save ${importRows.length} video${importRows.length === 1 ? "" : "s"}`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <div className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">

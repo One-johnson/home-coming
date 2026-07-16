@@ -15,12 +15,12 @@ export function GalleryGrid({
   onImageClick,
 }: GalleryGridProps) {
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
       {images.map((image, index) => (
         <Button
           key={image._id}
           variant="ghost"
-          className="card-lift h-auto overflow-hidden rounded-2xl p-0 shadow-soft ring-1 ring-border hover:bg-transparent"
+          className="card-lift h-auto overflow-hidden rounded-lg p-0 shadow-soft ring-1 ring-border hover:bg-transparent"
           onClick={() => onImageClick(index, image)}
         >
           <AspectRatio ratio={4 / 3} className="relative w-full bg-muted">
@@ -29,10 +29,10 @@ export function GalleryGrid({
               alt={image.caption ?? "Homecoming photo"}
               fill
               className="object-cover transition duration-300 hover:scale-105"
-              sizes="(max-width: 768px) 100vw, 33vw"
+              sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, (max-width: 1024px) 25vw, (max-width: 1280px) 20vw, 16vw"
             />
             {image.caption && (
-              <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-4 text-left text-sm text-white">
+              <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-2 text-left text-[11px] leading-snug text-white sm:text-xs">
                 {image.caption}
               </div>
             )}
