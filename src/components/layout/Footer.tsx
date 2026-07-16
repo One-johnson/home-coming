@@ -32,6 +32,11 @@ export function Footer() {
                 </Link>
               </li>
               <li>
+                <Link href="/tours" className={footerLinkClassName}>
+                  Tours
+                </Link>
+              </li>
+              <li>
                 <Link href="/accommodation" className={footerLinkClassName}>
                   Book Accommodation
                 </Link>

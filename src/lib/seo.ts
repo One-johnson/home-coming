@@ -116,6 +116,12 @@ export const PAGE_SEO = {
     path: "/accommodation",
     image: "/campus/campus.jpg",
   },
+  tours: {
+    title: "Homecoming Tour Packages",
+    description: `Book guided Homecoming tour packages for ${EVENT.fullTitle}. Choose packages by day and purchase tickets separately from registration.`,
+    path: "/tours",
+    image: "/campus/anagkazo.jpg",
+  },
   gallery: {
     title: "Photo Gallery",
     description: `Photos from previous Homecoming conventions at ${EVENT.venue}, ${EVENT.location}.`,

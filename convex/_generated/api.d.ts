@@ -18,10 +18,13 @@ import type * as http from "../http.js";
 import type * as lib_audit from "../lib/audit.js";
 import type * as lib_referenceNumbers from "../lib/referenceNumbers.js";
 import type * as lib_registrationConfig from "../lib/registrationConfig.js";
+import type * as lib_tourConfig from "../lib/tourConfig.js";
 import type * as mediaThumbnails from "../mediaThumbnails.js";
 import type * as payments from "../payments.js";
 import type * as registrations from "../registrations.js";
 import type * as seed from "../seed.js";
+import type * as tourOrders from "../tourOrders.js";
+import type * as tourPackages from "../tourPackages.js";
 import type * as users from "../users.js";
 
 import type {
@@ -41,10 +44,13 @@ declare const fullApi: ApiFromModules<{
   "lib/audit": typeof lib_audit;
   "lib/referenceNumbers": typeof lib_referenceNumbers;
   "lib/registrationConfig": typeof lib_registrationConfig;
+  "lib/tourConfig": typeof lib_tourConfig;
   mediaThumbnails: typeof mediaThumbnails;
   payments: typeof payments;
   registrations: typeof registrations;
   seed: typeof seed;
+  tourOrders: typeof tourOrders;
+  tourPackages: typeof tourPackages;
   users: typeof users;
 }>;
 

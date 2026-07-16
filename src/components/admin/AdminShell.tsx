@@ -10,6 +10,7 @@ import {
   CalendarDays,
   ChevronsUpDown,
   ClipboardList,
+  ExternalLink,
   GalleryHorizontalEnd,
   LayoutDashboard,
   LogOut,
@@ -491,6 +492,17 @@ function AdminConsoleFrame({
             </div>
 
             <AdminCommandPalette />
+
+            <Button
+              size="sm"
+              variant="outline"
+              className="hidden sm:inline-flex"
+              nativeButton={false}
+              render={<Link href="/" target="_blank" rel="noopener noreferrer" />}
+            >
+              <ExternalLink className="size-3.5" />
+              <span className="hidden md:inline">View site</span>
+            </Button>
 
             <div className="hidden items-center gap-1.5 rounded-lg border border-border bg-muted/40 px-2.5 py-1.5 text-xs text-muted-foreground lg:flex">
               <CalendarDays className="size-3.5 text-gold-dark" />

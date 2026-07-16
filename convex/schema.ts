@@ -151,6 +151,7 @@ export default defineSchema({
     vision: v.string(),
     impact: v.string(),
     firstLadyMessage: v.string(),
+    firstLadyImageStorageId: v.optional(v.id("_storage")),
     updatedAt: v.number(),
   }).index("by_slug", ["slug"]),
 
@@ -195,6 +196,59 @@ export default defineSchema({
   })
     .index("by_housing", ["housingId"])
     .index("by_email", ["guestEmail"])
+    .index("by_payment_status", ["paymentStatus"])
+    .index("by_created_at", ["createdAt"])
+    .index("by_reference_number", ["referenceNumber"]),
+
+  tourPackages: defineTable({
+    slug: v.string(),
+    label: v.string(),
+    dateLabel: v.string(),
+    timeRange: v.string(),
+    sites: v.array(v.string()),
+    meals: v.string(),
+    priceUsd: v.number(),
+    imageUrl: v.optional(v.string()),
+    imageStorageId: v.optional(v.id("_storage")),
+    badge: v.optional(v.string()),
+    active: v.boolean(),
+    order: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_slug", ["slug"])
+    .index("by_order", ["order"])
+    .index("by_active", ["active"]),
+
+  tourOrders: defineTable({
+    fullName: v.string(),
+    email: v.string(),
+    phone: v.string(),
+    countryCode: v.string(),
+    region: v.string(),
+    groupName: v.optional(v.string()),
+    items: v.array(
+      v.object({
+        packageId: v.id("tourPackages"),
+        label: v.string(),
+        quantity: v.number(),
+        unitPrice: v.number(),
+      }),
+    ),
+    totalAmount: v.number(),
+    currency: v.literal("USD"),
+    gateway: v.union(v.literal("paystack"), v.literal("paypal")),
+    paymentStatus: v.union(
+      v.literal("pending_payment"),
+      v.literal("paid"),
+      v.literal("failed"),
+      v.literal("mock_paid"),
+    ),
+    paymentReference: v.optional(v.string()),
+    referenceNumber: v.optional(v.string()),
+    consent: v.boolean(),
+    createdAt: v.number(),
+  })
+    .index("by_email", ["email"])
     .index("by_payment_status", ["paymentStatus"])
     .index("by_created_at", ["createdAt"])
     .index("by_reference_number", ["referenceNumber"]),

@@ -10,6 +10,7 @@ export function SiteChrome({ children }: { children: React.ReactNode }) {
   const isAdmin = pathname.startsWith("/admin");
   const hideStickyCta =
     pathname.startsWith("/registration") ||
+    pathname.startsWith("/tours") ||
     pathname.startsWith("/accommodation");
 
   if (isAdmin) {

@@ -1,6 +1,7 @@
 import { mutation } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import { requireRole, sessionTokenValidator } from "./users";
+import { DEFAULT_TOUR_PACKAGES } from "./lib/tourConfig";
 
 const FAQS = [
   {
@@ -60,6 +61,31 @@ const STATS = [
   { label: "Sessions", value: "8+", order: 3 },
   { label: "Testimonies", value: "50+", order: 4 },
 ];
+
+async function syncDefaultTourPackages(ctx: MutationCtx) {
+  const now = Date.now();
+  for (const pkg of DEFAULT_TOUR_PACKAGES) {
+    const existing = await ctx.db
+      .query("tourPackages")
+      .withIndex("by_slug", (q) => q.eq("slug", pkg.slug))
+      .first();
+    if (existing) continue;
+    await ctx.db.insert("tourPackages", {
+      slug: pkg.slug,
+      label: pkg.label,
+      dateLabel: pkg.dateLabel,
+      timeRange: pkg.timeRange,
+      sites: pkg.sites,
+      meals: pkg.meals,
+      priceUsd: pkg.priceUsd,
+      imageUrl: pkg.imageUrl,
+      badge: pkg.badge,
+      active: true,
+      order: pkg.order,
+      updatedAt: now,
+    });
+  }
+}
 
 async function syncStats(ctx: MutationCtx) {
   for (const stat of STATS) {
@@ -229,6 +255,8 @@ export const seed = mutation({
       }
     }
 
+    await syncDefaultTourPackages(ctx);
+
     const existingAbout = await ctx.db.query("aboutContent").first();
     if (!existingAbout) {
       await ctx.db.insert("aboutContent", {
@@ -301,6 +329,7 @@ export const seedPublic = mutation({
     for (const unit of HOUSING) {
       await ctx.db.insert("housing", unit);
     }
+    await syncDefaultTourPackages(ctx);
     await ctx.db.insert("aboutContent", {
       slug: "about",
       history:
