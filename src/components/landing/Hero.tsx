@@ -50,85 +50,86 @@ export function Hero() {
   const itemVariants = shouldReduceMotion ? reducedMotionItem : fadeUp;
 
   return (
-    <section className="relative min-h-[92vh] overflow-hidden">
+    <section className="relative flex min-h-[92vh] flex-col overflow-hidden">
       <HeroCarousel slides={HERO_IMAGES} autoplayDelay={6000} />
 
-      {/* Layered atmosphere: tonal wash, depth, cinematic vignette */}
-      <div className="absolute inset-0 bg-gradient-to-b from-[#0a0a0a]/70 via-[#1a1a1a]/75 to-[#0a0a0a]/92" />
-      <div className="absolute inset-0 bg-gradient-to-r from-[#0a0a0a]/70 via-transparent to-transparent" />
-      <div className="pointer-events-none absolute inset-0 shadow-[inset_0_0_180px_60px_rgba(10,10,10,0.65)]" />
+      {/* Overlays: a bit darker for text contrast, photos still read on the right */}
+      <div className="absolute inset-0 bg-gradient-to-b from-[#0a0a0a]/60 via-[#1a1a1a]/55 to-[#0a0a0a]/80" />
+      <div className="absolute inset-0 bg-gradient-to-r from-[#0a0a0a]/85 via-[#0a0a0a]/45 to-transparent md:from-[#0a0a0a]/80 md:via-[#0a0a0a]/30" />
+      <div className="pointer-events-none absolute inset-0 shadow-[inset_0_0_160px_52px_rgba(10,10,10,0.5)]" />
 
       <motion.div
-        className="relative mx-auto flex min-h-[92vh] max-w-7xl flex-col justify-center px-4 py-28 sm:px-6 lg:px-8"
+        className="relative z-10 mx-auto flex w-full max-w-7xl flex-1 flex-col justify-center px-4 py-28 sm:px-6 lg:px-8"
         variants={containerVariants}
         initial="hidden"
         animate="visible"
       >
-        <motion.div
-          className="mb-7 inline-flex w-fit items-center gap-3 rounded-full border border-gold-light/40 bg-white/5 px-4 py-1.5 backdrop-blur-md"
-          variants={itemVariants}
-        >
-          <span className="h-1.5 w-1.5 rounded-full bg-gold-light" aria-hidden />
-          <p className="eyebrow eyebrow-light mb-0">
-            {EVENT.dates} · {EVENT.location}
-          </p>
-        </motion.div>
-
-        <motion.h1
-          className="font-display max-w-4xl text-5xl font-light leading-[1.02] text-paper drop-shadow-[0_2px_20px_rgba(0,0,0,0.35)] md:text-7xl lg:text-8xl"
-          variants={itemVariants}
-        >
-          {EVENT.name}
-          <motion.span
-            className="mt-4 block font-display text-3xl font-normal italic text-gold-gradient md:text-5xl"
+        <div className="w-full max-w-2xl md:max-w-[52%] lg:max-w-[48%] xl:max-w-[44%]">
+          <motion.div
+            className="mb-7 inline-flex w-fit items-center gap-3 rounded-full border border-gold-light/40 bg-white/5 px-4 py-1.5 backdrop-blur-md"
             variants={itemVariants}
           >
-            {EVENT.subtitle}
-          </motion.span>
-        </motion.h1>
+            <span
+              className="h-1.5 w-1.5 rounded-full bg-gold-light"
+              aria-hidden
+            />
+            <p className="eyebrow eyebrow-light mb-0 font-bold">
+              {EVENT.dates} · {EVENT.location}
+            </p>
+          </motion.div>
 
-        <motion.p className="lead lead-light mt-7 max-w-2xl" variants={itemVariants}>
-          A global gathering at {EVENT.venue}, {EVENT.location}. Join believers
-          from around the world with host and speaker {EVENT.host}.
-        </motion.p>
-
-        <motion.div
-          className="mt-10 flex flex-wrap gap-4"
-          variants={itemVariants}
-        >
-          <Button
-            href="/registration"
-            className="min-h-12 border-gold-light bg-gradient-to-r from-gold-light via-[#f0e6c8] to-gold px-10 py-3.5 text-base text-ink shadow-elevate hover:from-gold hover:via-gold-light hover:to-gold-dark hover:text-ink sm:px-12"
+          <motion.h1
+            className="font-display text-3xl font-bold leading-[1.02] drop-shadow-[0_2px_20px_rgba(0,0,0,0.35)] sm:text-6xl md:text-7xl lg:text-6xl"
+            variants={itemVariants}
           >
-            Register Now
-          </Button>
-          <Button
-            href="/accommodation"
-            variant="outline"
-            className="min-h-12 border-2 border-paper/80 bg-white/10 px-10 py-3.5 text-base text-paper backdrop-blur-md hover:border-gold-light hover:bg-paper hover:text-ink sm:px-12"
-          >
-            Book Accommodation
-          </Button>
-        </motion.div>
+            <span className="text-gold-gradient">Mountain of the Lord</span>
+            <span className="mt-3 block text-paper sm:mt-4">
+              The Homecoming
+            </span>
+          </motion.h1>
 
-        <motion.div className="mt-14 max-w-2xl" variants={itemVariants}>
-          <p className="eyebrow eyebrow-light mb-4">
-            Countdown to Opening Day
-          </p>
-          <CountdownTimer />
-        </motion.div>
+          <motion.p
+            className="lead lead-light mt-6 font-bold not-italic"
+            variants={itemVariants}
+          >
+            A gathering of all the churches — everyone is coming home! Be part
+            of this historic event.
+          </motion.p>
+
+          <motion.div
+            className="mt-10 flex flex-row flex-nowrap items-center gap-3 sm:gap-4"
+            variants={itemVariants}
+          >
+            <Button
+              href="/registration"
+              className="min-h-12 shrink-0 border-gold-light bg-gradient-to-r from-gold-light via-[#f0e6c8] to-gold px-5 py-3.5 text-sm font-bold text-ink shadow-elevate hover:from-gold hover:via-gold-light hover:to-gold-dark hover:text-ink sm:px-8 sm:text-base"
+            >
+              Register Now
+            </Button>
+            <Button
+              href="/accommodation"
+              variant="outline"
+              className="min-h-12 shrink-0 border-2 border-paper/80 bg-white/10 px-5 py-3.5 text-sm font-bold text-paper backdrop-blur-md hover:border-gold-light hover:bg-paper hover:text-ink sm:px-8 sm:text-base"
+            >
+              Book Accommodation
+            </Button>
+          </motion.div>
+        </div>
       </motion.div>
 
       <motion.div
-        className="absolute inset-x-0 bottom-6 z-10 flex justify-center"
+        className="relative z-10 border-t border-gold/30 bg-[#2a2a2a]"
         variants={itemVariants}
         initial="hidden"
         animate="visible"
-        aria-hidden
       >
-        <span className="flex h-9 w-5 items-start justify-center rounded-full border border-white/40 p-1.5">
-          <span className="animate-scroll-cue h-2 w-1 rounded-full bg-gold-light" />
-        </span>
+        <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-3 px-4 py-4 sm:px-6 md:flex-row md:gap-6 lg:px-8 lg:py-5">
+          <p className="font-body text-xs font-bold tracking-[0.22em] text-gold-light uppercase sm:text-sm">
+            Countdown to Homecoming 2026
+          </p>
+
+          <CountdownTimer compact />
+        </div>
       </motion.div>
     </section>
   );

@@ -75,21 +75,29 @@ export function Header() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="lg:hidden"
+                className="min-h-11 min-w-11 lg:hidden"
                 aria-label="Open menu"
               />
             }
           >
             <Menu className="h-6 w-6" />
           </SheetTrigger>
-          <SheetContent side="right" className="w-full max-w-xs">
-            <SheetHeader>
-              <SheetTitle className="font-display text-left">
-                The Homecoming
-              </SheetTitle>
+          <SheetContent
+            side="bottom"
+            className="max-h-[85dvh] w-full gap-0 rounded-t-2xl pb-[max(1rem,env(safe-area-inset-bottom))] lg:hidden"
+          >
+            <div
+              className="mx-auto mt-1 h-1.5 w-12 shrink-0 rounded-full bg-muted-foreground/30"
+              aria-hidden
+            />
+            <SheetHeader className="px-2 pt-3 text-left">
+              <SheetTitle className="font-display">The Homecoming</SheetTitle>
             </SheetHeader>
-            <Separator className="my-4" />
-            <nav className="flex flex-col gap-1" aria-label="Mobile navigation">
+            <Separator className="my-3" />
+            <nav
+              className="flex flex-col gap-1 px-1 pb-2"
+              aria-label="Mobile navigation"
+            >
               {NAV_LINKS.map((link) =>
                 link.external ? (
                   <a
@@ -99,7 +107,7 @@ export function Header() {
                     rel="noopener noreferrer"
                     className={cn(
                       buttonVariants({ variant: "ghost" }),
-                      "justify-start",
+                      "min-h-12 justify-start text-base",
                     )}
                   >
                     {link.label}
@@ -112,7 +120,7 @@ export function Header() {
                       buttonVariants({
                         variant: pathname === link.href ? "secondary" : "ghost",
                       }),
-                      "justify-start",
+                      "min-h-12 justify-start text-base",
                     )}
                   >
                     {link.label}

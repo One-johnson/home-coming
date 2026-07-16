@@ -8,15 +8,24 @@ import { StickyMobileCTA } from "@/components/layout/StickyMobileCTA";
 export function SiteChrome({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isAdmin = pathname.startsWith("/admin");
+  const hideStickyCta =
+    pathname.startsWith("/registration") ||
+    pathname.startsWith("/accommodation");
 
   if (isAdmin) {
     return <div className="min-h-svh bg-background">{children}</div>;
   }
 
   return (
-    <div className="flex min-h-svh flex-col pb-20 md:pb-0">
+    <div
+      className={
+        hideStickyCta
+          ? "flex min-h-svh flex-col"
+          : "flex min-h-svh flex-col pb-20 md:pb-0"
+      }
+    >
       <Header />
-      <main className="flex-1">{children}</main>
+      <main className="min-w-0 flex-1">{children}</main>
       <Footer />
       <StickyMobileCTA />
     </div>

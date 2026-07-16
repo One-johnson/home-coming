@@ -4,6 +4,11 @@ import { ColumnDef } from "@tanstack/react-table";
 import { Badge } from "@/components/ui/badge";
 import { Doc } from "@convex/_generated/dataModel";
 import { PaymentStatusBadge } from "@/components/admin/RecordDetailSheet";
+import {
+  emailStatusBadgeClass,
+  mediaTypeBadgeClass,
+} from "@/lib/adminColors";
+import { cn } from "@/lib/utils";
 
 function formatDate(ts: number) {
   return new Date(ts).toLocaleString();
@@ -81,10 +86,18 @@ export function registrationExportRow(r: Doc<"registrations">) {
     reference: r.referenceNumber ?? "",
     name: r.fullName ?? "",
     email: r.email,
-    phone: r.phone,
+    phone: `${r.countryCode} ${r.phone}`,
     type: r.type,
     region: r.region,
+    group: r.group ?? "",
+    denomination: r.denomination ?? "",
+    church: r.church ?? "",
     tickets: r.ticketQuantity,
+    addOns: r.addOns
+      .map((item) =>
+        typeof item === "string" ? item : `${item.id} x${item.quantity}`,
+      )
+      .join("; "),
     total: r.totalAmount,
     currency: r.currency,
     status: r.paymentStatus,
@@ -168,7 +181,10 @@ export const emailLogColumns: ColumnDef<Doc<"emailLogs">>[] = [
     header: "Status",
     filterFn: multiSelectFilter,
     cell: ({ row }) => (
-      <Badge variant="secondary" className="capitalize">
+      <Badge
+        variant="outline"
+        className={cn("capitalize", emailStatusBadgeClass(row.original.status))}
+      >
         {row.original.status}
       </Badge>
     ),
@@ -209,7 +225,10 @@ export const teamColumns: ColumnDef<{
     header: "Role",
     filterFn: multiSelectFilter,
     cell: ({ row }) => (
-      <Badge variant="outline" className="capitalize">
+      <Badge
+        variant="outline"
+        className="capitalize border-gold/30 bg-gold/10 text-gold-dark"
+      >
         {row.original.role}
       </Badge>
     ),
@@ -220,7 +239,14 @@ export const teamColumns: ColumnDef<{
     header: "Status",
     filterFn: multiSelectFilter,
     cell: ({ row }) => (
-      <Badge variant={row.original.active ? "secondary" : "outline"}>
+      <Badge
+        variant="outline"
+        className={cn(
+          row.original.active
+            ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+            : "border-stone-200 bg-stone-50 text-stone-600",
+        )}
+      >
         {row.original.active ? "Active" : "Inactive"}
       </Badge>
     ),
@@ -235,6 +261,81 @@ export const teamColumns: ColumnDef<{
     ),
   },
 ];
+
+export const messageColumns: ColumnDef<Doc<"messages">>[] = [
+  {
+    accessorKey: "year",
+    header: "Year",
+    filterFn: multiSelectFilter,
+    cell: ({ row }) => (
+      <Badge
+        variant="outline"
+        className="border-gold/30 bg-gold/10 text-gold-dark"
+      >
+        {row.original.year}
+      </Badge>
+    ),
+  },
+  {
+    accessorKey: "order",
+    header: "Order",
+  },
+  {
+    accessorKey: "title",
+    header: "Title",
+    cell: ({ row }) => (
+      <span className="line-clamp-2 max-w-[28rem] font-medium">
+        {row.original.title}
+      </span>
+    ),
+  },
+  {
+    accessorKey: "speaker",
+    header: "Speaker",
+  },
+  {
+    accessorKey: "mediaType",
+    header: "Type",
+    filterFn: multiSelectFilter,
+    cell: ({ row }) => (
+      <Badge
+        variant="outline"
+        className={cn(
+          "capitalize",
+          mediaTypeBadgeClass(row.original.mediaType),
+        )}
+      >
+        {row.original.mediaType}
+      </Badge>
+    ),
+  },
+  {
+    accessorKey: "url",
+    header: "URL",
+    cell: ({ row }) => (
+      <a
+        href={row.original.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="block max-w-[16rem] truncate text-primary hover:underline"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {row.original.url}
+      </a>
+    ),
+  },
+];
+
+export function messageExportRow(m: Doc<"messages">) {
+  return {
+    year: m.year,
+    order: m.order,
+    title: m.title,
+    speaker: m.speaker,
+    mediaType: m.mediaType,
+    url: m.url,
+  };
+}
 
 export const auditLogColumns: ColumnDef<Doc<"auditLogs">>[] = [
   {

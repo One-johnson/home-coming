@@ -79,13 +79,6 @@ export default function AdminProfilePage() {
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold tracking-tight">Profile</h2>
-        <p className="text-sm text-muted-foreground">
-          Manage your account details and password.
-        </p>
-      </div>
-
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-4">
           <CardTitle>Account</CardTitle>

@@ -70,12 +70,6 @@ function BookingsTable() {
 
   return (
     <div className="w-full min-w-0 space-y-4">
-      <div>
-        <h2 className="text-lg font-semibold tracking-tight">Bookings</h2>
-        <p className="text-sm text-muted-foreground">
-          Accommodation bookings with filters and payment actions.
-        </p>
-      </div>
       <DataTable
         columns={bookingColumns}
         data={bookings ?? []}

@@ -111,13 +111,6 @@ export default function AdminContentPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold tracking-tight">Content</h2>
-        <p className="text-sm text-muted-foreground">
-          Manage FAQs, stats, announcements, and about page copy.
-        </p>
-      </div>
-
       <div className="grid gap-6 xl:grid-cols-2">
         <Card>
           <CardHeader>

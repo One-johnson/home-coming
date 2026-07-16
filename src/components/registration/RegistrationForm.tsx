@@ -31,10 +31,13 @@ import {
 import { Separator } from "@/components/ui/separator";
 import {
   ADD_ONS,
+  DENOMINATIONS_BY_GROUP,
+  GROUP_OPTIONS,
   REGION_CONFIG,
   REGION_OPTIONS,
   calculateRegistrationTotal,
   formatPrice,
+  shouldShowChurchAffiliation,
   type RegistrationRegion,
   type RegistrationType,
 } from "@/lib/registrationConfig";
@@ -44,6 +47,13 @@ import { cn } from "@/lib/utils";
 
 type Step = "type" | "region" | "details" | "payment" | "confirmation";
 const STEPS: Step[] = ["type", "region", "details", "payment"];
+
+function emptyAddOnQuantities() {
+  return Object.fromEntries(ADD_ONS.map((addOn) => [addOn.id, 0])) as Record<
+    string,
+    number
+  >;
+}
 
 function ConvexRequiredMessage() {
   return (
@@ -69,11 +79,15 @@ function RegistrationFormInner() {
   const [type, setType] = useState<RegistrationType>("individual");
   const [region, setRegion] = useState<RegistrationRegion>("ghana");
   const [ticketQuantity, setTicketQuantity] = useState(1);
-  const [addOns, setAddOns] = useState<string[]>([]);
+  const [addOnQuantities, setAddOnQuantities] = useState(emptyAddOnQuantities);
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
-  const [countryCode, setCountryCode] = useState("");
+  const [countryCode, setCountryCode] = useState(
+    REGION_CONFIG.ghana.defaultCountryCode,
+  );
+  const [group, setGroup] = useState("");
+  const [denomination, setDenomination] = useState("");
   const [church, setChurch] = useState("");
   const [accommodationInterest, setAccommodationInterest] = useState(false);
   const [consent, setConsent] = useState(false);
@@ -84,19 +98,30 @@ function RegistrationFormInner() {
   const [paymentMessage, setPaymentMessage] = useState("");
 
   const totals = useMemo(
-    () => calculateRegistrationTotal(region, ticketQuantity, addOns),
-    [region, ticketQuantity, addOns],
+    () => calculateRegistrationTotal(region, ticketQuantity, addOnQuantities),
+    [region, ticketQuantity, addOnQuantities],
   );
 
   const regionConfig = REGION_CONFIG[region];
   const stepIndex = STEPS.indexOf(step as (typeof STEPS)[number]);
   const progressValue =
     stepIndex >= 0 ? ((stepIndex + 1) / STEPS.length) * 100 : 0;
+  const showChurchAffiliation = shouldShowChurchAffiliation(
+    group,
+    denomination,
+  );
+  const denominationOptions = DENOMINATIONS_BY_GROUP[group] ?? [];
 
-  const toggleAddOn = (id: string) => {
-    setAddOns((current) =>
-      current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
-    );
+  const setAddOnQuantity = (id: string, quantity: number) => {
+    setAddOnQuantities((current) => ({
+      ...current,
+      [id]: Number.isFinite(quantity) ? Math.max(0, Math.floor(quantity)) : 0,
+    }));
+  };
+
+  const handleRegionChange = (value: RegistrationRegion) => {
+    setRegion(value);
+    setCountryCode(REGION_CONFIG[value].defaultCountryCode);
   };
 
   const handleSubmit = async () => {
@@ -110,9 +135,11 @@ function RegistrationFormInner() {
         phone,
         countryCode,
         region,
+        group: group || undefined,
+        denomination: denomination || undefined,
         church: church || undefined,
         ticketQuantity,
-        addOns,
+        addOns: totals.addOns,
         accommodationInterest,
         priceAmount: totals.ticketTotal,
         addOnAmount: totals.addOnTotal,
@@ -173,7 +200,10 @@ function RegistrationFormInner() {
           {referenceNumber && (
             <p className="text-sm text-muted-foreground">
               Reference:{" "}
-              <Badge variant="secondary" className="font-mono">
+              <Badge
+                variant="secondary"
+                className="font-mono text-base tracking-wider"
+              >
                 {referenceNumber}
               </Badge>
             </p>
@@ -195,14 +225,14 @@ function RegistrationFormInner() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
+    <div className="mx-auto w-full max-w-3xl space-y-5 px-1 sm:space-y-6 sm:px-0">
       <div className="space-y-3">
-        <div className="flex flex-wrap gap-2">
+        <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {STEPS.map((s, i) => (
             <Badge
               key={s}
               variant={step === s ? "default" : "secondary"}
-              className="uppercase tracking-wider"
+              className="shrink-0 uppercase tracking-wider"
             >
               {i + 1}. {s}
             </Badge>
@@ -255,8 +285,10 @@ function RegistrationFormInner() {
               ))}
             </RadioGroup>
           </CardContent>
-          <CardFooter>
-            <Button onClick={() => setStep("region")}>Continue</Button>
+          <CardFooter className="flex-col gap-3 sm:flex-row">
+            <Button className="w-full sm:w-auto" onClick={() => setStep("region")}>
+              Continue
+            </Button>
           </CardFooter>
         </Card>
       )}
@@ -266,7 +298,7 @@ function RegistrationFormInner() {
           <CardHeader>
             <CardTitle>Country / Region</CardTitle>
             <CardDescription>
-              Pricing and payment gateway depend on your region.
+              Select your region for payment routing.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -274,7 +306,9 @@ function RegistrationFormInner() {
               <Label htmlFor="region">Select your region</Label>
               <Select
                 value={region}
-                onValueChange={(value) => setRegion(value as RegistrationRegion)}
+                onValueChange={(value) =>
+                  handleRegionChange(value as RegistrationRegion)
+                }
               >
                 <SelectTrigger id="region" className="w-full">
                   <SelectValue placeholder="Select region" />
@@ -282,12 +316,7 @@ function RegistrationFormInner() {
                 <SelectContent>
                   {REGION_OPTIONS.map((option) => (
                     <SelectItem key={option.value} value={option.value}>
-                      {option.label} —{" "}
-                      {formatPrice(
-                        REGION_CONFIG[option.value].price,
-                        REGION_CONFIG[option.value].currency,
-                        REGION_CONFIG[option.value].currencySymbol,
-                      )}
+                      {option.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -300,11 +329,20 @@ function RegistrationFormInner() {
               </Badge>
             </p>
           </CardContent>
-          <CardFooter className="gap-3">
-            <Button variant="outline" onClick={() => setStep("type")}>
+          <CardFooter className="flex-col-reverse gap-3 sm:flex-row">
+            <Button
+              variant="outline"
+              className="w-full sm:w-auto"
+              onClick={() => setStep("type")}
+            >
               Back
             </Button>
-            <Button onClick={() => setStep("details")}>Continue</Button>
+            <Button
+              className="w-full sm:w-auto"
+              onClick={() => setStep("details")}
+            >
+              Continue
+            </Button>
           </CardFooter>
         </Card>
       )}
@@ -358,70 +396,147 @@ function RegistrationFormInner() {
               </div>
             )}
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="email">Email *</Label>
+            <div className="space-y-2">
+              <Label htmlFor="email">Email *</Label>
+              <Input
+                id="email"
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="phone">Phone *</Label>
+              <div className="flex gap-2">
                 <Input
-                  id="email"
-                  type="email"
+                  id="countryCode"
                   required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  aria-label="Country code"
+                  placeholder="+233"
+                  value={countryCode}
+                  onChange={(e) => setCountryCode(e.target.value)}
+                  className="w-24 shrink-0 sm:w-28"
                 />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="phone">Phone *</Label>
                 <Input
                   id="phone"
                   type="tel"
                   required
+                  placeholder="Phone number"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
+                  className="min-w-0 flex-1"
                 />
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="countryCode">Country Code *</Label>
-              <Input
-                id="countryCode"
-                required
-                placeholder="+233"
-                value={countryCode}
-                onChange={(e) => setCountryCode(e.target.value)}
-              />
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="group">Group</Label>
+                <Select
+                  value={group || null}
+                  onValueChange={(value) => {
+                    const next = value ?? "";
+                    setGroup(next);
+                    setDenomination("");
+                    if (next && next !== "Other") {
+                      setChurch("");
+                    }
+                  }}
+                >
+                  <SelectTrigger id="group" className="w-full">
+                    <SelectValue placeholder="Select group" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {GROUP_OPTIONS.map((option) => (
+                      <SelectItem key={option} value={option}>
+                        {option}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="denomination">Denomination</Label>
+                <Select
+                  value={denomination || null}
+                  disabled={!group}
+                  onValueChange={(value) => {
+                    const next = value ?? "";
+                    setDenomination(next);
+                    if (group !== "Other" && next !== "Other") {
+                      setChurch("");
+                    }
+                  }}
+                >
+                  <SelectTrigger id="denomination" className="w-full">
+                    <SelectValue
+                      placeholder={
+                        group ? "Select denomination" : "Select a group first"
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {denominationOptions.map((option) => (
+                      <SelectItem key={option} value={option}>
+                        {option}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="church">Church / Ministry Affiliation</Label>
-              <Input
-                id="church"
-                value={church}
-                onChange={(e) => setChurch(e.target.value)}
-              />
-            </div>
+            {showChurchAffiliation && (
+              <div className="space-y-2">
+                <Label htmlFor="church">Church / Ministry Affiliation</Label>
+                <Input
+                  id="church"
+                  placeholder="For guests outside the listed groups"
+                  value={church}
+                  onChange={(e) => setChurch(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Use this if your group or denomination is not in the list
+                  (select Other).
+                </p>
+              </div>
+            )}
 
             <div className="space-y-3">
-              <Label>Add-Ons</Label>
+              <div>
+                <Label>Add-Ons</Label>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Choose quantities independently from ticket count.
+                </p>
+              </div>
               {ADD_ONS.map((addOn) => (
-                <Label
+                <div
                   key={addOn.id}
-                  htmlFor={`addon-${addOn.id}`}
-                  className="flex cursor-pointer items-start gap-3 rounded-lg border p-4 hover:bg-muted/50"
+                  className="flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-center sm:justify-between"
                 >
-                  <Checkbox
-                    id={`addon-${addOn.id}`}
-                    checked={addOns.includes(addOn.id)}
-                    onCheckedChange={() => toggleAddOn(addOn.id)}
-                    className="mt-1"
-                  />
-                  <div>
+                  <div className="min-w-0">
                     <p className="font-medium text-primary">
-                      {addOn.label} — ${addOn.price} USD
+                      {addOn.label} — ${addOn.price} USD each
                     </p>
                     <p className="text-sm text-muted-foreground">{addOn.description}</p>
                   </div>
-                </Label>
+                  <div className="flex items-center gap-2 sm:w-36">
+                    <Label htmlFor={`addon-qty-${addOn.id}`} className="sr-only">
+                      {addOn.label} quantity
+                    </Label>
+                    <Input
+                      id={`addon-qty-${addOn.id}`}
+                      type="number"
+                      min={0}
+                      value={addOnQuantities[addOn.id] ?? 0}
+                      onChange={(e) =>
+                        setAddOnQuantity(addOn.id, Number(e.target.value))
+                      }
+                    />
+                  </div>
+                </div>
               ))}
             </div>
 
@@ -459,7 +574,15 @@ function RegistrationFormInner() {
                   Tickets ({ticketQuantity}):{" "}
                   {formatPrice(totals.ticketTotal, totals.currency, totals.currencySymbol)}
                 </p>
-                {totals.addOnTotal > 0 && <p>Add-ons: ${totals.addOnTotal} USD</p>}
+                {totals.addOns.map((item) => {
+                  const addOn = ADD_ONS.find((entry) => entry.id === item.id);
+                  if (!addOn) return null;
+                  return (
+                    <p key={item.id}>
+                      {addOn.label} × {item.quantity}: ${addOn.price * item.quantity} USD
+                    </p>
+                  );
+                })}
                 <Separator className="my-2" />
                 <p className="font-semibold text-primary">
                   Total: {formatPrice(totals.grandTotal, totals.currency, totals.currencySymbol)}
@@ -468,11 +591,20 @@ function RegistrationFormInner() {
               </CardContent>
             </Card>
           </CardContent>
-          <CardFooter className="gap-3">
-            <Button variant="outline" onClick={() => setStep("region")}>
+          <CardFooter className="flex-col-reverse gap-3 sm:flex-row">
+            <Button
+              variant="outline"
+              className="w-full sm:w-auto"
+              onClick={() => setStep("region")}
+            >
               Back
             </Button>
-            <Button onClick={() => setStep("payment")}>Continue to Payment</Button>
+            <Button
+              className="w-full sm:w-auto"
+              onClick={() => setStep("payment")}
+            >
+              Continue to Payment
+            </Button>
           </CardFooter>
         </Card>
       )}
@@ -496,11 +628,19 @@ function RegistrationFormInner() {
               </AlertDescription>
             </Alert>
           </CardContent>
-          <CardFooter className="gap-3">
-            <Button variant="outline" onClick={() => setStep("details")}>
+          <CardFooter className="flex-col-reverse gap-3 sm:flex-row">
+            <Button
+              variant="outline"
+              className="w-full sm:w-auto"
+              onClick={() => setStep("details")}
+            >
               Back
             </Button>
-            <Button onClick={handleSubmit} disabled={loading || !consent}>
+            <Button
+              className="w-full sm:w-auto"
+              onClick={handleSubmit}
+              disabled={loading || !consent}
+            >
               {loading ? "Processing..." : "Complete Registration"}
             </Button>
           </CardFooter>

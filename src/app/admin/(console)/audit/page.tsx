@@ -29,12 +29,6 @@ export default function AdminAuditPage() {
 
   return (
     <div className="w-full min-w-0 space-y-4">
-      <div>
-        <h2 className="text-lg font-semibold tracking-tight">Audit log</h2>
-        <p className="text-sm text-muted-foreground">
-          Recent admin actions across payments, team, content, and email ops.
-        </p>
-      </div>
       <DataTable
         columns={auditLogColumns}
         data={logs ?? []}

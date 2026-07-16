@@ -251,7 +251,7 @@ export const seed = mutation({
     if (!existingAnnouncement) {
       await ctx.db.insert("announcements", {
         title: "Registration Now Open",
-        body: "Register early for Mountain of the Lord — The Homecoming, November 3–8, 2026 at Anagkazo Campus, Mampong, Ghana.",
+        body: "Register early for Mountain of the Lord — The Homecoming, November 2–8, 2026 at Anagkazo Campus, Mampong, Ghana.",
         active: true,
         createdAt: Date.now(),
       });
@@ -317,7 +317,7 @@ export const seedPublic = mutation({
     });
     await ctx.db.insert("announcements", {
       title: "Registration Now Open",
-      body: "Register early for Mountain of the Lord — The Homecoming, November 3–8, 2026 at Anagkazo Campus, Mampong, Ghana.",
+      body: "Register early for Mountain of the Lord — The Homecoming, November 2–8, 2026 at Anagkazo Campus, Mampong, Ghana.",
       active: true,
       createdAt: Date.now(),
     });
