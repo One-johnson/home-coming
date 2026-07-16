@@ -1,19 +1,34 @@
 "use client";
 
 import { useMutation, useQuery } from "convex/react";
+import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import type { Doc, Id } from "@convex/_generated/dataModel";
-import { LinkButton as Button } from "@/components/ui/app-button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
+import { ConfirmDeleteDialog } from "@/components/admin/ConfirmDeleteDialog";
 import {
   useAdminSession,
   useSessionArgs,
 } from "@/components/admin/AdminSessionProvider";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import { LinkButton as Button } from "@/components/ui/app-button";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { canAccessArea } from "@/lib/adminRoles";
 
 export default function AdminContentPage() {
@@ -31,6 +46,7 @@ export default function AdminContentPage() {
 
   const upsertFaq = useMutation(api.content.upsertFaq);
   const deleteFaq = useMutation(api.content.deleteFaq);
+  const bulkDeleteFaqs = useMutation(api.content.bulkDeleteFaqs);
   const upsertStat = useMutation(api.content.upsertStat);
   const deleteStat = useMutation(api.content.deleteStat);
   const upsertAnnouncement = useMutation(api.content.upsertAnnouncement);
@@ -44,6 +60,15 @@ export default function AdminContentPage() {
     order: 1,
   });
   const [editingFaq, setEditingFaq] = useState<Id<"faqs"> | null>(null);
+  const [selectedFaqIds, setSelectedFaqIds] = useState<Set<Id<"faqs">>>(
+    new Set(),
+  );
+  const [faqDeleteTarget, setFaqDeleteTarget] = useState<
+    | { type: "single"; id: Id<"faqs">; question: string }
+    | { type: "bulk" }
+    | null
+  >(null);
+  const [deletingFaqs, setDeletingFaqs] = useState(false);
   const [statForm, setStatForm] = useState({ label: "", value: "", order: 1 });
   const [editingStat, setEditingStat] = useState<Id<"stats"> | null>(null);
   const [announcementForm, setAnnouncementForm] = useState({
@@ -108,6 +133,72 @@ export default function AdminContentPage() {
       active: a.active,
     });
   };
+
+  const toggleFaqSelected = (id: Id<"faqs">) => {
+    setSelectedFaqIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAllFaqs = () => {
+    if (!faqs?.length) return;
+    if (selectedFaqIds.size === faqs.length) {
+      setSelectedFaqIds(new Set());
+      return;
+    }
+    setSelectedFaqIds(new Set(faqs.map((faq) => faq._id)));
+  };
+
+  const handleConfirmFaqDelete = async () => {
+    if (!sessionToken || !faqDeleteTarget) return;
+    setDeletingFaqs(true);
+    try {
+      if (faqDeleteTarget.type === "single") {
+        await deleteFaq({ sessionToken, id: faqDeleteTarget.id });
+        setSelectedFaqIds((current) => {
+          const next = new Set(current);
+          next.delete(faqDeleteTarget.id);
+          return next;
+        });
+        if (editingFaq === faqDeleteTarget.id) {
+          setEditingFaq(null);
+          setFaqForm({
+            category: "Registration",
+            question: "",
+            answer: "",
+            order: 1,
+          });
+        }
+        toast.success("FAQ deleted");
+      } else {
+        const ids = [...selectedFaqIds];
+        const result = await bulkDeleteFaqs({ sessionToken, ids });
+        setSelectedFaqIds(new Set());
+        if (editingFaq && ids.includes(editingFaq)) {
+          setEditingFaq(null);
+          setFaqForm({
+            category: "Registration",
+            question: "",
+            answer: "",
+            order: 1,
+          });
+        }
+        toast.success(
+          `Deleted ${result.deleted} FAQ${result.deleted === 1 ? "" : "s"}`,
+        );
+      }
+      setFaqDeleteTarget(null);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Delete failed");
+    } finally {
+      setDeletingFaqs(false);
+    }
+  };
+
+  const faqCount = faqs?.length ?? 0;
 
   return (
     <div className="space-y-6">
@@ -190,52 +281,100 @@ export default function AdminContentPage() {
               </div>
             </form>
 
-            <div className="mt-6 space-y-3">
-              {(faqs ?? []).map((faq) => (
-                <div
-                  key={faq._id}
-                  className="rounded-lg border border-border p-3"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <Badge variant="secondary">{faq.category}</Badge>
-                      <p className="mt-2 font-medium">{faq.question}</p>
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        {faq.answer}
+            <Accordion className="mt-6">
+              <AccordionItem value="faqs-list">
+                <AccordionTrigger>
+                  Existing FAQs ({faqCount})
+                </AccordionTrigger>
+                <AccordionContent>
+                  <div className="space-y-3 pt-1">
+                    {faqCount > 0 && (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={toggleSelectAllFaqs}
+                        >
+                          {selectedFaqIds.size === faqCount
+                            ? "Clear selection"
+                            : "Select all"}
+                        </Button>
+                        {selectedFaqIds.size > 0 && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => setFaqDeleteTarget({ type: "bulk" })}
+                          >
+                            Delete selected ({selectedFaqIds.size})
+                          </Button>
+                        )}
+                      </div>
+                    )}
+
+                    {(faqs ?? []).map((faq) => {
+                      const selected = selectedFaqIds.has(faq._id);
+                      return (
+                        <div
+                          key={faq._id}
+                          className="rounded-lg border border-border p-3"
+                        >
+                          <div className="flex items-start gap-3">
+                            <Checkbox
+                              checked={selected}
+                              onCheckedChange={() => toggleFaqSelected(faq._id)}
+                              aria-label={`Select ${faq.question}`}
+                              className="mt-1"
+                            />
+                            <div className="min-w-0 flex-1">
+                              <Badge variant="secondary">{faq.category}</Badge>
+                              <p className="mt-2 font-medium">{faq.question}</p>
+                              <p className="mt-1 text-sm text-muted-foreground">
+                                {faq.answer}
+                              </p>
+                            </div>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg border border-border bg-background hover:bg-muted">
+                                <MoreHorizontal className="size-4" />
+                                <span className="sr-only">FAQ actions</span>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem
+                                  onClick={() => startEditFaq(faq)}
+                                >
+                                  <Pencil />
+                                  Edit
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  variant="destructive"
+                                  onClick={() =>
+                                    setFaqDeleteTarget({
+                                      type: "single",
+                                      id: faq._id,
+                                      question: faq.question,
+                                    })
+                                  }
+                                >
+                                  <Trash2 />
+                                  Delete
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {faqCount === 0 && (
+                      <p className="text-sm text-muted-foreground">
+                        No FAQs yet.
                       </p>
-                    </div>
-                    <div className="flex shrink-0 gap-1">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => startEditFaq(faq)}
-                      >
-                        Edit
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={async () => {
-                          if (!sessionToken) return;
-                          try {
-                            await deleteFaq({ sessionToken, id: faq._id });
-                            toast.success("FAQ deleted");
-                          } catch (err) {
-                            toast.error(
-                              err instanceof Error
-                                ? err.message
-                                : "Delete failed",
-                            );
-                          }
-                        }}
-                      >
-                        Delete
-                      </Button>
-                    </div>
+                    )}
                   </div>
-                </div>
-              ))}
-            </div>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
           </CardContent>
         </Card>
 
@@ -308,34 +447,37 @@ export default function AdminContentPage() {
                   <p className="text-sm">
                     {stat.label}: <strong>{stat.value}</strong>
                   </p>
-                  <div className="flex gap-1">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => startEditStat(stat)}
-                    >
-                      Edit
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={async () => {
-                        if (!sessionToken) return;
-                        try {
-                          await deleteStat({ sessionToken, id: stat._id });
-                          toast.success("Stat deleted");
-                        } catch (err) {
-                          toast.error(
-                            err instanceof Error
-                              ? err.message
-                              : "Delete failed",
-                          );
-                        }
-                      }}
-                    >
-                      Delete
-                    </Button>
-                  </div>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger className="inline-flex size-8 items-center justify-center rounded-lg border border-border bg-background hover:bg-muted">
+                      <MoreHorizontal className="size-4" />
+                      <span className="sr-only">Stat actions</span>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => startEditStat(stat)}>
+                        <Pencil />
+                        Edit
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        variant="destructive"
+                        onClick={async () => {
+                          if (!sessionToken) return;
+                          try {
+                            await deleteStat({ sessionToken, id: stat._id });
+                            toast.success("Stat deleted");
+                          } catch (err) {
+                            toast.error(
+                              err instanceof Error
+                                ? err.message
+                                : "Delete failed",
+                            );
+                          }
+                        }}
+                      >
+                        <Trash2 />
+                        Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
               ))}
             </div>
@@ -447,37 +589,42 @@ export default function AdminContentPage() {
                         {a.body}
                       </p>
                     </div>
-                    <div className="flex shrink-0 gap-1">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => startEditAnnouncement(a)}
-                      >
-                        Edit
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={async () => {
-                          if (!sessionToken) return;
-                          try {
-                            await deleteAnnouncement({
-                              sessionToken,
-                              id: a._id,
-                            });
-                            toast.success("Announcement deleted");
-                          } catch (err) {
-                            toast.error(
-                              err instanceof Error
-                                ? err.message
-                                : "Delete failed",
-                            );
-                          }
-                        }}
-                      >
-                        Delete
-                      </Button>
-                    </div>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg border border-border bg-background hover:bg-muted">
+                        <MoreHorizontal className="size-4" />
+                        <span className="sr-only">Announcement actions</span>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                          onClick={() => startEditAnnouncement(a)}
+                        >
+                          <Pencil />
+                          Edit
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          variant="destructive"
+                          onClick={async () => {
+                            if (!sessionToken) return;
+                            try {
+                              await deleteAnnouncement({
+                                sessionToken,
+                                id: a._id,
+                              });
+                              toast.success("Announcement deleted");
+                            } catch (err) {
+                              toast.error(
+                                err instanceof Error
+                                  ? err.message
+                                  : "Delete failed",
+                              );
+                            }
+                          }}
+                        >
+                          <Trash2 />
+                          Delete
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 </div>
               ))}
@@ -532,6 +679,30 @@ export default function AdminContentPage() {
           </CardContent>
         </Card>
       </div>
+
+      <ConfirmDeleteDialog
+        open={faqDeleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setFaqDeleteTarget(null);
+        }}
+        title={
+          faqDeleteTarget?.type === "bulk"
+            ? `Delete ${selectedFaqIds.size} FAQ${selectedFaqIds.size === 1 ? "" : "s"}?`
+            : "Delete FAQ?"
+        }
+        description={
+          faqDeleteTarget?.type === "bulk"
+            ? "Selected FAQs will be permanently removed."
+            : `“${faqDeleteTarget?.question ?? "This FAQ"}” will be permanently removed.`
+        }
+        confirmLabel={
+          faqDeleteTarget?.type === "bulk"
+            ? `Delete ${selectedFaqIds.size}`
+            : "Delete FAQ"
+        }
+        loading={deletingFaqs}
+        onConfirm={handleConfirmFaqDelete}
+      />
     </div>
   );
 }

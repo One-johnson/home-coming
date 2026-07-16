@@ -84,6 +84,46 @@ export const createGallery = mutation({
   },
 });
 
+export const updateGallery = mutation({
+  args: {
+    sessionToken: sessionTokenValidator,
+    id: v.id("galleries"),
+    year: v.number(),
+    theme: v.string(),
+    title: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, args.sessionToken, ["admin", "content"]);
+    const existing = await ctx.db.get(args.id);
+    if (!existing) {
+      throw new Error("Gallery not found");
+    }
+    await ctx.db.patch(args.id, {
+      year: args.year,
+      theme: args.theme.trim(),
+      title: args.title.trim(),
+    });
+  },
+});
+
+export const updateGalleryImage = mutation({
+  args: {
+    sessionToken: sessionTokenValidator,
+    id: v.id("galleryImages"),
+    caption: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, args.sessionToken, ["admin", "content"]);
+    const image = await ctx.db.get(args.id);
+    if (!image) {
+      throw new Error("Image not found");
+    }
+    await ctx.db.patch(args.id, {
+      caption: args.caption?.trim() || undefined,
+    });
+  },
+});
+
 export const addGalleryImage = mutation({
   args: {
     sessionToken: sessionTokenValidator,
@@ -277,6 +317,32 @@ export const deleteGalleryImage = mutation({
     }
 
     await ctx.db.delete(args.id);
+  },
+});
+
+export const bulkDeleteGalleryImages = mutation({
+  args: {
+    sessionToken: sessionTokenValidator,
+    ids: v.array(v.id("galleryImages")),
+  },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, args.sessionToken, ["admin", "content"]);
+    if (args.ids.length === 0) {
+      throw new Error("Select at least one image");
+    }
+
+    let deleted = 0;
+    for (const id of args.ids) {
+      const image = await ctx.db.get(id);
+      if (!image) continue;
+      if (image.storageId) {
+        await ctx.storage.delete(image.storageId);
+      }
+      await ctx.db.delete(id);
+      deleted += 1;
+    }
+
+    return { deleted };
   },
 });
 
