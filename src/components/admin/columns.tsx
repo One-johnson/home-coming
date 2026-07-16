@@ -168,6 +168,87 @@ export function bookingExportRow(b: Doc<"housingBookings">) {
   };
 }
 
+export const tourOrderColumns: ColumnDef<Doc<"tourOrders">>[] = [
+  {
+    accessorKey: "referenceNumber",
+    header: "Reference",
+    cell: ({ row }) => (
+      <span className="font-mono text-xs">
+        {row.original.referenceNumber ?? "—"}
+      </span>
+    ),
+  },
+  { accessorKey: "fullName", header: "Name" },
+  { accessorKey: "email", header: "Email" },
+  {
+    accessorKey: "region",
+    header: "Region",
+    filterFn: multiSelectFilter,
+  },
+  {
+    id: "items",
+    accessorFn: (row) =>
+      row.items.map((item) => `${item.label}×${item.quantity}`).join(", "),
+    header: "Packages",
+    cell: ({ row }) => (
+      <span className="text-xs text-muted-foreground">
+        {row.original.items
+          .map((item) => `${item.label} × ${item.quantity}`)
+          .join("; ")}
+      </span>
+    ),
+  },
+  {
+    id: "total",
+    accessorFn: (row) => row.totalAmount,
+    header: "Total",
+    cell: ({ row }) => `$${row.original.totalAmount}`,
+  },
+  {
+    accessorKey: "gateway",
+    header: "Gateway",
+    cell: ({ row }) => (
+      <span className="capitalize">{row.original.gateway}</span>
+    ),
+  },
+  {
+    accessorKey: "paymentStatus",
+    header: "Status",
+    filterFn: multiSelectFilter,
+    cell: ({ row }) => (
+      <PaymentStatusBadge status={row.original.paymentStatus} />
+    ),
+  },
+  {
+    accessorKey: "createdAt",
+    header: "Created",
+    cell: ({ row }) => (
+      <span className="text-muted-foreground">
+        {formatDate(row.original.createdAt)}
+      </span>
+    ),
+  },
+];
+
+export function tourOrderExportRow(o: Doc<"tourOrders">) {
+  return {
+    reference: o.referenceNumber ?? "",
+    name: o.fullName,
+    email: o.email,
+    phone: `${o.countryCode} ${o.phone}`,
+    region: o.region,
+    group: o.groupName ?? "",
+    items: o.items
+      .map((item) => `${item.label} x${item.quantity}@${item.unitPrice}`)
+      .join("; "),
+    total: o.totalAmount,
+    currency: o.currency,
+    gateway: o.gateway,
+    status: o.paymentStatus,
+    createdAt: new Date(o.createdAt).toISOString(),
+  };
+}
+
 export const emailLogColumns: ColumnDef<Doc<"emailLogs">>[] = [
   { accessorKey: "to", header: "To" },
   { accessorKey: "subject", header: "Subject" },

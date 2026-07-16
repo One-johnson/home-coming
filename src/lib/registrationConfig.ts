@@ -125,13 +125,6 @@ export type AddOnSelection = {
 
 export const ADD_ONS: AddOnConfig[] = [
   {
-    id: "tours",
-    label: "Tours",
-    price: 40,
-    currency: "USD",
-    description: "Guided tours during the convention.",
-  },
-  {
     id: "vip_meals",
     label: "VIP Meals",
     price: 100,

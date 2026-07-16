@@ -1,6 +1,6 @@
 import type { MutationCtx } from "../_generated/server";
 
-export type ReferenceKind = "registration" | "stay";
+export type ReferenceKind = "registration" | "stay" | "tour";
 
 const DIGIT_LENGTH = 5;
 const MAX_SUFFIX = 10 ** DIGIT_LENGTH; // 100_000 codes: HC00000–HC99999
@@ -20,7 +20,7 @@ function randomDigits() {
 export async function createUniqueReferenceNumber(
   ctx: MutationCtx,
   _kind: ReferenceKind,
-  table: "registrations" | "housingBookings",
+  table: "registrations" | "housingBookings" | "tourOrders",
 ) {
   for (let attempt = 0; attempt < 40; attempt++) {
     const referenceNumber = formatReferenceNumber(randomDigits());

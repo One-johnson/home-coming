@@ -92,10 +92,20 @@ export const listAnnouncementsAdmin = query({
 export const getAbout = query({
   args: {},
   handler: async (ctx) => {
-    return await ctx.db
+    const about = await ctx.db
       .query("aboutContent")
       .withIndex("by_slug", (q) => q.eq("slug", "about"))
       .first();
+    if (!about) return null;
+
+    let firstLadyImageUrl: string | null = null;
+    if (about.firstLadyImageStorageId) {
+      firstLadyImageUrl = await ctx.storage.getUrl(
+        about.firstLadyImageStorageId,
+      );
+    }
+
+    return { ...about, firstLadyImageUrl };
   },
 });
 
@@ -323,10 +333,27 @@ export const upsertAbout = mutation({
     vision: v.string(),
     impact: v.string(),
     firstLadyMessage: v.string(),
+    firstLadyImageStorageId: v.optional(v.id("_storage")),
+    removeFirstLadyImage: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const actor = await requireRole(ctx, args.sessionToken, ["admin", "content"]);
-    const content = {
+    const existing = await ctx.db
+      .query("aboutContent")
+      .withIndex("by_slug", (q) => q.eq("slug", "about"))
+      .first();
+
+    if (args.removeFirstLadyImage && existing?.firstLadyImageStorageId) {
+      await ctx.storage.delete(existing.firstLadyImageStorageId);
+    } else if (
+      args.firstLadyImageStorageId &&
+      existing?.firstLadyImageStorageId &&
+      existing.firstLadyImageStorageId !== args.firstLadyImageStorageId
+    ) {
+      await ctx.storage.delete(existing.firstLadyImageStorageId);
+    }
+
+    const base = {
       history: args.history,
       purpose: args.purpose,
       vision: args.vision,
@@ -334,13 +361,15 @@ export const upsertAbout = mutation({
       firstLadyMessage: args.firstLadyMessage,
       updatedAt: Date.now(),
     };
-    const existing = await ctx.db
-      .query("aboutContent")
-      .withIndex("by_slug", (q) => q.eq("slug", "about"))
-      .first();
 
     if (existing) {
-      await ctx.db.patch(existing._id, content);
+      await ctx.db.patch(existing._id, {
+        ...base,
+        firstLadyImageStorageId: args.removeFirstLadyImage
+          ? undefined
+          : (args.firstLadyImageStorageId ??
+            existing.firstLadyImageStorageId),
+      });
       await writeAuditLog(ctx, {
         actorUserId: actor._id,
         actorEmail: actor.email,
@@ -354,7 +383,10 @@ export const upsertAbout = mutation({
 
     const id = await ctx.db.insert("aboutContent", {
       slug: "about",
-      ...content,
+      ...base,
+      ...(args.firstLadyImageStorageId
+        ? { firstLadyImageStorageId: args.firstLadyImageStorageId }
+        : {}),
     });
     await writeAuditLog(ctx, {
       actorUserId: actor._id,

@@ -1,8 +1,9 @@
 "use client";
 
+import Image from "next/image";
 import { useMutation, useQuery } from "convex/react";
 import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import type { Doc, Id } from "@convex/_generated/dataModel";
@@ -28,8 +29,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { canAccessArea } from "@/lib/adminRoles";
+import { uploadFileToConvex } from "@/lib/galleryUpload";
 
 export default function AdminContentPage() {
   const { user, sessionToken } = useAdminSession();
@@ -52,7 +55,9 @@ export default function AdminContentPage() {
   const upsertAnnouncement = useMutation(api.content.upsertAnnouncement);
   const deleteAnnouncement = useMutation(api.content.deleteAnnouncement);
   const upsertAbout = useMutation(api.content.upsertAbout);
+  const generateUploadUrl = useMutation(api.galleryStorage.generateUploadUrl);
 
+  const welcomeImageInputRef = useRef<HTMLInputElement>(null);
   const [faqForm, setFaqForm] = useState({
     category: "Registration",
     question: "",
@@ -86,6 +91,14 @@ export default function AdminContentPage() {
     impact: "",
     firstLadyMessage: "",
   });
+  const [welcomeImagePreview, setWelcomeImagePreview] = useState<string | null>(
+    null,
+  );
+  const [pendingWelcomeFile, setPendingWelcomeFile] = useState<File | null>(
+    null,
+  );
+  const [removeWelcomeImage, setRemoveWelcomeImage] = useState(false);
+  const [savingAbout, setSavingAbout] = useState(false);
 
   useEffect(() => {
     if (!about) return;
@@ -96,7 +109,18 @@ export default function AdminContentPage() {
       impact: about.impact,
       firstLadyMessage: about.firstLadyMessage,
     });
-  }, [about]);
+    if (!pendingWelcomeFile) {
+      setWelcomeImagePreview(about.firstLadyImageUrl ?? null);
+      setRemoveWelcomeImage(false);
+    }
+  }, [about, pendingWelcomeFile]);
+
+  useEffect(() => {
+    if (!pendingWelcomeFile) return;
+    const objectUrl = URL.createObjectURL(pendingWelcomeFile);
+    setWelcomeImagePreview(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [pendingWelcomeFile]);
 
   if (!allowed) {
     return (
@@ -638,32 +662,53 @@ export default function AdminContentPage() {
           </CardHeader>
           <CardContent>
             <form
-              className="space-y-3"
+              className="space-y-4"
               onSubmit={async (e) => {
                 e.preventDefault();
                 if (!sessionToken) return;
+                setSavingAbout(true);
                 try {
-                  await upsertAbout({ sessionToken, ...aboutForm });
+                  let firstLadyImageStorageId:
+                    | Id<"_storage">
+                    | undefined;
+                  if (pendingWelcomeFile) {
+                    firstLadyImageStorageId = await uploadFileToConvex(
+                      pendingWelcomeFile,
+                      () => generateUploadUrl({ sessionToken }),
+                    );
+                  }
+
+                  await upsertAbout({
+                    sessionToken,
+                    ...aboutForm,
+                    ...(firstLadyImageStorageId
+                      ? { firstLadyImageStorageId }
+                      : {}),
+                    ...(removeWelcomeImage && !pendingWelcomeFile
+                      ? { removeFirstLadyImage: true }
+                      : {}),
+                  });
+                  setPendingWelcomeFile(null);
+                  setRemoveWelcomeImage(false);
+                  if (welcomeImageInputRef.current) {
+                    welcomeImageInputRef.current.value = "";
+                  }
                   toast.success("About page saved");
                 } catch (err) {
                   toast.error(
                     err instanceof Error ? err.message : "Failed to save about",
                   );
+                } finally {
+                  setSavingAbout(false);
                 }
               }}
             >
               {(
-                [
-                  "history",
-                  "purpose",
-                  "vision",
-                  "impact",
-                  "firstLadyMessage",
-                ] as const
+                ["history", "purpose", "vision", "impact"] as const
               ).map((key) => (
                 <div key={key}>
                   <label className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                    {key === "firstLadyMessage" ? "First lady message" : key}
+                    {key}
                   </label>
                   <Textarea
                     className="mt-1"
@@ -674,7 +719,85 @@ export default function AdminContentPage() {
                   />
                 </div>
               ))}
-              <Button type="submit">Save about page</Button>
+
+              <div className="space-y-3 rounded-lg border border-border p-3">
+                <div>
+                  <p className="text-sm font-medium">Word of Welcome</p>
+                  <p className="text-xs text-muted-foreground">
+                    Image and message shown in the “From the First Lady”
+                    section on the public About page.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="welcome-image">Welcome image</Label>
+                  {welcomeImagePreview ? (
+                    <div className="relative aspect-[4/3] max-w-sm overflow-hidden rounded-lg border bg-muted">
+                      <Image
+                        src={welcomeImagePreview}
+                        alt="Word of Welcome preview"
+                        fill
+                        className="object-cover"
+                        sizes="384px"
+                        unoptimized={welcomeImagePreview.startsWith("blob:")}
+                      />
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      No image uploaded yet.
+                    </p>
+                  )}
+                  <Input
+                    id="welcome-image"
+                    ref={welcomeImageInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0] ?? null;
+                      setPendingWelcomeFile(file);
+                      setRemoveWelcomeImage(false);
+                    }}
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    {(welcomeImagePreview || pendingWelcomeFile) && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setPendingWelcomeFile(null);
+                          setRemoveWelcomeImage(true);
+                          setWelcomeImagePreview(null);
+                          if (welcomeImageInputRef.current) {
+                            welcomeImageInputRef.current.value = "";
+                          }
+                        }}
+                      >
+                        Remove image
+                      </Button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="welcome-message">Welcome message</Label>
+                  <Textarea
+                    id="welcome-message"
+                    rows={5}
+                    value={aboutForm.firstLadyMessage}
+                    onChange={(e) =>
+                      setAboutForm({
+                        ...aboutForm,
+                        firstLadyMessage: e.target.value,
+                      })
+                    }
+                  />
+                </div>
+              </div>
+
+              <Button type="submit" disabled={savingAbout}>
+                {savingAbout ? "Saving…" : "Save about page"}
+              </Button>
             </form>
           </CardContent>
         </Card>

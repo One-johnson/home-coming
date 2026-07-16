@@ -42,6 +42,7 @@ export const NAV_LINKS: {
   { href: "/about", label: "About" },
   { href: "https://daghewardmills.org", label: "Dag Heward-Mills", external: true },
   { href: "/registration", label: "Registration" },
+  { href: "/tours", label: "Tours" },
   { href: "/accommodation", label: "Accommodation" },
   { href: "/gallery", label: "Gallery" },
   { href: "/messages", label: "Messages" },

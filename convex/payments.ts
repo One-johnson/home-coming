@@ -5,6 +5,7 @@ export const initiatePaystackPayment = mutation({
   args: {
     registrationId: v.optional(v.id("registrations")),
     bookingId: v.optional(v.id("housingBookings")),
+    tourOrderId: v.optional(v.id("tourOrders")),
     email: v.string(),
     amount: v.number(),
     currency: v.string(),
@@ -22,6 +23,12 @@ export const initiatePaystackPayment = mutation({
       }
       if (args.bookingId) {
         await ctx.db.patch(args.bookingId, {
+          paymentStatus: "mock_paid",
+          paymentReference: reference,
+        });
+      }
+      if (args.tourOrderId) {
+        await ctx.db.patch(args.tourOrderId, {
           paymentStatus: "mock_paid",
           paymentReference: reference,
         });
@@ -48,6 +55,7 @@ export const initiatePaypalPayment = mutation({
   args: {
     registrationId: v.optional(v.id("registrations")),
     bookingId: v.optional(v.id("housingBookings")),
+    tourOrderId: v.optional(v.id("tourOrders")),
     amount: v.number(),
     currency: v.string(),
   },
@@ -64,6 +72,12 @@ export const initiatePaypalPayment = mutation({
       }
       if (args.bookingId) {
         await ctx.db.patch(args.bookingId, {
+          paymentStatus: "mock_paid",
+          paymentReference: reference,
+        });
+      }
+      if (args.tourOrderId) {
+        await ctx.db.patch(args.tourOrderId, {
           paymentStatus: "mock_paid",
           paymentReference: reference,
         });
@@ -89,13 +103,22 @@ export const confirmPayment = internalMutation({
   args: {
     reference: v.string(),
     status: v.union(v.literal("paid"), v.literal("failed")),
-    type: v.union(v.literal("registration"), v.literal("booking")),
+    type: v.union(
+      v.literal("registration"),
+      v.literal("booking"),
+      v.literal("tour"),
+    ),
     recordId: v.string(),
   },
   handler: async (ctx, args) => {
     const paymentStatus = args.status === "paid" ? "paid" : "failed";
 
     if (args.type === "registration") {
+      await ctx.db.patch(args.recordId as never, {
+        paymentStatus,
+        paymentReference: args.reference,
+      });
+    } else if (args.type === "booking") {
       await ctx.db.patch(args.recordId as never, {
         paymentStatus,
         paymentReference: args.reference,

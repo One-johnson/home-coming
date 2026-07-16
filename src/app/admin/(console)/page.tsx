@@ -131,6 +131,15 @@ export default function AdminOverviewPage() {
         description={`Welcome back${firstName ? `, ${firstName}` : ""}. ${EVENT.dates} · ${EVENT.location}`}
         actions={
           <>
+            <Button
+              size="sm"
+              variant="outline"
+              nativeButton={false}
+              render={<Link href="/" target="_blank" rel="noopener noreferrer" />}
+            >
+              View public site
+              <ArrowUpRight className="size-4" />
+            </Button>
             {canRegistration && (
               <Button
                 size="sm"

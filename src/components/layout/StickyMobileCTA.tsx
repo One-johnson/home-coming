@@ -4,7 +4,7 @@ import { usePathname } from "next/navigation";
 import { LinkButton as Button } from "@/components/ui/app-button";
 import { Separator } from "@/components/ui/separator";
 
-const HIDDEN_PATHS = ["/registration", "/accommodation"];
+const HIDDEN_PATHS = ["/registration", "/tours", "/accommodation"];
 
 export function StickyMobileCTA() {
   const pathname = usePathname();
