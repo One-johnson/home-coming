@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { createUniqueReferenceNumber } from "./lib/referenceNumbers";
 import { writeAuditLog } from "./lib/audit";
+import { queuePaymentConfirmation } from "./lib/paymentEmail";
 import { requireRole, sessionTokenValidator } from "./users";
 
 const paymentStatusValidator = v.union(
@@ -110,15 +111,9 @@ export const createBooking = mutation({
       booked: housing.booked + 1,
     });
 
-    await ctx.db.insert("emailLogs", {
-      to: args.guestEmail.trim().toLowerCase(),
-      subject: "Homecoming Accommodation Confirmation",
-      body: `Thank you for booking ${housing.type} accommodation. Your booking reference is ${referenceNumber}.`,
-      type: "accommodation_confirmation",
-      referenceId: bookingId,
-      status: "stub",
-      createdAt: Date.now(),
-    });
+    if (args.mockPayment) {
+      await queuePaymentConfirmation(ctx, "booking", bookingId, "mock_paid");
+    }
 
     return { id: bookingId, referenceNumber };
   },
@@ -223,6 +218,14 @@ export const updateBookingPaymentStatus = mutation({
       paymentReference: args.paymentReference,
     });
 
+    await queuePaymentConfirmation(
+      ctx,
+      "booking",
+      args.id,
+      args.paymentStatus,
+      existing.paymentStatus,
+    );
+
     await writeAuditLog(ctx, {
       actorUserId: actor._id,
       actorEmail: actor.email,
@@ -254,6 +257,13 @@ export const bulkUpdateBookingPaymentStatus = mutation({
       const existing = await ctx.db.get(id);
       if (!existing) continue;
       await ctx.db.patch(id, { paymentStatus: args.paymentStatus });
+      await queuePaymentConfirmation(
+        ctx,
+        "booking",
+        id,
+        args.paymentStatus,
+        existing.paymentStatus,
+      );
       updated += 1;
     }
 

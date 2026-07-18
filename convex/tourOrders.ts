@@ -7,6 +7,7 @@ import {
 } from "./lib/registrationConfig";
 import { createUniqueReferenceNumber } from "./lib/referenceNumbers";
 import { writeAuditLog } from "./lib/audit";
+import { queuePaymentConfirmation } from "./lib/paymentEmail";
 import { requireRole, sessionTokenValidator } from "./users";
 
 const paymentStatusValidator = v.union(
@@ -123,15 +124,9 @@ export const create = mutation({
       createdAt: Date.now(),
     });
 
-    await ctx.db.insert("emailLogs", {
-      to: args.email.trim().toLowerCase(),
-      subject: "Homecoming Tour Order Confirmation",
-      body: `Thank you for booking Homecoming tours. Your order reference is ${referenceNumber}. Total: $${grandTotal} USD. Payment status: ${args.mockPayment ? "Confirmed (mock)" : "Pending"}.`,
-      type: "tour_confirmation",
-      referenceId: tourOrderId,
-      status: "stub",
-      createdAt: Date.now(),
-    });
+    if (args.mockPayment) {
+      await queuePaymentConfirmation(ctx, "tour", tourOrderId, "mock_paid");
+    }
 
     return {
       id: tourOrderId,
@@ -183,6 +178,14 @@ export const updatePaymentStatus = mutation({
       paymentReference: args.paymentReference,
     });
 
+    await queuePaymentConfirmation(
+      ctx,
+      "tour",
+      args.id,
+      args.paymentStatus,
+      existing.paymentStatus,
+    );
+
     await writeAuditLog(ctx, {
       actorUserId: actor._id,
       actorEmail: actor.email,
@@ -214,6 +217,13 @@ export const bulkUpdatePaymentStatus = mutation({
       const existing = await ctx.db.get(id);
       if (!existing) continue;
       await ctx.db.patch(id, { paymentStatus: args.paymentStatus });
+      await queuePaymentConfirmation(
+        ctx,
+        "tour",
+        id,
+        args.paymentStatus,
+        existing.paymentStatus,
+      );
       updated += 1;
     }
 

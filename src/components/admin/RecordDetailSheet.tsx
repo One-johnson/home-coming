@@ -9,7 +9,6 @@ import {
 } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
 import { useIsCompact } from "@/hooks/use-media-query";
 import { paymentStatusBadgeClass } from "@/lib/adminColors";
 import { cn } from "@/lib/utils";
@@ -17,6 +16,8 @@ import { cn } from "@/lib/utils";
 export type DetailField = {
   label: string;
   value: React.ReactNode;
+  /** Render the value in a monospace, pre-wrapped block (e.g. email bodies). */
+  block?: boolean;
 };
 
 type RecordDetailSheetProps = {
@@ -43,10 +44,10 @@ export function RecordDetailSheet({
       <SheetContent
         side={isCompact ? "bottom" : "right"}
         className={cn(
-          "w-full gap-0 overflow-y-auto p-0",
+          "flex w-full flex-col gap-0 p-0",
           isCompact
             ? "max-h-[90dvh] rounded-t-2xl sm:max-w-none"
-            : "sm:max-w-md",
+            : "sm:max-w-lg",
         )}
       >
         {isCompact ? (
@@ -55,34 +56,46 @@ export function RecordDetailSheet({
             aria-hidden
           />
         ) : null}
-        <SheetHeader className="space-y-1 border-b border-border px-4 py-4 pr-14 sm:px-6 sm:py-5">
-          <SheetTitle className="pr-2 text-lg leading-snug">{title}</SheetTitle>
+        <SheetHeader className="shrink-0 space-y-1.5 border-b border-border bg-muted/30 px-4 py-4 pr-14 sm:px-6 sm:py-5">
+          <SheetTitle className="pr-2 text-lg leading-snug text-ink">
+            {title}
+          </SheetTitle>
           {description ? (
             <SheetDescription className="font-mono text-sm tracking-wide">
               {description}
             </SheetDescription>
           ) : null}
         </SheetHeader>
-        <div className="space-y-5 px-4 py-5 sm:px-6">
-          {fields.map((field) => (
-            <div key={field.label} className="space-y-1.5">
-              <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                {field.label}
-              </p>
-              <div className="text-sm leading-relaxed break-words text-ink sm:text-base">
-                {field.value}
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-5 sm:px-6">
+          <dl className="overflow-hidden rounded-xl border border-border divide-y divide-border">
+            {fields.map((field) => (
+              <div
+                key={field.label}
+                className="grid gap-1 px-4 py-3 transition-colors even:bg-muted/20 hover:bg-muted/40"
+              >
+                <dt className="text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
+                  {field.label}
+                </dt>
+                <dd
+                  className={cn(
+                    "text-sm leading-relaxed break-words text-ink",
+                    field.block &&
+                      "mt-1 max-h-64 overflow-y-auto rounded-lg bg-muted/50 p-3 font-mono text-[13px] leading-relaxed whitespace-pre-wrap",
+                  )}
+                >
+                  {field.value}
+                </dd>
               </div>
-            </div>
-          ))}
-          {footer ? (
-            <>
-              <Separator />
-              <div className="flex flex-wrap gap-2 pt-1 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
-                {footer}
-              </div>
-            </>
-          ) : null}
+            ))}
+          </dl>
         </div>
+        {footer ? (
+          <div className="shrink-0 border-t border-border bg-muted/20 px-4 py-3 sm:px-6">
+            <div className="flex flex-wrap gap-2 pb-[max(0rem,env(safe-area-inset-bottom))]">
+              {footer}
+            </div>
+          </div>
+        ) : null}
       </SheetContent>
     </Sheet>
   );

@@ -1,5 +1,7 @@
 import { v } from "convex/values";
 import { internalMutation, mutation } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
+import { queuePaymentConfirmation } from "./lib/paymentEmail";
 
 export const initiatePaystackPayment = mutation({
   args: {
@@ -16,22 +18,52 @@ export const initiatePaystackPayment = mutation({
 
     if (!paystackPublicKey || paystackPublicKey === "pk_test_placeholder") {
       if (args.registrationId) {
+        const existing = await ctx.db.get(args.registrationId);
         await ctx.db.patch(args.registrationId, {
           paymentStatus: "mock_paid",
           paymentReference: reference,
         });
+        if (existing) {
+          await queuePaymentConfirmation(
+            ctx,
+            "registration",
+            args.registrationId,
+            "mock_paid",
+            existing.paymentStatus,
+          );
+        }
       }
       if (args.bookingId) {
+        const existing = await ctx.db.get(args.bookingId);
         await ctx.db.patch(args.bookingId, {
           paymentStatus: "mock_paid",
           paymentReference: reference,
         });
+        if (existing) {
+          await queuePaymentConfirmation(
+            ctx,
+            "booking",
+            args.bookingId,
+            "mock_paid",
+            existing.paymentStatus,
+          );
+        }
       }
       if (args.tourOrderId) {
+        const existing = await ctx.db.get(args.tourOrderId);
         await ctx.db.patch(args.tourOrderId, {
           paymentStatus: "mock_paid",
           paymentReference: reference,
         });
+        if (existing) {
+          await queuePaymentConfirmation(
+            ctx,
+            "tour",
+            args.tourOrderId,
+            "mock_paid",
+            existing.paymentStatus,
+          );
+        }
       }
       return {
         mode: "mock" as const,
@@ -65,22 +97,52 @@ export const initiatePaypalPayment = mutation({
 
     if (!paypalClientId || paypalClientId === "paypal_client_id_placeholder") {
       if (args.registrationId) {
+        const existing = await ctx.db.get(args.registrationId);
         await ctx.db.patch(args.registrationId, {
           paymentStatus: "mock_paid",
           paymentReference: reference,
         });
+        if (existing) {
+          await queuePaymentConfirmation(
+            ctx,
+            "registration",
+            args.registrationId,
+            "mock_paid",
+            existing.paymentStatus,
+          );
+        }
       }
       if (args.bookingId) {
+        const existing = await ctx.db.get(args.bookingId);
         await ctx.db.patch(args.bookingId, {
           paymentStatus: "mock_paid",
           paymentReference: reference,
         });
+        if (existing) {
+          await queuePaymentConfirmation(
+            ctx,
+            "booking",
+            args.bookingId,
+            "mock_paid",
+            existing.paymentStatus,
+          );
+        }
       }
       if (args.tourOrderId) {
+        const existing = await ctx.db.get(args.tourOrderId);
         await ctx.db.patch(args.tourOrderId, {
           paymentStatus: "mock_paid",
           paymentReference: reference,
         });
+        if (existing) {
+          await queuePaymentConfirmation(
+            ctx,
+            "tour",
+            args.tourOrderId,
+            "mock_paid",
+            existing.paymentStatus,
+          );
+        }
       }
       return {
         mode: "mock" as const,
@@ -114,20 +176,53 @@ export const confirmPayment = internalMutation({
     const paymentStatus = args.status === "paid" ? "paid" : "failed";
 
     if (args.type === "registration") {
-      await ctx.db.patch(args.recordId as never, {
+      const recordId = args.recordId as Id<"registrations">;
+      const existing = await ctx.db.get(recordId);
+      await ctx.db.patch(recordId, {
         paymentStatus,
         paymentReference: args.reference,
       });
+      if (args.status === "paid") {
+        await queuePaymentConfirmation(
+          ctx,
+          "registration",
+          args.recordId,
+          "paid",
+          existing?.paymentStatus,
+        );
+      }
     } else if (args.type === "booking") {
-      await ctx.db.patch(args.recordId as never, {
+      const recordId = args.recordId as Id<"housingBookings">;
+      const existing = await ctx.db.get(recordId);
+      await ctx.db.patch(recordId, {
         paymentStatus,
         paymentReference: args.reference,
       });
+      if (args.status === "paid") {
+        await queuePaymentConfirmation(
+          ctx,
+          "booking",
+          args.recordId,
+          "paid",
+          existing?.paymentStatus,
+        );
+      }
     } else {
-      await ctx.db.patch(args.recordId as never, {
+      const recordId = args.recordId as Id<"tourOrders">;
+      const existing = await ctx.db.get(recordId);
+      await ctx.db.patch(recordId, {
         paymentStatus,
         paymentReference: args.reference,
       });
+      if (args.status === "paid") {
+        await queuePaymentConfirmation(
+          ctx,
+          "tour",
+          args.recordId,
+          "paid",
+          existing?.paymentStatus,
+        );
+      }
     }
   },
 });

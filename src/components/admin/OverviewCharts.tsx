@@ -43,7 +43,7 @@ type OverviewChartsProps = {
     remaining: number;
   }[];
   emails?: {
-    stub: number;
+    pending: number;
     sent: number;
     failed: number;
   };
@@ -145,7 +145,7 @@ export function OverviewCharts({
 
   const emailData = emails
     ? [
-        { name: "Stub", value: emails.stub },
+        { name: "Pending", value: emails.pending },
         { name: "Sent", value: emails.sent },
         { name: "Failed", value: emails.failed },
       ].filter((d) => d.value > 0)

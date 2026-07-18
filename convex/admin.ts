@@ -163,7 +163,9 @@ export const getOverview = query({
     }
     if (canEmails) {
       const failedEmails = emailLogs.filter((e) => e.status === "failed").length;
-      const stubEmails = emailLogs.filter((e) => e.status === "stub").length;
+      const pendingEmails = emailLogs.filter(
+        (e) => e.status === "pending" || e.status === "stub",
+      ).length;
       if (failedEmails > 0) {
         attention.push({
           id: "email-failed",
@@ -172,11 +174,11 @@ export const getOverview = query({
           href: "/admin/emails",
           tone: "danger",
         });
-      } else if (stubEmails > 0) {
+      } else if (pendingEmails > 0) {
         attention.push({
-          id: "email-stub",
-          label: "Stub emails",
-          detail: `${stubEmails} logged in stub mode`,
+          id: "email-pending",
+          label: "Pending emails",
+          detail: `${pendingEmails} email${pendingEmails === 1 ? "" : "s"} awaiting delivery`,
           href: "/admin/emails",
           tone: "info",
         });
@@ -217,7 +219,9 @@ export const getOverview = query({
       },
       emails: {
         total: emailLogs.length,
-        stub: emailLogs.filter((e) => e.status === "stub").length,
+        pending: emailLogs.filter(
+          (e) => e.status === "pending" || e.status === "stub",
+        ).length,
         sent: emailLogs.filter((e) => e.status === "sent").length,
         failed: emailLogs.filter((e) => e.status === "failed").length,
       },

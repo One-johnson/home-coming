@@ -3,6 +3,7 @@ import { mutation, query } from "./_generated/server";
 import { REGION_CONFIG, type RegistrationRegion } from "./lib/registrationConfig";
 import { createUniqueReferenceNumber } from "./lib/referenceNumbers";
 import { writeAuditLog } from "./lib/audit";
+import { queuePaymentConfirmation } from "./lib/paymentEmail";
 import { requireRole, sessionTokenValidator } from "./users";
 
 const paymentStatusValidator = v.union(
@@ -101,15 +102,14 @@ export const create = mutation({
       createdAt: Date.now(),
     });
 
-    await ctx.db.insert("emailLogs", {
-      to: args.email.trim().toLowerCase(),
-      subject: "Homecoming Registration Confirmation",
-      body: `Thank you for registering for Mountain of the Lord — The Homecoming. Your registration reference is ${referenceNumber}. Payment status: ${args.mockPayment ? "Confirmed (mock)" : "Pending"}.`,
-      type: "registration_confirmation",
-      referenceId: registrationId,
-      status: "stub",
-      createdAt: Date.now(),
-    });
+    if (args.mockPayment) {
+      await queuePaymentConfirmation(
+        ctx,
+        "registration",
+        registrationId,
+        "mock_paid",
+      );
+    }
 
     return { id: registrationId, referenceNumber };
   },
@@ -155,6 +155,14 @@ export const updatePaymentStatus = mutation({
       paymentReference: args.paymentReference,
     });
 
+    await queuePaymentConfirmation(
+      ctx,
+      "registration",
+      args.id,
+      args.paymentStatus,
+      existing.paymentStatus,
+    );
+
     await writeAuditLog(ctx, {
       actorUserId: actor._id,
       actorEmail: actor.email,
@@ -186,6 +194,13 @@ export const bulkUpdatePaymentStatus = mutation({
       const existing = await ctx.db.get(id);
       if (!existing) continue;
       await ctx.db.patch(id, { paymentStatus: args.paymentStatus });
+      await queuePaymentConfirmation(
+        ctx,
+        "registration",
+        id,
+        args.paymentStatus,
+        existing.paymentStatus,
+      );
       updated += 1;
     }
 

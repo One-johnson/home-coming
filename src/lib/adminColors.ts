@@ -61,6 +61,8 @@ export function emailStatusBadgeClass(status: string) {
       return "border-sky-200 bg-sky-50 text-sky-800";
     case "failed":
       return "border-rose-200 bg-rose-50 text-rose-800";
+    case "pending":
+      return "border-amber-200 bg-amber-50 text-amber-800";
     case "stub":
     default:
       return "border-stone-200 bg-stone-50 text-stone-700";

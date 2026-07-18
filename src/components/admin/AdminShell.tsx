@@ -374,7 +374,7 @@ function AdminSidebar({
 }
 
 export function AdminShell({ children }: { children: React.ReactNode }) {
-  const { user, isReady, clearSession } = useAdminSession();
+  const { user, isReady, sessionToken, clearSession } = useAdminSession();
   const sessionArgs = useSessionArgs();
   const overview = useQuery(
     api.admin.getOverview,
@@ -383,7 +383,11 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
       : "skip",
   );
 
-  if (!isReady) {
+  // While the stored session token is still being validated (currentUser query
+  // in flight), keep showing the loader instead of flashing the sign-in screen.
+  const sessionValidating = Boolean(sessionToken) && user === undefined;
+
+  if (!isReady || sessionValidating) {
     return (
       <div className="flex min-h-svh items-center justify-center bg-neutral-100 text-sm text-muted-foreground">
         Loading admin console...
