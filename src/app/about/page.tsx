@@ -70,7 +70,7 @@ function AboutPageContent({ about }: { about: AboutData }) {
         title="About The Homecoming Convention"
         className="pt-24"
       >
-        <div className="mx-auto max-w-5xl space-y-10 text-lg leading-relaxed text-white md:text-xl md:leading-relaxed">
+        <div className="mx-auto max-w-5xl space-y-10 text-lg leading-relaxed text-white [&_p]:text-white md:text-xl md:leading-relaxed">
           <ExpandableText
             text={about?.history ?? "Content loading..."}
             previewChars={320}

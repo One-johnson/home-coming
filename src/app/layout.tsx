@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Cormorant_Garamond, Manrope } from "next/font/google";
+import localFont from "next/font/local";
 import { ConvexClientProvider } from "./ConvexClientProvider";
 import { Providers } from "@/components/providers";
 import { SiteChrome } from "@/components/layout/SiteChrome";
@@ -20,17 +20,22 @@ import {
 } from "@/lib/seo";
 import "./globals.css";
 
-const displayFont = Cormorant_Garamond({
+// Self-hosted (see scripts/download-fonts.mjs) so the build never depends on
+// fetching from fonts.gstatic.com. Both are variable fonts: one woff2 covers
+// the whole weight range.
+const displayFont = localFont({
   variable: "--font-display",
-  subsets: ["latin"],
-  weight: ["300", "400", "500", "600", "700"],
-  style: ["normal", "italic"],
+  display: "swap",
+  src: [
+    { path: "./fonts/CormorantGaramond.woff2", weight: "300 700", style: "normal" },
+    { path: "./fonts/CormorantGaramond-Italic.woff2", weight: "300 700", style: "italic" },
+  ],
 });
 
-const bodyFont = Manrope({
+const bodyFont = localFont({
   variable: "--font-body",
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "800"],
+  display: "swap",
+  src: [{ path: "./fonts/Manrope.woff2", weight: "400 800", style: "normal" }],
 });
 
 const siteUrl = getSiteUrl();

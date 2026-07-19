@@ -2,6 +2,8 @@
 
 import { useMutation, useQuery } from "convex/react";
 import {
+  ChevronLeft,
+  ChevronRight,
   LayoutGrid,
   MoreHorizontal,
   Pencil,
@@ -77,6 +79,8 @@ type VideoRow = {
 const DEFAULT_SPEAKER = "Dag Heward-Mills";
 /** Widened so `as const` on EVENT cannot pin form state to literal `2025`. */
 const DEFAULT_YEAR: number = EVENT.lastHomecomingYear;
+/** Cards per page in the grid view (multiple of 4 to fill the xl grid). */
+const CARDS_PER_PAGE = 12;
 
 function newVideoRow(order: number, defaults?: Partial<VideoRow>): VideoRow {
   return {
@@ -250,6 +254,23 @@ function VideoActionsMenu({
   );
 }
 
+function FormField({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="block space-y-1.5">
+      <span className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+        {label}
+      </span>
+      {children}
+    </label>
+  );
+}
+
 function MediaTypeSelect({
   value,
   onValueChange,
@@ -409,6 +430,7 @@ function ResponsiveEditorShell({
   description,
   children,
   footer,
+  layout = "dialog",
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -416,30 +438,38 @@ function ResponsiveEditorShell({
   description?: string;
   children: React.ReactNode;
   footer: React.ReactNode;
+  layout?: "dialog" | "sheet";
 }) {
   const isCompact = useIsCompact();
 
-  if (isCompact) {
+  if (isCompact || layout === "sheet") {
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
         <SheetContent
-          side="bottom"
-          className="gap-0 overflow-hidden rounded-t-2xl p-0 sm:max-w-none data-[side=bottom]:max-h-[92dvh]"
+          side={isCompact ? "bottom" : "right"}
+          className={cn(
+            "flex flex-col gap-0 overflow-hidden p-0",
+            isCompact
+              ? "rounded-t-2xl sm:max-w-none data-[side=bottom]:max-h-[92dvh]"
+              : "w-full sm:max-w-lg",
+          )}
         >
-          <div
-            className="mx-auto mt-3 h-1.5 w-12 shrink-0 rounded-full bg-muted-foreground/30"
-            aria-hidden
-          />
-          <SheetHeader className="shrink-0 border-b border-border px-4 py-4 pr-14 text-left">
-            <SheetTitle>{title}</SheetTitle>
+          {isCompact ? (
+            <div
+              className="mx-auto mt-3 h-1.5 w-12 shrink-0 rounded-full bg-muted-foreground/30"
+              aria-hidden
+            />
+          ) : null}
+          <SheetHeader className="shrink-0 space-y-1 border-b border-border bg-muted/30 px-4 py-4 pr-14 text-left sm:px-6 sm:py-5">
+            <SheetTitle className="text-lg">{title}</SheetTitle>
             {description ? (
               <SheetDescription>{description}</SheetDescription>
             ) : null}
           </SheetHeader>
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
             {children}
           </div>
-          <SheetFooter className="shrink-0 border-t border-border pb-[max(1rem,env(safe-area-inset-bottom))]">
+          <SheetFooter className="shrink-0 border-t border-border bg-muted/20 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:flex-row sm:justify-end sm:px-6">
             {footer}
           </SheetFooter>
         </SheetContent>
@@ -477,6 +507,7 @@ export function VideoManager() {
 
   const csvInputRef = useRef<HTMLInputElement>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("table");
+  const [cardPage, setCardPage] = useState(0);
   const [editorMode, setEditorMode] = useState<EditorMode | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [editingMessage, setEditingMessage] = useState<Id<"messages"> | null>(
@@ -550,6 +581,24 @@ export function VideoManager() {
       .sort((a, b) => Number(b) - Number(a))
       .map((value) => ({ label: value, value }));
   }, [sortedMessages]);
+
+  const cardTotalPages = Math.max(
+    1,
+    Math.ceil(sortedMessages.length / CARDS_PER_PAGE),
+  );
+
+  // Keep the current card page within bounds when the list shrinks.
+  useEffect(() => {
+    if (cardPage > cardTotalPages - 1) {
+      setCardPage(cardTotalPages - 1);
+    }
+  }, [cardPage, cardTotalPages]);
+
+  const cardPageStart = cardPage * CARDS_PER_PAGE;
+  const pagedMessages = sortedMessages.slice(
+    cardPageStart,
+    cardPageStart + CARDS_PER_PAGE,
+  );
 
   const openCreate = () => {
     setEditingMessage(null);
@@ -874,6 +923,7 @@ export function VideoManager() {
 
       <ResponsiveEditorShell
         open={editorOpen}
+        layout={editorMode === "edit" ? "sheet" : "dialog"}
         onOpenChange={(open) => {
           if (!open && !saving) closeEditor();
         }}
@@ -914,58 +964,97 @@ export function VideoManager() {
         }
       >
         {editorMode === "edit" ? (
-          <div className="grid gap-3 md:grid-cols-2">
-            <Input
-              placeholder="Title"
-              required
-              className="md:col-span-2"
-              value={editForm.title}
-              onChange={(e) =>
-                setEditForm({ ...editForm, title: e.target.value })
-              }
-            />
-            <Input
-              placeholder="Video / media URL (Rumble, YouTube, or any link)"
-              required
-              type="url"
-              className="md:col-span-2"
-              value={editForm.url}
-              onChange={(e) =>
-                setEditForm({ ...editForm, url: e.target.value })
-              }
-            />
-            <Input
-              placeholder="Speaker"
-              required
-              value={editForm.speaker}
-              onChange={(e) =>
-                setEditForm({ ...editForm, speaker: e.target.value })
-              }
-            />
-            <Input
-              type="number"
-              placeholder="Year"
-              required
-              value={editForm.year}
-              onChange={(e) =>
-                setEditForm({ ...editForm, year: Number(e.target.value) })
-              }
-            />
-            <Input
-              type="number"
-              placeholder="Order"
-              required
-              value={editForm.order}
-              onChange={(e) =>
-                setEditForm({ ...editForm, order: Number(e.target.value) })
-              }
-            />
-            <MediaTypeSelect
-              value={editForm.mediaType}
-              onValueChange={(mediaType) =>
-                setEditForm({ ...editForm, mediaType })
-              }
-            />
+          <div className="space-y-4">
+            {editForm.url ? (
+              <div className="flex items-start gap-3 rounded-xl border border-border bg-muted/30 p-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+                    Current link
+                  </p>
+                  <a
+                    href={editForm.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-1 block truncate text-sm text-primary hover:underline"
+                  >
+                    {editForm.url}
+                  </a>
+                </div>
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    "shrink-0 capitalize",
+                    mediaTypeBadgeClass(editForm.mediaType),
+                  )}
+                >
+                  {editForm.mediaType}
+                </Badge>
+              </div>
+            ) : null}
+
+            <FormField label="Title">
+              <Input
+                placeholder="Title"
+                required
+                value={editForm.title}
+                onChange={(e) =>
+                  setEditForm({ ...editForm, title: e.target.value })
+                }
+              />
+            </FormField>
+            <FormField label="Video / media URL">
+              <Input
+                placeholder="Rumble, YouTube, or any link"
+                required
+                type="url"
+                value={editForm.url}
+                onChange={(e) =>
+                  setEditForm({ ...editForm, url: e.target.value })
+                }
+              />
+            </FormField>
+            <FormField label="Speaker">
+              <Input
+                placeholder="Speaker"
+                required
+                value={editForm.speaker}
+                onChange={(e) =>
+                  setEditForm({ ...editForm, speaker: e.target.value })
+                }
+              />
+            </FormField>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <FormField label="Year">
+                <Input
+                  type="number"
+                  placeholder="Year"
+                  required
+                  value={editForm.year}
+                  onChange={(e) =>
+                    setEditForm({ ...editForm, year: Number(e.target.value) })
+                  }
+                />
+              </FormField>
+              <FormField label="Order">
+                <Input
+                  type="number"
+                  placeholder="Order"
+                  required
+                  value={editForm.order}
+                  onChange={(e) =>
+                    setEditForm({ ...editForm, order: Number(e.target.value) })
+                  }
+                />
+              </FormField>
+            </div>
+            <FormField label="Media type">
+              <MediaTypeSelect
+                value={editForm.mediaType}
+                onValueChange={(mediaType) =>
+                  setEditForm({ ...editForm, mediaType })
+                }
+              />
+            </FormField>
           </div>
         ) : (
           <VideoRowsList
@@ -1096,14 +1185,14 @@ export function VideoManager() {
         ) : (
           <div
             className={cn(
-              "grid gap-3 sm:grid-cols-2 xl:grid-cols-3",
+              "grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4",
               messages === undefined && "opacity-60",
             )}
           >
-            {sortedMessages.map((message) => (
+            {pagedMessages.map((message) => (
               <div
                 key={message._id}
-                className="overflow-hidden rounded-lg border border-border"
+                className="group overflow-hidden rounded-lg border border-border transition-shadow hover:shadow-elevate"
               >
                 {message.thumbnailUrl ? (
                   <div className="aspect-video overflow-hidden bg-muted">
@@ -1166,12 +1255,56 @@ export function VideoManager() {
               </div>
             ))}
             {messages !== undefined && sortedMessages.length === 0 && (
-              <p className="text-sm text-muted-foreground sm:col-span-2 xl:col-span-3">
+              <p className="text-sm text-muted-foreground sm:col-span-2 lg:col-span-3 xl:col-span-4">
                 No videos yet. Use Add videos to get started.
               </p>
             )}
           </div>
         )}
+
+        {viewMode === "card" && cardTotalPages > 1 ? (
+          <div className="flex flex-col items-center justify-between gap-3 pt-1 sm:flex-row">
+            <p className="text-sm text-muted-foreground">
+              Showing{" "}
+              <span className="font-medium tabular-nums text-foreground">
+                {cardPageStart + 1}–{cardPageStart + pagedMessages.length}
+              </span>{" "}
+              of{" "}
+              <span className="font-medium tabular-nums text-foreground">
+                {sortedMessages.length}
+              </span>
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-1"
+                disabled={cardPage === 0}
+                onClick={() => setCardPage((p) => Math.max(0, p - 1))}
+              >
+                <ChevronLeft className="size-4" />
+                Prev
+              </Button>
+              <span className="text-sm font-medium tabular-nums">
+                {cardPage + 1} / {cardTotalPages}
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-1"
+                disabled={cardPage >= cardTotalPages - 1}
+                onClick={() =>
+                  setCardPage((p) => Math.min(cardTotalPages - 1, p + 1))
+                }
+              >
+                Next
+                <ChevronRight className="size-4" />
+              </Button>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       <ConfirmDeleteDialog

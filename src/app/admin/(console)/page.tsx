@@ -347,8 +347,8 @@ export default function AdminOverviewPage() {
                         tone="info"
                       />
                       <StatusChip
-                        label="stub"
-                        value={overview.emails.stub}
+                        label="pending"
+                        value={overview.emails.pending}
                         tone="warn"
                       />
                       {overview.emails.failed > 0 && (
