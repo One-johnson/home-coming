@@ -71,14 +71,47 @@ npm run seed
 2. Sign in at `/admin`. Create additional staff from the **Team** tab (name, email, password, role).
 3. Passwords are hashed with bcryptjs. Auth uses opaque session tokens stored in the browser (no JWT / Convex Auth).
 
-## Payment Integration (Phase 2)
+## Payment Integration
 
-When Paystack and PayPal merchant accounts are ready, update `.env.local` with real credentials. Webhook endpoints:
+### Registration
 
-- Paystack: `https://<your-convex-site>/webhooks/paystack`
-- PayPal: `https://<your-convex-site>/webhooks/paypal`
+| Region | Price | Gateway |
+|--------|-------|---------|
+| Ghana, West Africa | 20 GHS | **Paystack only** (Stripe does not support GHS) |
+| Rest of Africa | $10 USD | Paystack or Stripe |
+| USA / Rest of World | $20 USD | Paystack or Stripe |
+| Canada | 20 CAD | Paystack or Stripe |
+| Switzerland | 20 CHF | Paystack or Stripe |
+| UK | 20 GBP | Paystack or Stripe |
+| Rest of Europe | 20 EUR | Paystack or Stripe |
 
-Until then, payments run in **stub mode** and registrations/bookings are stored with `mock_paid` status.
+Do **not** convert ₵20 → $20 for Stripe — that would overcharge. GHS regions stay on Paystack.
+
+### Accommodation & Tours
+
+Users choose **Paystack** or **Stripe** at payment (priced in USD).
+
+### Stripe
+
+Keys live in Convex environment variables:
+
+| Variable | Where |
+|----------|--------|
+| `STRIPE_SECRET_KEY` | Convex (dev + prod) |
+| `STRIPE_PUBLISHABLE_KEY` | Convex (optional) |
+| `STRIPE_WEBHOOK_SECRET` | Convex (dev + prod) |
+| `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Next.js `.env.local` / Vercel |
+
+Webhook: `https://<your-convex-site>.convex.site/webhooks/stripe`  
+Events: `checkout.session.completed`, `checkout.session.expired`
+
+Success paths: `/registration/success`, `/accommodation/success`, `/tours/success`
+
+### Paystack
+
+Until `PAYSTACK_PUBLIC_KEY` (and related secrets) are set in Convex, Paystack checkouts **simulate payment** (`mock_paid`). Live Inline/Popup and webhook verification come later.
+
+Webhook stub: `https://<your-convex-site>.convex.site/webhooks/paystack`
 
 ## Email (Bluehost SMTP)
 

@@ -31,6 +31,7 @@ export const create = mutation({
     region: v.string(),
     groupName: v.optional(v.string()),
     items: v.array(tourItemValidator),
+    gateway: v.union(v.literal("stripe"), v.literal("paystack")),
     consent: v.boolean(),
     honeypot: v.optional(v.string()),
     mockPayment: v.optional(v.boolean()),
@@ -114,7 +115,7 @@ export const create = mutation({
       items: lineItems,
       totalAmount: grandTotal,
       currency: "USD",
-      gateway: regionConfig.gateway,
+      gateway: args.gateway,
       paymentStatus: args.mockPayment ? "mock_paid" : "pending_payment",
       paymentReference: args.mockPayment
         ? `MOCK-TOUR-${Date.now()}`
@@ -133,7 +134,7 @@ export const create = mutation({
       referenceNumber,
       totalAmount: grandTotal,
       currency: "USD" as const,
-      gateway: regionConfig.gateway,
+      gateway: args.gateway,
     };
   },
 });

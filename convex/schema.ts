@@ -67,7 +67,11 @@ export default defineSchema({
     addOnAmount: v.number(),
     totalAmount: v.number(),
     currency: v.string(),
-    gateway: v.union(v.literal("paystack"), v.literal("paypal")),
+    gateway: v.union(
+      v.literal("stripe"),
+      v.literal("paystack"),
+      v.literal("paypal"),
+    ),
     paymentStatus: v.union(
       v.literal("pending_payment"),
       v.literal("paid"),
@@ -183,6 +187,13 @@ export default defineSchema({
     pricePerStay: v.number(),
     totalAmount: v.number(),
     currency: v.literal("USD"),
+    gateway: v.optional(
+      v.union(
+        v.literal("stripe"),
+        v.literal("paystack"),
+        v.literal("paypal"),
+      ),
+    ),
     paymentStatus: v.union(
       v.literal("pending_payment"),
       v.literal("paid"),
@@ -236,7 +247,11 @@ export default defineSchema({
     ),
     totalAmount: v.number(),
     currency: v.literal("USD"),
-    gateway: v.union(v.literal("paystack"), v.literal("paypal")),
+    gateway: v.union(
+      v.literal("stripe"),
+      v.literal("paystack"),
+      v.literal("paypal"),
+    ),
     paymentStatus: v.union(
       v.literal("pending_payment"),
       v.literal("paid"),

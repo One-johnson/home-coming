@@ -5,55 +5,221 @@ import { DEFAULT_TOUR_PACKAGES } from "./lib/tourConfig";
 
 const FAQS = [
   {
-    category: "Registration",
-    question: "What are the registration deadlines?",
+    category: "General Event & Registration",
+    question: "Who is the Mountain of the Lord/Homecoming Convention for?",
     answer:
-      "Registration is open until capacity is reached. We encourage early registration to secure your spot and preferred accommodation.",
+      "The convention is for all church members and leaders from Dag Heward-Mills Ministries (DHMM) churches worldwide. This includes the United Denominations (UD) group of churches, the United Organizations (UO/First Love) group of churches, and Affiliated Denominations (AD) churches. The first Homecoming Convention was held in 1995 and resumed in 2024. The 2025 convention attracted more than 16,000 people from Ghana and 81 other nations.",
     order: 1,
   },
   {
-    category: "Registration",
-    question: "Can I register as a group?",
+    category: "General Event & Registration",
+    question: "When and where is Homecoming 2026?",
     answer:
-      "Yes. Group registration is ticket-based. Select your ticket quantity, provide purchaser contact details, choose add-ons, and complete payment. Attendee names are not required at purchase.",
+      "Homecoming 2026 takes place from 3-6 November 2026 at the Anagkazo Bible & Ministry Training Centre (ABMTC) campus in Mampong, Ghana. The campus has hosted the conference and other Lighthouse Chapel events for many years.",
     order: 2,
   },
   {
-    category: "Payments",
-    question: "What currencies and payment methods are accepted?",
+    category: "General Event & Registration",
+    question: "What does standard registration include?",
     answer:
-      "Ghana and West Africa pay in GHS via Paystack. Rest of Africa pays in USD via Paystack. USA, Canada, Switzerland, UK, Europe, and the rest of the world use PayPal in their respective currencies.",
+      "Standard registration covers your conference seat, access to every session and the impartation services, and airport transfers if you are flying in from outside Ghana. Meals and accommodation are not included and must be arranged separately.",
     order: 3,
   },
   {
-    category: "Accommodation",
-    question: "What accommodation options are available?",
+    category: "General Event & Registration",
+    question: "Can I register as a group?",
     answer:
-      "Attendees can book campus housing (condos, hostels, apartments) or choose from our list of preferred hotels near Anagkazo Campus.",
+      "Yes. Group registration is ticket-based. Select the required ticket quantity, provide the purchaser's contact details, choose any add-ons, and complete payment. Attendee names are not required at the time of purchase.",
     order: 4,
   },
   {
-    category: "Travel",
-    question: "Do I need a visa to travel to Ghana?",
+    category: "General Event & Registration",
+    question: "What language is the conference in?",
     answer:
-      "International attendees should check Ghana visa requirements for their country of residence. Plan your travel early and allow time for visa processing if required.",
+      "The primary language is English. The Lighthouse Chapel global community spans many nations, and translation arrangements have been made for major language groups in past years. If you need translation support, check with the Homecoming Secretariat closer to the event.",
     order: 5,
   },
   {
-    category: "Venue",
-    question: "What meals are provided at the campus?",
+    category: "General Event & Registration",
+    question: "Can I get a refund if I cannot attend?",
     answer:
-      "Meal arrangements will be communicated closer to the event. VIP Meals and Ministers Grill add-ons are available during registration.",
+      "Refund requests are handled case by case by the Homecoming Secretariat. If your plans change, contact the Secretariat with your registration details as early as possible. They will advise what may be possible based on the circumstances and timing of your request.",
     order: 6,
   },
   {
-    category: "Support",
-    question: "Who can I contact for help?",
+    category: "Travel Documents & Immigration",
+    question: "What are the passport validity requirements for entering Ghana?",
     answer:
-      "Email homecomingisback@gmail.com for registration, accommodation, and travel support.",
+      "Your passport must be valid for at least six (6) months beyond your planned arrival date in Ghana.",
     order: 7,
   },
+  {
+    category: "Travel Documents & Immigration",
+    question: "Who is required to obtain a visa before traveling to Ghana?",
+    answer:
+      "A Ghana visa is mandatory for international travelers except those who are ECOWAS (Economic Community of West African States) passport holders, Ghana Card holders, or holders of passports from officially visa-exempt countries. Visa requirements depend on citizenship, so check with your nearest Ghanaian embassy or consulate early; processing can take several weeks. The conference does not automatically issue invitation letters, but the Homecoming Secretariat may be able to provide one upon written request after registration is completed.",
+    order: 8,
+  },
+  {
+    category: "Travel Documents & Immigration",
+    question: "What medical or vaccination documents are mandatory for entry?",
+    answer:
+      "You must present an official Yellow Fever vaccination certificate when entering Ghana.",
+    order: 9,
+  },
+  {
+    category: "Airport Arrival & Local Transportation",
+    question:
+      "Which airport do international flights arrive at, and how do I locate the welcome team?",
+    answer:
+      "International flights arrive at Kotoka International Airport (KIA) in Accra. Upon arrival, look for the Homecoming pop-up stand or table and official welcome team members wearing Homecoming t-shirts.",
+    order: 10,
+  },
+  {
+    category: "Airport Arrival & Local Transportation",
+    question: "What luggage safety precautions should I take upon arrival?",
+    answer:
+      "Do not allow strangers to carry your luggage at the airport. Wait until you have identified official Homecoming personnel or authorized transport operators.",
+    order: 11,
+  },
+  {
+    category: "Airport Arrival & Local Transportation",
+    question: "How do I get from the airport to the Anagkazo Campus?",
+    answer:
+      "Shuttle service: Sign up for the round-trip shuttle service between the airport and the Anagkazo Campus for a nominal fee. The service will operate from Monday, November 2, through Saturday, November 7 at scheduled times. Please note that the shuttle service is not available to transport individual homes. This option is especially convenient for those arriving in the evening who prefer to travel with a group. Alternatively, you may use Uber or Bolt and share the cost (approx. GHC 200) with other attendees.",
+    order: 12,
+  },
+  {
+    category: "Airport Arrival & Local Transportation",
+    question: "What transportation is recommended for short trips?",
+    answer:
+      "Uber and Bolt are recommended for short trips. Some drivers may request cash, but in-app electronic payment is recommended whenever possible.",
+    order: 13,
+  },
+  {
+    category: "Airport Arrival & Local Transportation",
+    question:
+      "What are the internal transport options and gate fees on the ABMTC campus?",
+    answer:
+      "Gate fee: Every vehicle entering the ABMTC campus must pay GHC 20 per entry. Internal transport: Anagkazo tricycle taxis operate within the campus at a fixed cost of GHC 5 per ride.",
+    order: 14,
+  },
+  {
+    category: "Accommodation, Weather & Packing",
+    question: "How do I book accommodation, and what options are available?",
+    answer:
+      "Accommodation is booked separately after registration and is confirmed on a first-come, first-served basis. Options include on-campus housing — hostels, condominiums, and apartments — as well as preferred commercial hotels near the ABMTC campus. The on-campus hostel rate is USD 30. Delegates choosing commercial hotels should consult their denomination leaders for the applicable external hotel booking arrangements.",
+    order: 15,
+  },
+  {
+    category: "Accommodation, Weather & Packing",
+    question: "What must I bring if I am staying in a campus hostel?",
+    answer:
+      "Bring your own linens, pillows, towels, and tissue paper, as these personal items may not be provided in hostel rooms.",
+    order: 16,
+  },
+  {
+    category: "Accommodation, Weather & Packing",
+    question: "What weather should I expect, and how should I pack?",
+    answer:
+      "Temperatures are expected to range from 22°C to 32°C (73°F to 91°F), with rainfall and occasional thunderstorms. Pack modest, summer-appropriate clothes and comfortable footwear; sneakers are recommended. Bring a light jacket or sweater for cool mornings and nights. Carry an umbrella or raincoat, a wide-brimmed hat, sunglasses, and a hand fan for rain and sun protection.",
+    order: 17,
+  },
+  {
+    category: "Accommodation, Weather & Packing",
+    question: "What electrical plugs and accessories are required?",
+    answer:
+      "ABMTC uses 3-pin UK-style electrical sockets. Bring an international power adapter, device chargers, and a portable power bank for long sessions and mobile connectivity.",
+    order: 18,
+  },
+  {
+    category: "Event Schedule, Meetings & Code of Conduct",
+    question: "Where will the primary meeting sessions and tours take place?",
+    answer:
+      "All main sessions will take place at ABMTC in Mampong. Specific halls or grounds for breakout sessions will be announced during the event.",
+    order: 19,
+  },
+  {
+    category: "Event Schedule, Meetings & Code of Conduct",
+    question: "What are the rules for attendance and start times?",
+    answer:
+      "All registered delegates are required to attend every scheduled session and organized tour punctually. Start times for upcoming sessions will be announced at the close of each preceding session.",
+    order: 20,
+  },
+  {
+    category: "Event Schedule, Meetings & Code of Conduct",
+    question: "How will updates and session locations be communicated?",
+    answer:
+      "Join and regularly check the dedicated Homecoming WhatsApp platform for your denomination. It will provide real-time notices, hall assignments, and t-shirt schedules.",
+    order: 21,
+  },
+  {
+    category: "Event Schedule, Meetings & Code of Conduct",
+    question: "What should attendees bring to daily meetings?",
+    answer:
+      "Bring a plastic or reusable water bottle for hydration; a tablet, Bible, and note-taking device or materials; sunglasses, a hat, a hand fan, and rainwear such as an umbrella or raincoat; and official t-shirts as directed by your group leaders for the days and times they should be worn.",
+    order: 22,
+  },
+  {
+    category: "Finances, Mobile Connectivity & Dining",
+    question: "What is Ghana's currency, and where can I exchange money?",
+    answer:
+      "The local currency is the Ghana Cedi (GHC). The estimated exchange rate is approximately USD 1 to GHC 11-13. Official foreign exchange (Forex) bureaus will be available on the ABMTC campus. Convert enough cash for vendor purchases.",
+    order: 23,
+  },
+  {
+    category: "Finances, Mobile Connectivity & Dining",
+    question: "What should I know about payments, credit cards, and market purchases?",
+    answer:
+      "Ghana primarily uses cash, although Mobile Money (MoMo) is widely used locally. Visa and Mastercard are accepted at major hotels and corporate chain stores but rarely by informal vendors. Haggling is customary in open markets; a common rule of thumb is to begin at one-third of the vendor's initial asking price.",
+    order: 24,
+  },
+  {
+    category: "Finances, Mobile Connectivity & Dining",
+    question: "How can international attendees access mobile networks and data?",
+    answer:
+      "Purchase a local SIM card from mobile network representatives stationed on the ABMTC campus, enable international roaming through your home network provider, or use a digital roaming eSIM application such as Roamless.",
+    order: 25,
+  },
+  {
+    category: "Finances, Mobile Connectivity & Dining",
+    question: "How much do meals cost, and where can food be purchased?",
+    answer:
+      "A standard local meal costs approximately GHC 30 (about USD 2). Food courts with independent vendors will operate at several campus locations. Some hotels offer complimentary or paid breakfast; carry light, non-perishable snacks. Daily catered VIP meals will also be available for a nominal fee at God's Banquet Hall on the Anagkazo campus. Jesus Banquets Hall provides food for purchase as an onsite restaurant.",
+    order: 26,
+  },
+  {
+    category: "Health, Hygiene & Personal Security",
+    question: "What water-consumption rules apply on campus and in Ghana?",
+    answer:
+      "Drink only commercially bottled water. Do not drink tap water or sachet water. Sachet water is strictly prohibited on the ABMTC campus.",
+    order: 27,
+  },
+  {
+    category: "Health, Hygiene & Personal Security",
+    question: "What safety and security protocols must delegates follow?",
+    answer:
+      "Keep your physical passport with you at all times. Do not walk alone, especially at night, and never accept rides from strangers. Keep your assigned pastors or shepherds informed of your whereabouts. Closely monitor phones, tablets, and other devices, even inside chapel buildings. Avoid using your phone absentmindedly in public spaces. Where possible, lock your valuables in your suitcase when left unattended.",
+    order: 28,
+  },
+  {
+    category: "Health, Hygiene & Personal Security",
+    question: "What personal health items and medications should I bring?",
+    answer:
+      "Bring enough prescription medication for your stay, together with anti-malarial tablets and mosquito repellent; painkillers, antacids, and anti-diarrheal medication; sunscreen and toiletries including soap, lotion, toothpaste, and a toothbrush. Wash your hands frequently and consume only hot, thoroughly cooked food.",
+    order: 29,
+  },
 ];
+
+async function syncFaqs(ctx: MutationCtx) {
+  const existing = await ctx.db.query("faqs").collect();
+  for (const faq of existing) {
+    await ctx.db.delete(faq._id);
+  }
+  for (const faq of FAQS) {
+    await ctx.db.insert("faqs", faq);
+  }
+}
 
 const STATS = [
   { label: "Attendees", value: "5000+", order: 1 },
@@ -210,12 +376,7 @@ export const seed = mutation({
   handler: async (ctx, args) => {
     await requireRole(ctx, args.sessionToken, ["admin"]);
 
-    const existingFaqs = await ctx.db.query("faqs").first();
-    if (!existingFaqs) {
-      for (const faq of FAQS) {
-        await ctx.db.insert("faqs", faq);
-      }
-    }
+    await syncFaqs(ctx);
 
     await syncStats(ctx);
     await syncHomecomingMessages(ctx);
@@ -299,9 +460,7 @@ export const seedPublic = mutation({
       return { success: true, message: "Already seeded" };
     }
 
-    for (const faq of FAQS) {
-      await ctx.db.insert("faqs", faq);
-    }
+    await syncFaqs(ctx);
     await syncStats(ctx);
     for (const hotel of HOTELS) {
       await ctx.db.insert("hotels", {
@@ -370,5 +529,14 @@ export const syncHomecomingMessagesPublic = mutation({
     await requireRole(ctx, args.sessionToken, ["admin"]);
     await syncHomecomingMessages(ctx);
     return { success: true };
+  },
+});
+
+/** Replace all FAQs with the current Homecoming 2026 FAQ seed set. */
+export const replaceFaqs = mutation({
+  args: {},
+  handler: async (ctx) => {
+    await syncFaqs(ctx);
+    return { success: true, count: FAQS.length };
   },
 });
