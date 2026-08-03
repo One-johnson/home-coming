@@ -5,6 +5,34 @@ import { internal } from "./_generated/api";
 const http = httpRouter();
 
 http.route({
+  path: "/webhooks/stripe",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const signature = request.headers.get("stripe-signature");
+    if (!signature) {
+      return new Response(JSON.stringify({ error: "Missing signature" }), {
+        status: 400,
+      });
+    }
+
+    const body = await request.text();
+
+    try {
+      await ctx.runAction(internal.stripeCheckout.handleWebhook, {
+        body,
+        signature,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Webhook handling failed";
+      return new Response(JSON.stringify({ error: message }), { status: 400 });
+    }
+
+    return new Response(JSON.stringify({ received: true }), { status: 200 });
+  }),
+});
+
+http.route({
   path: "/webhooks/paystack",
   method: "POST",
   handler: httpAction(async (ctx, request) => {

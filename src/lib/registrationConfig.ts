@@ -9,7 +9,7 @@ export type RegistrationRegion =
   | "rest_of_europe"
   | "rest_of_world";
 
-export type PaymentGateway = "paystack" | "paypal";
+export type PaymentGateway = "stripe" | "paystack" | "paypal";
 
 export type RegistrationType = "individual" | "group";
 
@@ -44,7 +44,7 @@ export const REGION_CONFIG: Record<RegistrationRegion, RegionConfig> = {
     price: 10,
     currency: "USD",
     currencySymbol: "$",
-    gateway: "paystack",
+    gateway: "stripe",
     defaultCountryCode: "+",
   },
   usa: {
@@ -52,7 +52,7 @@ export const REGION_CONFIG: Record<RegistrationRegion, RegionConfig> = {
     price: 20,
     currency: "USD",
     currencySymbol: "$",
-    gateway: "paypal",
+    gateway: "stripe",
     defaultCountryCode: "+1",
   },
   canada: {
@@ -60,7 +60,7 @@ export const REGION_CONFIG: Record<RegistrationRegion, RegionConfig> = {
     price: 20,
     currency: "CAD",
     currencySymbol: "CA$",
-    gateway: "paypal",
+    gateway: "stripe",
     defaultCountryCode: "+1",
   },
   switzerland: {
@@ -68,7 +68,7 @@ export const REGION_CONFIG: Record<RegistrationRegion, RegionConfig> = {
     price: 20,
     currency: "CHF",
     currencySymbol: "CHF",
-    gateway: "paypal",
+    gateway: "stripe",
     defaultCountryCode: "+41",
   },
   uk: {
@@ -76,7 +76,7 @@ export const REGION_CONFIG: Record<RegistrationRegion, RegionConfig> = {
     price: 20,
     currency: "GBP",
     currencySymbol: "£",
-    gateway: "paypal",
+    gateway: "stripe",
     defaultCountryCode: "+44",
   },
   rest_of_europe: {
@@ -84,7 +84,7 @@ export const REGION_CONFIG: Record<RegistrationRegion, RegionConfig> = {
     price: 20,
     currency: "EUR",
     currencySymbol: "€",
-    gateway: "paypal",
+    gateway: "stripe",
     defaultCountryCode: "+",
   },
   rest_of_world: {
@@ -92,7 +92,7 @@ export const REGION_CONFIG: Record<RegistrationRegion, RegionConfig> = {
     price: 20,
     currency: "USD",
     currencySymbol: "$",
-    gateway: "paypal",
+    gateway: "stripe",
     defaultCountryCode: "+",
   },
 };
@@ -182,6 +182,18 @@ export type HousingType = keyof typeof HOUSING_TYPES;
 
 export function formatPrice(amount: number, currency: string, symbol: string) {
   return `${symbol}${amount.toLocaleString()} ${currency}`;
+}
+
+/** Stripe (US accounts) cannot charge GHS — Ghana / West Africa are Paystack-only. */
+export function isPaystackOnlyRegion(region: RegistrationRegion) {
+  return REGION_CONFIG[region].currency === "GHS";
+}
+
+export function registrationGatewaysForRegion(
+  region: RegistrationRegion,
+): Array<"paystack" | "stripe"> {
+  if (isPaystackOnlyRegion(region)) return ["paystack"];
+  return ["paystack", "stripe"];
 }
 
 export function normalizeAddOnSelections(

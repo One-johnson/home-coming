@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { CheckCircle2Icon } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
@@ -22,9 +22,13 @@ import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { HOUSING_TYPES, type HousingType } from "@/lib/registrationConfig";
+import { buildCheckoutUrls } from "@/lib/stripeCheckout";
 import { EVENT } from "@/lib/eventConfig";
 import { isConvexConfigured } from "@/lib/convex-config";
 import { cn } from "@/lib/utils";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+
+type CheckoutGateway = "stripe" | "paystack";
 
 function ConvexRequiredMessage() {
   return (
@@ -45,9 +49,11 @@ function AccommodationPortalInner() {
   const housing = useQuery(api.housing.listHousing);
   const hotels = useQuery(api.content.listHotels);
   const createBooking = useMutation(api.housing.createBooking);
+  const createCheckout = useAction(api.stripeCheckout.createCheckoutSession);
   const initiatePaystack = useMutation(api.payments.initiatePaystackPayment);
 
   const [selectedType, setSelectedType] = useState<HousingType>("condo");
+  const [gateway, setGateway] = useState<CheckoutGateway>("stripe");
   const [guestName, setGuestName] = useState("");
   const [guestEmail, setGuestEmail] = useState("");
   const [guestPhone, setGuestPhone] = useState("");
@@ -60,12 +66,34 @@ function AccommodationPortalInner() {
   const [error, setError] = useState("");
   const [referenceNumber, setReferenceNumber] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState(false);
+  const [paymentMessage, setPaymentMessage] = useState("");
 
   const housingConfig = HOUSING_TYPES[selectedType];
+  const selectedHousing = housing?.find((h) => h.type === selectedType);
+  const housingReady = housing !== undefined;
+  const canPay =
+    housingReady &&
+    Boolean(selectedHousing) &&
+    Boolean(guestName.trim()) &&
+    Boolean(guestEmail.trim()) &&
+    Boolean(guestPhone.trim());
 
   const handleBooking = async () => {
-    const selectedHousing = housing?.find((h) => h.type === selectedType);
-    if (!selectedHousing) return;
+    if (!housingReady) {
+      const message = "Housing options are still loading. Try again in a moment.";
+      setError(message);
+      toast.error(message);
+      return;
+    }
+
+    if (!selectedHousing) {
+      const message =
+        "Campus housing is not set up yet. Ask an admin to seed housing options.";
+      setError(message);
+      toast.error(message);
+      return;
+    }
+
     setLoading(true);
     setError("");
     try {
@@ -79,20 +107,46 @@ function AccommodationPortalInner() {
         checkOut,
         guests,
         notes: notes || undefined,
+        gateway,
         honeypot: honeypot.trim() || undefined,
-        mockPayment: true,
+        mockPayment: false,
       });
 
-      await initiatePaystack({
-        bookingId: result.id,
-        email: guestEmail,
-        amount: selectedHousing.pricePerStay,
-        currency: "USD",
+      if (gateway === "paystack") {
+        const paymentResult = await initiatePaystack({
+          bookingId: result.id,
+          email: guestEmail,
+          amount: selectedHousing.pricePerStay,
+          currency: "USD",
+        });
+        setReferenceNumber(result.referenceNumber);
+        setPaymentMessage(
+          paymentResult.message ?? "Payment processed via Paystack.",
+        );
+        setConfirmed(true);
+        toast.success("Accommodation booked successfully");
+        return;
+      }
+
+      const urls = buildCheckoutUrls("/accommodation");
+      const paymentResult = await createCheckout({
+        type: "booking",
+        recordId: result.id,
+        successUrl: urls.successUrl,
+        cancelUrl: urls.cancelUrl,
       });
+
+      if (paymentResult.mode === "checkout") {
+        window.location.href = paymentResult.url;
+        return;
+      }
 
       setReferenceNumber(result.referenceNumber);
+      setPaymentMessage(paymentResult.message ?? "Payment processed.");
       setConfirmed(true);
-      toast.success("Accommodation booked successfully");
+      toast.success(
+        paymentResult.message ?? "Accommodation booked successfully",
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : "Booking failed";
       setError(message);
@@ -118,7 +172,7 @@ function AccommodationPortalInner() {
           </CardDescription>
         </CardHeader>
         {referenceNumber && (
-          <CardContent>
+          <CardContent className="space-y-3">
             <p className="text-sm text-muted-foreground">
               Reference:{" "}
               <Badge
@@ -128,6 +182,11 @@ function AccommodationPortalInner() {
                 {referenceNumber}
               </Badge>
             </p>
+            {paymentMessage && (
+              <Alert>
+                <AlertDescription>{paymentMessage}</AlertDescription>
+              </Alert>
+            )}
           </CardContent>
         )}
       </Card>
@@ -282,24 +341,94 @@ function AccommodationPortalInner() {
                 />
               </div>
 
+              {housingReady && !selectedHousing && (
+                <Alert className="border-amber-200 bg-amber-50 text-amber-900">
+                  <AlertTitle>Housing unavailable</AlertTitle>
+                  <AlertDescription>
+                    Campus housing options have not been seeded in Convex yet.
+                    Seed from the admin dashboard, then try again.
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              <div className="space-y-3">
+                <Label>Payment method</Label>
+                <RadioGroup
+                  value={gateway}
+                  onValueChange={(value) =>
+                    setGateway(value as CheckoutGateway)
+                  }
+                  className="grid gap-2"
+                >
+                  <Label
+                    htmlFor="housing-gateway-stripe"
+                    className="flex cursor-pointer items-start gap-3 rounded-lg border p-3"
+                  >
+                    <RadioGroupItem
+                      id="housing-gateway-stripe"
+                      value="stripe"
+                      className="mt-0.5"
+                    />
+                    <span>
+                      <span className="font-medium">Stripe</span>
+                      <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
+                        Cards for international payments
+                      </span>
+                    </span>
+                  </Label>
+                  <Label
+                    htmlFor="housing-gateway-paystack"
+                    className="flex cursor-pointer items-start gap-3 rounded-lg border p-3"
+                  >
+                    <RadioGroupItem
+                      id="housing-gateway-paystack"
+                      value="paystack"
+                      className="mt-0.5"
+                    />
+                    <span>
+                      <span className="font-medium">Paystack</span>
+                      <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
+                        Mobile Money and cards (Africa) — mock until keys are
+                        added
+                      </span>
+                    </span>
+                  </Label>
+                </RadioGroup>
+              </div>
+
               <Card className="bg-muted/50">
                 <CardContent className="space-y-1 pt-4">
                   <p className="font-semibold text-primary">
-                    Total: ${housingConfig.pricePerStay} USD per stay
+                    Total: $
+                    {selectedHousing?.pricePerStay ?? housingConfig.pricePerStay}{" "}
+                    USD per stay
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    Payment stub mode — real gateway integration coming soon.
+                    {gateway === "stripe"
+                      ? "You will be redirected to Stripe Checkout."
+                      : "Paystack will simulate payment until credentials are configured."}
                   </p>
                 </CardContent>
               </Card>
             </CardContent>
             <CardFooter>
               <Button
+                type="button"
                 className="w-full"
-                onClick={handleBooking}
-                disabled={loading || !guestName || !guestEmail || !guestPhone}
+                onClick={() => void handleBooking()}
+                disabled={loading || !canPay}
               >
-                {loading ? "Booking..." : "Book & Pay"}
+                {loading
+                  ? gateway === "stripe"
+                    ? "Redirecting..."
+                    : "Processing..."
+                  : !housingReady
+                    ? "Loading housing..."
+                    : !selectedHousing
+                      ? "Housing unavailable"
+                      : gateway === "paystack"
+                        ? "Book & Pay with Paystack"
+                        : "Book & Pay with Stripe"}
               </Button>
             </CardFooter>
           </Card>

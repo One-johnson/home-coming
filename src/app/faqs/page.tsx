@@ -20,9 +20,16 @@ function FAQsPageContent({ faqs }: { faqs: Faq[] }) {
   return (
     <Section
       subtitle="Help Center"
-      title="Frequently Asked Questions"
+      title="Frequently Asked Questions & Travel Guide"
       className="pt-24"
     >
+      <p className="lead mx-auto mb-10 max-w-3xl text-center">
+        UDHMM Homecoming 2026 at Anagkazo Bible & Ministry Training Centre
+        (ABMTC), Mampong, Ghana — 3–6 November 2026. Use this guide for
+        registration, accommodation, travel, logistics, and security. Real-time
+        updates will also be shared through the official Homecoming WhatsApp
+        platform for your denomination.
+      </p>
       <div className="mx-auto max-w-4xl space-y-10">
         {categories.map((category) => (
           <div key={category}>

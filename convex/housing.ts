@@ -19,6 +19,51 @@ export const listHousing = query({
   },
 });
 
+const DEFAULT_HOUSING = [
+  {
+    type: "condo" as const,
+    pricePerStay: 10,
+    capacityLimit: 2000,
+    booked: 0,
+    notes: "Confirm availability and allocation rules.",
+  },
+  {
+    type: "hostel" as const,
+    pricePerStay: 25,
+    capacityLimit: 600,
+    booked: 0,
+    notes: "Confirm room capacity and gender-specific allocation rules.",
+  },
+  {
+    type: "apartment" as const,
+    pricePerStay: 150,
+    capacityLimit: 30,
+    booked: 0,
+    notes: "Confirm availability and allocation rules.",
+  },
+];
+
+/** Idempotent setup helper — creates condo/hostel/apartment rows if missing. */
+export const ensureDefaultHousing = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const existing = await ctx.db.query("housing").collect();
+    const existingTypes = new Set(existing.map((unit) => unit.type));
+    const created: string[] = [];
+
+    for (const unit of DEFAULT_HOUSING) {
+      if (existingTypes.has(unit.type)) continue;
+      await ctx.db.insert("housing", unit);
+      created.push(unit.type);
+    }
+
+    return {
+      created,
+      total: (await ctx.db.query("housing").collect()).length,
+    };
+  },
+});
+
 export const listHousingAdmin = query({
   args: { sessionToken: sessionTokenValidator },
   handler: async (ctx, args) => {
@@ -65,6 +110,7 @@ export const createBooking = mutation({
     checkOut: v.string(),
     guests: v.number(),
     notes: v.optional(v.string()),
+    gateway: v.union(v.literal("stripe"), v.literal("paystack")),
     mockPayment: v.optional(v.boolean()),
     honeypot: v.optional(v.string()),
   },
@@ -100,6 +146,7 @@ export const createBooking = mutation({
       pricePerStay: housing.pricePerStay,
       totalAmount: housing.pricePerStay,
       currency: "USD",
+      gateway: args.gateway,
       paymentStatus: args.mockPayment ? "mock_paid" : "pending_payment",
       paymentReference: args.mockPayment ? `MOCK-HOUSING-${Date.now()}` : undefined,
       referenceNumber,
@@ -115,7 +162,7 @@ export const createBooking = mutation({
       await queuePaymentConfirmation(ctx, "booking", bookingId, "mock_paid");
     }
 
-    return { id: bookingId, referenceNumber };
+    return { id: bookingId, referenceNumber, gateway: args.gateway };
   },
 });
 

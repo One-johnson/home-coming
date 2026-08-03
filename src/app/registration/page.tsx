@@ -13,9 +13,9 @@ export default function RegistrationPage() {
       className="pt-24"
     >
       <p className="lead mx-auto mb-10 max-w-2xl text-center">
-        Choose individual or group registration, select your country or region for
-        the correct pricing and payment gateway, add optional extras, and complete
-        your booking.
+        Choose individual or group registration, select your region for pricing,
+        pay with Paystack (Ghana / West Africa) or choose Paystack or Stripe
+        elsewhere, then complete your booking.
       </p>
       <RegistrationForm />
     </Section>

@@ -1,6 +1,10 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { REGION_CONFIG, type RegistrationRegion } from "./lib/registrationConfig";
+import {
+  calculateRegistrationAmounts,
+  REGION_CONFIG,
+  type RegistrationRegion,
+} from "./lib/registrationConfig";
 import { createUniqueReferenceNumber } from "./lib/referenceNumbers";
 import { writeAuditLog } from "./lib/audit";
 import { queuePaymentConfirmation } from "./lib/paymentEmail";
@@ -11,6 +15,12 @@ const paymentStatusValidator = v.union(
   v.literal("paid"),
   v.literal("failed"),
   v.literal("mock_paid"),
+);
+
+const gatewayValidator = v.union(
+  v.literal("stripe"),
+  v.literal("paystack"),
+  v.literal("paypal"),
 );
 
 const addOnSelectionValidator = v.object({
@@ -32,11 +42,11 @@ export const create = mutation({
     ticketQuantity: v.number(),
     addOns: v.array(addOnSelectionValidator),
     accommodationInterest: v.boolean(),
-    priceAmount: v.number(),
-    addOnAmount: v.number(),
-    totalAmount: v.number(),
-    currency: v.string(),
-    gateway: v.union(v.literal("paystack"), v.literal("paypal")),
+    priceAmount: v.optional(v.number()),
+    addOnAmount: v.optional(v.number()),
+    totalAmount: v.optional(v.number()),
+    currency: v.optional(v.string()),
+    gateway: v.optional(gatewayValidator),
     consent: v.boolean(),
     honeypot: v.optional(v.string()),
     mockPayment: v.optional(v.boolean()),
@@ -64,9 +74,32 @@ export const create = mutation({
       }
     }
 
-    const regionConfig = REGION_CONFIG[args.region as RegistrationRegion];
+    const region = args.region as RegistrationRegion;
+    const regionConfig = REGION_CONFIG[region];
     if (!regionConfig) {
       throw new Error("Invalid region selected");
+    }
+
+    const amounts = calculateRegistrationAmounts(
+      region,
+      args.ticketQuantity,
+      args.addOns,
+    );
+
+    // Ghana / West Africa are GHS — Stripe cannot charge GHS on US accounts.
+    const gateway: "paystack" | "stripe" =
+      amounts.currency === "GHS"
+        ? "paystack"
+        : args.gateway === "stripe" || args.gateway === "paystack"
+          ? args.gateway
+          : amounts.gateway === "paystack"
+            ? "paystack"
+            : "stripe";
+
+    if (gateway === "stripe" && amounts.currency === "GHS") {
+      throw new Error(
+        "Stripe cannot charge GHS. Use Paystack for Ghana and West Africa.",
+      );
     }
 
     const referenceNumber = await createUniqueReferenceNumber(
@@ -88,11 +121,11 @@ export const create = mutation({
       ticketQuantity: args.ticketQuantity,
       addOns: args.addOns,
       accommodationInterest: args.accommodationInterest,
-      priceAmount: args.priceAmount,
-      addOnAmount: args.addOnAmount,
-      totalAmount: args.totalAmount,
-      currency: args.currency,
-      gateway: args.gateway,
+      priceAmount: amounts.priceAmount,
+      addOnAmount: amounts.addOnAmount,
+      totalAmount: amounts.totalAmount,
+      currency: amounts.currency,
+      gateway,
       paymentStatus: args.mockPayment ? "mock_paid" : "pending_payment",
       paymentReference: args.mockPayment
         ? `MOCK-${Date.now()}`
@@ -111,7 +144,13 @@ export const create = mutation({
       );
     }
 
-    return { id: registrationId, referenceNumber };
+    return {
+      id: registrationId,
+      referenceNumber,
+      totalAmount: amounts.totalAmount,
+      currency: amounts.currency,
+      gateway,
+    };
   },
 });
 

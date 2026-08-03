@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Image from "next/image";
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import {
   ArrowLeftIcon,
   CheckCircle2Icon,
@@ -49,11 +49,15 @@ import {
   calculateTourTotal,
   resolveTourImage,
 } from "@/lib/tourConfig";
+import { buildCheckoutUrls } from "@/lib/stripeCheckout";
 import { EVENT } from "@/lib/eventConfig";
 import { isConvexConfigured } from "@/lib/convex-config";
 import { TourPackageCard } from "@/components/tours/TourPackageCard";
 import { useIsCompact } from "@/hooks/use-media-query";
 import { cn } from "@/lib/utils";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+
+type CheckoutGateway = "stripe" | "paystack";
 
 type CheckoutStep = "tickets" | "details" | "review" | "payment";
 const CHECKOUT_STEPS: CheckoutStep[] = [
@@ -127,13 +131,14 @@ function ToursCheckoutInner() {
   const isCompact = useIsCompact();
   const packages = useQuery(api.tourPackages.listPublic);
   const createTourOrder = useMutation(api.tourOrders.create);
+  const createCheckout = useAction(api.stripeCheckout.createCheckoutSession);
   const initiatePaystack = useMutation(api.payments.initiatePaystackPayment);
-  const initiatePaypal = useMutation(api.payments.initiatePaypalPayment);
 
   const [sheetOpen, setSheetOpen] = useState(false);
   const [step, setStep] = useState<CheckoutStep>("tickets");
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [region, setRegion] = useState<RegistrationRegion>("ghana");
+  const [gateway, setGateway] = useState<CheckoutGateway>("stripe");
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -169,7 +174,6 @@ function ToursCheckoutInner() {
     }[];
   }, [packages, totals.lineItems]);
 
-  const regionConfig = REGION_CONFIG[region];
   const stepIndex = CHECKOUT_STEPS.indexOf(step);
   const progressValue = ((stepIndex + 1) / CHECKOUT_STEPS.length) * 100;
   const hasSelection = totals.selections.length > 0;
@@ -253,30 +257,43 @@ function ToursCheckoutInner() {
         region,
         groupName: groupName || undefined,
         items: totals.selections,
+        gateway,
         consent,
         honeypot: honeypot.trim() || undefined,
-        mockPayment: true,
+        mockPayment: false,
       });
 
       setReferenceNumber(result.referenceNumber);
 
-      if (result.gateway === "paystack") {
+      if (gateway === "paystack") {
         const paymentResult = await initiatePaystack({
           tourOrderId: result.id,
           email,
           amount: result.totalAmount,
           currency: result.currency,
         });
-        setPaymentMessage(paymentResult.message ?? "Payment processed.");
-      } else {
-        const paymentResult = await initiatePaypal({
-          tourOrderId: result.id,
-          amount: result.totalAmount,
-          currency: result.currency,
-        });
-        setPaymentMessage(paymentResult.message ?? "Payment processed.");
+        setPaymentMessage(
+          paymentResult.message ?? "Payment processed via Paystack.",
+        );
+        setConfirmed(true);
+        toast.success("Tour order submitted successfully");
+        return;
       }
 
+      const urls = buildCheckoutUrls("/tours");
+      const paymentResult = await createCheckout({
+        type: "tour",
+        recordId: result.id,
+        successUrl: urls.successUrl,
+        cancelUrl: urls.cancelUrl,
+      });
+
+      if (paymentResult.mode === "checkout") {
+        window.location.href = paymentResult.url;
+        return;
+      }
+
+      setPaymentMessage(paymentResult.message ?? "Payment processed.");
       setConfirmed(true);
       toast.success("Tour order submitted successfully");
     } catch (err) {
@@ -598,9 +615,7 @@ function ToursCheckoutInner() {
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground">
-                    Gateway:{" "}
-                    <span className="capitalize">{regionConfig.gateway}</span> ·
-                    USD
+                    Choose Paystack or Stripe on the payment step · USD
                   </p>
                 </div>
                 <div className="space-y-2">
@@ -722,19 +737,77 @@ function ToursCheckoutInner() {
                       totals.currencySymbol,
                     )}
                   </p>
-                  <p className="mt-1">
-                    Pay with{" "}
-                    <span className="capitalize">{regionConfig.gateway}</span>{" "}
-                    in USD
-                  </p>
                 </div>
-                <Alert className="border-amber-200 bg-amber-50 text-amber-900">
-                  <AlertTitle>Stub mode</AlertTitle>
-                  <AlertDescription>
-                    Completing will simulate payment until merchant accounts are
-                    configured.
-                  </AlertDescription>
-                </Alert>
+                <div className="space-y-3">
+                  <Label>Payment method</Label>
+                  <RadioGroup
+                    value={gateway}
+                    onValueChange={(value) =>
+                      setGateway(value as CheckoutGateway)
+                    }
+                    className="grid gap-2"
+                  >
+                    <Label
+                      htmlFor="tour-gateway-stripe"
+                      className="flex cursor-pointer items-start gap-3 rounded-lg border p-3"
+                    >
+                      <RadioGroupItem
+                        id="tour-gateway-stripe"
+                        value="stripe"
+                        className="mt-0.5"
+                      />
+                      <span>
+                        <span className="font-medium text-foreground">
+                          Stripe
+                        </span>
+                        <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
+                          Cards for international payments
+                        </span>
+                      </span>
+                    </Label>
+                    <Label
+                      htmlFor="tour-gateway-paystack"
+                      className="flex cursor-pointer items-start gap-3 rounded-lg border p-3"
+                    >
+                      <RadioGroupItem
+                        id="tour-gateway-paystack"
+                        value="paystack"
+                        className="mt-0.5"
+                      />
+                      <span>
+                        <span className="font-medium text-foreground">
+                          Paystack
+                        </span>
+                        <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
+                          Mobile Money and cards (Africa) — mock until keys are
+                          added
+                        </span>
+                      </span>
+                    </Label>
+                  </RadioGroup>
+                </div>
+                {gateway === "paystack" ? (
+                  <Alert className="border-amber-200 bg-amber-50 text-amber-900">
+                    <AlertTitle>Paystack</AlertTitle>
+                    <AlertDescription>
+                      Live Paystack is not configured yet — completing will
+                      simulate payment until keys are added.
+                    </AlertDescription>
+                  </Alert>
+                ) : (
+                  <Alert>
+                    <AlertTitle>Stripe Checkout</AlertTitle>
+                    <AlertDescription>
+                      You will be redirected to Stripe to complete payment, then
+                      return with your confirmation.
+                    </AlertDescription>
+                  </Alert>
+                )}
+                {error && (
+                  <Alert className="border-destructive/30 bg-destructive/5">
+                    <AlertDescription>{error}</AlertDescription>
+                  </Alert>
+                )}
                 <button
                   type="button"
                   onClick={addMoreTours}
@@ -818,7 +891,13 @@ function ToursCheckoutInner() {
                   disabled={loading || !consent || !hasSelection}
                   onClick={handleSubmit}
                 >
-                  {loading ? "Processing…" : "Complete purchase"}
+                  {loading
+                    ? gateway === "stripe"
+                      ? "Redirecting…"
+                      : "Processing…"
+                    : gateway === "paystack"
+                      ? "Pay with Paystack"
+                      : "Pay with Stripe"}
                 </AppButton>
               </div>
             )}

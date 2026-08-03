@@ -135,8 +135,8 @@ export const PAGE_SEO = {
     image: "/dag-main.jpg",
   },
   faqs: {
-    title: "Frequently Asked Questions",
-    description: `FAQs about registration, accommodation, travel, and attending ${EVENT.fullTitle} in ${EVENT.location}.`,
+    title: "FAQs & Travel Guide",
+    description: `Homecoming 2026 FAQs and travel guide for registration, accommodation, travel, logistics, and security at ${EVENT.fullTitle} in ${EVENT.location}.`,
     path: "/faqs",
     image: "/hero/slide-02.jpg",
   },

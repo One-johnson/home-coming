@@ -1,11 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useMutation } from "convex/react";
-import { CheckCircle2Icon } from "lucide-react";
+import { useMutation, useAction } from "convex/react";
+import { ArrowLeftIcon, CheckCircle2Icon } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import { LinkButton as Button } from "@/components/ui/app-button";
+import { Button as IconButton } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -37,16 +38,20 @@ import {
   REGION_OPTIONS,
   calculateRegistrationTotal,
   formatPrice,
+  isPaystackOnlyRegion,
+  registrationGatewaysForRegion,
   shouldShowChurchAffiliation,
   type RegistrationRegion,
   type RegistrationType,
 } from "@/lib/registrationConfig";
+import { buildCheckoutUrls } from "@/lib/stripeCheckout";
 import { EVENT } from "@/lib/eventConfig";
 import { isConvexConfigured } from "@/lib/convex-config";
 import { cn } from "@/lib/utils";
 
 type Step = "type" | "region" | "details" | "payment" | "confirmation";
 const STEPS: Step[] = ["type", "region", "details", "payment"];
+type CheckoutGateway = "stripe" | "paystack";
 
 function emptyAddOnQuantities() {
   return Object.fromEntries(ADD_ONS.map((addOn) => [addOn.id, 0])) as Record<
@@ -72,10 +77,11 @@ function ConvexRequiredMessage() {
 
 function RegistrationFormInner() {
   const createRegistration = useMutation(api.registrations.create);
+  const createCheckout = useAction(api.stripeCheckout.createCheckoutSession);
   const initiatePaystack = useMutation(api.payments.initiatePaystackPayment);
-  const initiatePaypal = useMutation(api.payments.initiatePaypalPayment);
 
   const [step, setStep] = useState<Step>("type");
+  const [furthestStepIndex, setFurthestStepIndex] = useState(0);
   const [type, setType] = useState<RegistrationType>("individual");
   const [region, setRegion] = useState<RegistrationRegion>("ghana");
   const [ticketQuantity, setTicketQuantity] = useState(1);
@@ -92,6 +98,7 @@ function RegistrationFormInner() {
   const [accommodationInterest, setAccommodationInterest] = useState(false);
   const [consent, setConsent] = useState(false);
   const [honeypot, setHoneypot] = useState("");
+  const [gateway, setGateway] = useState<CheckoutGateway>("paystack");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [referenceNumber, setReferenceNumber] = useState<string | null>(null);
@@ -103,6 +110,8 @@ function RegistrationFormInner() {
   );
 
   const regionConfig = REGION_CONFIG[region];
+  const paystackOnly = isPaystackOnlyRegion(region);
+  const availableGateways = registrationGatewaysForRegion(region);
   const stepIndex = STEPS.indexOf(step as (typeof STEPS)[number]);
   const progressValue =
     stepIndex >= 0 ? ((stepIndex + 1) / STEPS.length) * 100 : 0;
@@ -111,6 +120,33 @@ function RegistrationFormInner() {
     denomination,
   );
   const denominationOptions = DENOMINATIONS_BY_GROUP[group] ?? [];
+  const canGoBack = stepIndex > 0;
+
+  const goToStep = (target: Step) => {
+    if (target === "confirmation") return;
+    const targetIndex = STEPS.indexOf(target);
+    if (targetIndex < 0) return;
+    // Allow revisiting any step already reached; block skipping ahead.
+    if (targetIndex > furthestStepIndex) {
+      toast.message("Complete the current step before continuing");
+      return;
+    }
+    setError("");
+    setStep(target);
+  };
+
+  const goToNextStep = (target: Step) => {
+    const targetIndex = STEPS.indexOf(target);
+    if (targetIndex < 0) return;
+    setError("");
+    setFurthestStepIndex((current) => Math.max(current, targetIndex));
+    setStep(target);
+  };
+
+  const goBack = () => {
+    if (stepIndex <= 0) return;
+    goToStep(STEPS[stepIndex - 1]);
+  };
 
   const setAddOnQuantity = (id: string, quantity: number) => {
     setAddOnQuantities((current) => ({
@@ -122,12 +158,26 @@ function RegistrationFormInner() {
   const handleRegionChange = (value: RegistrationRegion) => {
     setRegion(value);
     setCountryCode(REGION_CONFIG[value].defaultCountryCode);
+    const gateways = registrationGatewaysForRegion(value);
+    setGateway(gateways[0]);
   };
 
   const handleSubmit = async () => {
+    if (!consent) {
+      const message = "Please accept the consent checkbox on the details step.";
+      setError(message);
+      toast.error(message);
+      setStep("details");
+      return;
+    }
+
     setError("");
     setLoading(true);
     try {
+      const selectedGateway: CheckoutGateway = paystackOnly
+        ? "paystack"
+        : gateway;
+
       const result = await createRegistration({
         type,
         fullName: type === "individual" ? fullName : undefined,
@@ -141,35 +191,43 @@ function RegistrationFormInner() {
         ticketQuantity,
         addOns: totals.addOns,
         accommodationInterest,
-        priceAmount: totals.ticketTotal,
-        addOnAmount: totals.addOnTotal,
-        totalAmount: totals.grandTotal,
-        currency: totals.currency,
-        gateway: totals.gateway,
+        gateway: selectedGateway,
         consent,
         honeypot: honeypot.trim() || undefined,
-        mockPayment: true,
+        mockPayment: false,
       });
 
       setReferenceNumber(result.referenceNumber);
 
-      if (totals.gateway === "paystack") {
+      if (selectedGateway === "paystack") {
         const paymentResult = await initiatePaystack({
           registrationId: result.id,
           email,
-          amount: totals.grandTotal,
-          currency: totals.currency,
+          amount: result.totalAmount ?? totals.grandTotal,
+          currency: result.currency ?? totals.currency,
         });
-        setPaymentMessage(paymentResult.message ?? "Payment processed.");
-      } else {
-        const paymentResult = await initiatePaypal({
-          registrationId: result.id,
-          amount: totals.grandTotal,
-          currency: totals.currency,
-        });
-        setPaymentMessage(paymentResult.message ?? "Payment processed.");
+        setPaymentMessage(
+          paymentResult.message ?? "Payment processed via Paystack.",
+        );
+        setStep("confirmation");
+        toast.success("Registration submitted successfully");
+        return;
       }
 
+      const urls = buildCheckoutUrls("/registration");
+      const paymentResult = await createCheckout({
+        type: "registration",
+        recordId: result.id,
+        successUrl: urls.successUrl,
+        cancelUrl: urls.cancelUrl,
+      });
+
+      if (paymentResult.mode === "checkout") {
+        window.location.href = paymentResult.url;
+        return;
+      }
+
+      setPaymentMessage(paymentResult.message ?? "Payment processed.");
       setStep("confirmation");
       toast.success("Registration submitted successfully");
     } catch (err) {
@@ -227,16 +285,50 @@ function RegistrationFormInner() {
   return (
     <div className="mx-auto w-full max-w-3xl space-y-5 px-1 sm:space-y-6 sm:px-0">
       <div className="space-y-3">
-        <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {STEPS.map((s, i) => (
-            <Badge
-              key={s}
-              variant={step === s ? "default" : "secondary"}
-              className="shrink-0 uppercase tracking-wider"
+        <div className="flex items-center gap-2">
+          {canGoBack && (
+            <IconButton
+              type="button"
+              variant="outline"
+              size="icon"
+              className="size-9 shrink-0 rounded-full"
+              onClick={goBack}
+              aria-label="Go back to previous step"
             >
-              {i + 1}. {s}
-            </Badge>
-          ))}
+              <ArrowLeftIcon className="size-4" />
+            </IconButton>
+          )}
+          <div className="-mx-1 flex min-w-0 flex-1 gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {STEPS.map((s, i) => {
+              const isCurrent = step === s;
+              const isReached = i <= furthestStepIndex;
+              return (
+                <button
+                  key={s}
+                  type="button"
+                  disabled={!isReached}
+                  onClick={() => goToStep(s)}
+                  aria-current={isCurrent ? "step" : undefined}
+                  className={cn(
+                    "shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    isReached
+                      ? "cursor-pointer"
+                      : "cursor-not-allowed opacity-60",
+                  )}
+                >
+                  <Badge
+                    variant={isCurrent ? "default" : "secondary"}
+                    className={cn(
+                      "uppercase tracking-wider transition",
+                      isReached && !isCurrent && "hover:bg-secondary/80",
+                    )}
+                  >
+                    {i + 1}. {s}
+                  </Badge>
+                </button>
+              );
+            })}
+          </div>
         </div>
         <Progress value={progressValue} />
       </div>
@@ -286,7 +378,7 @@ function RegistrationFormInner() {
             </RadioGroup>
           </CardContent>
           <CardFooter className="flex-col gap-3 sm:flex-row">
-            <Button className="w-full sm:w-auto" onClick={() => setStep("region")}>
+            <Button className="w-full sm:w-auto" onClick={() => goToNextStep("region")}>
               Continue
             </Button>
           </CardFooter>
@@ -298,7 +390,7 @@ function RegistrationFormInner() {
           <CardHeader>
             <CardTitle>Country / Region</CardTitle>
             <CardDescription>
-              Select your region for payment routing.
+              Select your region for pricing and available payment methods.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -323,23 +415,30 @@ function RegistrationFormInner() {
               </Select>
             </div>
             <p className="text-sm text-muted-foreground">
-              Payment via{" "}
-              <Badge variant="outline" className="capitalize">
-                {regionConfig.gateway}
-              </Badge>
+              Listed price:{" "}
+              {formatPrice(
+                regionConfig.price,
+                regionConfig.currency,
+                regionConfig.currencySymbol,
+              )}{" "}
+              per ticket.
+              {paystackOnly
+                ? " Payment via Paystack (Mobile Money and cards). Stripe does not support GHS."
+                : " You can pay with Paystack or Stripe."}
             </p>
           </CardContent>
           <CardFooter className="flex-col-reverse gap-3 sm:flex-row">
             <Button
               variant="outline"
               className="w-full sm:w-auto"
-              onClick={() => setStep("type")}
+              onClick={() => goToStep("type")}
             >
+              <ArrowLeftIcon className="size-3.5" />
               Back
             </Button>
             <Button
               className="w-full sm:w-auto"
-              onClick={() => setStep("details")}
+              onClick={() => goToNextStep("details")}
             >
               Continue
             </Button>
@@ -595,13 +694,21 @@ function RegistrationFormInner() {
             <Button
               variant="outline"
               className="w-full sm:w-auto"
-              onClick={() => setStep("region")}
+              onClick={() => goToStep("region")}
             >
+              <ArrowLeftIcon className="size-3.5" />
               Back
             </Button>
             <Button
               className="w-full sm:w-auto"
-              onClick={() => setStep("payment")}
+              onClick={() => {
+                if (!consent) {
+                  toast.error("Please accept the consent checkbox to continue.");
+                  return;
+                }
+                goToNextStep("payment");
+              }}
+              disabled={!consent}
             >
               Continue to Payment
             </Button>
@@ -614,34 +721,121 @@ function RegistrationFormInner() {
           <CardHeader>
             <CardTitle>Payment</CardTitle>
             <CardDescription>
-              You will be routed to{" "}
-              <span className="capitalize font-medium">{regionConfig.gateway}</span>{" "}
-              for payment in {regionConfig.currency}.
+              Total{" "}
+              {formatPrice(
+                totals.grandTotal,
+                totals.currency,
+                totals.currencySymbol,
+              )}
+              .
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            <Alert className="border-amber-200 bg-amber-50 text-amber-900">
-              <AlertTitle>Stub mode</AlertTitle>
-              <AlertDescription>
-                Clicking complete will simulate a successful payment and store your
-                registration until merchant accounts are configured.
-              </AlertDescription>
-            </Alert>
+          <CardContent className="space-y-4">
+            {paystackOnly ? (
+              <Alert>
+                <AlertTitle>Paystack</AlertTitle>
+                <AlertDescription>
+                  Ghana and West Africa prices are in GHS, which Stripe cannot
+                  charge. Pay with Paystack (Mobile Money and cards). Live
+                  Paystack is not configured yet — completing will simulate
+                  payment until keys are added.
+                </AlertDescription>
+              </Alert>
+            ) : (
+              <>
+                <div className="space-y-3">
+                  <Label>Payment method</Label>
+                  <RadioGroup
+                    value={gateway}
+                    onValueChange={(value) =>
+                      setGateway(value as CheckoutGateway)
+                    }
+                    className="grid gap-2"
+                  >
+                    {availableGateways.includes("paystack") && (
+                      <Label
+                        htmlFor="reg-gateway-paystack"
+                        className="flex cursor-pointer items-start gap-3 rounded-lg border p-3"
+                      >
+                        <RadioGroupItem
+                          id="reg-gateway-paystack"
+                          value="paystack"
+                          className="mt-0.5"
+                        />
+                        <span>
+                          <span className="font-medium">Paystack</span>
+                          <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
+                            Mobile Money and cards (mock until keys are added)
+                          </span>
+                        </span>
+                      </Label>
+                    )}
+                    {availableGateways.includes("stripe") && (
+                      <Label
+                        htmlFor="reg-gateway-stripe"
+                        className="flex cursor-pointer items-start gap-3 rounded-lg border p-3"
+                      >
+                        <RadioGroupItem
+                          id="reg-gateway-stripe"
+                          value="stripe"
+                          className="mt-0.5"
+                        />
+                        <span>
+                          <span className="font-medium">Stripe</span>
+                          <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
+                            Card payments
+                          </span>
+                        </span>
+                      </Label>
+                    )}
+                  </RadioGroup>
+                </div>
+                {gateway === "paystack" ? (
+                  <Alert className="border-amber-200 bg-amber-50 text-amber-900">
+                    <AlertTitle>Paystack</AlertTitle>
+                    <AlertDescription>
+                      Live Paystack is not configured yet — completing will
+                      simulate payment until keys are added.
+                    </AlertDescription>
+                  </Alert>
+                ) : (
+                  <Alert>
+                    <AlertTitle>Stripe Checkout</AlertTitle>
+                    <AlertDescription>
+                      You will be redirected to Stripe, then return with your
+                      confirmation reference.
+                    </AlertDescription>
+                  </Alert>
+                )}
+              </>
+            )}
+            {error && (
+              <Alert className="border-destructive/30 bg-destructive/5">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
           </CardContent>
           <CardFooter className="flex-col-reverse gap-3 sm:flex-row">
             <Button
               variant="outline"
               className="w-full sm:w-auto"
-              onClick={() => setStep("details")}
+              onClick={() => goToStep("details")}
             >
+              <ArrowLeftIcon className="size-3.5" />
               Back
             </Button>
             <Button
               className="w-full sm:w-auto"
-              onClick={handleSubmit}
+              onClick={() => void handleSubmit()}
               disabled={loading || !consent}
             >
-              {loading ? "Processing..." : "Complete Registration"}
+              {loading
+                ? gateway === "stripe" && !paystackOnly
+                  ? "Redirecting..."
+                  : "Processing..."
+                : paystackOnly || gateway === "paystack"
+                  ? "Complete with Paystack"
+                  : "Pay with Stripe"}
             </Button>
           </CardFooter>
         </Card>
