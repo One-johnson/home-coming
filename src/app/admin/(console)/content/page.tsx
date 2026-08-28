@@ -1,9 +1,8 @@
 "use client";
 
-import Image from "next/image";
 import { useMutation, useQuery } from "convex/react";
 import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import type { Doc, Id } from "@convex/_generated/dataModel";
@@ -29,10 +28,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { canAccessArea } from "@/lib/adminRoles";
-import { uploadFileToConvex } from "@/lib/galleryUpload";
 
 export default function AdminContentPage() {
   const { user, sessionToken } = useAdminSession();
@@ -40,24 +37,17 @@ export default function AdminContentPage() {
   const allowed = canAccessArea(user?.role, "content");
 
   const faqs = useQuery(api.content.listFaqs, allowed ? {} : "skip");
-  const stats = useQuery(api.content.listStats, allowed ? {} : "skip");
   const announcements = useQuery(
     api.content.listAnnouncementsAdmin,
     allowed && sessionArgs ? sessionArgs : "skip",
   );
-  const about = useQuery(api.content.getAbout, allowed ? {} : "skip");
 
   const upsertFaq = useMutation(api.content.upsertFaq);
   const deleteFaq = useMutation(api.content.deleteFaq);
   const bulkDeleteFaqs = useMutation(api.content.bulkDeleteFaqs);
-  const upsertStat = useMutation(api.content.upsertStat);
-  const deleteStat = useMutation(api.content.deleteStat);
   const upsertAnnouncement = useMutation(api.content.upsertAnnouncement);
   const deleteAnnouncement = useMutation(api.content.deleteAnnouncement);
-  const upsertAbout = useMutation(api.content.upsertAbout);
-  const generateUploadUrl = useMutation(api.galleryStorage.generateUploadUrl);
 
-  const welcomeImageInputRef = useRef<HTMLInputElement>(null);
   const [faqForm, setFaqForm] = useState({
     category: "Registration",
     question: "",
@@ -74,8 +64,6 @@ export default function AdminContentPage() {
     | null
   >(null);
   const [deletingFaqs, setDeletingFaqs] = useState(false);
-  const [statForm, setStatForm] = useState({ label: "", value: "", order: 1 });
-  const [editingStat, setEditingStat] = useState<Id<"stats"> | null>(null);
   const [announcementForm, setAnnouncementForm] = useState({
     title: "",
     body: "",
@@ -84,43 +72,6 @@ export default function AdminContentPage() {
   const [editingAnnouncement, setEditingAnnouncement] = useState<
     Id<"announcements"> | null
   >(null);
-  const [aboutForm, setAboutForm] = useState({
-    history: "",
-    purpose: "",
-    vision: "",
-    impact: "",
-    firstLadyMessage: "",
-  });
-  const [welcomeImagePreview, setWelcomeImagePreview] = useState<string | null>(
-    null,
-  );
-  const [pendingWelcomeFile, setPendingWelcomeFile] = useState<File | null>(
-    null,
-  );
-  const [removeWelcomeImage, setRemoveWelcomeImage] = useState(false);
-  const [savingAbout, setSavingAbout] = useState(false);
-
-  useEffect(() => {
-    if (!about) return;
-    setAboutForm({
-      history: about.history,
-      purpose: about.purpose,
-      vision: about.vision,
-      impact: about.impact,
-      firstLadyMessage: about.firstLadyMessage,
-    });
-    if (!pendingWelcomeFile) {
-      setWelcomeImagePreview(about.firstLadyImageUrl ?? null);
-      setRemoveWelcomeImage(false);
-    }
-  }, [about, pendingWelcomeFile]);
-
-  useEffect(() => {
-    if (!pendingWelcomeFile) return;
-    const objectUrl = URL.createObjectURL(pendingWelcomeFile);
-    setWelcomeImagePreview(objectUrl);
-    return () => URL.revokeObjectURL(objectUrl);
-  }, [pendingWelcomeFile]);
 
   if (!allowed) {
     return (
@@ -137,15 +88,6 @@ export default function AdminContentPage() {
       question: faq.question,
       answer: faq.answer,
       order: faq.order,
-    });
-  };
-
-  const startEditStat = (stat: Doc<"stats">) => {
-    setEditingStat(stat._id);
-    setStatForm({
-      label: stat.label,
-      value: stat.value,
-      order: stat.order,
     });
   };
 
@@ -404,112 +346,6 @@ export default function AdminContentPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>{editingStat ? "Edit stat" : "Add stat"}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <form
-              className="space-y-3"
-              onSubmit={async (e) => {
-                e.preventDefault();
-                if (!sessionToken) return;
-                try {
-                  await upsertStat({
-                    sessionToken,
-                    id: editingStat ?? undefined,
-                    ...statForm,
-                  });
-                  setStatForm({ label: "", value: "", order: 1 });
-                  setEditingStat(null);
-                  toast.success("Stat saved");
-                } catch (err) {
-                  toast.error(
-                    err instanceof Error ? err.message : "Failed to save stat",
-                  );
-                }
-              }}
-            >
-              <Input
-                placeholder="Label"
-                required
-                value={statForm.label}
-                onChange={(e) =>
-                  setStatForm({ ...statForm, label: e.target.value })
-                }
-              />
-              <Input
-                placeholder="Value"
-                required
-                value={statForm.value}
-                onChange={(e) =>
-                  setStatForm({ ...statForm, value: e.target.value })
-                }
-              />
-              <div className="flex flex-wrap gap-2">
-                <Button type="submit">
-                  {editingStat ? "Update stat" : "Save stat"}
-                </Button>
-                {editingStat && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      setEditingStat(null);
-                      setStatForm({ label: "", value: "", order: 1 });
-                    }}
-                  >
-                    Cancel
-                  </Button>
-                )}
-              </div>
-            </form>
-            <div className="mt-6 space-y-2">
-              {(stats ?? []).map((stat) => (
-                <div
-                  key={stat._id}
-                  className="flex items-center justify-between gap-3 border-b border-border py-2 last:border-0"
-                >
-                  <p className="text-sm">
-                    {stat.label}: <strong>{stat.value}</strong>
-                  </p>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger className="inline-flex size-8 items-center justify-center rounded-lg border border-border bg-background hover:bg-muted">
-                      <MoreHorizontal className="size-4" />
-                      <span className="sr-only">Stat actions</span>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => startEditStat(stat)}>
-                        <Pencil />
-                        Edit
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        variant="destructive"
-                        onClick={async () => {
-                          if (!sessionToken) return;
-                          try {
-                            await deleteStat({ sessionToken, id: stat._id });
-                            toast.success("Stat deleted");
-                          } catch (err) {
-                            toast.error(
-                              err instanceof Error
-                                ? err.message
-                                : "Delete failed",
-                            );
-                          }
-                        }}
-                      >
-                        <Trash2 />
-                        Delete
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
             <CardTitle>
               {editingAnnouncement ? "Edit announcement" : "Add announcement"}
             </CardTitle>
@@ -653,152 +489,6 @@ export default function AdminContentPage() {
                 </div>
               ))}
             </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>About page</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <form
-              className="space-y-4"
-              onSubmit={async (e) => {
-                e.preventDefault();
-                if (!sessionToken) return;
-                setSavingAbout(true);
-                try {
-                  let firstLadyImageStorageId:
-                    | Id<"_storage">
-                    | undefined;
-                  if (pendingWelcomeFile) {
-                    firstLadyImageStorageId = await uploadFileToConvex(
-                      pendingWelcomeFile,
-                      () => generateUploadUrl({ sessionToken }),
-                    );
-                  }
-
-                  await upsertAbout({
-                    sessionToken,
-                    ...aboutForm,
-                    ...(firstLadyImageStorageId
-                      ? { firstLadyImageStorageId }
-                      : {}),
-                    ...(removeWelcomeImage && !pendingWelcomeFile
-                      ? { removeFirstLadyImage: true }
-                      : {}),
-                  });
-                  setPendingWelcomeFile(null);
-                  setRemoveWelcomeImage(false);
-                  if (welcomeImageInputRef.current) {
-                    welcomeImageInputRef.current.value = "";
-                  }
-                  toast.success("About page saved");
-                } catch (err) {
-                  toast.error(
-                    err instanceof Error ? err.message : "Failed to save about",
-                  );
-                } finally {
-                  setSavingAbout(false);
-                }
-              }}
-            >
-              {(
-                ["history", "purpose", "vision", "impact"] as const
-              ).map((key) => (
-                <div key={key}>
-                  <label className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                    {key}
-                  </label>
-                  <Textarea
-                    className="mt-1"
-                    value={aboutForm[key]}
-                    onChange={(e) =>
-                      setAboutForm({ ...aboutForm, [key]: e.target.value })
-                    }
-                  />
-                </div>
-              ))}
-
-              <div className="space-y-3 rounded-lg border border-border p-3">
-                <div>
-                  <p className="text-sm font-medium">Word of Welcome</p>
-                  <p className="text-xs text-muted-foreground">
-                    Image and message shown in the “From the First Lady”
-                    section on the public About page.
-                  </p>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="welcome-image">Welcome image</Label>
-                  {welcomeImagePreview ? (
-                    <div className="relative aspect-[4/3] max-w-sm overflow-hidden rounded-lg border bg-muted">
-                      <Image
-                        src={welcomeImagePreview}
-                        alt="Word of Welcome preview"
-                        fill
-                        className="object-cover"
-                        sizes="384px"
-                        unoptimized={welcomeImagePreview.startsWith("blob:")}
-                      />
-                    </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">
-                      No image uploaded yet.
-                    </p>
-                  )}
-                  <Input
-                    id="welcome-image"
-                    ref={welcomeImageInputRef}
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp,image/gif"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0] ?? null;
-                      setPendingWelcomeFile(file);
-                      setRemoveWelcomeImage(false);
-                    }}
-                  />
-                  <div className="flex flex-wrap gap-2">
-                    {(welcomeImagePreview || pendingWelcomeFile) && (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          setPendingWelcomeFile(null);
-                          setRemoveWelcomeImage(true);
-                          setWelcomeImagePreview(null);
-                          if (welcomeImageInputRef.current) {
-                            welcomeImageInputRef.current.value = "";
-                          }
-                        }}
-                      >
-                        Remove image
-                      </Button>
-                    )}
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="welcome-message">Welcome message</Label>
-                  <Textarea
-                    id="welcome-message"
-                    rows={5}
-                    value={aboutForm.firstLadyMessage}
-                    onChange={(e) =>
-                      setAboutForm({
-                        ...aboutForm,
-                        firstLadyMessage: e.target.value,
-                      })
-                    }
-                  />
-                </div>
-              </div>
-
-              <Button type="submit" disabled={savingAbout}>
-                {savingAbout ? "Saving…" : "Save about page"}
-              </Button>
-            </form>
           </CardContent>
         </Card>
       </div>

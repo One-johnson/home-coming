@@ -135,6 +135,7 @@ export default defineSchema({
     order: v.number(),
   }).index("by_order", ["order"]),
 
+  // Deprecated: homepage stats now live in src/content/home.json.
   stats: defineTable({
     label: v.string(),
     value: v.string(),
@@ -148,6 +149,7 @@ export default defineSchema({
     createdAt: v.number(),
   }).index("by_active", ["active"]),
 
+  // Deprecated: about copy now lives in src/content/about.json.
   aboutContent: defineTable({
     slug: v.literal("about"),
     history: v.string(),

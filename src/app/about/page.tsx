@@ -1,31 +1,18 @@
 "use client";
 
 import Image from "next/image";
-import { useQuery } from "convex/react";
 import { motion, useReducedMotion } from "framer-motion";
-import { api } from "@convex/_generated/api";
+import { ChurchAbout } from "@/components/about/ChurchAbout";
 import { ExpandableText } from "@/components/about/ExpandableText";
 import { Section } from "@/components/ui/Section";
 import { LinkButton as Button } from "@/components/ui/app-button";
 import { AspectRatio } from "@/components/ui/aspect-ratio";
 import { Card } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { isConvexConfigured } from "@/lib/convex-config";
+import { aboutContent } from "@/lib/siteContent";
 import { gentleTransition, scrollViewport } from "@/lib/motion";
 
-type AboutData = {
-  history: string;
-  purpose: string;
-  vision: string;
-  impact: string;
-  firstLadyMessage: string;
-  firstLadyImageUrl?: string | null;
-} | null | undefined;
-
-const WELCOME_IMAGE_FALLBACK =
-  "https://picsum.photos/seed/homecoming-welcome/800/600";
-
-function WelcomeImage({ src }: { src: string }) {
+function WelcomeImage({ src, alt }: { src: string; alt: string }) {
   const shouldReduceMotion = useReducedMotion();
 
   return (
@@ -47,7 +34,7 @@ function WelcomeImage({ src }: { src: string }) {
           >
             <Image
               src={src}
-              alt="Word of Welcome from the First Lady"
+              alt={alt}
               fill
               className="object-cover"
               sizes="(max-width: 1024px) 100vw, 50vw"
@@ -59,20 +46,17 @@ function WelcomeImage({ src }: { src: string }) {
   );
 }
 
-function AboutPageContent({ about }: { about: AboutData }) {
-  const welcomeImage = about?.firstLadyImageUrl || WELCOME_IMAGE_FALLBACK;
+export default function AboutPage() {
+  const { convention, firstLady, cta } = aboutContent;
 
   return (
     <>
-      <Section
-        dark
-        subtitle="Our Story"
-        title="About The Homecoming Convention"
-        className="pt-24"
-      >
+      <ChurchAbout />
+
+      <Section dark subtitle={convention.subtitle} title={convention.title}>
         <div className="mx-auto max-w-5xl space-y-10 text-lg leading-relaxed text-white [&_p]:text-white md:text-xl md:leading-relaxed">
           <ExpandableText
-            text={about?.history ?? "Content loading..."}
+            text={convention.history}
             previewChars={320}
             buttonClassName="text-gold"
           />
@@ -83,7 +67,7 @@ function AboutPageContent({ about }: { about: AboutData }) {
             </h3>
             <ExpandableText
               className="mt-4"
-              text={about?.purpose ?? ""}
+              text={convention.purpose}
               previewChars={240}
               buttonClassName="text-gold"
             />
@@ -95,7 +79,7 @@ function AboutPageContent({ about }: { about: AboutData }) {
             </h3>
             <ExpandableText
               className="mt-4"
-              text={about?.vision ?? ""}
+              text={convention.vision}
               previewChars={240}
               buttonClassName="text-gold"
             />
@@ -107,7 +91,7 @@ function AboutPageContent({ about }: { about: AboutData }) {
             </h3>
             <ExpandableText
               className="mt-4"
-              text={about?.impact ?? ""}
+              text={convention.impact}
               previewChars={240}
               buttonClassName="text-gold"
             />
@@ -117,13 +101,13 @@ function AboutPageContent({ about }: { about: AboutData }) {
 
       <Section
         className="bg-cream"
-        subtitle="A Word of Welcome"
-        title="From the First Lady"
+        subtitle={firstLady.subtitle}
+        title={firstLady.title}
       >
         <div className="mx-auto grid max-w-6xl items-center gap-10 lg:grid-cols-2">
-          <WelcomeImage src={welcomeImage} />
+          <WelcomeImage src={firstLady.image} alt={firstLady.imageAlt} />
           <ExpandableText
-            text={about?.firstLadyMessage ?? "Welcome message coming soon."}
+            text={firstLady.message}
             previewChars={220}
             quoted
             wrapperClassName="border-l-2 border-gold pl-6"
@@ -133,9 +117,9 @@ function AboutPageContent({ about }: { about: AboutData }) {
         </div>
       </Section>
 
-      <Section dark subtitle="Join Us" title="Ready to Join Us?">
+      <Section dark subtitle={cta.subtitle} title={cta.title}>
         <p className="lead lead-light mx-auto mb-10 max-w-3xl text-center text-xl md:text-2xl">
-          Register for the convention and secure your accommodation today.
+          {cta.body}
         </p>
         <div className="flex flex-wrap justify-center gap-5">
           <Button
@@ -155,16 +139,4 @@ function AboutPageContent({ about }: { about: AboutData }) {
       </Section>
     </>
   );
-}
-
-function AboutPageConnected() {
-  const about = useQuery(api.content.getAbout);
-  return <AboutPageContent about={about} />;
-}
-
-export default function AboutPage() {
-  if (!isConvexConfigured()) {
-    return <AboutPageContent about={null} />;
-  }
-  return <AboutPageConnected />;
 }

@@ -61,7 +61,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
       {
         href: "/admin/content",
         label: "Content",
-        description: "FAQs, stats, announcements, and about copy",
+        description: "FAQs and announcements",
         area: "content",
       },
       {

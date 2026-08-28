@@ -1,20 +1,21 @@
 import { Section } from "@/components/ui/Section";
 import { LinkButton as Button } from "@/components/ui/app-button";
+import { homeContent } from "@/lib/siteContent";
 
 const ctaButtonClassName =
   "min-h-12 px-9 py-4 text-base sm:min-h-[3.25rem] sm:px-10 sm:text-lg";
 
 export function RegistrationCTA() {
+  const { registrationCta } = homeContent;
+
   return (
     <Section
-      subtitle="Join Us"
-      title="Register for The Homecoming"
+      subtitle={registrationCta.subtitle}
+      title={registrationCta.title}
       className="bg-cream"
     >
       <p className="lead mx-auto mb-10 max-w-2xl text-center">
-        Secure your place at Mountain of the Lord — The Homecoming. Register
-        individually or as a group, choose add-ons, and prepare for an
-        unforgettable gathering on the mountain.
+        {registrationCta.body}
       </p>
       <div className="flex flex-wrap justify-center gap-5">
         <Button
