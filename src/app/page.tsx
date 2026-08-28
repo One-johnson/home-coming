@@ -5,7 +5,6 @@ import { VenueSection } from "@/components/landing/VenueSection";
 import { HostSection } from "@/components/landing/HostSection";
 import { GalleryPreview } from "@/components/landing/GalleryPreview";
 import { MessagesPreview } from "@/components/landing/MessagesPreview";
-import { FAQPreview } from "@/components/landing/FAQPreview";
 import { RegistrationCTA } from "@/components/landing/RegistrationCTA";
 
 export default function HomePage() {
@@ -19,7 +18,6 @@ export default function HomePage() {
       <HostSection />
       <GalleryPreview />
       <MessagesPreview />
-      <FAQPreview />
     </>
   );
 }

@@ -221,13 +221,6 @@ async function syncFaqs(ctx: MutationCtx) {
   }
 }
 
-const STATS = [
-  { label: "Attendees", value: "5000+", order: 1 },
-  { label: "Countries Represented", value: "100+", order: 2 },
-  { label: "Sessions", value: "8+", order: 3 },
-  { label: "Testimonies", value: "50+", order: 4 },
-];
-
 async function syncDefaultTourPackages(ctx: MutationCtx) {
   const now = Date.now();
   for (const pkg of DEFAULT_TOUR_PACKAGES) {
@@ -250,21 +243,6 @@ async function syncDefaultTourPackages(ctx: MutationCtx) {
       order: pkg.order,
       updatedAt: now,
     });
-  }
-}
-
-async function syncStats(ctx: MutationCtx) {
-  for (const stat of STATS) {
-    const existing = await ctx.db
-      .query("stats")
-      .withIndex("by_order", (q) => q.eq("order", stat.order))
-      .first();
-
-    if (existing) {
-      await ctx.db.patch(existing._id, stat);
-    } else {
-      await ctx.db.insert("stats", stat);
-    }
   }
 }
 
@@ -377,8 +355,6 @@ export const seed = mutation({
     await requireRole(ctx, args.sessionToken, ["admin"]);
 
     await syncFaqs(ctx);
-
-    await syncStats(ctx);
     await syncHomecomingMessages(ctx);
 
     const existingHotels = await ctx.db.query("hotels").first();
@@ -418,24 +394,6 @@ export const seed = mutation({
 
     await syncDefaultTourPackages(ctx);
 
-    const existingAbout = await ctx.db.query("aboutContent").first();
-    if (!existingAbout) {
-      await ctx.db.insert("aboutContent", {
-        slug: "about",
-        history:
-          "The Homecoming Convention began as a gathering of believers returning to the mountain — a place of encounter, worship, and renewal. Each year, thousands from across the globe come together at Anagkazo Campus in Mampong, Ghana.",
-        purpose:
-          "To gather God's people for worship, teaching, fellowship, and spiritual impartation under the ministry of Dag Heward-Mills.",
-        vision:
-          "A global homecoming where nations are represented, lives are transformed, and the presence of God is experienced on the mountain.",
-        impact:
-          "Past conventions have seen attendees from dozens of nations, powerful testimonies, and lasting ministry connections formed across continents.",
-        firstLadyMessage:
-          "Welcome to The Homecoming. This is more than an event — it is a family reunion on the mountain. We look forward to welcoming you to Anagkazo Campus with open arms and grateful hearts.",
-        updatedAt: Date.now(),
-      });
-    }
-
     const existingAnnouncement = await ctx.db.query("announcements").first();
     if (!existingAnnouncement) {
       await ctx.db.insert("announcements", {
@@ -461,7 +419,6 @@ export const seedPublic = mutation({
     }
 
     await syncFaqs(ctx);
-    await syncStats(ctx);
     for (const hotel of HOTELS) {
       await ctx.db.insert("hotels", {
         ...hotel,
@@ -489,20 +446,6 @@ export const seedPublic = mutation({
       await ctx.db.insert("housing", unit);
     }
     await syncDefaultTourPackages(ctx);
-    await ctx.db.insert("aboutContent", {
-      slug: "about",
-      history:
-        "The Homecoming Convention began as a gathering of believers returning to the mountain — a place of encounter, worship, and renewal. Each year, thousands from across the globe come together at Anagkazo Campus in Mampong, Ghana.",
-      purpose:
-        "To gather God's people for worship, teaching, fellowship, and spiritual impartation under the ministry of Dag Heward-Mills.",
-      vision:
-        "A global homecoming where nations are represented, lives are transformed, and the presence of God is experienced on the mountain.",
-      impact:
-        "Past conventions have seen attendees from dozens of nations, powerful testimonies, and lasting ministry connections formed across continents.",
-      firstLadyMessage:
-        "Welcome to The Homecoming. This is more than an event — it is a family reunion on the mountain. We look forward to welcoming you to Anagkazo Campus with open arms and grateful hearts.",
-      updatedAt: Date.now(),
-    });
     await ctx.db.insert("announcements", {
       title: "Registration Now Open",
       body: "Register early for Mountain of the Lord — The Homecoming, November 2–8, 2026 at Anagkazo Campus, Mampong, Ghana.",
@@ -510,15 +453,6 @@ export const seedPublic = mutation({
       createdAt: Date.now(),
     });
 
-    return { success: true };
-  },
-});
-
-export const syncStatsPublic = mutation({
-  args: { sessionToken: sessionTokenValidator },
-  handler: async (ctx, args) => {
-    await requireRole(ctx, args.sessionToken, ["admin"]);
-    await syncStats(ctx);
     return { success: true };
   },
 });

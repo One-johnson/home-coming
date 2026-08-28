@@ -10,16 +10,19 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { EVENT } from "@/lib/eventConfig";
+import { homeContent } from "@/lib/siteContent";
 
 export function HostSection() {
+  const { host } = homeContent;
+
   return (
-    <Section subtitle="Founder & Host" title={EVENT.host} className="bg-cream">
+    <Section subtitle={host.subtitle} title={EVENT.host} className="bg-cream">
       <MotionStagger className="grid items-stretch gap-10 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
         <MotionItem className="h-full min-h-[320px] sm:min-h-[420px]">
           <Card className="group h-full overflow-hidden pt-0 shadow-elevate ring-1 ring-border">
             <div className="relative h-full min-h-[320px] sm:min-h-[420px]">
               <Image
-                src="/dag-main.jpg"
+                src={host.image}
                 alt={`${EVENT.host} speaking at The Homecoming Convention`}
                 fill
                 className="object-cover object-top transition-transform duration-700 ease-out group-hover:scale-[1.02]"
@@ -33,9 +36,9 @@ export function HostSection() {
         <MotionItem className="h-full">
           <Card className="flex h-full flex-col shadow-soft ring-1 ring-border">
             <CardHeader>
-              <CardTitle className="font-display text-3xl">Founder & Lead Speaker</CardTitle>
+              <CardTitle className="font-display text-3xl">{host.role}</CardTitle>
               <CardDescription className="mt-1 text-base font-medium not-italic text-soft-ink">
-                Host of The Homecoming Convention at Anagkazo Campus.
+                {host.roleDescription}
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-1 flex-col">

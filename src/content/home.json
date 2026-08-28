@@ -1,0 +1,119 @@
+{
+  "hero": {
+    "titleGold": "Mountain of the Lord",
+    "titlePlain": "The Homecoming",
+    "tagline": "A gathering of all the churches — everyone is coming home! Be part of this historic event.",
+    "countdownLabel": "Countdown to Homecoming 2026",
+    "registerLabel": "Register Now",
+    "accommodationLabel": "Book Accommodation",
+    "slides": [
+      {
+        "src": "/hero/banner.jpeg",
+        "alt": "Mountain of the Lord — The Homecoming event banner at Anagkazo Campus"
+      },
+      {
+        "src": "/hero/slide-01.jpg",
+        "alt": "Worship gathering at a past Homecoming Convention"
+      },
+      {
+        "src": "/hero/slide-02.jpg",
+        "alt": "Crowds gathered at Anagkazo Campus"
+      },
+      {
+        "src": "/hero/slide-03.jpg",
+        "alt": "Ministers worshipping at The Homecoming"
+      },
+      {
+        "src": "/hero/slide-04.jpg",
+        "alt": "Convention session at Anagkazo Campus"
+      },
+      {
+        "src": "/hero/slide-05.jpg",
+        "alt": "Believers gathered on the mountain for The Homecoming"
+      }
+    ]
+  },
+  "eventDetails": {
+    "subtitle": "Event Details",
+    "audience": "International attendees, church members, pastors, ministry leaders, groups, families, and guests"
+  },
+  "highlights": {
+    "subtitle": "Last Year's Homecoming",
+    "title": "Celebrating What God Has Done",
+    "body": "The previous Homecoming Convention brought together believers from across the globe for worship, teaching, and fellowship on the mountain.",
+    "stats": [
+      { "label": "Attendees", "value": "5000+" },
+      { "label": "Countries Represented", "value": "100+" },
+      { "label": "Sessions", "value": "8+" },
+      { "label": "Testimonies", "value": "50+" }
+    ]
+  },
+  "registrationCta": {
+    "subtitle": "Join Us",
+    "title": "Register for The Homecoming",
+    "body": "Secure your place at Mountain of the Lord — The Homecoming. Register individually or as a group, choose add-ons, and prepare for an unforgettable gathering on the mountain."
+  },
+  "venue": {
+    "id": "venue",
+    "subtitle": "The Venue",
+    "title": "Anagkazo Campus, Mampong",
+    "captionEyebrow": "Anagkazo Bible School Campus",
+    "caption": "A place shaped by purpose, surrounded by nature.",
+    "intro": "Nestled in the heart of the Akwapim Mountains in {location}, the Anagkazo Bible School Campus is a breathtaking setting of gardens, halls, and panoramic views — purpose-built for prayer, reflection, and gathering.",
+    "details": [
+      "The campus features unique architecture, conference halls, the renowned Library of the Anointing, the 100% Answered Prayer Garden, and quiet spaces designed for reflection. Tours are available by cart or by train.",
+      "Just an hour from Accra, it is the long-time home of the Give Thyself Wholly Conference — and every space has been thoughtfully prepared to welcome ministers from around the world."
+    ],
+    "exploreLabel": "Explore More",
+    "photos": [
+      {
+        "src": "/campus/anagkazo.jpg",
+        "alt": "Main entrance to Anagkazo Bible School Campus"
+      },
+      {
+        "src": "/campus/campus.jpg",
+        "alt": "Monument of books at Revelation Roundabout on campus"
+      },
+      {
+        "src": "/campus/campus1.jpg",
+        "alt": "Lighthouse overlooking the Akwapim Mountains from Anagkazo Campus"
+      }
+    ],
+    "highlights": [
+      {
+        "icon": "Landmark",
+        "title": "Conference Halls",
+        "description": "Unique architecture built for gathering and impartation"
+      },
+      {
+        "icon": "BookOpen",
+        "title": "Library of the Anointing",
+        "description": "A renowned space for study, prayer, and encounter"
+      },
+      {
+        "icon": "Flower2",
+        "title": "100% Answered Prayer Garden",
+        "description": "Quiet grounds designed for reflection and devotion"
+      },
+      {
+        "icon": "Clock",
+        "title": "Tours & Access",
+        "description": "Explore the campus by cart or train — about an hour from Accra"
+      }
+    ]
+  },
+  "host": {
+    "subtitle": "Founder & Host",
+    "image": "/dag-main.jpg",
+    "role": "Founder & Lead Speaker",
+    "roleDescription": "Host of The Homecoming Convention at Anagkazo Campus.",
+    "bio": [
+      "Dag Heward-Mills is a world renowned healing evangelist, megachurch pastor, best-selling author, and international conference speaker. Born in Ghana, he has dedicated his life to bringing the Gospel — and the miraculous power of God — to the nations.",
+      "He is the founder of the Healing Jesus Campaign — a mass healing evangelism initiative that has reached millions across more than 41 countries worldwide, with 275 campaigns, 812 campaign nights, and over 25.3 million souls won for Christ in 21 years.",
+      "He is also the founder and General Overseer of the United Denominations Originating from the Lighthouse Group of Churches (UD-OLGC) — a global network of churches spanning multiple continents.",
+      "A prolific author, Dag Heward-Mills has written and published over 70 million books in multiple languages, covering every major ministry topic. His works have transformed millions of lives across more than 50 countries and are available in print, digital, and audio formats.",
+      "He is the founder of the Anagkazo Bible School — one of the leading Bible training institutions in the world — and First Love Music, a music ministry producing anointed Christian worship.",
+      "As an international conference speaker, he has addressed audiences across Africa, Asia, Europe, the Americas, and the Pacific Islands — calling the Body of Christ to a deeper walk with God, genuine faith, and apostolic ministry."
+    ]
+  }
+}

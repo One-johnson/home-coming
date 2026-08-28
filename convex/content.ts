@@ -64,13 +64,6 @@ export const listHotels = query({
   },
 });
 
-export const listStats = query({
-  args: {},
-  handler: async (ctx) => {
-    return await ctx.db.query("stats").withIndex("by_order").collect();
-  },
-});
-
 export const listAnnouncements = query({
   args: {},
   handler: async (ctx) => {
@@ -86,26 +79,6 @@ export const listAnnouncementsAdmin = query({
   handler: async (ctx, args) => {
     await requireRole(ctx, args.sessionToken, ["admin", "content"]);
     return await ctx.db.query("announcements").collect();
-  },
-});
-
-export const getAbout = query({
-  args: {},
-  handler: async (ctx) => {
-    const about = await ctx.db
-      .query("aboutContent")
-      .withIndex("by_slug", (q) => q.eq("slug", "about"))
-      .first();
-    if (!about) return null;
-
-    let firstLadyImageUrl: string | null = null;
-    if (about.firstLadyImageStorageId) {
-      firstLadyImageUrl = await ctx.storage.getUrl(
-        about.firstLadyImageStorageId,
-      );
-    }
-
-    return { ...about, firstLadyImageUrl };
   },
 });
 
@@ -204,66 +177,6 @@ export const bulkDeleteFaqs = mutation({
   },
 });
 
-export const upsertStat = mutation({
-  args: {
-    sessionToken: sessionTokenValidator,
-    id: v.optional(v.id("stats")),
-    label: v.string(),
-    value: v.string(),
-    order: v.number(),
-  },
-  handler: async (ctx, args) => {
-    const actor = await requireRole(ctx, args.sessionToken, ["admin", "content"]);
-    if (args.id) {
-      await ctx.db.patch(args.id, {
-        label: args.label,
-        value: args.value,
-        order: args.order,
-      });
-      await writeAuditLog(ctx, {
-        actorUserId: actor._id,
-        actorEmail: actor.email,
-        action: "stat.updated",
-        entityType: "stats",
-        entityId: args.id,
-        summary: `Updated stat: ${args.label}`,
-      });
-      return args.id;
-    }
-    const id = await ctx.db.insert("stats", {
-      label: args.label,
-      value: args.value,
-      order: args.order,
-    });
-    await writeAuditLog(ctx, {
-      actorUserId: actor._id,
-      actorEmail: actor.email,
-      action: "stat.created",
-      entityType: "stats",
-      entityId: id,
-      summary: `Created stat: ${args.label}`,
-    });
-    return id;
-  },
-});
-
-export const deleteStat = mutation({
-  args: { sessionToken: sessionTokenValidator, id: v.id("stats") },
-  handler: async (ctx, args) => {
-    const actor = await requireRole(ctx, args.sessionToken, ["admin", "content"]);
-    const existing = await ctx.db.get(args.id);
-    await ctx.db.delete(args.id);
-    await writeAuditLog(ctx, {
-      actorUserId: actor._id,
-      actorEmail: actor.email,
-      action: "stat.deleted",
-      entityType: "stats",
-      entityId: args.id,
-      summary: `Deleted stat: ${existing?.label ?? args.id}`,
-    });
-  },
-});
-
 export const upsertAnnouncement = mutation({
   args: {
     sessionToken: sessionTokenValidator,
@@ -322,81 +235,6 @@ export const deleteAnnouncement = mutation({
       entityId: args.id,
       summary: `Deleted announcement: ${existing?.title ?? args.id}`,
     });
-  },
-});
-
-export const upsertAbout = mutation({
-  args: {
-    sessionToken: sessionTokenValidator,
-    history: v.string(),
-    purpose: v.string(),
-    vision: v.string(),
-    impact: v.string(),
-    firstLadyMessage: v.string(),
-    firstLadyImageStorageId: v.optional(v.id("_storage")),
-    removeFirstLadyImage: v.optional(v.boolean()),
-  },
-  handler: async (ctx, args) => {
-    const actor = await requireRole(ctx, args.sessionToken, ["admin", "content"]);
-    const existing = await ctx.db
-      .query("aboutContent")
-      .withIndex("by_slug", (q) => q.eq("slug", "about"))
-      .first();
-
-    if (args.removeFirstLadyImage && existing?.firstLadyImageStorageId) {
-      await ctx.storage.delete(existing.firstLadyImageStorageId);
-    } else if (
-      args.firstLadyImageStorageId &&
-      existing?.firstLadyImageStorageId &&
-      existing.firstLadyImageStorageId !== args.firstLadyImageStorageId
-    ) {
-      await ctx.storage.delete(existing.firstLadyImageStorageId);
-    }
-
-    const base = {
-      history: args.history,
-      purpose: args.purpose,
-      vision: args.vision,
-      impact: args.impact,
-      firstLadyMessage: args.firstLadyMessage,
-      updatedAt: Date.now(),
-    };
-
-    if (existing) {
-      await ctx.db.patch(existing._id, {
-        ...base,
-        firstLadyImageStorageId: args.removeFirstLadyImage
-          ? undefined
-          : (args.firstLadyImageStorageId ??
-            existing.firstLadyImageStorageId),
-      });
-      await writeAuditLog(ctx, {
-        actorUserId: actor._id,
-        actorEmail: actor.email,
-        action: "about.updated",
-        entityType: "aboutContent",
-        entityId: existing._id,
-        summary: "Updated about page content",
-      });
-      return existing._id;
-    }
-
-    const id = await ctx.db.insert("aboutContent", {
-      slug: "about",
-      ...base,
-      ...(args.firstLadyImageStorageId
-        ? { firstLadyImageStorageId: args.firstLadyImageStorageId }
-        : {}),
-    });
-    await writeAuditLog(ctx, {
-      actorUserId: actor._id,
-      actorEmail: actor.email,
-      action: "about.created",
-      entityType: "aboutContent",
-      entityId: id,
-      summary: "Created about page content",
-    });
-    return id;
   },
 });
 

@@ -9,6 +9,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { EVENT } from "@/lib/eventConfig";
+import { homeContent } from "@/lib/siteContent";
 
 const details = [
   {
@@ -29,14 +30,13 @@ const details = [
   {
     icon: Users,
     label: "Audience",
-    value:
-      "International attendees, church members, pastors, ministry leaders, groups, families, and guests",
+    value: homeContent.eventDetails.audience,
   },
 ];
 
 export function EventDetails() {
   return (
-    <Section subtitle="Event Details" title={EVENT.fullTitle}>
+    <Section subtitle={homeContent.eventDetails.subtitle} title={EVENT.fullTitle}>
       <MotionStagger className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
         {details.map((item) => (
           <MotionItem key={item.label}>
