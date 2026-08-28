@@ -1,103 +1,139 @@
 {
+  "hero": {
+    "bannerTitle": "About the Homecoming Convention",
+    "bannerSubtitle": "One of the largest gatherings of the church in the world — ministers and members from over 80 nations, coming home to the mountain each year.",
+    "eyebrow": "Lighthouse Group of Churches",
+    "title": "Loyalty House International",
+    "tagline": "A Bible-believing family coming home to the mountain — to worship, grow, and advance the Gospel of Jesus Christ.",
+    "quote": "At Loyalty House International, you can belong, grow, serve, and help advance the Gospel of Jesus Christ.",
+    "image": "/gallery/2025/homecoming-16.jpg",
+    "imageAlt": "The crowd at Homecoming 2025 waving the Ghana flag in the convention hall",
+    "primaryCta": {
+      "href": "/registration",
+      "label": "Join us at Homecoming"
+    },
+    "secondaryCta": {
+      "href": "#church",
+      "label": "Who we are"
+    }
+  },
+  "nav": [
+    { "id": "church", "label": "Church" },
+    { "id": "convention", "label": "Convention" },
+    { "id": "welcome", "label": "Welcome" }
+  ],
   "church": {
     "subtitle": "Who We Are",
-    "title": "About the Lighthouse Group of Churches",
-    "intro": [
-      "Loyalty House International is a Christian denomination under the Lighthouse Group of Churches. We are a Bible-believing, Christ-centered church committed to loving God, serving His people, and sharing the Gospel of Jesus Christ with the world.",
-      "We are a family of believers from diverse backgrounds, united by our faith in Jesus Christ and our desire to grow in our relationship with God. At Loyalty House International, everyone is welcomed, valued, and encouraged to discover and fulfill God’s purpose for their life."
-    ],
-    "sections": [
+    "title": "A family of believers",
+    "intro": "Loyalty House International is a Christian denomination under the Lighthouse Group of Churches. We are a Bible-believing, Christ-centered church committed to loving God, serving His people, and sharing the Gospel with the world. Everyone is welcomed, valued, and encouraged to discover God’s purpose for their life.",
+    "pillars": [
       {
+        "icon": "Church",
         "heading": "Our Mission",
-        "intro": "Our mission is:",
+        "summary": "We preach the Gospel, plant churches, train pastors, and strengthen the Body of Christ.",
         "items": [
-          "To preach the Gospel of Jesus Christ",
-          "To promote the work of God",
-          "To organize crusades and events for the propagation of the Gospel",
-          "To plant churches and establish missions",
-          "To encourage, strengthen, and establish the Church",
-          "To train pastors for the work of God"
-        ],
-        "paragraphs": [
-          "Through biblical teaching, worship, prayer, evangelism, discipleship, church planting, leadership training, crusades, and missions, we seek to bring people to the saving knowledge of Jesus Christ and equip believers to serve God faithfully."
+          "Preach the Gospel of Jesus Christ",
+          "Promote the work of God",
+          "Organize crusades and Gospel events",
+          "Plant churches and establish missions",
+          "Encourage and establish the Church",
+          "Train pastors for ministry"
         ]
       },
       {
+        "icon": "Sparkles",
         "heading": "Our Vision",
-        "intro": "Our vision is to build a strong, growing, and mission-minded church where people can:",
+        "summary": "A strong, growing, mission-minded church where people encounter God and become disciples.",
         "items": [
-          "Encounter God and experience His transforming power",
-          "Develop a meaningful relationship with Jesus Christ",
-          "Grow through the teaching and application of God’s Word",
-          "Discover and use their gifts in the service of God",
-          "Build strong, Christ-centered relationships and families",
-          "Become committed disciples who help others follow Christ",
-          "Participate in spreading the Gospel locally and internationally",
-          "Be trained and equipped for Christian ministry and leadership"
+          "Encounter God and His transforming power",
+          "Grow through the Word of God",
+          "Use their gifts in His service",
+          "Build Christ-centered families",
+          "Help others follow Jesus",
+          "Spread the Gospel near and far"
         ]
       },
       {
+        "icon": "BookOpen",
         "heading": "What We Believe",
-        "paragraphs": [
-          "We believe that the Bible is the inspired Word of God and the foundation of our faith. We believe that salvation is found through faith in Jesus Christ and that every believer is called to grow spiritually, live according to God’s Word, and share the Gospel with others.",
-          "We believe in the power of prayer, the ministry of the Holy Spirit, the importance of Christian fellowship, and the responsibility of every believer to contribute to the work of God."
+        "summary": "The Bible is the inspired Word of God and the foundation of our faith. Salvation is found through faith in Jesus Christ.",
+        "items": [
+          "The Bible as our foundation",
+          "Salvation through Jesus Christ",
+          "The power of prayer",
+          "The ministry of the Holy Spirit",
+          "Christian fellowship",
+          "Every believer called to serve"
         ]
+      }
+    ],
+    "serveTitle": "How we serve",
+    "serve": [
+      {
+        "icon": "Globe",
+        "heading": "Missions & Church Planting",
+        "body": "The Great Commission is central to our calling. We reach people through crusades, missions, and planting churches — then establish them as mature disciples."
       },
       {
-        "heading": "Our Commitment to Missions and Church Planting",
-        "paragraphs": [
-          "The Great Commission is central to our calling. We are committed to reaching people with the Gospel through evangelistic crusades, Christian events, missions, and the planting of churches.",
-          "We seek not only to bring people to Christ but also to establish them in the faith, help them become mature disciples, and provide opportunities for them to serve God and reach others."
-        ]
+        "icon": "GraduationCap",
+        "heading": "Training Pastors & Leaders",
+        "body": "We identify, train, and equip pastors and Christian leaders through biblical instruction, mentoring, discipleship, and practical ministry."
       },
       {
-        "heading": "Training Pastors and Leaders",
-        "paragraphs": [
-          "We recognize the importance of trained, faithful, and committed leaders in advancing the work of God. Loyalty House International is therefore dedicated to identifying, training, and equipping pastors and Christian leaders for effective ministry.",
-          "Through biblical instruction, mentoring, discipleship, and practical ministry experience, we prepare men and women to serve God, strengthen the Church, establish missions, and preach the Gospel."
-        ]
-      },
-      {
+        "icon": "Heart",
         "heading": "Our Church Family",
-        "paragraphs": [
-          "Loyalty House International is more than a place of worship—it is a spiritual family. We are committed to creating an atmosphere where people can experience genuine love, encouragement, fellowship, and spiritual growth.",
-          "Whether you are beginning your journey of faith, looking for a church family, or seeking a place where you can serve and grow, there is a place for you at Loyalty House International."
-        ]
+        "body": "Loyalty House is more than a place of worship. Whether you are beginning in faith or looking for a place to serve, there is a place for you here."
+      }
+    ],
+    "connection": "As a denomination under the Lighthouse Group of Churches, we share a global vision of evangelism, discipleship, church planting, and raising leaders — a wider family reaching nations for Jesus Christ."
+  },
+  "convention": {
+    "subtitle": "The Homecoming",
+    "title": "A gathering on the mountain",
+    "history": "The Homecoming Convention began as a gathering of believers returning to the mountain — a place of encounter, worship, and renewal. Each year, thousands from across the globe come together at Anagkazo Campus in Mampong, Ghana.",
+    "cards": [
+      {
+        "heading": "Purpose",
+        "body": "To gather God’s people for worship, teaching, fellowship, and spiritual impartation under the ministry of Dag Heward-Mills."
       },
       {
-        "heading": "Our Connection",
-        "paragraphs": [
-          "As a denomination under the Lighthouse Group of Churches, Loyalty House International shares in a global vision of evangelism, discipleship, church planting, leadership development, missionary work, and the training of pastors.",
-          "We are privileged to be part of a wider family of churches committed to preaching the Gospel, establishing churches, raising Christian leaders, and reaching nations for Jesus Christ."
-        ]
+        "heading": "Vision",
+        "body": "A global homecoming where nations are represented, lives are transformed, and the presence of God is experienced on the mountain."
       },
       {
-        "heading": "You Are Welcome",
-        "paragraphs": [
-          "We warmly invite you to worship, grow, and serve with us. Come and experience heartfelt worship, life-changing teaching, meaningful fellowship, and a loving church family."
-        ],
-        "quote": "At Loyalty House International, you can belong, grow, serve, and help advance the Gospel of Jesus Christ."
+        "heading": "Impact",
+        "body": "Past conventions have seen attendees from dozens of nations, powerful testimonies, and lasting ministry connections formed across continents."
+      }
+    ],
+    "photos": [
+      {
+        "src": "/campus/anagkazo.jpg",
+        "alt": "Main entrance to Anagkazo Bible School Campus"
+      },
+      {
+        "src": "/campus/campus.jpg",
+        "alt": "Monument of books at Revelation Roundabout on campus"
+      },
+      {
+        "src": "/gallery/2025/homecoming-01.jpg",
+        "alt": "Believers gathered at a previous Homecoming Convention"
       }
     ]
   },
-  "convention": {
-    "subtitle": "Our Story",
-    "title": "About The Homecoming Convention",
-    "history": "The Homecoming Convention began as a gathering of believers returning to the mountain — a place of encounter, worship, and renewal. Each year, thousands from across the globe come together at Anagkazo Campus in Mampong, Ghana.",
-    "purpose": "To gather God's people for worship, teaching, fellowship, and spiritual impartation under the ministry of Dag Heward-Mills.",
-    "vision": "A global homecoming where nations are represented, lives are transformed, and the presence of God is experienced on the mountain.",
-    "impact": "Past conventions have seen attendees from dozens of nations, powerful testimonies, and lasting ministry connections formed across continents."
-  },
   "firstLady": {
     "subtitle": "A Word of Welcome",
-    "title": "From the First Lady",
+    "title": "Welcome home",
+    "name": "Lady Rev. Adelaide Heward-Mills",
+    "role": "First Lady",
     "image": "/about/first-lady.jpg",
-    "imageAlt": "Word of Welcome from Lady Rev. Adelaide Heward-Mills",
+    "imageAlt": "Lady Rev. Adelaide Heward-Mills",
     "message": "Dear Beloved Church Family,\n\nWith great joy, Bishop Dag and I warmly welcome you to our Homecoming Convention 2026!!\n\nWhat a wonderful privilege it is to gather once again as one family in Christ. To think that our brothers and sisters are coming from over 100 countries,  across every continent of the world, fills my heart with gratitude to God. Look how far the Lord has brought us! Truly, only the Lord could build such a beautiful family, united by His love and His purpose.\n\nWhether this is your very first Homecoming or you have attended many before, I pray that from the moment you arrive you will feel at home. Homecoming is more than a convention—it is a joyful reunion. It is a time to worship together, learn together, pray together, and rejoice in all that the Lord has done among us. It is also an opportunity to strengthen old friendships, make new ones, celebrate the wonderful work God is doing through His Church around the world, and most importantly, sit at the feet of our father and Bishop for a fresh word from the Lord.\n\nMy prayer is that these days will be a time of refreshing for you. May the Lord speak to your heart, strengthen your faith, renew your vision, and fill you with fresh oil as you spend time in His presence. I also pray that you will leave with precious memories, lasting friendships, and a deeper love for the Lord Jesus Christ.\n\nAs you make your journey here, remember that your presence will be a  blessing, and we that we are truly looking forward to spending these special days together as one church family.\n\nFor those local to Accra, and the various regions of Ghana, welcome!\nAnd for those making the journey by bus, train or plane, welcome!\n\nOn behalf of Bishop Dag, our family, and the entire Homecoming team, I say, welcome home!\n\nMay the Lord richly bless you.\nWith much love,\n\nLady Rev. Adelaide Heward-Mills"
   },
   "cta": {
-    "subtitle": "Join Us",
-    "title": "Ready to Join Us?",
-    "body": "Register for the convention and secure your accommodation today."
+    "subtitle": "The Homecoming 2026",
+    "title": "Join us on the mountain",
+    "body": "Come worship, grow, and serve with us. Register for the convention, then secure your place to stay.",
+    "primaryLabel": "Register for Homecoming",
+    "secondaryLabel": "Book accommodation"
   }
 }

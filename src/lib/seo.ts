@@ -99,10 +99,10 @@ export const PAGE_SEO = {
     image: "/hero/banner.jpeg",
   },
   about: {
-    title: "About The Homecoming",
-    description: `Learn the history, purpose, and vision of ${EVENT.fullTitle} at ${EVENT.venue}, ${EVENT.location}.`,
+    title: "About Loyalty House & The Homecoming",
+    description: `Loyalty House International — a denomination of the Lighthouse Group of Churches — and the story of ${EVENT.fullTitle} at ${EVENT.venue}, ${EVENT.location}.`,
     path: "/about",
-    image: "/campus/anagkazo.jpg",
+    image: "/campus/campus1.jpg",
   },
   registration: {
     title: "Register for The Homecoming",

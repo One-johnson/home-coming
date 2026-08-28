@@ -1,72 +1,126 @@
+"use client";
+
+import {
+  BookOpen,
+  Church,
+  Globe,
+  GraduationCap,
+  Heart,
+  Sparkles,
+  type LucideIcon,
+} from "lucide-react";
+import { motion, useReducedMotion } from "framer-motion";
 import { Section } from "@/components/ui/Section";
-import { Separator } from "@/components/ui/separator";
+import { MotionItem, MotionStagger } from "@/components/ui/motion";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { aboutContent } from "@/lib/siteContent";
 
-function Heading({ children }: { children: React.ReactNode }) {
-  return (
-    <h3 className="font-display text-3xl font-normal text-gold-dark md:text-4xl">
-      {children}
-    </h3>
-  );
-}
-
-function GoldList({ items }: { items: string[] }) {
-  return (
-    <ul className="mt-5 grid gap-3 sm:grid-cols-2">
-      {items.map((item) => (
-        <li key={item} className="flex items-start gap-3">
-          <span
-            className="mt-2.5 size-1.5 shrink-0 rotate-45 bg-gold"
-            aria-hidden
-          />
-          <span>{item}</span>
-        </li>
-      ))}
-    </ul>
-  );
-}
+const ICONS: Record<string, LucideIcon> = {
+  Church,
+  Sparkles,
+  BookOpen,
+  Globe,
+  GraduationCap,
+  Heart,
+};
 
 export function ChurchAbout() {
   const { church } = aboutContent;
+  const shouldReduceMotion = useReducedMotion();
 
   return (
     <Section
-      className="bg-cream pt-24"
+      id="church"
+      className="scroll-mt-32 bg-cream"
       subtitle={church.subtitle}
       title={church.title}
     >
-      <div className="mx-auto max-w-5xl space-y-10 text-lg leading-relaxed text-soft-ink md:text-xl md:leading-relaxed">
-        <div className="space-y-4">
-          {church.intro.map((paragraph) => (
-            <p key={paragraph.slice(0, 48)}>{paragraph}</p>
-          ))}
-        </div>
+      <p className="lead mx-auto mb-12 max-w-3xl text-center">{church.intro}</p>
 
-        {church.sections.map((section) => (
-          <div key={section.heading}>
-            <Separator className="mb-10" />
-            <Heading>{section.heading}</Heading>
-            {section.intro ? <p className="mt-4">{section.intro}</p> : null}
-            {section.items ? <GoldList items={section.items} /> : null}
-            {section.paragraphs?.length ? (
-              <div
-                className={
-                  section.intro || section.items ? "mt-6 space-y-4" : "mt-4 space-y-4"
-                }
+      <MotionStagger className="grid gap-6 lg:grid-cols-3">
+        {church.pillars.map((pillar) => {
+          const Icon = ICONS[pillar.icon] ?? Church;
+          return (
+            <MotionItem key={pillar.heading} className="h-full">
+              <motion.div
+                className="h-full"
+                whileHover={shouldReduceMotion ? undefined : { y: -6 }}
+                transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
               >
-                {section.paragraphs.map((paragraph) => (
-                  <p key={paragraph.slice(0, 48)}>{paragraph}</p>
-                ))}
-              </div>
-            ) : null}
-            {section.quote ? (
-              <p className="lead mt-6 border-l-2 border-gold pl-6 text-xl not-italic md:text-2xl">
-                {section.quote}
-              </p>
-            ) : null}
-          </div>
-        ))}
-      </div>
+                <Card className="h-full border-0 bg-white/80 py-6 shadow-soft ring-1 ring-border">
+                  <CardHeader>
+                    <span className="mb-3 inline-flex h-12 w-12 items-center justify-center rounded-full bg-gold/10 ring-1 ring-gold/25">
+                      <Icon className="h-5 w-5 text-accent" aria-hidden />
+                    </span>
+                    <CardTitle className="font-display text-2xl font-normal text-gold-dark md:text-3xl">
+                      {pillar.heading}
+                    </CardTitle>
+                    <CardDescription className="mt-2 text-base leading-relaxed text-soft-ink">
+                      {pillar.summary}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <ul className="space-y-2.5">
+                      {pillar.items.map((item) => (
+                        <li key={item} className="flex items-start gap-3 text-sm leading-relaxed text-soft-ink md:text-base">
+                          <span
+                            className="mt-2 size-1.5 shrink-0 rotate-45 bg-gold"
+                            aria-hidden
+                          />
+                          <span>{item}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            </MotionItem>
+          );
+        })}
+      </MotionStagger>
+
+      <h3 className="mt-16 mb-8 text-center font-display text-3xl font-normal text-foreground md:text-4xl">
+        {church.serveTitle}
+      </h3>
+
+      <MotionStagger className="grid gap-6 md:grid-cols-3">
+        {church.serve.map((item) => {
+          const Icon = ICONS[item.icon] ?? Heart;
+          return (
+            <MotionItem key={item.heading} className="h-full">
+              <motion.div
+                className="h-full"
+                whileHover={shouldReduceMotion ? undefined : { y: -6 }}
+                transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+              >
+                <Card className="h-full border-0 bg-white/70 py-6 shadow-soft ring-1 ring-border">
+                  <CardHeader>
+                    <span className="mb-3 inline-flex h-11 w-11 items-center justify-center rounded-full bg-gold/10 ring-1 ring-gold/25">
+                      <Icon className="h-5 w-5 text-accent" aria-hidden />
+                    </span>
+                    <CardTitle className="font-display text-xl font-normal">
+                      {item.heading}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="leading-relaxed text-soft-ink">{item.body}</p>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            </MotionItem>
+          );
+        })}
+      </MotionStagger>
+
+      <p className="mx-auto mt-12 max-w-3xl text-center text-base leading-relaxed text-stone md:text-lg">
+        {church.connection}
+      </p>
     </Section>
   );
 }

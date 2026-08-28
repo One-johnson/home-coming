@@ -10,6 +10,6 @@ export const homeContent = home;
 
 export type AboutContent = typeof aboutContent;
 export type HomeContent = typeof homeContent;
-export type AboutChurchSection = AboutContent["church"]["sections"][number];
+export type AboutPillar = AboutContent["church"]["pillars"][number];
 export type HomeStat = HomeContent["highlights"]["stats"][number];
 export type VenueHighlight = HomeContent["venue"]["highlights"][number];
