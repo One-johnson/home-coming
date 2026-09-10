@@ -251,6 +251,8 @@ export const searchQuick = query({
       { href: "/admin/registrations", label: "Registrations" },
       { href: "/admin/bookings", label: "Bookings" },
       { href: "/admin/housing", label: "Housing" },
+      { href: "/admin/hotels", label: "Hotels" },
+      { href: "/admin/tours", label: "Tours" },
       { href: "/admin/content", label: "Content" },
       { href: "/admin/videos", label: "Videos" },
       { href: "/admin/galleries", label: "Galleries" },

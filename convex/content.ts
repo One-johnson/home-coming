@@ -71,6 +71,79 @@ export const syncHotelsNow = internalMutation({
   handler: async (ctx) => syncHotelsToDefaults(ctx),
 });
 
+export const listHotelsAdmin = query({
+  args: { sessionToken: sessionTokenValidator },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, args.sessionToken, ["admin", "accommodation"]);
+    return await ctx.db.query("hotels").withIndex("by_order").collect();
+  },
+});
+
+export const syncHotels = mutation({
+  args: { sessionToken: sessionTokenValidator },
+  handler: async (ctx, args) => {
+    const actor = await requireRole(ctx, args.sessionToken, [
+      "admin",
+      "accommodation",
+    ]);
+    const result = await syncHotelsToDefaults(ctx);
+    await writeAuditLog(ctx, {
+      actorUserId: actor._id,
+      actorEmail: actor.email,
+      action: "hotels.synced",
+      entityType: "hotels",
+      summary: `Synced hotels (${result.inserted} inserted, ${result.updated} updated, ${result.deleted} deleted)`,
+    });
+    return result;
+  },
+});
+
+export const updateHotel = mutation({
+  args: {
+    sessionToken: sessionTokenValidator,
+    id: v.id("hotels"),
+    name: v.string(),
+    contact: v.optional(v.string()),
+    rate: v.optional(v.string()),
+    distance: v.optional(v.string()),
+    instructions: v.optional(v.string()),
+    discountCode: v.optional(v.string()),
+    order: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireRole(ctx, args.sessionToken, [
+      "admin",
+      "accommodation",
+    ]);
+    const existing = await ctx.db.get(args.id);
+    if (!existing) throw new Error("Hotel not found");
+
+    const name = args.name.trim();
+    if (!name) throw new Error("Hotel name is required");
+
+    await ctx.db.patch(args.id, {
+      name,
+      contact: args.contact?.trim() || undefined,
+      rate: args.rate?.trim() || undefined,
+      distance: args.distance?.trim() || undefined,
+      instructions: args.instructions?.trim() || undefined,
+      discountCode: args.discountCode?.trim() || undefined,
+      order: args.order,
+    });
+
+    await writeAuditLog(ctx, {
+      actorUserId: actor._id,
+      actorEmail: actor.email,
+      action: "hotels.updated",
+      entityType: "hotels",
+      entityId: args.id,
+      summary: `Updated hotel ${name}`,
+    });
+
+    return { success: true };
+  },
+});
+
 export const listAnnouncements = query({
   args: {},
   handler: async (ctx) => {

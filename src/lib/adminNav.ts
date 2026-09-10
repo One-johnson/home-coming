@@ -53,6 +53,12 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         description: "Inventory, capacity, and pricing",
         area: "accommodation",
       },
+      {
+        href: "/admin/hotels",
+        label: "Hotels",
+        description: "Preferred hotels near campus",
+        area: "accommodation",
+      },
     ],
   },
   {
