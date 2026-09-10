@@ -78,13 +78,18 @@ export function TourPackageCard({
 
         <div className="mt-auto flex flex-wrap items-end justify-between gap-3 border-t pt-4">
           <div>
-            <p className="text-xs text-muted-foreground">from</p>
+            <p className="text-xs text-muted-foreground">Package cost</p>
             <p className="text-2xl font-semibold tabular-nums text-foreground">
               ${pkg.priceUsd}
               <span className="ml-1 text-sm font-normal text-muted-foreground">
                 USD
               </span>
             </p>
+            {typeof pkg.priceGhs === "number" ? (
+              <p className="mt-0.5 text-sm tabular-nums text-muted-foreground">
+                GH₵{pkg.priceGhs.toLocaleString("en-GH")}
+              </p>
+            ) : null}
           </div>
           <Button type="button" onClick={onSelect}>
             {inCart ? "Update tickets" : "Book this tour"}

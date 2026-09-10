@@ -20,7 +20,7 @@ export function Highlights() {
       <p className="lead lead-light mx-auto mb-10 max-w-3xl text-center">
         {highlights.body}
       </p>
-      <MotionStagger className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+      <MotionStagger className="mx-auto grid max-w-3xl gap-6 sm:grid-cols-2">
         {highlights.stats.map((stat) => (
           <MotionItem key={stat.label}>
             <Card className="card-lift border-white/10 bg-gradient-to-b from-white/[0.08] to-white/[0.02] text-center text-white ring-1 ring-white/10 transition-colors hover:ring-gold-light/40">

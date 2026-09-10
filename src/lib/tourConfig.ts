@@ -14,6 +14,7 @@ export type TourPackageView = {
   sites: string[];
   meals: string;
   priceUsd: number;
+  priceGhs?: number;
   imageUrl?: string;
   displayImageUrl?: string;
   badge?: string;
@@ -30,10 +31,8 @@ export const FALLBACK_TOUR_IMAGE = "/campus/campus.jpg";
 
 /** Default cover images by package slug (used when DB imageUrl is empty). */
 export const DEFAULT_TOUR_IMAGES_BY_SLUG: Record<string, string> = {
-  sat_oct_31: "/gallery/2025/homecoming-02.jpg",
-  sun_nov_1: "/gallery/2025/homecoming-08.jpg",
-  mon_nov_2: "/campus/anagkazo.jpg",
-  tue_nov_3: "/gallery/2025/homecoming-15.jpg",
+  accra_mon_nov_1: "/gallery/2025/homecoming-02.jpg",
+  mountain_thu_nov_4: "/gallery/2025/homecoming-08.jpg",
 };
 
 export function resolveTourImage(pkg: {

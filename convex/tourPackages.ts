@@ -1,11 +1,9 @@
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { mutation, query } from "./_generated/server";
-import {
-  DEFAULT_TOUR_PACKAGES,
-  slugifyTourLabel,
-} from "./lib/tourConfig";
+import { internalMutation, mutation, query } from "./_generated/server";
+import { slugifyTourLabel } from "./lib/tourConfig";
+import { syncTourPackagesToDefaults } from "./lib/syncTours";
 import { writeAuditLog } from "./lib/audit";
 import { requireRole, sessionTokenValidator } from "./users";
 
@@ -16,6 +14,7 @@ const packageFields = {
   sites: v.array(v.string()),
   meals: v.string(),
   priceUsd: v.number(),
+  priceGhs: v.optional(v.number()),
   imageUrl: v.optional(v.string()),
   imageStorageId: v.optional(v.id("_storage")),
   clearImageStorage: v.optional(v.boolean()),
@@ -95,7 +94,7 @@ export const listAdmin = query({
   },
 });
 
-/** Insert missing defaults; backfill image/badge on existing defaults when empty. */
+/** Upsert the two current tours and delete every other package. */
 export const ensureDefaults = mutation({
   args: { sessionToken: sessionTokenValidator },
   handler: async (ctx, args) => {
@@ -103,61 +102,25 @@ export const ensureDefaults = mutation({
       "admin",
       "registration",
     ]);
-    let inserted = 0;
-    let patched = 0;
-    const now = Date.now();
-
-    for (const pkg of DEFAULT_TOUR_PACKAGES) {
-      const existing = await ctx.db
-        .query("tourPackages")
-        .withIndex("by_slug", (q) => q.eq("slug", pkg.slug))
-        .first();
-
-      if (!existing) {
-        await ctx.db.insert("tourPackages", {
-          slug: pkg.slug,
-          label: pkg.label,
-          dateLabel: pkg.dateLabel,
-          timeRange: pkg.timeRange,
-          sites: pkg.sites,
-          meals: pkg.meals,
-          priceUsd: pkg.priceUsd,
-          imageUrl: pkg.imageUrl,
-          badge: pkg.badge,
-          active: true,
-          order: pkg.order,
-          updatedAt: now,
-        });
-        inserted += 1;
-        continue;
-      }
-
-      const patch: {
-        imageUrl?: string;
-        badge?: string;
-        updatedAt: number;
-      } = { updatedAt: now };
-      if (!existing.imageUrl && !existing.imageStorageId) {
-        patch.imageUrl = pkg.imageUrl;
-      }
-      if (!existing.badge && pkg.badge) patch.badge = pkg.badge;
-      if (patch.imageUrl || patch.badge) {
-        await ctx.db.patch(existing._id, patch);
-        patched += 1;
-      }
-    }
+    const result = await syncTourPackagesToDefaults(ctx);
 
     await writeAuditLog(ctx, {
       actorUserId: actor._id,
       actorEmail: actor.email,
       action: "tour_packages.ensure_defaults",
       entityType: "tourPackages",
-      summary: `Ensured default tour packages (${inserted} inserted, ${patched} patched)`,
-      metadata: { inserted, patched },
+      summary: `Synced tour packages (${result.inserted} inserted, ${result.updated} updated, ${result.deleted} deleted)`,
+      metadata: result,
     });
 
-    return { inserted, patched };
+    return result;
   },
+});
+
+/** CLI-friendly sync: `npx convex run tourPackages:syncNow` */
+export const syncNow = internalMutation({
+  args: {},
+  handler: async (ctx) => syncTourPackagesToDefaults(ctx),
 });
 
 export const create = mutation({
@@ -187,6 +150,12 @@ export const create = mutation({
     const imageStorageId = args.clearImageStorage
       ? undefined
       : args.imageStorageId;
+    const priceGhs =
+      args.priceGhs === undefined
+        ? undefined
+        : Number.isFinite(args.priceGhs) && args.priceGhs >= 0
+          ? args.priceGhs
+          : undefined;
 
     const id = await ctx.db.insert("tourPackages", {
       slug,
@@ -196,6 +165,7 @@ export const create = mutation({
       sites,
       meals: args.meals.trim(),
       priceUsd: args.priceUsd,
+      priceGhs,
       imageUrl,
       imageStorageId,
       badge,
@@ -235,6 +205,12 @@ export const update = mutation({
     const sites = validatePackageInput(args);
     const imageUrl = args.imageUrl?.trim() || undefined;
     const badge = args.badge?.trim() || undefined;
+    const priceGhs =
+      args.priceGhs === undefined
+        ? undefined
+        : Number.isFinite(args.priceGhs) && args.priceGhs >= 0
+          ? args.priceGhs
+          : undefined;
 
     let imageStorageId = existing.imageStorageId;
     if (args.clearImageStorage) {
@@ -259,6 +235,7 @@ export const update = mutation({
       sites,
       meals: args.meals.trim(),
       priceUsd: args.priceUsd,
+      priceGhs,
       imageUrl,
       imageStorageId,
       badge,

@@ -25,6 +25,7 @@ import type * as lib_paymentEmail from "../lib/paymentEmail.js";
 import type * as lib_referenceNumbers from "../lib/referenceNumbers.js";
 import type * as lib_registrationConfig from "../lib/registrationConfig.js";
 import type * as lib_smtpConfig from "../lib/smtpConfig.js";
+import type * as lib_syncTours from "../lib/syncTours.js";
 import type * as lib_tourConfig from "../lib/tourConfig.js";
 import type * as mediaThumbnails from "../mediaThumbnails.js";
 import type * as payments from "../payments.js";
@@ -59,6 +60,7 @@ declare const fullApi: ApiFromModules<{
   "lib/referenceNumbers": typeof lib_referenceNumbers;
   "lib/registrationConfig": typeof lib_registrationConfig;
   "lib/smtpConfig": typeof lib_smtpConfig;
+  "lib/syncTours": typeof lib_syncTours;
   "lib/tourConfig": typeof lib_tourConfig;
   mediaThumbnails: typeof mediaThumbnails;
   payments: typeof payments;

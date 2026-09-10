@@ -1,3 +1,8 @@
+export type PaymentGateway = "stripe" | "paystack" | "paypal";
+
+export type RegistrationType = "individual" | "group";
+
+/** Kept for tours and legacy admin filters. */
 export type RegistrationRegion =
   | "ghana"
   | "west_africa"
@@ -9,20 +14,138 @@ export type RegistrationRegion =
   | "rest_of_europe"
   | "rest_of_world";
 
-export type PaymentGateway = "stripe" | "paystack" | "paypal";
-
-export type RegistrationType = "individual" | "group";
-
-export interface RegionConfig {
-  label: string;
+export interface PricingConfig {
   price: number;
   currency: string;
   currencySymbol: string;
   gateway: PaymentGateway;
   defaultCountryCode: string;
+  /** Stored on registration.region for payments / admin filters. */
+  regionKey: RegistrationRegion;
 }
 
-export const REGION_CONFIG: Record<RegistrationRegion, RegionConfig> = {
+/**
+ * Ticket pricing by registration Group (from Homecoming documents).
+ * Add-ons remain USD and are selected on the next step.
+ */
+export const GROUP_PRICING: Record<string, PricingConfig> = {
+  Ghana: {
+    price: 20,
+    currency: "GHS",
+    currencySymbol: "₵",
+    gateway: "paystack",
+    defaultCountryCode: "+233",
+    regionKey: "ghana",
+  },
+  "West Africa": {
+    price: 20,
+    currency: "GHS",
+    currencySymbol: "₵",
+    gateway: "paystack",
+    defaultCountryCode: "+233",
+    regionKey: "west_africa",
+  },
+  "UD Africa": {
+    price: 20,
+    currency: "USD",
+    currencySymbol: "$",
+    gateway: "stripe",
+    defaultCountryCode: "+",
+    regionKey: "rest_of_africa",
+  },
+  "UD EU": {
+    price: 20,
+    currency: "EUR",
+    currencySymbol: "€",
+    gateway: "stripe",
+    defaultCountryCode: "+",
+    regionKey: "rest_of_europe",
+  },
+  "UD EU - UK": {
+    price: 20,
+    currency: "GBP",
+    currencySymbol: "£",
+    gateway: "stripe",
+    defaultCountryCode: "+44",
+    regionKey: "uk",
+  },
+  "UD EU - Switzerland": {
+    price: 20,
+    currency: "CHF",
+    currencySymbol: "CHF",
+    gateway: "stripe",
+    defaultCountryCode: "+41",
+    regionKey: "switzerland",
+  },
+  "UD North America": {
+    price: 20,
+    currency: "USD",
+    currencySymbol: "$",
+    gateway: "stripe",
+    defaultCountryCode: "+1",
+    regionKey: "usa",
+  },
+  "United Islands": {
+    price: 20,
+    currency: "USD",
+    currencySymbol: "$",
+    gateway: "stripe",
+    defaultCountryCode: "+",
+    regionKey: "rest_of_world",
+  },
+  "United Jesus": {
+    price: 20,
+    currency: "GHS",
+    currencySymbol: "₵",
+    gateway: "paystack",
+    defaultCountryCode: "+233",
+    regionKey: "ghana",
+  },
+  "Eschatos International": {
+    price: 20,
+    currency: "USD",
+    currencySymbol: "$",
+    gateway: "stripe",
+    defaultCountryCode: "+",
+    regionKey: "rest_of_world",
+  },
+  "Reasonable Service Church": {
+    price: 20,
+    currency: "GHS",
+    currencySymbol: "₵",
+    gateway: "paystack",
+    defaultCountryCode: "+233",
+    regionKey: "ghana",
+  },
+  "Affiliated Denominations": {
+    price: 20,
+    currency: "GHS",
+    currencySymbol: "₵",
+    gateway: "paystack",
+    defaultCountryCode: "+233",
+    regionKey: "ghana",
+  },
+  Other: {
+    price: 20,
+    currency: "USD",
+    currencySymbol: "$",
+    gateway: "stripe",
+    defaultCountryCode: "+",
+    regionKey: "rest_of_world",
+  },
+};
+
+export const REGION_CONFIG: Record<
+  RegistrationRegion,
+  {
+    label: string;
+    price: number;
+    currency: string;
+    currencySymbol: string;
+    gateway: PaymentGateway;
+    defaultCountryCode: string;
+  }
+> = {
   ghana: {
     label: "Ghana",
     price: 20,
@@ -41,7 +164,7 @@ export const REGION_CONFIG: Record<RegistrationRegion, RegionConfig> = {
   },
   rest_of_africa: {
     label: "Rest of Africa",
-    price: 10,
+    price: 20,
     currency: "USD",
     currencySymbol: "$",
     gateway: "stripe",
@@ -97,7 +220,6 @@ export const REGION_CONFIG: Record<RegistrationRegion, RegionConfig> = {
   },
 };
 
-/** Alphabetically sorted, with Ghana pinned first as the default region. */
 export const REGION_OPTIONS: { value: RegistrationRegion; label: string }[] =
   Object.entries(REGION_CONFIG)
     .map(([value, config]) => ({
@@ -147,6 +269,10 @@ export {
   UD_FIRST_LOVE_DENOMINATION,
 } from "@/lib/groupsDenominations";
 
+export function getGroupPricing(group: string): PricingConfig {
+  return GROUP_PRICING[group] ?? GROUP_PRICING.Other;
+}
+
 /** Hide church affiliation when registrant belongs to an official group list. */
 export function shouldShowChurchAffiliation(
   group: string,
@@ -184,16 +310,27 @@ export function formatPrice(amount: number, currency: string, symbol: string) {
   return `${symbol}${amount.toLocaleString()} ${currency}`;
 }
 
-/** Stripe (US accounts) cannot charge GHS — Ghana / West Africa are Paystack-only. */
+export function isPaystackOnlyCurrency(currency: string) {
+  return currency === "GHS";
+}
+
+export function registrationGatewaysForCurrency(
+  currency: string,
+): Array<"paystack" | "stripe"> {
+  if (isPaystackOnlyCurrency(currency)) return ["paystack"];
+  return ["paystack", "stripe"];
+}
+
+/** @deprecated Prefer registrationGatewaysForCurrency / getGroupPricing */
 export function isPaystackOnlyRegion(region: RegistrationRegion) {
   return REGION_CONFIG[region].currency === "GHS";
 }
 
+/** @deprecated Prefer registrationGatewaysForCurrency */
 export function registrationGatewaysForRegion(
   region: RegistrationRegion,
 ): Array<"paystack" | "stripe"> {
-  if (isPaystackOnlyRegion(region)) return ["paystack"];
-  return ["paystack", "stripe"];
+  return registrationGatewaysForCurrency(REGION_CONFIG[region].currency);
 }
 
 export function normalizeAddOnSelections(
@@ -212,12 +349,12 @@ export function normalizeAddOnSelections(
 }
 
 export function calculateRegistrationTotal(
-  region: RegistrationRegion,
+  group: string,
   ticketQuantity: number,
   addOnSelections: AddOnSelection[] | Record<string, number>,
 ) {
-  const regionConfig = REGION_CONFIG[region];
-  const ticketTotal = regionConfig.price * ticketQuantity;
+  const pricing = getGroupPricing(group);
+  const ticketTotal = pricing.price * ticketQuantity;
   const normalized = normalizeAddOnSelections(addOnSelections);
   const addOnTotal = normalized.reduce((sum, item) => {
     const addOn = ADD_ONS.find((entry) => entry.id === item.id);
@@ -228,9 +365,10 @@ export function calculateRegistrationTotal(
     ticketTotal,
     addOnTotal,
     grandTotal: ticketTotal + addOnTotal,
-    currency: regionConfig.currency,
-    currencySymbol: regionConfig.currencySymbol,
-    gateway: regionConfig.gateway,
+    currency: pricing.currency,
+    currencySymbol: pricing.currencySymbol,
+    gateway: pricing.gateway,
+    regionKey: pricing.regionKey,
     addOns: normalized,
   };
 }

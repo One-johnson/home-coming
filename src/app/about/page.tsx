@@ -4,9 +4,9 @@ import { AboutHero } from "@/components/about/AboutHero";
 import { AboutNav } from "@/components/about/AboutNav";
 import { ChurchAbout } from "@/components/about/ChurchAbout";
 import { ConventionAbout } from "@/components/about/ConventionAbout";
-import { FirstLadyWelcome } from "@/components/about/FirstLadyWelcome";
 import { Section } from "@/components/ui/Section";
 import { LinkButton as Button } from "@/components/ui/app-button";
+import { SITE_FEATURES } from "@/lib/eventConfig";
 import { aboutContent } from "@/lib/siteContent";
 
 export default function AboutPage() {
@@ -18,7 +18,6 @@ export default function AboutPage() {
       <AboutNav />
       <ChurchAbout />
       <ConventionAbout />
-      <FirstLadyWelcome />
 
       <Section dark subtitle={cta.subtitle} title={cta.title}>
         <p className="lead lead-light mx-auto mb-10 max-w-3xl text-center text-xl md:text-2xl">
@@ -31,13 +30,15 @@ export default function AboutPage() {
           >
             {cta.primaryLabel}
           </Button>
-          <Button
-            href="/accommodation"
-            variant="outline"
-            className="min-h-12 border-2 border-gold bg-transparent px-9 py-4 text-base text-paper hover:border-gold-light hover:bg-gold/10 hover:text-paper sm:min-h-[3.25rem] sm:px-10 sm:text-lg"
-          >
-            {cta.secondaryLabel}
-          </Button>
+          {SITE_FEATURES.accommodationEnabled ? (
+            <Button
+              href="/accommodation"
+              variant="outline"
+              className="min-h-12 border-2 border-gold bg-transparent px-9 py-4 text-base text-paper hover:border-gold-light hover:bg-gold/10 hover:text-paper sm:min-h-[3.25rem] sm:px-10 sm:text-lg"
+            >
+              {cta.secondaryLabel}
+            </Button>
+          ) : null}
         </div>
       </Section>
     </>

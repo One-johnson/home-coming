@@ -2,8 +2,7 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import {
   calculateRegistrationAmounts,
-  REGION_CONFIG,
-  type RegistrationRegion,
+  getGroupPricing,
 } from "./lib/registrationConfig";
 import { createUniqueReferenceNumber } from "./lib/referenceNumbers";
 import { writeAuditLog } from "./lib/audit";
@@ -68,25 +67,25 @@ export const create = mutation({
       throw new Error("Ticket quantity must be at least 1");
     }
 
+    const group = args.group?.trim();
+    if (!group) {
+      throw new Error("Group is required");
+    }
+
     for (const addOn of args.addOns) {
       if (!Number.isInteger(addOn.quantity) || addOn.quantity < 1) {
         throw new Error("Add-on quantities must be whole numbers of at least 1");
       }
     }
 
-    const region = args.region as RegistrationRegion;
-    const regionConfig = REGION_CONFIG[region];
-    if (!regionConfig) {
-      throw new Error("Invalid region selected");
-    }
-
+    const pricing = getGroupPricing(group);
     const amounts = calculateRegistrationAmounts(
-      region,
+      group,
       args.ticketQuantity,
       args.addOns,
     );
 
-    // Ghana / West Africa are GHS — Stripe cannot charge GHS on US accounts.
+    // GHS tickets are Paystack-only — Stripe cannot charge GHS on US accounts.
     const gateway: "paystack" | "stripe" =
       amounts.currency === "GHS"
         ? "paystack"
@@ -98,7 +97,7 @@ export const create = mutation({
 
     if (gateway === "stripe" && amounts.currency === "GHS") {
       throw new Error(
-        "Stripe cannot charge GHS. Use Paystack for Ghana and West Africa.",
+        "Stripe cannot charge GHS. Use Paystack for Ghana cedi pricing.",
       );
     }
 
@@ -114,8 +113,8 @@ export const create = mutation({
       email: args.email.trim().toLowerCase(),
       phone: args.phone.trim(),
       countryCode: args.countryCode.trim(),
-      region: args.region,
-      group: args.group?.trim() || undefined,
+      region: pricing.regionKey,
+      group,
       denomination: args.denomination?.trim() || undefined,
       church: args.church?.trim() || undefined,
       ticketQuantity: args.ticketQuantity,

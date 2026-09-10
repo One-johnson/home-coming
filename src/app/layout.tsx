@@ -52,7 +52,7 @@ export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
     default: SITE_NAME,
-    template: `%s | ${EVENT.subtitle}`,
+    template: `%s | ${EVENT.name}`,
   },
   description: DEFAULT_DESCRIPTION,
   applicationName: SITE_NAME,

@@ -19,8 +19,7 @@
   },
   "nav": [
     { "id": "church", "label": "Church" },
-    { "id": "convention", "label": "Convention" },
-    { "id": "welcome", "label": "Welcome" }
+    { "id": "convention", "label": "Convention" }
   ],
   "church": {
     "subtitle": "Who We Are",

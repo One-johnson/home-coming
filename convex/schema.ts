@@ -221,6 +221,7 @@ export default defineSchema({
     sites: v.array(v.string()),
     meals: v.string(),
     priceUsd: v.number(),
+    priceGhs: v.optional(v.number()),
     imageUrl: v.optional(v.string()),
     imageStorageId: v.optional(v.id("_storage")),
     badge: v.optional(v.string()),

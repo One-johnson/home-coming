@@ -3,6 +3,7 @@
 import { usePathname } from "next/navigation";
 import { LinkButton as Button } from "@/components/ui/app-button";
 import { Separator } from "@/components/ui/separator";
+import { SITE_FEATURES } from "@/lib/eventConfig";
 
 const HIDDEN_PATHS = ["/registration", "/tours", "/accommodation"];
 
@@ -24,13 +25,23 @@ export function StickyMobileCTA() {
         >
           Register
         </Button>
-        <Button
-          href="/accommodation"
-          variant="outline"
-          className="min-h-11 flex-1 border-2 border-gold bg-transparent py-2.5 text-sm text-ink hover:bg-gold/10 hover:text-ink"
-        >
-          Book Stay
-        </Button>
+        {SITE_FEATURES.accommodationEnabled ? (
+          <Button
+            href="/accommodation"
+            variant="outline"
+            className="min-h-11 flex-1 border-2 border-gold bg-transparent py-2.5 text-sm text-ink hover:bg-gold/10 hover:text-ink"
+          >
+            Book Stay
+          </Button>
+        ) : (
+          <Button
+            href="/tours"
+            variant="outline"
+            className="min-h-11 flex-1 border-2 border-gold bg-transparent py-2.5 text-sm text-ink hover:bg-gold/10 hover:text-ink"
+          >
+            Tours
+          </Button>
+        )}
       </div>
     </div>
   );
