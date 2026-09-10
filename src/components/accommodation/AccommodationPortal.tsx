@@ -454,14 +454,14 @@ function AccommodationPortalInner() {
                 </div>
                 <Separator />
                 <div>
-                  <p className="font-medium text-primary">Distance from Campus</p>
+                  <p className="font-medium text-primary">Location</p>
                   <p className="text-muted-foreground">{hotel.distance ?? "To be confirmed"}</p>
                 </div>
                 <Separator />
                 <div>
-                  <p className="font-medium text-primary">Booking Instructions</p>
+                  <p className="font-medium text-primary">Rooms & capacity</p>
                   <p className="text-muted-foreground">
-                    {hotel.instructions ?? "Instructions coming soon"}
+                    {hotel.instructions ?? "Details coming soon"}
                   </p>
                 </div>
                 {hotel.discountCode && (

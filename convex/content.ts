@@ -1,13 +1,14 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import { requireRole, sessionTokenValidator } from "./users";
 import { writeAuditLog } from "./lib/audit";
 import {
   resolveGalleryCover,
   resolveGalleryImages,
 } from "./galleryStorage";
+import { syncHotelsToDefaults } from "./lib/syncHotels";
 
 export const listFaqs = query({
   args: {},
@@ -62,6 +63,12 @@ export const listHotels = query({
   handler: async (ctx) => {
     return await ctx.db.query("hotels").withIndex("by_order").collect();
   },
+});
+
+/** CLI-friendly sync: `npx convex run content:syncHotelsNow` */
+export const syncHotelsNow = internalMutation({
+  args: {},
+  handler: async (ctx) => syncHotelsToDefaults(ctx),
 });
 
 export const listAnnouncements = query({

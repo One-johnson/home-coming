@@ -2,6 +2,7 @@ import { mutation } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import { requireRole, sessionTokenValidator } from "./users";
 import { syncTourPackagesToDefaults } from "./lib/syncTours";
+import { syncHotelsToDefaults } from "./lib/syncHotels";
 
 const FAQS = [
   {
@@ -236,13 +237,6 @@ async function syncHomecomingMessages(ctx: MutationCtx) {
   }
 }
 
-const HOTELS = [
-  { name: "Cactus Creek Hotel", order: 1 },
-  { name: "Aruba Hotel", order: 2 },
-  { name: "Hillburi Hotel", order: 3 },
-  { name: "Peduase Lodge", order: 4 },
-];
-
 const GALLERIES = [
   { year: 2025, theme: "The Homecoming", title: "Homecoming 2025 Highlights" },
 ];
@@ -335,19 +329,7 @@ export const seed = mutation({
 
     await syncFaqs(ctx);
     await syncHomecomingMessages(ctx);
-
-    const existingHotels = await ctx.db.query("hotels").first();
-    if (!existingHotels) {
-      for (const hotel of HOTELS) {
-        await ctx.db.insert("hotels", {
-          ...hotel,
-          contact: "Details coming soon",
-          rate: "Rates to be confirmed",
-          distance: "Distance to be confirmed",
-          instructions: "Booking instructions will be updated by the event team.",
-        });
-      }
-    }
+    await syncHotelsToDefaults(ctx);
 
     const existingGalleries = await ctx.db.query("galleries").first();
     if (!existingGalleries) {
@@ -398,15 +380,7 @@ export const seedPublic = mutation({
     }
 
     await syncFaqs(ctx);
-    for (const hotel of HOTELS) {
-      await ctx.db.insert("hotels", {
-        ...hotel,
-        contact: "Details coming soon",
-        rate: "Rates to be confirmed",
-        distance: "Distance to be confirmed",
-        instructions: "Booking instructions will be updated by the event team.",
-      });
-    }
+    await syncHotelsToDefaults(ctx);
     for (const gallery of GALLERIES) {
       const galleryId = await ctx.db.insert("galleries", gallery);
       for (let i = 0; i < 4; i++) {
