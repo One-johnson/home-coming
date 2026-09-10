@@ -2,6 +2,7 @@
  * Static site copy for pages that rarely change.
  * Swap these imports for a Payload CMS fetch later without changing page components.
  */
+import type { LegalDocumentContent } from "@/components/legal/LegalDocument";
 import about from "@/content/about.json";
 import home from "@/content/home.json";
 import privacy from "@/content/privacy.json";
@@ -9,8 +10,8 @@ import terms from "@/content/terms.json";
 
 export const aboutContent = about;
 export const homeContent = home;
-export const privacyContent = privacy;
-export const termsContent = terms;
+export const privacyContent = privacy as LegalDocumentContent;
+export const termsContent = terms as LegalDocumentContent;
 
 export type AboutContent = typeof aboutContent;
 export type HomeContent = typeof homeContent;
