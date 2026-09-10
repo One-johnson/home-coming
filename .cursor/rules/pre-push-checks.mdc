@@ -1,0 +1,15 @@
+---
+description: Always run build (and lint/tests when available) before committing or pushing
+alwaysApply: true
+---
+
+# Pre-push checks
+
+Before any `git commit` or `git push` requested by the user:
+
+1. Run `bun run build` (or `npm run build`) and fix every TypeScript/build error.
+2. Run `bun run lint` when practical; fix errors introduced by the current change. Pre-existing lint debt may be left alone unless it blocks CI.
+3. Run the project test script if one exists (`bun test` / `npm test`); this repo currently has no unit-test script.
+4. Do not push until the build succeeds.
+
+Do not skip these checks for “small” or “typing-only” fixes.

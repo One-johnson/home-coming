@@ -48,8 +48,9 @@ import { isConvexConfigured } from "@/lib/convex-config";
 import { cn } from "@/lib/utils";
 
 type Step = "details" | "addons" | "payment" | "confirmation";
-const STEPS: Step[] = ["details", "addons", "payment"];
-const STEP_LABELS: Record<(typeof STEPS)[number], string> = {
+const STEPS = ["details", "addons", "payment"] as const;
+type WizardStep = (typeof STEPS)[number];
+const STEP_LABELS: Record<WizardStep, string> = {
   details: "Details",
   addons: "Add-ons",
   payment: "Payment",
@@ -111,7 +112,7 @@ function RegistrationFormInner() {
   const pricing = getGroupPricing(group || "Other");
   const paystackOnly = isPaystackOnlyCurrency(totals.currency);
   const availableGateways = registrationGatewaysForCurrency(totals.currency);
-  const stepIndex = STEPS.indexOf(step as (typeof STEPS)[number]);
+  const stepIndex = STEPS.indexOf(step as WizardStep);
   const progressValue =
     stepIndex >= 0 ? ((stepIndex + 1) / STEPS.length) * 100 : 0;
   const showChurchAffiliation = shouldShowChurchAffiliation(
@@ -121,8 +122,7 @@ function RegistrationFormInner() {
   const denominationOptions = DENOMINATIONS_BY_GROUP[group] ?? [];
   const canGoBack = stepIndex > 0;
 
-  const goToStep = (target: Step) => {
-    if (target === "confirmation") return;
+  const goToStep = (target: WizardStep) => {
     const targetIndex = STEPS.indexOf(target);
     if (targetIndex < 0) return;
     if (targetIndex > furthestStepIndex) {
@@ -133,7 +133,7 @@ function RegistrationFormInner() {
     setStep(target);
   };
 
-  const goToNextStep = (target: Step) => {
+  const goToNextStep = (target: WizardStep) => {
     const targetIndex = STEPS.indexOf(target);
     if (targetIndex < 0) return;
     setError("");
