@@ -32,7 +32,7 @@ export function EmailLayout({ preview, bannerUrl, children }: EmailLayoutProps) 
         <Container style={container}>
           <Img
             src={bannerUrl}
-            alt="Mountain of the Lord — The Homecoming"
+            alt="Homecoming"
             width="600"
             style={banner}
           />

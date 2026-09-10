@@ -1,0 +1,275 @@
+{
+  "title": "Privacy Policy",
+  "subtitle": "Homecoming Convention website, registration and accommodation services",
+  "effectiveDate": "September 1st, 2026",
+  "lastUpdated": "September 8th, 2026",
+  "intro": "This Privacy Policy explains how Loyalty House International (“Loyalty House,” “we,” “us,” or “our”) collects, uses, shares, retains, and protects personal data in connection with homecomingconvention.com (the “Site”) and the Homecoming Convention (the “Event”). It is intended to reflect Ghana’s Data Protection Act, 2012 (Act 843), including its principles of accountability, lawful and reasonable processing, purpose specification, data quality, openness, security safeguards, and data-subject participation.",
+  "sections": [
+    {
+      "heading": "1. Data controller and contact",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "The UD is the data controller for the personal data described in this Policy, except where a third party independently determines how it uses your data."
+        }
+      ]
+    },
+    {
+      "heading": "2. Scope",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "This Policy applies when you visit the Site, register yourself or others, purchase accommodation, contact us, receive Event communications, or attend the Event. It does not govern a hotel, payment processor, social network, transport provider, or other third party acting as an independent controller under its own privacy policy."
+        }
+      ]
+    },
+    {
+      "heading": "3. Personal data we collect",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "Identity and contact data: name, title, age or date of birth where needed, gender where relevant to rooming, country, city, organization or church, role, email address, telephone number, and emergency-contact information.",
+            "Registration and group data: attendee type, registration selections, group affiliation, coordinator details, attendance history, badge information, and communications or requests.",
+            "Accommodation and travel data: occupant and roommate names, room preferences, arrival/departure dates, flight or transport details if provided, accessibility requests, and information needed to coordinate lodging.",
+            "Transaction data: items purchased, amount, currency, payment status, order number, receipts, refund or dispute information, and limited payment metadata. Full card credentials are ordinarily collected directly by the payment processor, not by us.",
+            "Sensitive or special personal data: religious affiliation or ministry role, dietary information that may reveal religious beliefs, and accessibility or health-related information you choose or need to provide. We ask that you provide only what is necessary.",
+            "Technical and usage data: IP address, browser and device information, referring pages, pages viewed, timestamps, approximate location derived from IP, cookies, and similar identifiers.",
+            "Communications and media: emails, forms, survey responses, support requests, photographs, video, audio, livestream footage, and testimonials where applicable."
+          ]
+        }
+      ]
+    },
+    {
+      "heading": "4. How we collect data",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "Directly from you when you submit a form, make a payment, contact us, or attend the Event.",
+            "From a group coordinator, pastor, family member, roommate, or purchaser who registers or pays for you.",
+            "Automatically through the Site, server logs, cookies, analytics, and similar technology.",
+            "From service providers such as payment processors, hotels, registration platforms, email providers, security providers, and event contractors.",
+            "From publicly available or ministry sources where lawful and relevant to Event administration."
+          ]
+        }
+      ]
+    },
+    {
+      "heading": "5. Why we use personal data",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "To register attendees, process purchases and refunds, issue confirmations and badges, and maintain transaction records.",
+            "To arrange rooms, roommates, transport or arrival coordination, meals, accessibility support, safeguarding, and other Event logistics.",
+            "To communicate essential information, changes, reminders, safety notices, and customer support responses.",
+            "To prevent fraud, secure the Site, investigate disputes, enforce our Terms, protect people and property, and comply with law.",
+            "To operate, troubleshoot, measure, and improve the Site and Event.",
+            "With appropriate permission or another lawful basis, to send ministry or future-event marketing and use testimonials or identifiable promotional media.",
+            "To create attendance, financial, planning, and ministry reports, including aggregated or de-identified statistics where feasible."
+          ]
+        }
+      ]
+    },
+    {
+      "heading": "6. Basis for processing",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "We process personal data when necessary to perform or take steps related to your registration or accommodation contract; when you have consented; when processing is required or authorized by law; when necessary to protect a vital interest; or when necessary for our legitimate interests or those of a third party, provided those interests do not unfairly override your rights."
+        },
+        {
+          "type": "paragraph",
+          "text": "Where we rely on consent, you may withdraw it prospectively. Withdrawal does not affect processing already lawfully completed and may mean we cannot provide an optional feature. Some information is mandatory for registration or accommodation; we will identify it where practicable."
+        }
+      ]
+    },
+    {
+      "heading": "7. Special personal data and religious context",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Because the Event is organized by a religious organization, registration may reveal religious beliefs, church affiliation, or ministry role. We process such information only where it is necessary for legitimate religious or Event purposes and permitted by law, or with consent where required."
+        },
+        {
+          "type": "paragraph",
+          "text": "Health, accessibility, allergy, and dietary information is restricted to people and providers who reasonably need it to support your request, safety, or Event arrangements. Do not submit detailed medical records through a general registration form."
+        }
+      ]
+    },
+    {
+      "heading": "8. Payments",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Payment details are submitted through the payment provider displayed at checkout, which may include Paystack or another provider. The provider may collect card, bank, mobile-money, identity, device, fraud-prevention, and transaction information under its own privacy policy. We receive transaction status, reference, amount, payer details, and other information needed to reconcile payments, issue receipts, handle refunds, and address disputes."
+        },
+        {
+          "type": "paragraph",
+          "text": "We do not intentionally store full card numbers or card security codes on our systems. Do not send payment-card details by email, messaging app, or an unsecured form."
+        }
+      ]
+    },
+    {
+      "heading": "9. Cookies and analytics",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "The Site may use strictly necessary cookies for security, checkout, session management, and core functions. With any consent required by applicable law, we may also use analytics or preference cookies to understand Site use and improve performance."
+        },
+        {
+          "type": "paragraph",
+          "text": "You can manage cookies through the Site’s consent tool, if available, and your browser. Blocking necessary cookies may prevent registration or payment functions from working. Before launch, the cookie banner and this section should identify the actual analytics and marketing tools in use."
+        },
+        {
+          "type": "paragraph",
+          "text": "Analytics/advertising tools actually used: NONE"
+        }
+      ]
+    },
+    {
+      "heading": "10. When we share personal data",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "Payment processors, banks, and fraud-prevention providers for transactions and disputes.",
+            "Hotels, venues, caterers, transport providers, badge printers, and other Event suppliers, limited to information needed to provide the service.",
+            "Website hosting, database, form, email, communications, analytics, IT support, and cybersecurity providers acting under appropriate obligations.",
+            "Authorized staff, pastors, volunteers, group coordinators, and Event leaders who need the data for assigned duties.",
+            "Professional advisers, auditors, insurers, and authorities where necessary to establish or defend legal claims, protect safety, investigate wrongdoing, or comply with law.",
+            "A successor or affiliated organization in a lawful restructuring or transfer, subject to appropriate safeguards."
+          ]
+        },
+        {
+          "type": "paragraph",
+          "text": "We do not sell personal data. We do not allow service providers acting on our behalf to use personal data for their unrelated purposes."
+        }
+      ]
+    },
+    {
+      "heading": "11. International transfers",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "The Event may involve attendees, hotels, ministry offices, and technology providers in multiple countries. Your personal data may therefore be accessed or processed outside Ghana, including in countries with different privacy laws. Where required, we use reasonable contractual, organizational, and technical safeguards and limit transfers to what is necessary. For personal data originating in another jurisdiction, additional protections may apply."
+        }
+      ]
+    },
+    {
+      "heading": "12. Retention",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "We retain personal data only for as long as reasonably necessary for the purposes described above, including Event delivery, accounting, tax, audit, safeguarding, dispute resolution, legal compliance, and ministry administration. We then delete, anonymize, or securely archive it as appropriate."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Record category",
+            "Planned retention period"
+          ],
+          "rows": [
+            [
+              "Registration and attendance records",
+              "For duration of the event"
+            ],
+            [
+              "Payment, refund, accounting, and tax records",
+              "Not stored on system"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "heading": "13. Security and data breaches",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "We use reasonable administrative, technical, and physical safeguards designed to protect personal data against loss, unauthorized access, alteration, disclosure, or destruction. No internet or storage system is completely secure, so we cannot guarantee absolute security."
+        },
+        {
+          "type": "paragraph",
+          "text": "If a security breach affects personal data, we will investigate and provide notices to the Data Protection Commission and affected individuals as required by applicable law."
+        }
+      ]
+    },
+    {
+      "heading": "14. Your rights",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Subject to applicable law and identity verification, you may ask whether we hold your personal data; request access to it and information about recipients; ask us to correct inaccurate, incomplete, excessive, irrelevant, outdated, or misleading data; request deletion where we no longer have authority to retain it; object to certain processing; prevent direct marketing; or raise a concern about processing likely to cause unwarranted damage or distress."
+        },
+        {
+          "type": "paragraph",
+          "text": "To exercise a right, contact [INSERT PRIVACY EMAIL]. Describe your request and the data involved. We may ask for reasonable proof of identity, and lawful limitations or fees may apply. You may also complain to Ghana’s Data Protection Commission."
+        }
+      ]
+    },
+    {
+      "heading": "15. Marketing communications",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Where permitted, we may send news about future conventions, ministry activities, or related opportunities. You may unsubscribe using the link in a marketing email or by contacting us. You will still receive transactional and essential Event communications relating to a current booking."
+        }
+      ]
+    },
+    {
+      "heading": "16. Children and minors",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "The Site is not intended for a child to make an independent purchase. A parent, guardian, or authorized adult should submit a minor’s registration and only provide data necessary for attendance, safeguarding, and accommodation. We may seek additional consent or verification for photographs, sensitive information, or other processing involving minors."
+        },
+        {
+          "type": "paragraph",
+          "text": "If you believe a child submitted personal data without appropriate authorization, contact us so we can review and take appropriate action."
+        }
+      ]
+    },
+    {
+      "heading": "17. Photographs, video, and livestreams",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "We may create general photographs, recordings, or livestreams for Event operations, archives, reporting, and ministry communications. We will use notices, designated areas, consent processes, or opt-out procedures where appropriate and legally required. Contact Event staff or [INSERT PRIVACY EMAIL] before the Event if you have a particular concern. We may not be able to remove a person from a live transmission or a wide crowd image after publication, but we will consider reasonable requests."
+        }
+      ]
+    },
+    {
+      "heading": "18. Third-party links",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Links to third-party sites and services are provided for convenience. Their collection and use of personal data are governed by their own privacy notices, not this Policy."
+        }
+      ]
+    },
+    {
+      "heading": "19. Changes to this Policy",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "We may update this Policy as our services, providers, or legal obligations change. We will post the revised version with a new “Last updated” date and provide additional notice where a change is material or consent is required."
+        }
+      ]
+    },
+    {
+      "heading": "20. Contact and complaints",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "For privacy questions, rights requests, or complaints, contact: paystackloyaltyhouse@gmail.com"
+        },
+        {
+          "type": "paragraph",
+          "text": "You may also contact the Data Protection Commission of Ghana using the current contact information published on its official website: www.dataprotection.org.gh."
+        }
+      ]
+    }
+  ]
+}

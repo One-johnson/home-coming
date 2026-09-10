@@ -33,6 +33,7 @@ type PackageDraft = {
   sitesText: string;
   meals: string;
   priceUsd: string;
+  priceGhs: string;
   order: string;
   /** Static path fallback, e.g. /gallery/... */
   imageUrl: string;
@@ -52,6 +53,7 @@ const emptyDraft = (): PackageDraft => ({
   sitesText: "",
   meals: "",
   priceUsd: "40",
+  priceGhs: "600",
   order: "10",
   imageUrl: "",
   clearImageStorage: false,
@@ -69,6 +71,7 @@ function draftFromPackage(pkg: TourPackageAdmin): PackageDraft {
     sitesText: pkg.sites.join("\n"),
     meals: pkg.meals,
     priceUsd: String(pkg.priceUsd),
+    priceGhs: pkg.priceGhs != null ? String(pkg.priceGhs) : "",
     order: String(pkg.order),
     imageUrl: staticPath,
     clearImageStorage: false,
@@ -78,6 +81,14 @@ function draftFromPackage(pkg: TourPackageAdmin): PackageDraft {
 }
 
 function parseDraft(draft: PackageDraft) {
+  const priceGhsRaw = draft.priceGhs.trim();
+  const priceGhs =
+    priceGhsRaw === ""
+      ? undefined
+      : Number.isFinite(Number(priceGhsRaw))
+        ? Number(priceGhsRaw)
+        : undefined;
+
   return {
     label: draft.label.trim(),
     dateLabel: draft.dateLabel.trim(),
@@ -88,6 +99,7 @@ function parseDraft(draft: PackageDraft) {
       .filter(Boolean),
     meals: draft.meals.trim(),
     priceUsd: Number(draft.priceUsd),
+    priceGhs,
     order: Number(draft.order),
     imageUrl: draft.imageUrl.trim() || undefined,
     imageStorageId: draft.pendingStorageId,
@@ -254,7 +266,7 @@ function PackageFormFields({
             id={`${idPrefix}-label`}
             value={draft.label}
             onChange={(e) => onChange({ ...draft, label: e.target.value })}
-            placeholder="Package 1"
+            placeholder="Accra Tours"
           />
         </div>
         <div>
@@ -263,7 +275,7 @@ function PackageFormFields({
             id={`${idPrefix}-date`}
             value={draft.dateLabel}
             onChange={(e) => onChange({ ...draft, dateLabel: e.target.value })}
-            placeholder="Saturday, October 31st"
+            placeholder="Monday, November 1st"
           />
         </div>
       </div>
@@ -305,7 +317,7 @@ function PackageFormFields({
           placeholder="Full day"
         />
       </div>
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div>
           <Label htmlFor={`${idPrefix}-price`}>Price (USD)</Label>
           <Input
@@ -315,6 +327,18 @@ function PackageFormFields({
             step="1"
             value={draft.priceUsd}
             onChange={(e) => onChange({ ...draft, priceUsd: e.target.value })}
+          />
+        </div>
+        <div>
+          <Label htmlFor={`${idPrefix}-price-ghs`}>Price (GHS)</Label>
+          <Input
+            id={`${idPrefix}-price-ghs`}
+            type="number"
+            min={0}
+            step="1"
+            value={draft.priceGhs}
+            onChange={(e) => onChange({ ...draft, priceGhs: e.target.value })}
+            placeholder="600"
           />
         </div>
         <div>
@@ -372,8 +396,10 @@ export function TourPackageManager() {
     setAutoSeedAttempted(true);
     void ensureDefaults({ sessionToken })
       .then((result) => {
-        if (result.inserted > 0) {
-          toast.success(`Loaded ${result.inserted} default tour packages`);
+        if (result.inserted > 0 || result.updated > 0 || result.deleted > 0) {
+          toast.success(
+            `Synced tours (${result.inserted} added, ${result.updated} updated, ${result.deleted} removed)`,
+          );
         }
       })
       .catch(() => {
@@ -432,9 +458,7 @@ export function TourPackageManager() {
     try {
       const result = await ensureDefaults({ sessionToken });
       toast.success(
-        result.inserted > 0
-          ? `Added ${result.inserted} default package(s)`
-          : "Default packages already present",
+        `Synced tours: ${result.inserted} added, ${result.updated} updated, ${result.deleted} removed`,
       );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Seed failed");

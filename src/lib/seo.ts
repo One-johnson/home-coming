@@ -12,15 +12,15 @@ export function getSiteUrl() {
   return "http://localhost:3000";
 }
 
-export const SITE_NAME = `${EVENT.name} — ${EVENT.subtitle}`;
+export const SITE_NAME = EVENT.name;
 
-export const DEFAULT_DESCRIPTION = `Join ${EVENT.fullTitle}, ${EVENT.dates} at ${EVENT.venue}, ${EVENT.location}. Register for the Homecoming Convention with Dag Heward-Mills.`;
+export const DEFAULT_DESCRIPTION = `Join ${EVENT.fullTitle}, ${EVENT.dates} at ${EVENT.venue}, ${EVENT.location}. Register for Homecoming with Dag Heward-Mills.`;
 
-export const DEFAULT_OG_IMAGE = "/hero/banner.jpeg";
+export const DEFAULT_OG_IMAGE = "/gallery/2025/homecoming-14.jpg";
 
 export const SEO_KEYWORDS = [
+  "Homecoming",
   "Homecoming Convention",
-  "Mountain of the Lord",
   "Dag Heward-Mills",
   "Anagkazo Campus",
   "Mampong Ghana",
@@ -48,7 +48,7 @@ export function createPageMetadata({
   const siteUrl = getSiteUrl();
   const url = `${siteUrl}${path === "/" ? "" : path}`;
   const isHome = path === "/";
-  const ogTitle = isHome ? SITE_NAME : `${title} | ${EVENT.subtitle}`;
+  const ogTitle = isHome ? SITE_NAME : `${title} | ${EVENT.name}`;
 
   return {
     title: isHome
@@ -96,17 +96,17 @@ export const PAGE_SEO = {
     title: SITE_NAME,
     description: DEFAULT_DESCRIPTION,
     path: "/",
-    image: "/hero/banner.jpeg",
+    image: "/gallery/2025/homecoming-14.jpg",
   },
   about: {
-    title: "About Loyalty House & The Homecoming",
+    title: "About Loyalty House & Homecoming",
     description: `Loyalty House International — a denomination of the Lighthouse Group of Churches — and the story of ${EVENT.fullTitle} at ${EVENT.venue}, ${EVENT.location}.`,
     path: "/about",
     image: "/campus/campus1.jpg",
   },
   registration: {
-    title: "Register for The Homecoming",
-    description: `Register for ${EVENT.fullTitle}, ${EVENT.dates}. Individual and group tickets with Paystack and PayPal checkout.`,
+    title: "Register for Homecoming",
+    description: `Register for ${EVENT.fullTitle}, ${EVENT.dates}. Group tickets with optional add-ons; Paystack and Stripe checkout.`,
     path: "/registration",
     image: "/hero/slide-01.jpg",
   },
@@ -139,6 +139,18 @@ export const PAGE_SEO = {
     description: `Homecoming 2026 FAQs and travel guide for registration, accommodation, travel, logistics, and security at ${EVENT.fullTitle} in ${EVENT.location}.`,
     path: "/faqs",
     image: "/hero/slide-02.jpg",
+  },
+  privacy: {
+    title: "Privacy Policy",
+    description:
+      "How Loyalty House International collects, uses, shares, and protects personal data for the Homecoming Convention website, registration, and accommodation services.",
+    path: "/privacy",
+  },
+  terms: {
+    title: "Terms of Service",
+    description:
+      "Terms governing use of the Homecoming Convention website and purchases of registration, accommodation, and related services.",
+    path: "/terms",
   },
 } as const;
 

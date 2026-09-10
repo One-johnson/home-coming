@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Separator } from "@/components/ui/separator";
-import { EVENT } from "@/lib/eventConfig";
+import { EVENT, SITE_FEATURES } from "@/lib/eventConfig";
 
 const footerLinkClassName =
   "text-white/90 underline-offset-4 transition hover:text-gold-light hover:underline";
@@ -18,7 +18,6 @@ export function Footer() {
             <h3 className="font-display text-xl font-medium text-gold-light">
               {EVENT.name}
             </h3>
-            <p className="mt-1 font-body text-sm text-white/90">{EVENT.subtitle}</p>
             <p className="mt-4 font-body text-sm text-white/85">
               {EVENT.dates} · {EVENT.venue}, {EVENT.location}
             </p>
@@ -36,14 +35,26 @@ export function Footer() {
                   Tours
                 </Link>
               </li>
-              <li>
-                <Link href="/accommodation" className={footerLinkClassName}>
-                  Book Accommodation
-                </Link>
-              </li>
+              {SITE_FEATURES.accommodationEnabled ? (
+                <li>
+                  <Link href="/accommodation" className={footerLinkClassName}>
+                    Book Accommodation
+                  </Link>
+                </li>
+              ) : null}
               <li>
                 <Link href="/faqs" className={footerLinkClassName}>
                   FAQs
+                </Link>
+              </li>
+              <li>
+                <Link href="/privacy" className={footerLinkClassName}>
+                  Privacy Policy
+                </Link>
+              </li>
+              <li>
+                <Link href="/terms" className={footerLinkClassName}>
+                  Terms of Service
                 </Link>
               </li>
             </ul>

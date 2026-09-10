@@ -1,7 +1,7 @@
 import { mutation } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import { requireRole, sessionTokenValidator } from "./users";
-import { DEFAULT_TOUR_PACKAGES } from "./lib/tourConfig";
+import { syncTourPackagesToDefaults } from "./lib/syncTours";
 
 const FAQS = [
   {
@@ -222,28 +222,7 @@ async function syncFaqs(ctx: MutationCtx) {
 }
 
 async function syncDefaultTourPackages(ctx: MutationCtx) {
-  const now = Date.now();
-  for (const pkg of DEFAULT_TOUR_PACKAGES) {
-    const existing = await ctx.db
-      .query("tourPackages")
-      .withIndex("by_slug", (q) => q.eq("slug", pkg.slug))
-      .first();
-    if (existing) continue;
-    await ctx.db.insert("tourPackages", {
-      slug: pkg.slug,
-      label: pkg.label,
-      dateLabel: pkg.dateLabel,
-      timeRange: pkg.timeRange,
-      sites: pkg.sites,
-      meals: pkg.meals,
-      priceUsd: pkg.priceUsd,
-      imageUrl: pkg.imageUrl,
-      badge: pkg.badge,
-      active: true,
-      order: pkg.order,
-      updatedAt: now,
-    });
-  }
+  await syncTourPackagesToDefaults(ctx);
 }
 
 async function syncHomecomingMessages(ctx: MutationCtx) {

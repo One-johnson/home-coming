@@ -26,14 +26,9 @@ export function Header() {
           <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-gold/10 ring-1 ring-gold/25 transition-colors group-hover:bg-gold/15">
             <Mountain className="h-5 w-5 text-accent" aria-hidden />
           </span>
-          <div>
-            <p className="font-display text-sm font-semibold text-primary">
-              Mountain of the Lord
-            </p>
-            <p className="eyebrow mb-0 text-[0.65rem] text-stone">
-              The Homecoming
-            </p>
-          </div>
+          <p className="font-display text-lg font-semibold text-primary">
+            Homecoming
+          </p>
         </Link>
 
         <nav className="hidden items-center gap-1 lg:flex" aria-label="Main navigation">
@@ -91,7 +86,7 @@ export function Header() {
               aria-hidden
             />
             <SheetHeader className="px-2 pt-3 text-left">
-              <SheetTitle className="font-display">The Homecoming</SheetTitle>
+              <SheetTitle className="font-display">Homecoming</SheetTitle>
             </SheetHeader>
             <Separator className="my-3" />
             <nav

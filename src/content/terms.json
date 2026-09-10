@@ -1,0 +1,319 @@
+{
+  "title": "Terms of Service",
+  "subtitle": "Homecoming Convention website, registration and accommodation payments",
+  "effectiveDate": "September 1st, 2026",
+  "lastUpdated": "September 8th, 2026",
+  "intro": "These Terms of Service (the “Terms”) govern your access to and use of homecomingconvention.com (the “Site”) and your purchase of registration, accommodation, and related services for the Homecoming Convention (the “Event”).",
+  "sections": [
+    {
+      "heading": "1. Organizer and contact",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "The Site and Event are operated by Loyalty House International ( A denomination of the UDOLGC) (“Loyalty House,” “we,” “us,” or “our”), a Ghana-based religious organization."
+        }
+      ]
+    },
+    {
+      "heading": "2. Acceptance of these Terms",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "By accessing the Site, submitting a registration, reserving accommodation, or making a payment, you confirm that you have read and agree to these Terms and our Privacy Policy. If you register or pay for another person or a group, you confirm that you are authorized to provide their information, accept these Terms on their behalf where legally permitted, and communicate all relevant Event rules and notices to them."
+        },
+        {
+          "type": "paragraph",
+          "text": "If you do not agree, do not use the Site or complete a transaction."
+        }
+      ]
+    },
+    {
+      "heading": "3. Eligibility and accurate information",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "You must be at least 18 years old and legally capable of entering a contract to make a purchase. A parent or legal guardian must register a minor and remains responsible for the minor’s conduct, supervision, permissions, and information."
+        },
+        {
+          "type": "paragraph",
+          "text": "You must provide complete, current, and accurate information. We may request reasonable verification, correct obvious errors, reject incomplete or duplicate registrations, or cancel transactions reasonably suspected to be fraudulent or unauthorized."
+        }
+      ]
+    },
+    {
+      "heading": "4. Registration",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Registration is confirmed only after we receive cleared payment and issue a confirmation by email, on-screen receipt, or another stated method. Submission of a form alone does not guarantee admission, a particular session, visa support, transport, meals, merchandise, or accommodation."
+        },
+        {
+          "type": "paragraph",
+          "text": "Registration benefits are limited to those described on the Site or in your confirmation. Unless expressly stated otherwise, travel, visas, insurance, ground transport, meals, and incidental expenses are not included."
+        }
+      ]
+    },
+    {
+      "heading": "5. Group registrations",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "A group coordinator may register and pay for multiple attendees. The coordinator is responsible for obtaining permission to submit each attendee’s personal information, providing accurate attendee details by any published deadline, distributing confirmations and policy notices, and promptly reporting substitutions or corrections."
+        },
+        {
+          "type": "paragraph",
+          "text": "We may communicate through the group coordinator. Accommodation assignments cannot be completed until required occupant information has been provided."
+        }
+      ]
+    },
+    {
+      "heading": "6. Accommodation reservations",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Accommodation purchased through the Site is subject to availability, occupancy limits, rooming deadlines, and any hotel or venue rules disclosed at checkout or in your confirmation. A payment request or incomplete booking does not hold a room unless we confirm the reservation."
+        },
+        {
+          "type": "paragraph",
+          "text": "Room type, bed type, view, proximity, adjoining rooms, accessibility requests, and other preferences are requests only unless expressly confirmed. We may make reasonable room allocations or equivalent substitutions where required by the hotel, occupancy, safety, or operational needs."
+        },
+        {
+          "type": "paragraph",
+          "text": "The lead guest is responsible for providing accurate occupant names and arrival/departure information. Guests are responsible for hotel incidentals, deposits, damage, prohibited conduct, early departure charges, and amounts not expressly included in the Site price."
+        },
+        {
+          "type": "paragraph",
+          "text": "The hotel or venue may require identification, a payment card, and acceptance of its own terms at check-in. Loyalty House is not the hotel operator and is not responsible for acts or omissions of independent hotels, venues, carriers, or other suppliers, except to the extent required by law."
+        }
+      ]
+    },
+    {
+      "heading": "7. Prices, currency, taxes, and payment",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Prices, currency, included items, applicable taxes, and any disclosed processing or service fees will be shown before payment. Currency conversion rates and bank or card charges imposed by your financial institution are your responsibility."
+        },
+        {
+          "type": "paragraph",
+          "text": "Payments may be processed by a third-party payment provider, such as Paystack or another provider identified at checkout. We generally do not receive or store your full payment-card number or security code. Your payment is also subject to the processor’s terms and privacy practices."
+        },
+        {
+          "type": "paragraph",
+          "text": "You authorize us and our payment provider to charge the amount displayed at checkout. If a price or availability error is material, we may cancel the affected transaction and refund the amount paid rather than fulfill it at the incorrect price."
+        }
+      ]
+    },
+    {
+      "heading": "8. Cancellations, refunds, transfers, and no-shows",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "The following schedule applies unless a different schedule is clearly displayed and accepted at checkout. Approved refunds are returned to the original payment method where practicable. Processing, foreign-exchange, banking, and third-party fees may be non-refundable to the extent permitted by law and disclosed before purchase."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Purchase",
+            "Request received",
+            "Refund amount",
+            "Notes"
+          ],
+          "rows": [
+            [
+              "Registration",
+              "90 Days prior to event",
+              "100%",
+              "Written request required."
+            ],
+            [
+              "Registration",
+              "After 90 Days",
+              "Case by case",
+              "Written request required."
+            ],
+            [
+              "Accommodation",
+              "90 Days prior to event",
+              "100%",
+              "Also subject to supplier commitments."
+            ],
+            [
+              "Accommodation",
+              "After 90 Days",
+              "Case by case",
+              "Specify whether nights may be reduced."
+            ],
+            [
+              "Accommodation",
+              "NO-SHOW",
+              "NO REFUND",
+              "Hotel and supplier charges may apply."
+            ]
+          ]
+        },
+        {
+          "type": "paragraph",
+          "text": "Refund requests must be sent to [INSERT REFUND EMAIL] and include the purchaser’s name, order number, attendee name(s), and reason. A request is received when it reaches our designated inbox. Refund timing depends on the payment processor and financial institution."
+        },
+        {
+          "type": "paragraph",
+          "text": "Name changes, substitutions, credits, or transfers are permitted only if we approve them in writing and may be subject to deadlines, price differences, supplier restrictions, or an administrative fee disclosed before processing. Registrations and rooms may not be resold or transferred for profit."
+        },
+        {
+          "type": "paragraph",
+          "text": "If you initiate a chargeback without first contacting us about a genuine service issue, we may provide the transaction record and these Terms to the payment provider and suspend the related booking while the dispute is reviewed. Nothing here limits a lawful right to dispute an unauthorized or incorrect charge."
+        }
+      ]
+    },
+    {
+      "heading": "9. Event changes, postponement, and cancellation",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Schedules, speakers, sessions, venues, room allocations, and Event features may change for operational, safety, pastoral, legal, or circumstances beyond our reasonable control. A change of speaker, session, schedule, or comparable venue does not automatically entitle you to a refund."
+        },
+        {
+          "type": "paragraph",
+          "text": "If we cancel the entire Event and do not offer a reasonable rescheduled or substitute arrangement, our responsibility will ordinarily be limited to refunding amounts we received for the cancelled registration or accommodation component, less any non-recoverable amount where permitted by law and clearly disclosed. We are not responsible for airfare, visas, transport, insurance, lost income, or other external costs. If the Event is postponed, we will state whether your purchase transfers to the new date and any available refund window."
+        }
+      ]
+    },
+    {
+      "heading": "10. Travel documents, health, and insurance",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "You are solely responsible for passports, visas, vaccinations or entry requirements, travel arrangements, insurance, medical fitness, and arriving on time. Registration or an invitation does not guarantee a visa or entry into any country."
+        },
+        {
+          "type": "paragraph",
+          "text": "You should obtain appropriate travel, medical, cancellation, and personal-property insurance. Inform us of accessibility, allergy, dietary, or medical-related requests only where necessary for Event arrangements. We will try to accommodate reasonable requests but cannot guarantee them."
+        }
+      ]
+    },
+    {
+      "heading": "11. Conduct and safety",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Attendees must comply with applicable law, venue rules, safeguarding requirements, and reasonable instructions from Event staff. Harassment, violence, threats, unlawful activity, dangerous behavior, disruption, unauthorized commercial activity, and misuse of credentials are prohibited."
+        },
+        {
+          "type": "paragraph",
+          "text": "We may refuse entry or remove a person when reasonably necessary for safety, order, legal compliance, or protection of attendees and property. Refund eligibility in those circumstances will depend on the facts and applicable law."
+        }
+      ]
+    },
+    {
+      "heading": "12. Photography, recordings, and publicity",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "The Event may be photographed, livestreamed, or recorded. General crowd and stage images may include attendees and may be used to document, report on, or promote the Event and the ministry. Where consent is legally required, we will seek it or provide an appropriate notice or opt-out mechanism. Parents and guardians should follow any special instructions concerning minors."
+        },
+        {
+          "type": "paragraph",
+          "text": "Attendees may not commercially exploit, rebroadcast, or record restricted sessions, nor photograph or record others in a manner that violates privacy, safety, venue rules, or posted instructions."
+        }
+      ]
+    },
+    {
+      "heading": "13. Site use and intellectual property",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "The Site and its text, graphics, logos, recordings, software, and other content are owned by or licensed to us and protected by applicable law. We grant you a limited, revocable, non-exclusive right to use the Site for personal Event-related purposes."
+        },
+        {
+          "type": "paragraph",
+          "text": "You may not interfere with the Site, bypass security, introduce malicious code, scrape or harvest data, impersonate another person, use automated purchasing tools, reproduce protected content beyond lawful limits, or use the Site for fraud or unlawful activity."
+        }
+      ]
+    },
+    {
+      "heading": "14. Third-party links and services",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "The Site may link to third-party websites or services. We do not control them and are not responsible for their content, availability, security, or privacy practices. Your use of third-party services is governed by their own terms."
+        }
+      ]
+    },
+    {
+      "heading": "15. Disclaimers",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "To the fullest extent permitted by law, the Site and Event information are provided on an “as available” basis. We do not promise that the Site will always be uninterrupted, error-free, or free from harmful components. We do not exclude any warranty, duty, or remedy that cannot lawfully be excluded."
+        }
+      ]
+    },
+    {
+      "heading": "16. Limitation of liability",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "To the fullest extent permitted by law, Loyalty House and its officers, employees, volunteers, and agents will not be liable for indirect, incidental, special, punitive, or consequential loss, or for loss caused by an independent supplier or circumstances beyond our reasonable control."
+        },
+        {
+          "type": "paragraph",
+          "text": "Where liability may lawfully be limited, our aggregate liability arising from a particular purchase will not exceed the amount you paid to us for that purchase. This limitation does not apply to fraud, willful misconduct, death or personal injury caused by negligence where liability cannot be excluded, or any other liability that applicable law does not permit us to limit."
+        }
+      ]
+    },
+    {
+      "heading": "17. Indemnity",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "To the extent permitted by law, you agree to reimburse us for reasonable losses, liabilities, and costs arising from your unlawful use of the Site, material breach of these Terms, fraud, or intentional misconduct. This clause does not require you to indemnify us for our own negligence or unlawful conduct."
+        }
+      ]
+    },
+    {
+      "heading": "18. Governing law and disputes",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "These Terms are governed by the laws of the Republic of Ghana, without prejudice to mandatory consumer protections that apply to you. Before filing a claim, you and Loyalty House will try in good faith for 30 days to resolve the dispute through written notice."
+        },
+        {
+          "type": "paragraph",
+          "text": "Subject to any mandatory right to use another forum, the courts of competent jurisdiction in Ghana will have jurisdiction over disputes arising from these Terms or a Site purchase."
+        }
+      ]
+    },
+    {
+      "heading": "19. Changes to these Terms",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "We may revise these Terms for future use of the Site. The version presented or linked at the time of purchase governs that transaction unless a change is required by law or you expressly agree otherwise. We will post the updated date and, where appropriate, give additional notice of material changes."
+        }
+      ]
+    },
+    {
+      "heading": "20. General",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "If a provision is unenforceable, it will be limited or removed only to the minimum extent necessary and the remaining provisions will continue. A failure to enforce a provision is not a waiver. You may not assign your rights under these Terms without our consent; we may assign them as part of a lawful organizational transfer, provided your rights are not materially reduced."
+        },
+        {
+          "type": "paragraph",
+          "text": "These Terms, the Privacy Policy, the information displayed at checkout, and your confirmation constitute the agreement for your Site purchase. If they conflict, transaction-specific terms clearly presented at checkout control for that transaction."
+        }
+      ]
+    },
+    {
+      "heading": "21. Contact us",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Questions, cancellation requests, or legal notices should be sent to: paystackloyaltyhouse@gmail.com"
+        }
+      ]
+    }
+  ]
+}

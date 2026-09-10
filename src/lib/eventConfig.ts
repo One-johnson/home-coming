@@ -1,7 +1,7 @@
 export const EVENT = {
-  name: "Mountain of the Lord",
-  subtitle: "The Homecoming",
-  fullTitle: '"Mountain of the Lord" — The Homecoming',
+  name: "Homecoming",
+  subtitle: "Homecoming",
+  fullTitle: "Homecoming",
   dates: "November 2–8, 2026",
   startDate: new Date("2026-11-02T08:00:00+00:00"),
   endDate: new Date("2026-11-08T23:59:59+00:00"),
@@ -16,6 +16,11 @@ export const EVENT = {
   launchDate: "July 24, 2026",
   /** Most recent convention with photos and stats on the site */
   lastHomecomingYear: 2025,
+} as const;
+
+/** Public site feature switches — flip when a flow is ready to show. */
+export const SITE_FEATURES = {
+  accommodationEnabled: false,
 } as const;
 
 export const HOST_CTA_LINKS = [
@@ -43,8 +48,10 @@ export const NAV_LINKS: {
   { href: "https://daghewardmills.org", label: "Dag Heward-Mills", external: true },
   { href: "/registration", label: "Registration" },
   { href: "/tours", label: "Tours" },
-  { href: "/accommodation", label: "Accommodation" },
+  ...(SITE_FEATURES.accommodationEnabled
+    ? [{ href: "/accommodation", label: "Accommodation" }]
+    : []),
   { href: "/gallery", label: "Gallery" },
   { href: "/messages", label: "Messages" },
   { href: "/faqs", label: "FAQs" },
-] as const;
+];

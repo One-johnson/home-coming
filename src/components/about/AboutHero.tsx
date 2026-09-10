@@ -2,7 +2,6 @@
 
 import Image from "next/image";
 import { motion, useReducedMotion } from "framer-motion";
-import { LinkButton as Button } from "@/components/ui/app-button";
 import { EVENT } from "@/lib/eventConfig";
 import { aboutContent } from "@/lib/siteContent";
 import {
@@ -67,68 +66,6 @@ export function AboutHero() {
             >
               {hero.bannerSubtitle}
             </motion.p>
-          </div>
-        </motion.div>
-      </div>
-
-      <div className="relative overflow-hidden bg-cream">
-        <div className="glow-warm pointer-events-none absolute inset-0" aria-hidden />
-        <motion.div
-          className="relative mx-auto max-w-7xl px-4 py-16 sm:px-6 md:py-20 lg:px-8"
-          variants={container}
-          initial="hidden"
-          whileInView="visible"
-          viewport={{ once: true, amount: 0.25 }}
-        >
-          <div className="mx-auto max-w-3xl text-center">
-            <motion.p className="eyebrow mb-4" variants={item}>
-              {hero.eyebrow}
-            </motion.p>
-            <motion.h2
-              className="font-display text-4xl font-normal leading-[1.1] tracking-tight text-foreground md:text-5xl"
-              variants={item}
-            >
-              {hero.title}
-            </motion.h2>
-            <div className="ornament mt-6" aria-hidden>
-              <span className="ornament-diamond" />
-            </div>
-            <motion.p
-              className="lead mx-auto mt-8 max-w-2xl not-italic"
-              variants={item}
-            >
-              {hero.tagline}
-            </motion.p>
-            <motion.p
-              className="mt-3 text-sm font-medium tracking-wide text-gold-dark sm:text-base"
-              variants={item}
-            >
-              The Homecoming · {EVENT.dates} · {EVENT.location}
-            </motion.p>
-            <motion.blockquote
-              className="mx-auto mt-8 max-w-xl border-l-2 border-gold pl-5 text-left font-display text-xl italic leading-snug text-foreground sm:text-2xl"
-              variants={item}
-            >
-              {hero.quote}
-            </motion.blockquote>
-            <motion.div
-              className="mt-10 flex flex-wrap items-center justify-center gap-3 sm:gap-4"
-              variants={item}
-            >
-              <Button
-                href={hero.primaryCta.href}
-                className="min-h-12 border-gold bg-gold px-6 py-3.5 text-sm font-bold text-ink shadow-elevate hover:bg-gold-dark hover:text-ink sm:px-8 sm:text-base"
-              >
-                {hero.primaryCta.label}
-              </Button>
-              <Button
-                href={hero.secondaryCta.href}
-                variant="outline"
-                className="min-h-12 border-2 border-gold bg-transparent px-6 py-3.5 text-sm font-bold text-ink hover:bg-gold/10 hover:text-ink sm:px-8 sm:text-base"
-              >
-                {hero.secondaryCta.label}
-              </Button>
-            </motion.div>
           </div>
         </motion.div>
       </div>

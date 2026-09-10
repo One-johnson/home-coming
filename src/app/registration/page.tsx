@@ -9,13 +9,12 @@ export default function RegistrationPage() {
   return (
     <Section
       subtitle="Register"
-      title="Register for The Homecoming"
+      title="Register for Homecoming"
       className="pt-24"
     >
       <p className="lead mx-auto mb-10 max-w-2xl text-center">
-        Choose individual or group registration, select your region for pricing,
-        pay with Paystack (Ghana / West Africa) or choose Paystack or Stripe
-        elsewhere, then complete your booking.
+        Choose your group for ticket pricing, add optional extras, then pay with
+        Paystack or Stripe.
       </p>
       <RegistrationForm />
     </Section>

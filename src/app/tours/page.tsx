@@ -13,8 +13,9 @@ export default function ToursPage() {
       className="pt-24"
     >
       <p className="lead mx-auto mb-10 max-w-2xl text-center">
-        Browse full tour itineraries below. Select a package to book tickets in
-        a quick checkout sheet — you can add more tours before payment.
+        Two Homecoming tours are available — Accra on Monday, November 1st and
+        Mountain on Thursday, November 4th. Select a package to book tickets;
+        you can add both before payment.
       </p>
       <ToursCheckout />
     </Section>
