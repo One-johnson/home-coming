@@ -284,6 +284,8 @@ export default defineSchema({
     countryCode: v.string(),
     region: v.string(),
     groupName: v.optional(v.string()),
+    denomination: v.optional(v.string()),
+    church: v.optional(v.string()),
     items: v.array(
       v.object({
         packageId: v.id("tourPackages"),

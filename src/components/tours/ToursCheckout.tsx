@@ -7,12 +7,14 @@ import {
   ArrowLeftIcon,
   CheckCircle2Icon,
   InfoIcon,
+  Loader2Icon,
   MinusIcon,
   PlusIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import type { Doc, Id } from "@convex/_generated/dataModel";
+import { CountryCodeSelect } from "@/components/forms/CountryCodeSelect";
 import { LinkButton as AppButton } from "@/components/ui/app-button";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -21,6 +23,14 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
+import {
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+} from "@/components/ui/combobox";
 import {
   Select,
   SelectContent,
@@ -39,11 +49,15 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import {
+  DENOMINATIONS_BY_GROUP,
+  GROUP_OPTIONS,
   REGION_CONFIG,
   REGION_OPTIONS,
   formatPrice,
+  shouldShowChurchAffiliation,
   type RegistrationRegion,
 } from "@/lib/registrationConfig";
+import { preferredIsoForRegion } from "@/lib/countryDialCodes";
 import {
   LIBRARY_OF_THE_ANOINTED_NOTE,
   calculateTourTotal,
@@ -130,6 +144,7 @@ function QtyControl({
 function ToursCheckoutInner() {
   const isCompact = useIsCompact();
   const packages = useQuery(api.tourPackages.listPublic);
+  const catalog = useQuery(api.registrationCatalog.listPublic);
   const createTourOrder = useMutation(api.tourOrders.create);
   const createCheckout = useAction(api.stripeCheckout.createCheckoutSession);
   const createPaystackCheckout = useAction(
@@ -147,7 +162,9 @@ function ToursCheckoutInner() {
   const [countryCode, setCountryCode] = useState(
     REGION_CONFIG.ghana.defaultCountryCode,
   );
-  const [groupName, setGroupName] = useState("");
+  const [group, setGroup] = useState("");
+  const [denomination, setDenomination] = useState("");
+  const [church, setChurch] = useState("");
   const [consent, setConsent] = useState(false);
   const [honeypot, setHoneypot] = useState("");
   const [loading, setLoading] = useState(false);
@@ -155,6 +172,24 @@ function ToursCheckoutInner() {
   const [confirmed, setConfirmed] = useState(false);
   const [referenceNumber, setReferenceNumber] = useState<string | null>(null);
   const [paymentMessage, setPaymentMessage] = useState("");
+
+  const groupOptions = useMemo(() => {
+    if (catalog && catalog.length > 0) {
+      return catalog.map((item) => item.name);
+    }
+    return [...GROUP_OPTIONS];
+  }, [catalog]);
+
+  const selectedCatalogGroup = catalog?.find((item) => item.name === group);
+
+  const denominationOptions = useMemo(() => {
+    if (selectedCatalogGroup) {
+      return selectedCatalogGroup.denominations.map((item) => item.name);
+    }
+    return [...(DENOMINATIONS_BY_GROUP[group] ?? [])];
+  }, [group, selectedCatalogGroup]);
+
+  const showChurchAffiliation = shouldShowChurchAffiliation(group, denomination);
 
   const totals = useMemo(
     () => calculateTourTotal(packages ?? [], quantities, region),
@@ -183,6 +218,9 @@ function ToursCheckoutInner() {
     Boolean(fullName.trim()) &&
     Boolean(email.trim()) &&
     Boolean(phone.trim()) &&
+    Boolean(countryCode.trim()) &&
+    Boolean(group) &&
+    Boolean(denomination) &&
     consent;
 
   const setQuantity = (id: Id<"tourPackages">, quantity: number) => {
@@ -226,6 +264,14 @@ function ToursCheckoutInner() {
     setCountryCode(REGION_CONFIG[value].defaultCountryCode);
   };
 
+  const handleGroupChange = (value: string) => {
+    setGroup(value);
+    setDenomination("");
+    if (value && value !== "Other") {
+      setChurch("");
+    }
+  };
+
   const goToStep = (target: CheckoutStep) => {
     if (target === "tickets") {
       setError("");
@@ -257,7 +303,9 @@ function ToursCheckoutInner() {
         phone,
         countryCode,
         region,
-        groupName: groupName || undefined,
+        groupName: group,
+        denomination,
+        church: church || undefined,
         items: totals.selections,
         gateway,
         consent,
@@ -322,7 +370,9 @@ function ToursCheckoutInner() {
     setFullName("");
     setEmail("");
     setPhone("");
-    setGroupName("");
+    setGroup("");
+    setDenomination("");
+    setChurch("");
     setConsent(false);
     setReferenceNumber(null);
     setPaymentMessage("");
@@ -589,20 +639,104 @@ function ToursCheckoutInner() {
                   <div className="space-y-2">
                     <Label htmlFor="tour-phone">Phone</Label>
                     <div className="flex gap-2">
-                      <Input
-                        className="w-20"
+                      <CountryCodeSelect
+                        id="tour-country-code"
                         value={countryCode}
-                        onChange={(e) => setCountryCode(e.target.value)}
-                        aria-label="Country code"
+                        onValueChange={setCountryCode}
+                        preferredIso={preferredIsoForRegion(region)}
                       />
                       <Input
                         id="tour-phone"
                         value={phone}
                         onChange={(e) => setPhone(e.target.value)}
+                        className="min-w-0 flex-1"
                       />
                     </div>
                   </div>
                 </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="tour-group">Group *</Label>
+                    <Combobox
+                      items={groupOptions}
+                      value={group || null}
+                      onValueChange={(value) =>
+                        handleGroupChange((value as string | null) ?? "")
+                      }
+                    >
+                      <ComboboxInput
+                        id="tour-group"
+                        placeholder="Search group…"
+                        className="w-full"
+                      />
+                      <ComboboxContent>
+                        <ComboboxEmpty>No groups found.</ComboboxEmpty>
+                        <ComboboxList>
+                          {(item) => (
+                            <ComboboxItem key={item} value={item}>
+                              {item}
+                            </ComboboxItem>
+                          )}
+                        </ComboboxList>
+                      </ComboboxContent>
+                    </Combobox>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="tour-denomination">
+                      Denomination/Country/Hub *
+                    </Label>
+                    <Combobox
+                      items={denominationOptions}
+                      value={denomination || null}
+                      disabled={!group}
+                      onValueChange={(value) => {
+                        const next = (value as string | null) ?? "";
+                        setDenomination(next);
+                        if (group !== "Other" && next !== "Other") {
+                          setChurch("");
+                        }
+                      }}
+                    >
+                      <ComboboxInput
+                        id="tour-denomination"
+                        disabled={!group}
+                        placeholder={
+                          group
+                            ? "Search denomination/country/hub…"
+                            : "Select a group first"
+                        }
+                        className="w-full"
+                      />
+                      <ComboboxContent>
+                        <ComboboxEmpty>No matches found.</ComboboxEmpty>
+                        <ComboboxList>
+                          {(item) => (
+                            <ComboboxItem key={item} value={item}>
+                              {item}
+                            </ComboboxItem>
+                          )}
+                        </ComboboxList>
+                      </ComboboxContent>
+                    </Combobox>
+                  </div>
+                </div>
+                {showChurchAffiliation ? (
+                  <div className="space-y-2">
+                    <Label htmlFor="tour-church">
+                      Church / Ministry Affiliation
+                    </Label>
+                    <Input
+                      id="tour-church"
+                      placeholder="For guests outside the listed groups"
+                      value={church}
+                      onChange={(e) => setChurch(e.target.value)}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Use this if your group or denomination is not in the list
+                      (select Other).
+                    </p>
+                  </div>
+                ) : null}
                 <div className="space-y-2">
                   <Label>Region / Country</Label>
                   <Select
@@ -625,16 +759,6 @@ function ToursCheckoutInner() {
                   <p className="text-xs text-muted-foreground">
                     Choose Paystack or Stripe on the payment step · USD
                   </p>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="tour-group">
-                    Group / Organization (optional)
-                  </Label>
-                  <Input
-                    id="tour-group"
-                    value={groupName}
-                    onChange={(e) => setGroupName(e.target.value)}
-                  />
                 </div>
                 <Label className="flex items-start gap-3">
                   <Checkbox
@@ -709,6 +833,19 @@ function ToursCheckoutInner() {
                     <span className="text-muted-foreground">Phone:</span>{" "}
                     {countryCode} {phone}
                   </p>
+                  <p>
+                    <span className="text-muted-foreground">Group:</span> {group}
+                  </p>
+                  <p>
+                    <span className="text-muted-foreground">Denomination:</span>{" "}
+                    {denomination}
+                  </p>
+                  {church ? (
+                    <p>
+                      <span className="text-muted-foreground">Affiliation:</span>{" "}
+                      {church}
+                    </p>
+                  ) : null}
                 </div>
                 <p className="text-lg font-semibold text-primary">
                   Total:{" "}
@@ -898,13 +1035,16 @@ function ToursCheckoutInner() {
                   disabled={loading || !consent || !hasSelection}
                   onClick={handleSubmit}
                 >
-                  {loading
-                    ? gateway === "stripe"
-                      ? "Redirecting…"
-                      : "Processing…"
-                    : gateway === "paystack"
-                      ? "Pay with Paystack"
-                      : "Pay with Stripe"}
+                  {loading ? (
+                    <>
+                      <Loader2Icon className="size-4 animate-spin" />
+                      {gateway === "stripe" ? "Redirecting…" : "Processing…"}
+                    </>
+                  ) : gateway === "paystack" ? (
+                    "Pay with Paystack"
+                  ) : (
+                    "Pay with Stripe"
+                  )}
                 </AppButton>
               </div>
             )}

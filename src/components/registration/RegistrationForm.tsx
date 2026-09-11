@@ -2,9 +2,10 @@
 
 import { useMemo, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
-import { ArrowLeftIcon, CheckCircle2Icon } from "lucide-react";
+import { ArrowLeftIcon, CheckCircle2Icon, Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
+import { CountryCodeSelect } from "@/components/forms/CountryCodeSelect";
 import { LinkButton as Button } from "@/components/ui/app-button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -29,6 +30,7 @@ import {
   ComboboxItem,
   ComboboxList,
 } from "@/components/ui/combobox";
+import { preferredIsoForRegion } from "@/lib/countryDialCodes";
 import {
   DENOMINATIONS_BY_GROUP,
   GROUP_OPTIONS,
@@ -523,14 +525,11 @@ function RegistrationFormInner() {
             <div className="space-y-2">
               <Label htmlFor="phone">Phone *</Label>
               <div className="flex gap-2">
-                <Input
+                <CountryCodeSelect
                   id="countryCode"
-                  required
-                  aria-label="Country code"
-                  placeholder="+233"
                   value={countryCode}
-                  onChange={(e) => setCountryCode(e.target.value)}
-                  className="w-24 shrink-0 sm:w-28"
+                  onValueChange={setCountryCode}
+                  preferredIso={preferredIsoForRegion(pricing.regionKey)}
                 />
                 <Input
                   id="phone"
@@ -696,11 +695,16 @@ function RegistrationFormInner() {
               onClick={() => void handleSubmit()}
               disabled={loading || !consent}
             >
-              {loading
-                ? "Redirecting..."
-                : paystackOnly || gateway === "paystack"
-                  ? "Complete with Paystack"
-                  : "Pay with Stripe"}
+              {loading ? (
+                <>
+                  <Loader2Icon className="size-4 animate-spin" />
+                  Redirecting…
+                </>
+              ) : paystackOnly || gateway === "paystack" ? (
+                "Complete with Paystack"
+              ) : (
+                "Pay with Stripe"
+              )}
             </Button>
           </CardFooter>
         </Card>

@@ -155,6 +155,14 @@ function TourOrdersTable() {
                 { label: "Region", value: selected.region },
                 { label: "Group", value: selected.groupName ?? "—" },
                 {
+                  label: "Denomination",
+                  value: selected.denomination ?? "—",
+                },
+                {
+                  label: "Affiliation",
+                  value: selected.church ?? "—",
+                },
+                {
                   label: "Packages",
                   value: selected.items
                     .map(

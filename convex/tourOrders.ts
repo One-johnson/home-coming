@@ -29,7 +29,9 @@ export const create = mutation({
     phone: v.string(),
     countryCode: v.string(),
     region: v.string(),
-    groupName: v.optional(v.string()),
+    groupName: v.string(),
+    denomination: v.string(),
+    church: v.optional(v.string()),
     items: v.array(tourItemValidator),
     gateway: v.union(v.literal("stripe"), v.literal("paystack")),
     consent: v.boolean(),
@@ -55,6 +57,14 @@ export const create = mutation({
 
     if (!args.phone.trim()) {
       throw new Error("Phone is required");
+    }
+
+    if (!args.groupName?.trim()) {
+      throw new Error("Group is required");
+    }
+
+    if (!args.denomination?.trim()) {
+      throw new Error("Denomination is required");
     }
 
     const regionConfig = REGION_CONFIG[args.region as RegistrationRegion];
@@ -111,7 +121,9 @@ export const create = mutation({
       phone: args.phone.trim(),
       countryCode: args.countryCode.trim(),
       region: args.region,
-      groupName: args.groupName?.trim() || undefined,
+      groupName: args.groupName.trim(),
+      denomination: args.denomination.trim(),
+      church: args.church?.trim() || undefined,
       items: lineItems,
       totalAmount: grandTotal,
       currency: "USD",

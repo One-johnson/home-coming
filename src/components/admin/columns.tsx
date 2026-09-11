@@ -238,6 +238,8 @@ export function tourOrderExportRow(o: Doc<"tourOrders">) {
     phone: `${o.countryCode} ${o.phone}`,
     region: o.region,
     group: o.groupName ?? "",
+    denomination: o.denomination ?? "",
+    affiliation: o.church ?? "",
     items: o.items
       .map((item) => `${item.label} x${item.quantity}@${item.unitPrice}`)
       .join("; "),

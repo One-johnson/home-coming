@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useAction, useQuery } from "convex/react";
 import { useState } from "react";
-import { Eye, EyeOff, Lock, Mail } from "lucide-react";
+import { Eye, EyeOff, Loader2, Lock, Mail } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import { LinkButton as Button } from "@/components/ui/app-button";
@@ -108,7 +108,14 @@ export function AdminSignIn() {
             </Alert>
           )}
           <Button type="submit" className="h-11 w-full" disabled={signingIn}>
-            {signingIn ? "Signing in..." : "Sign in"}
+            {signingIn ? (
+              <>
+                <Loader2 className="size-4 animate-spin" />
+                Signing in…
+              </>
+            ) : (
+              "Sign in"
+            )}
           </Button>
         </form>
 

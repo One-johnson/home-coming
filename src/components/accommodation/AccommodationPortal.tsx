@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
-import { CheckCircle2Icon } from "lucide-react";
+import { CheckCircle2Icon, Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import { LinkButton as Button } from "@/components/ui/app-button";
@@ -426,17 +426,20 @@ function AccommodationPortalInner() {
                 onClick={() => void handleBooking()}
                 disabled={loading || !canPay}
               >
-                {loading
-                  ? gateway === "stripe"
-                    ? "Redirecting..."
-                    : "Processing..."
-                  : !housingReady
-                    ? "Loading housing..."
-                    : !selectedHousing
-                      ? "Housing unavailable"
-                      : gateway === "paystack"
-                        ? "Book & Pay with Paystack"
-                        : "Book & Pay with Stripe"}
+                {loading ? (
+                  <>
+                    <Loader2Icon className="size-4 animate-spin" />
+                    {gateway === "stripe" ? "Redirecting…" : "Processing…"}
+                  </>
+                ) : !housingReady ? (
+                  "Loading housing..."
+                ) : !selectedHousing ? (
+                  "Housing unavailable"
+                ) : gateway === "paystack" ? (
+                  "Book & Pay with Paystack"
+                ) : (
+                  "Book & Pay with Stripe"
+                )}
               </Button>
             </CardFooter>
           </Card>

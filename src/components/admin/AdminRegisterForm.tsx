@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import {
   Eye,
   EyeOff,
+  Loader2,
   Lock,
   Mail,
   ShieldCheck,
@@ -319,7 +320,14 @@ function AdminRegisterInner() {
           className="mt-2 h-11 w-full border-gold bg-gradient-to-r from-gold-light via-[#f0e6c8] to-gold text-ink hover:from-gold hover:via-gold-light hover:to-gold-dark hover:text-ink"
           disabled={submitting || !passwordsMatch}
         >
-          {submitting ? "Creating account..." : "Create admin account"}
+          {submitting ? (
+            <>
+              <Loader2 className="size-4 animate-spin" />
+              Creating account…
+            </>
+          ) : (
+            "Create admin account"
+          )}
         </Button>
       </form>
     </AuthShell>
