@@ -31,13 +31,6 @@ import {
   ComboboxItem,
   ComboboxList,
 } from "@/components/ui/combobox";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -51,11 +44,9 @@ import {
 import {
   DENOMINATIONS_BY_GROUP,
   GROUP_OPTIONS,
-  REGION_CONFIG,
-  REGION_OPTIONS,
   formatPrice,
+  getGroupPricing,
   shouldShowChurchAffiliation,
-  type RegistrationRegion,
 } from "@/lib/registrationConfig";
 import { preferredIsoForRegion } from "@/lib/countryDialCodes";
 import {
@@ -154,14 +145,11 @@ function ToursCheckoutInner() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [step, setStep] = useState<CheckoutStep>("tickets");
   const [quantities, setQuantities] = useState<Record<string, number>>({});
-  const [region, setRegion] = useState<RegistrationRegion>("ghana");
   const [gateway, setGateway] = useState<CheckoutGateway>("stripe");
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
-  const [countryCode, setCountryCode] = useState(
-    REGION_CONFIG.ghana.defaultCountryCode,
-  );
+  const [countryCode, setCountryCode] = useState("+233");
   const [group, setGroup] = useState("");
   const [denomination, setDenomination] = useState("");
   const [church, setChurch] = useState("");
@@ -187,6 +175,11 @@ function ToursCheckoutInner() {
       return selectedCatalogGroup.denominations.map((item) => item.name);
     }
     return [...(DENOMINATIONS_BY_GROUP[group] ?? [])];
+  }, [group, selectedCatalogGroup]);
+
+  const region = useMemo(() => {
+    if (selectedCatalogGroup) return selectedCatalogGroup.regionKey;
+    return getGroupPricing(group || "Other").regionKey;
   }, [group, selectedCatalogGroup]);
 
   const showChurchAffiliation = shouldShowChurchAffiliation(group, denomination);
@@ -259,17 +252,17 @@ function ToursCheckoutInner() {
     });
   };
 
-  const handleRegionChange = (value: RegistrationRegion) => {
-    setRegion(value);
-    setCountryCode(REGION_CONFIG[value].defaultCountryCode);
-  };
-
   const handleGroupChange = (value: string) => {
     setGroup(value);
     setDenomination("");
     if (value && value !== "Other") {
       setChurch("");
     }
+    const catalogMatch = catalog?.find((item) => item.name === value);
+    const nextPricing = catalogMatch
+      ? { defaultCountryCode: catalogMatch.defaultCountryCode }
+      : getGroupPricing(value || "Other");
+    setCountryCode(nextPricing.defaultCountryCode);
   };
 
   const goToStep = (target: CheckoutStep) => {
@@ -737,29 +730,6 @@ function ToursCheckoutInner() {
                     </p>
                   </div>
                 ) : null}
-                <div className="space-y-2">
-                  <Label>Region / Country</Label>
-                  <Select
-                    value={region}
-                    onValueChange={(value) =>
-                      handleRegionChange(value as RegistrationRegion)
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select region" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {REGION_OPTIONS.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground">
-                    Choose Paystack or Stripe on the payment step · USD
-                  </p>
-                </div>
                 <Label className="flex items-start gap-3">
                   <Checkbox
                     checked={consent}
