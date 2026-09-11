@@ -3,6 +3,7 @@ import type { MutationCtx } from "./_generated/server";
 import { requireRole, sessionTokenValidator } from "./users";
 import { syncTourPackagesToDefaults } from "./lib/syncTours";
 import { syncHotelsToDefaults } from "./lib/syncHotels";
+import { syncRegistrationCatalogIfEmpty } from "./registrationCatalog";
 
 const FAQS = [
   {
@@ -30,7 +31,7 @@ const FAQS = [
     category: "General Event & Registration",
     question: "Can I register as a group?",
     answer:
-      "Yes. Group registration is ticket-based. Select the required ticket quantity, provide the purchaser's contact details, choose any add-ons, and complete payment. Attendee names are not required at the time of purchase.",
+      "Yes. Group registration is ticket-based. Select the required ticket quantity, provide the purchaser's contact details, and complete payment. Attendee names are not required at the time of purchase.",
     order: 4,
   },
   {
@@ -330,6 +331,7 @@ export const seed = mutation({
     await syncFaqs(ctx);
     await syncHomecomingMessages(ctx);
     await syncHotelsToDefaults(ctx);
+    await syncRegistrationCatalogIfEmpty(ctx);
 
     const existingHeroSlides = await ctx.db.query("heroSlides").first();
     if (!existingHeroSlides) {

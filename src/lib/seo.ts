@@ -106,7 +106,7 @@ export const PAGE_SEO = {
   },
   registration: {
     title: "Register for Homecoming",
-    description: `Register for ${EVENT.fullTitle}, ${EVENT.dates}. Group tickets with optional add-ons; Paystack and Stripe checkout.`,
+    description: `Register for ${EVENT.fullTitle}, ${EVENT.dates}. Group tickets with Paystack and Stripe checkout.`,
     path: "/registration",
     image: "/hero/slide-01.jpg",
   },

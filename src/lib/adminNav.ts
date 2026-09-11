@@ -35,6 +35,12 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         badgeKey: "registrationsPending",
       },
       {
+        href: "/admin/groups",
+        label: "Groups",
+        description: "Registration groups, pricing, and denominations",
+        area: "registration",
+      },
+      {
         href: "/admin/tours",
         label: "Tours",
         description: "Manage tour packages and orders",

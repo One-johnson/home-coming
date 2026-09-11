@@ -102,6 +102,43 @@ export default defineSchema({
     order: v.number(),
   }).index("by_order", ["order"]),
 
+  registrationGroups: defineTable({
+    name: v.string(),
+    price: v.number(),
+    currency: v.string(),
+    currencySymbol: v.string(),
+    gateway: v.union(
+      v.literal("stripe"),
+      v.literal("paystack"),
+      v.literal("paypal"),
+    ),
+    defaultCountryCode: v.string(),
+    regionKey: v.union(
+      v.literal("ghana"),
+      v.literal("west_africa"),
+      v.literal("rest_of_africa"),
+      v.literal("usa"),
+      v.literal("canada"),
+      v.literal("switzerland"),
+      v.literal("uk"),
+      v.literal("rest_of_europe"),
+      v.literal("rest_of_world"),
+    ),
+    order: v.number(),
+    active: v.boolean(),
+  })
+    .index("by_order", ["order"])
+    .index("by_name", ["name"]),
+
+  registrationDenominations: defineTable({
+    groupId: v.id("registrationGroups"),
+    name: v.string(),
+    order: v.number(),
+    active: v.boolean(),
+  })
+    .index("by_group", ["groupId"])
+    .index("by_group_order", ["groupId", "order"]),
+
   galleries: defineTable({
     year: v.number(),
     theme: v.string(),

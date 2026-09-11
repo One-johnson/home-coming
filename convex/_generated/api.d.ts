@@ -33,6 +33,7 @@ import type * as lib_tourConfig from "../lib/tourConfig.js";
 import type * as mediaThumbnails from "../mediaThumbnails.js";
 import type * as payments from "../payments.js";
 import type * as paystackCheckout from "../paystackCheckout.js";
+import type * as registrationCatalog from "../registrationCatalog.js";
 import type * as registrations from "../registrations.js";
 import type * as seed from "../seed.js";
 import type * as stripeCheckout from "../stripeCheckout.js";
@@ -72,6 +73,7 @@ declare const fullApi: ApiFromModules<{
   mediaThumbnails: typeof mediaThumbnails;
   payments: typeof payments;
   paystackCheckout: typeof paystackCheckout;
+  registrationCatalog: typeof registrationCatalog;
   registrations: typeof registrations;
   seed: typeof seed;
   stripeCheckout: typeof stripeCheckout;

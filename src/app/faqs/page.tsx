@@ -25,7 +25,7 @@ function FAQsPageContent({ faqs }: { faqs: Faq[] }) {
     >
       <p className="lead mx-auto mb-10 max-w-3xl text-center">
         UDHMM Homecoming 2026 at Anagkazo Bible & Ministry Training Centre
-        (ABMTC), Mampong, Ghana — 3–6 November 2026. Use this guide for
+        (ABMTC), Mampong, Ghana — 2–8 November 2026. Use this guide for
         registration, accommodation, travel, logistics, and security. Real-time
         updates will also be shared through the official Homecoming WhatsApp
         platform for your denomination.

@@ -167,10 +167,9 @@ export function calculateRegistrationAmounts(
 ) {
   const pricing = getGroupPricing(group);
   const priceAmount = pricing.price * ticketQuantity;
-  const addOnAmount = addOns.reduce((sum, item) => {
-    const addOn = ADD_ONS.find((entry) => entry.id === item.id);
-    return sum + (addOn?.price ?? 0) * item.quantity;
-  }, 0);
+  // Add-ons are temporarily disabled — ignore any submitted selections.
+  void addOns;
+  const addOnAmount = 0;
 
   return {
     priceAmount,

@@ -249,6 +249,7 @@ export const searchQuick = query({
     const pages = [
       { href: "/admin", label: "Overview" },
       { href: "/admin/registrations", label: "Registrations" },
+      { href: "/admin/groups", label: "Groups" },
       { href: "/admin/bookings", label: "Bookings" },
       { href: "/admin/housing", label: "Housing" },
       { href: "/admin/hotels", label: "Hotels" },

@@ -1,12 +1,9 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import {
-  calculateRegistrationAmounts,
-  getGroupPricing,
-} from "./lib/registrationConfig";
 import { createUniqueReferenceNumber } from "./lib/referenceNumbers";
 import { writeAuditLog } from "./lib/audit";
 import { queuePaymentConfirmation } from "./lib/paymentEmail";
+import { resolveGroupPricing } from "./registrationCatalog";
 import { requireRole, sessionTokenValidator } from "./users";
 
 const paymentStatusValidator = v.union(
@@ -39,7 +36,8 @@ export const create = mutation({
     denomination: v.optional(v.string()),
     church: v.optional(v.string()),
     ticketQuantity: v.number(),
-    addOns: v.array(addOnSelectionValidator),
+    /** Ignored while add-ons are disabled; kept optional for older clients. */
+    addOns: v.optional(v.array(addOnSelectionValidator)),
     accommodationInterest: v.boolean(),
     priceAmount: v.optional(v.number()),
     addOnAmount: v.optional(v.number()),
@@ -72,18 +70,15 @@ export const create = mutation({
       throw new Error("Group is required");
     }
 
-    for (const addOn of args.addOns) {
-      if (!Number.isInteger(addOn.quantity) || addOn.quantity < 1) {
-        throw new Error("Add-on quantities must be whole numbers of at least 1");
-      }
-    }
-
-    const pricing = getGroupPricing(group);
-    const amounts = calculateRegistrationAmounts(
-      group,
-      args.ticketQuantity,
-      args.addOns,
-    );
+    const pricing = await resolveGroupPricing(ctx, group);
+    const amounts = {
+      priceAmount: pricing.price * args.ticketQuantity,
+      addOnAmount: 0,
+      totalAmount: pricing.price * args.ticketQuantity,
+      currency: pricing.currency,
+      gateway: pricing.gateway,
+      regionKey: pricing.regionKey,
+    };
 
     // GHS tickets are Paystack-only — Stripe cannot charge GHS on US accounts.
     const gateway: "paystack" | "stripe" =
@@ -118,10 +113,10 @@ export const create = mutation({
       denomination: args.denomination?.trim() || undefined,
       church: args.church?.trim() || undefined,
       ticketQuantity: args.ticketQuantity,
-      addOns: args.addOns,
+      addOns: [],
       accommodationInterest: args.accommodationInterest,
       priceAmount: amounts.priceAmount,
-      addOnAmount: amounts.addOnAmount,
+      addOnAmount: 0,
       totalAmount: amounts.totalAmount,
       currency: amounts.currency,
       gateway,

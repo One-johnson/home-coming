@@ -1,12 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useMutation, useAction } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { ArrowLeftIcon, CheckCircle2Icon } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import { LinkButton as Button } from "@/components/ui/app-button";
-import { Button as IconButton } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -30,9 +29,7 @@ import {
   ComboboxItem,
   ComboboxList,
 } from "@/components/ui/combobox";
-import { Separator } from "@/components/ui/separator";
 import {
-  ADD_ONS,
   DENOMINATIONS_BY_GROUP,
   GROUP_OPTIONS,
   calculateRegistrationTotal,
@@ -41,28 +38,20 @@ import {
   isPaystackOnlyCurrency,
   registrationGatewaysForCurrency,
   shouldShowChurchAffiliation,
+  type PricingConfig,
 } from "@/lib/registrationConfig";
 import { buildCheckoutUrls } from "@/lib/stripeCheckout";
 import { EVENT, SITE_FEATURES } from "@/lib/eventConfig";
 import { isConvexConfigured } from "@/lib/convex-config";
-import { cn } from "@/lib/utils";
 
-type Step = "details" | "addons" | "payment" | "confirmation";
-const STEPS = ["details", "addons", "payment"] as const;
+type Step = "details" | "payment" | "confirmation";
+const STEPS = ["details", "payment"] as const;
 type WizardStep = (typeof STEPS)[number];
 const STEP_LABELS: Record<WizardStep, string> = {
   details: "Details",
-  addons: "Add-ons",
   payment: "Payment",
 };
 type CheckoutGateway = "stripe" | "paystack";
-
-function emptyAddOnQuantities() {
-  return Object.fromEntries(ADD_ONS.map((addOn) => [addOn.id, 0])) as Record<
-    string,
-    number
-  >;
-}
 
 function ConvexRequiredMessage() {
   return (
@@ -80,6 +69,7 @@ function ConvexRequiredMessage() {
 }
 
 function RegistrationFormInner() {
+  const catalog = useQuery(api.registrationCatalog.listPublic);
   const createRegistration = useMutation(api.registrations.create);
   const createCheckout = useAction(api.stripeCheckout.createCheckoutSession);
   const createPaystackCheckout = useAction(
@@ -90,7 +80,6 @@ function RegistrationFormInner() {
   const [furthestStepIndex, setFurthestStepIndex] = useState(0);
   const type = "group" as const;
   const [ticketQuantity, setTicketQuantity] = useState(1);
-  const [addOnQuantities, setAddOnQuantities] = useState(emptyAddOnQuantities);
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [countryCode, setCountryCode] = useState("+233");
@@ -106,14 +95,60 @@ function RegistrationFormInner() {
   const [referenceNumber, setReferenceNumber] = useState<string | null>(null);
   const [paymentMessage, setPaymentMessage] = useState("");
 
+  const groupOptions = useMemo(() => {
+    if (catalog && catalog.length > 0) {
+      return catalog.map((item) => item.name);
+    }
+    return [...GROUP_OPTIONS];
+  }, [catalog]);
+
+  const selectedCatalogGroup = catalog?.find((item) => item.name === group);
+
+  const denominationOptions = useMemo(() => {
+    if (selectedCatalogGroup) {
+      return selectedCatalogGroup.denominations.map((item) => item.name);
+    }
+    return [...(DENOMINATIONS_BY_GROUP[group] ?? [])];
+  }, [group, selectedCatalogGroup]);
+
+  const pricing: PricingConfig = useMemo(() => {
+    if (selectedCatalogGroup) {
+      return {
+        price: selectedCatalogGroup.price,
+        currency: selectedCatalogGroup.currency,
+        currencySymbol: selectedCatalogGroup.currencySymbol,
+        gateway: selectedCatalogGroup.gateway,
+        defaultCountryCode: selectedCatalogGroup.defaultCountryCode,
+        regionKey: selectedCatalogGroup.regionKey,
+      };
+    }
+    return getGroupPricing(group || "Other");
+  }, [group, selectedCatalogGroup]);
+
   const totals = useMemo(
-    () => calculateRegistrationTotal(group || "Other", ticketQuantity, addOnQuantities),
-    [group, ticketQuantity, addOnQuantities],
+    () => calculateRegistrationTotal(group || "Other", ticketQuantity, {}),
+    [group, ticketQuantity],
   );
 
-  const pricing = getGroupPricing(group || "Other");
-  const paystackOnly = isPaystackOnlyCurrency(totals.currency);
-  const availableGateways = registrationGatewaysForCurrency(totals.currency);
+  // Prefer live catalog pricing for display totals when available.
+  const displayTotals = useMemo(() => {
+    const ticketTotal = pricing.price * ticketQuantity;
+    return {
+      ticketTotal,
+      addOnTotal: 0,
+      grandTotal: ticketTotal,
+      currency: pricing.currency,
+      currencySymbol: pricing.currencySymbol,
+      gateway: pricing.gateway,
+      regionKey: pricing.regionKey,
+      addOns: [] as { id: string; quantity: number }[],
+    };
+  }, [pricing, ticketQuantity]);
+
+  const paystackOnly = isPaystackOnlyCurrency(displayTotals.currency);
+  const availableGateways = registrationGatewaysForCurrency(
+    displayTotals.currency,
+  );
   const stepIndex = STEPS.indexOf(step as WizardStep);
   const progressValue =
     stepIndex >= 0 ? ((stepIndex + 1) / STEPS.length) * 100 : 0;
@@ -121,8 +156,6 @@ function RegistrationFormInner() {
     group,
     denomination,
   );
-  const denominationOptions = DENOMINATIONS_BY_GROUP[group] ?? [];
-  const canGoBack = stepIndex > 0;
 
   const goToStep = (target: WizardStep) => {
     const targetIndex = STEPS.indexOf(target);
@@ -143,25 +176,19 @@ function RegistrationFormInner() {
     setStep(target);
   };
 
-  const goBack = () => {
-    if (stepIndex <= 0) return;
-    goToStep(STEPS[stepIndex - 1]);
-  };
-
-  const setAddOnQuantity = (id: string, quantity: number) => {
-    setAddOnQuantities((current) => ({
-      ...current,
-      [id]: Number.isFinite(quantity) ? Math.max(0, Math.floor(quantity)) : 0,
-    }));
-  };
-
   const handleGroupChange = (value: string) => {
     setGroup(value);
     setDenomination("");
     if (value && value !== "Other") {
       setChurch("");
     }
-    const nextPricing = getGroupPricing(value || "Other");
+    const catalogMatch = catalog?.find((item) => item.name === value);
+    const nextPricing = catalogMatch
+      ? {
+          currency: catalogMatch.currency,
+          defaultCountryCode: catalogMatch.defaultCountryCode,
+        }
+      : getGroupPricing(value || "Other");
     setCountryCode(nextPricing.defaultCountryCode);
     const gateways = registrationGatewaysForCurrency(nextPricing.currency);
     setGateway(gateways[0]);
@@ -213,12 +240,12 @@ function RegistrationFormInner() {
         email,
         phone,
         countryCode,
-        region: totals.regionKey,
+        region: displayTotals.regionKey,
         group,
         denomination: denomination || undefined,
         church: church || undefined,
         ticketQuantity,
-        addOns: totals.addOns,
+        addOns: SITE_FEATURES.addOnsEnabled ? totals.addOns : [],
         accommodationInterest,
         gateway: selectedGateway,
         consent,
@@ -306,63 +333,35 @@ function RegistrationFormInner() {
               <AlertDescription>{paymentMessage}</AlertDescription>
             </Alert>
           )}
-          <p className="text-sm text-muted-foreground">
-            Questions? Contact{" "}
-            <a href={`mailto:${EVENT.supportEmail}`} className="text-primary hover:underline">
-              {EVENT.supportEmail}
-            </a>
-          </p>
         </CardContent>
       </Card>
     );
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-5 px-1 sm:space-y-6 sm:px-0">
+    <div className="mx-auto w-full max-w-2xl space-y-6">
       <div className="space-y-3">
-        <div className="flex items-center gap-2">
-          {canGoBack && (
-            <IconButton
-              type="button"
-              variant="outline"
-              size="icon"
-              className="size-9 shrink-0 rounded-full"
-              onClick={goBack}
-              aria-label="Go back to previous step"
-            >
-              <ArrowLeftIcon className="size-4" />
-            </IconButton>
-          )}
-          <div className="-mx-1 flex min-w-0 flex-1 gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {STEPS.map((s, i) => {
-              const isCurrent = step === s;
-              const isReached = i <= furthestStepIndex;
-              return (
-                <button
-                  key={s}
-                  type="button"
-                  disabled={!isReached}
-                  onClick={() => goToStep(s)}
-                  aria-current={isCurrent ? "step" : undefined}
-                  className={cn(
-                    "shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                    isReached
-                      ? "cursor-pointer"
-                      : "cursor-not-allowed opacity-60",
-                  )}
-                >
-                  <Badge
-                    variant={isCurrent ? "default" : "secondary"}
-                    className={cn(
-                      "uppercase tracking-wider transition",
-                      isReached && !isCurrent && "hover:bg-secondary/80",
-                    )}
-                  >
-                    {i + 1}. {STEP_LABELS[s]}
-                  </Badge>
-                </button>
-              );
-            })}
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-sm font-medium text-muted-foreground">
+            Step {Math.max(stepIndex, 0) + 1} of {STEPS.length}
+          </p>
+          <div className="flex gap-2">
+            {STEPS.map((item, index) => (
+              <button
+                key={item}
+                type="button"
+                onClick={() => goToStep(item)}
+                className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                  index === stepIndex
+                    ? "bg-primary text-primary-foreground"
+                    : index <= furthestStepIndex
+                      ? "bg-muted text-foreground"
+                      : "bg-muted/50 text-muted-foreground"
+                }`}
+              >
+                {STEP_LABELS[item]}
+              </button>
+            ))}
           </div>
         </div>
         <Progress value={progressValue} />
@@ -379,11 +378,14 @@ function RegistrationFormInner() {
           <CardHeader>
             <CardTitle>Registration details</CardTitle>
             <CardDescription>
-              Select your group for ticket pricing, then continue to add-ons.
+              Select your group for ticket pricing, then continue to payment.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="absolute -left-[9999px] h-0 w-0 overflow-hidden opacity-0" aria-hidden>
+            <div
+              className="absolute -left-[9999px] h-0 w-0 overflow-hidden opacity-0"
+              aria-hidden
+            >
               <Label htmlFor="registration-honeypot">Leave blank</Label>
               <Input
                 id="registration-honeypot"
@@ -393,7 +395,9 @@ function RegistrationFormInner() {
                 autoComplete="off"
                 readOnly
                 value={honeypot}
-                onFocus={(event) => event.currentTarget.removeAttribute("readOnly")}
+                onFocus={(event) =>
+                  event.currentTarget.removeAttribute("readOnly")
+                }
                 onChange={(event) => setHoneypot(event.target.value)}
               />
             </div>
@@ -402,7 +406,7 @@ function RegistrationFormInner() {
               <div className="space-y-2">
                 <Label htmlFor="group">Group *</Label>
                 <Combobox
-                  items={GROUP_OPTIONS}
+                  items={groupOptions}
                   value={group || null}
                   onValueChange={(value) =>
                     handleGroupChange((value as string | null) ?? "")
@@ -465,8 +469,8 @@ function RegistrationFormInner() {
 
             {group ? (
               <p className="rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
-                Ticket price for <span className="font-medium text-foreground">{group}</span>
-                :{" "}
+                Ticket price for{" "}
+                <span className="font-medium text-foreground">{group}</span>:{" "}
                 <span className="font-semibold text-primary">
                   {formatPrice(
                     pricing.price,
@@ -572,107 +576,8 @@ function RegistrationFormInner() {
               className="w-full sm:w-auto"
               onClick={() => {
                 if (!validateDetails()) return;
-                goToNextStep("addons");
+                goToNextStep("payment");
               }}
-            >
-              Continue to Add-ons
-            </Button>
-          </CardFooter>
-        </Card>
-      )}
-
-      {step === "addons" && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Add-ons</CardTitle>
-            <CardDescription>
-              Optional extras — quantities are independent from ticket count.
-              You can skip this step if you only need tickets.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="space-y-3">
-              {ADD_ONS.map((addOn) => (
-                <div
-                  key={addOn.id}
-                  className="flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <div className="min-w-0">
-                    <p className="font-medium text-primary">
-                      {addOn.label} — ${addOn.price} USD each
-                    </p>
-                    <p className="text-sm text-muted-foreground">
-                      {addOn.description}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2 sm:w-36">
-                    <Label htmlFor={`addon-qty-${addOn.id}`} className="sr-only">
-                      {addOn.label} quantity
-                    </Label>
-                    <Input
-                      id={`addon-qty-${addOn.id}`}
-                      type="number"
-                      min={0}
-                      value={addOnQuantities[addOn.id] ?? 0}
-                      onChange={(e) =>
-                        setAddOnQuantity(addOn.id, Number(e.target.value))
-                      }
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <Card className="bg-muted/50">
-              <CardHeader>
-                <CardTitle className="text-base">Order Summary</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-1 text-sm text-muted-foreground">
-                <p>
-                  Tickets ({ticketQuantity}):{" "}
-                  {formatPrice(
-                    totals.ticketTotal,
-                    totals.currency,
-                    totals.currencySymbol,
-                  )}
-                </p>
-                {totals.addOns.map((item) => {
-                  const addOn = ADD_ONS.find((entry) => entry.id === item.id);
-                  if (!addOn) return null;
-                  return (
-                    <p key={item.id}>
-                      {addOn.label} × {item.quantity}: $
-                      {addOn.price * item.quantity} USD
-                    </p>
-                  );
-                })}
-                <Separator className="my-2" />
-                <p className="font-semibold text-primary">
-                  Ticket total:{" "}
-                  {formatPrice(
-                    totals.ticketTotal,
-                    totals.currency,
-                    totals.currencySymbol,
-                  )}
-                  {totals.addOnTotal > 0
-                    ? ` · Add-ons: $${totals.addOnTotal} USD`
-                    : ""}
-                </p>
-              </CardContent>
-            </Card>
-          </CardContent>
-          <CardFooter className="flex-col-reverse gap-3 sm:flex-row">
-            <Button
-              variant="outline"
-              className="w-full sm:w-auto"
-              onClick={() => goToStep("details")}
-            >
-              <ArrowLeftIcon className="size-3.5" />
-              Back
-            </Button>
-            <Button
-              className="w-full sm:w-auto"
-              onClick={() => goToNextStep("payment")}
             >
               Continue to Payment
             </Button>
@@ -687,13 +592,10 @@ function RegistrationFormInner() {
             <CardDescription>
               Tickets{" "}
               {formatPrice(
-                totals.ticketTotal,
-                totals.currency,
-                totals.currencySymbol,
+                displayTotals.ticketTotal,
+                displayTotals.currency,
+                displayTotals.currencySymbol,
               )}
-              {totals.addOnTotal > 0
-                ? ` · Add-ons $${totals.addOnTotal} USD`
-                : ""}
               .
             </CardDescription>
           </CardHeader>
@@ -784,7 +686,7 @@ function RegistrationFormInner() {
             <Button
               variant="outline"
               className="w-full sm:w-auto"
-              onClick={() => goToStep("addons")}
+              onClick={() => goToStep("details")}
             >
               <ArrowLeftIcon className="size-3.5" />
               Back

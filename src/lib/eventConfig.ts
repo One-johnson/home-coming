@@ -21,6 +21,8 @@ export const EVENT = {
 /** Public site feature switches — flip when a flow is ready to show. */
 export const SITE_FEATURES = {
   accommodationEnabled: false,
+  /** Optional registration extras (VIP meals, etc.). Off for now. */
+  addOnsEnabled: false,
 } as const;
 
 export const HOST_CTA_LINKS = [

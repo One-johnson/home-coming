@@ -1,3 +1,5 @@
+import { SITE_FEATURES } from "@/lib/eventConfig";
+
 export type PaymentGateway = "stripe" | "paystack" | "paypal";
 
 export type RegistrationType = "individual" | "group";
@@ -26,7 +28,7 @@ export interface PricingConfig {
 
 /**
  * Ticket pricing by registration Group (from Homecoming documents).
- * Add-ons remain USD and are selected on the next step.
+ * Prefer Convex `registrationGroups` when seeded; this map is the fallback.
  */
 export const GROUP_PRICING: Record<string, PricingConfig> = {
   Ghana: {
@@ -351,11 +353,13 @@ export function normalizeAddOnSelections(
 export function calculateRegistrationTotal(
   group: string,
   ticketQuantity: number,
-  addOnSelections: AddOnSelection[] | Record<string, number>,
+  addOnSelections: AddOnSelection[] | Record<string, number> = {},
 ) {
   const pricing = getGroupPricing(group);
   const ticketTotal = pricing.price * ticketQuantity;
-  const normalized = normalizeAddOnSelections(addOnSelections);
+  const normalized = SITE_FEATURES.addOnsEnabled
+    ? normalizeAddOnSelections(addOnSelections)
+    : [];
   const addOnTotal = normalized.reduce((sum, item) => {
     const addOn = ADD_ONS.find((entry) => entry.id === item.id);
     return sum + (addOn?.price ?? 0) * item.quantity;
