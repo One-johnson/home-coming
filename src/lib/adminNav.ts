@@ -71,6 +71,12 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         area: "content",
       },
       {
+        href: "/admin/hero",
+        label: "Hero",
+        description: "Homepage hero images and order",
+        area: "content",
+      },
+      {
         href: "/admin/videos",
         label: "Videos",
         description: "Homecoming message and video links",

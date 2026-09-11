@@ -331,6 +331,35 @@ export const seed = mutation({
     await syncHomecomingMessages(ctx);
     await syncHotelsToDefaults(ctx);
 
+    const existingHeroSlides = await ctx.db.query("heroSlides").first();
+    if (!existingHeroSlides) {
+      const defaults = [
+        {
+          imageUrl: "/gallery/2025/homecoming-14.jpg",
+          alt: "Worship and celebration at Homecoming",
+        },
+        {
+          imageUrl: "/gallery/2025/homecoming-17.jpg",
+          alt: "The congregation gathered at Homecoming",
+        },
+        {
+          imageUrl: "/gallery/2025/homecoming-19.jpg",
+          alt: "A Homecoming convention session",
+        },
+        {
+          imageUrl: "/gallery/2025/homecoming-30.jpg",
+          alt: "Moments from Homecoming at Anagkazo Campus",
+        },
+      ];
+      for (let i = 0; i < defaults.length; i++) {
+        await ctx.db.insert("heroSlides", {
+          imageUrl: defaults[i].imageUrl,
+          alt: defaults[i].alt,
+          order: i,
+        });
+      }
+    }
+
     const existingGalleries = await ctx.db.query("galleries").first();
     if (!existingGalleries) {
       for (const gallery of GALLERIES) {

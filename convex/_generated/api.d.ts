@@ -15,6 +15,7 @@ import type * as emailSendAction from "../emailSendAction.js";
 import type * as emailSender from "../emailSender.js";
 import type * as emails from "../emails.js";
 import type * as galleryStorage from "../galleryStorage.js";
+import type * as heroSlides from "../heroSlides.js";
 import type * as housing from "../housing.js";
 import type * as http from "../http.js";
 import type * as lib_audit from "../lib/audit.js";
@@ -53,6 +54,7 @@ declare const fullApi: ApiFromModules<{
   emailSender: typeof emailSender;
   emails: typeof emails;
   galleryStorage: typeof galleryStorage;
+  heroSlides: typeof heroSlides;
   housing: typeof housing;
   http: typeof http;
   "lib/audit": typeof lib_audit;

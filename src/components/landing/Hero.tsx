@@ -1,9 +1,12 @@
 "use client";
 
+import { useQuery } from "convex/react";
 import { motion, useReducedMotion } from "framer-motion";
+import { api } from "@convex/_generated/api";
 import { LinkButton as Button } from "@/components/ui/app-button";
 import { CountdownTimer } from "@/components/landing/CountdownTimer";
 import { HeroCarousel } from "@/components/landing/HeroCarousel";
+import { isConvexConfigured } from "@/lib/convex-config";
 import { EVENT, SITE_FEATURES } from "@/lib/eventConfig";
 import { homeContent } from "@/lib/siteContent";
 import {
@@ -13,7 +16,32 @@ import {
   staggerContainer,
 } from "@/lib/motion";
 
-export function Hero() {
+function HeroConnected() {
+  const slides = useQuery(api.heroSlides.list);
+  const fallback = homeContent.hero.slides;
+  const resolved =
+    slides && slides.length > 0
+      ? slides
+          .filter((slide) => Boolean(slide.imageUrl))
+          .map((slide) => ({
+            id: slide._id,
+            src: slide.imageUrl,
+            alt: slide.alt,
+          }))
+      : fallback.map((slide, index) => ({
+          id: `fallback-${index}`,
+          src: slide.src,
+          alt: slide.alt,
+        }));
+
+  return <HeroContent slides={resolved} />;
+}
+
+function HeroContent({
+  slides,
+}: {
+  slides: Array<{ id: string; src: string; alt: string }>;
+}) {
   const { hero } = homeContent;
   const shouldReduceMotion = useReducedMotion();
   const containerVariants = shouldReduceMotion
@@ -23,7 +51,7 @@ export function Hero() {
 
   return (
     <section className="relative flex min-h-[92vh] flex-col overflow-hidden">
-      <HeroCarousel slides={hero.slides} autoplayDelay={6000} />
+      <HeroCarousel slides={slides} autoplayDelay={6000} />
 
       <div className="absolute inset-0 bg-gradient-to-b from-[#0a0a0a]/55 via-[#1a1a1a]/40 to-[#0a0a0a]/75" />
       <div className="absolute inset-0 bg-gradient-to-r from-[#0a0a0a]/80 via-[#0a0a0a]/35 to-transparent md:from-[#0a0a0a]/75 md:via-[#0a0a0a]/25" />
@@ -102,4 +130,20 @@ export function Hero() {
       </motion.div>
     </section>
   );
+}
+
+export function Hero() {
+  if (!isConvexConfigured()) {
+    return (
+      <HeroContent
+        slides={homeContent.hero.slides.map((slide, index) => ({
+          id: `fallback-${index}`,
+          src: slide.src,
+          alt: slide.alt,
+        }))}
+      />
+    );
+  }
+
+  return <HeroConnected />;
 }

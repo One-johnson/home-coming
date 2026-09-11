@@ -95,6 +95,13 @@ export default defineSchema({
     order: v.number(),
   }).index("by_order", ["order"]),
 
+  heroSlides: defineTable({
+    storageId: v.optional(v.id("_storage")),
+    imageUrl: v.optional(v.string()),
+    alt: v.string(),
+    order: v.number(),
+  }).index("by_order", ["order"]),
+
   galleries: defineTable({
     year: v.number(),
     theme: v.string(),

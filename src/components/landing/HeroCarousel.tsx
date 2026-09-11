@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 export type HeroSlide = {
+  id?: string;
   src: string;
   alt: string;
 };
@@ -65,7 +66,7 @@ export function HeroCarousel({
       >
         <CarouselContent className="ml-0 h-full">
           {slides.map((slide, index) => (
-            <CarouselItem key={slide.src} className="h-full pl-0">
+            <CarouselItem key={slide.id ?? `${slide.src}-${index}`} className="h-full pl-0">
               <div className="relative min-h-[92vh] w-full overflow-hidden">
                 <Image
                   src={slide.src}
@@ -77,6 +78,7 @@ export function HeroCarousel({
                     selectedIndex === index && "animate-kenburns",
                   )}
                   sizes="100vw"
+                  unoptimized={slide.src.startsWith("https://")}
                 />
               </div>
             </CarouselItem>
@@ -91,7 +93,7 @@ export function HeroCarousel({
         <div className="flex gap-2">
           {slides.map((slide, index) => (
             <Button
-              key={slide.src}
+              key={slide.id ?? `${slide.src}-${index}`}
               type="button"
               variant="ghost"
               size="icon-xs"
