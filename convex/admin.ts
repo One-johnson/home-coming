@@ -163,8 +163,9 @@ export const getOverview = query({
     }
     if (canEmails) {
       const failedEmails = emailLogs.filter((e) => e.status === "failed").length;
+      // Only true SMTP queue pending — stubs mean delivery is intentionally skipped.
       const pendingEmails = emailLogs.filter(
-        (e) => e.status === "pending" || e.status === "stub",
+        (e) => e.status === "pending",
       ).length;
       if (failedEmails > 0) {
         attention.push({
@@ -219,9 +220,8 @@ export const getOverview = query({
       },
       emails: {
         total: emailLogs.length,
-        pending: emailLogs.filter(
-          (e) => e.status === "pending" || e.status === "stub",
-        ).length,
+        pending: emailLogs.filter((e) => e.status === "pending").length,
+        stub: emailLogs.filter((e) => e.status === "stub").length,
         sent: emailLogs.filter((e) => e.status === "sent").length,
         failed: emailLogs.filter((e) => e.status === "failed").length,
       },

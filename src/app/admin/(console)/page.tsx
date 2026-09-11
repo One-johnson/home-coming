@@ -7,6 +7,7 @@ import {
   ArrowUpRight,
   BedDouble,
   ClipboardList,
+  HelpCircle,
   Info,
   Mail,
   TrendingDown,
@@ -280,6 +281,39 @@ export default function AdminOverviewPage() {
               </Link>
             )}
             {canContent && (
+              <Link href="/admin/content" className="group">
+                <Card
+                  className={cn(
+                    "h-full overflow-hidden bg-gradient-to-br transition-all group-hover:shadow-sm",
+                    KPI_ACCENTS.faqs.tint,
+                    KPI_ACCENTS.faqs.border,
+                  )}
+                >
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle className="text-sm font-medium text-muted-foreground">
+                      FAQs
+                    </CardTitle>
+                    <span
+                      className={cn(
+                        "flex size-9 items-center justify-center rounded-lg",
+                        KPI_ACCENTS.faqs.icon,
+                      )}
+                    >
+                      <HelpCircle className="size-4" />
+                    </span>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <p className="text-3xl font-semibold tabular-nums text-ink">
+                      {overview.content.faqs}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Manage FAQs and announcements
+                    </p>
+                  </CardContent>
+                </Card>
+              </Link>
+            )}
+            {canContent && (
               <Link href="/admin/videos" className="group">
                 <Card
                   className={cn(
@@ -305,11 +339,9 @@ export default function AdminOverviewPage() {
                     <p className="text-3xl font-semibold tabular-nums text-ink">
                       {overview.content.videos}
                     </p>
-                    <StatusChip
-                      label="FAQs"
-                      value={overview.content.faqs}
-                      tone="info"
-                    />
+                    <p className="text-xs text-muted-foreground">
+                      Homecoming messages and links
+                    </p>
                   </CardContent>
                 </Card>
               </Link>
@@ -346,11 +378,20 @@ export default function AdminOverviewPage() {
                         value={overview.emails.sent}
                         tone="info"
                       />
-                      <StatusChip
-                        label="pending"
-                        value={overview.emails.pending}
-                        tone="warn"
-                      />
+                      {overview.emails.pending > 0 && (
+                        <StatusChip
+                          label="pending"
+                          value={overview.emails.pending}
+                          tone="warn"
+                        />
+                      )}
+                      {overview.emails.stub > 0 && (
+                        <StatusChip
+                          label="stub"
+                          value={overview.emails.stub}
+                          tone="info"
+                        />
+                      )}
                       {overview.emails.failed > 0 && (
                         <StatusChip
                           label="failed"

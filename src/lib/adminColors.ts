@@ -124,6 +124,11 @@ export const KPI_ACCENTS = {
     border: "group-hover:border-amber-300",
     tint: "from-amber-50/80 to-white",
   },
+  faqs: {
+    icon: "bg-forest/10 text-forest",
+    border: "group-hover:border-forest/40",
+    tint: "from-forest/5 to-white",
+  },
   videos: {
     icon: "bg-violet-100 text-violet-700",
     border: "group-hover:border-violet-300",
