@@ -132,7 +132,9 @@ function ToursCheckoutInner() {
   const packages = useQuery(api.tourPackages.listPublic);
   const createTourOrder = useMutation(api.tourOrders.create);
   const createCheckout = useAction(api.stripeCheckout.createCheckoutSession);
-  const initiatePaystack = useMutation(api.payments.initiatePaystackPayment);
+  const createPaystackCheckout = useAction(
+    api.paystackCheckout.createCheckoutSession,
+  );
 
   const [sheetOpen, setSheetOpen] = useState(false);
   const [step, setStep] = useState<CheckoutStep>("tickets");
@@ -265,13 +267,20 @@ function ToursCheckoutInner() {
 
       setReferenceNumber(result.referenceNumber);
 
+      const urls = buildCheckoutUrls("/tours");
+
       if (gateway === "paystack") {
-        const paymentResult = await initiatePaystack({
-          tourOrderId: result.id,
-          email,
-          amount: result.totalAmount,
-          currency: result.currency,
+        const paymentResult = await createPaystackCheckout({
+          type: "tour",
+          recordId: result.id,
+          callbackUrl: urls.paystackCallbackUrl,
         });
+
+        if (paymentResult.mode === "checkout") {
+          window.location.href = paymentResult.url;
+          return;
+        }
+
         setPaymentMessage(
           paymentResult.message ?? "Payment processed via Paystack.",
         );
@@ -280,7 +289,6 @@ function ToursCheckoutInner() {
         return;
       }
 
-      const urls = buildCheckoutUrls("/tours");
       const paymentResult = await createCheckout({
         type: "tour",
         recordId: result.id,
@@ -779,19 +787,18 @@ function ToursCheckoutInner() {
                           Paystack
                         </span>
                         <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
-                          Mobile Money and cards (Africa) — mock until keys are
-                          added
+                          Mobile Money and cards (Africa)
                         </span>
                       </span>
                     </Label>
                   </RadioGroup>
                 </div>
                 {gateway === "paystack" ? (
-                  <Alert className="border-amber-200 bg-amber-50 text-amber-900">
-                    <AlertTitle>Paystack</AlertTitle>
+                  <Alert>
+                    <AlertTitle>Paystack Checkout</AlertTitle>
                     <AlertDescription>
-                      Live Paystack is not configured yet — completing will
-                      simulate payment until keys are added.
+                      You will be redirected to Paystack to complete payment,
+                      then return with your confirmation.
                     </AlertDescription>
                   </Alert>
                 ) : (

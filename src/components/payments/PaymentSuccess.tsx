@@ -34,13 +34,19 @@ export function PaymentSuccess({
 }: PaymentSuccessProps) {
   const searchParams = useSearchParams();
   const sessionId = searchParams.get("session_id");
-  const finalizeCheckout = useAction(api.stripeCheckout.finalizeCheckoutSession);
+  const paystackReference =
+    searchParams.get("reference") ?? searchParams.get("trxref");
+  const finalizeStripe = useAction(api.stripeCheckout.finalizeCheckoutSession);
+  const finalizePaystack = useAction(
+    api.paystackCheckout.finalizeCheckoutSession,
+  );
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [referenceNumber, setReferenceNumber] = useState<string | null>(null);
   const [email, setEmail] = useState<string | null>(null);
   const [paymentStatus, setPaymentStatus] = useState<string | null>(null);
+  const [provider, setProvider] = useState<"stripe" | "paystack" | null>(null);
 
   useEffect(() => {
     if (!isConvexConfigured()) {
@@ -49,8 +55,8 @@ export function PaymentSuccess({
       return;
     }
 
-    if (!sessionId) {
-      setError("Missing Stripe checkout session.");
+    if (!sessionId && !paystackReference) {
+      setError("Missing payment reference.");
       setLoading(false);
       return;
     }
@@ -59,7 +65,20 @@ export function PaymentSuccess({
 
     void (async () => {
       try {
-        const result = await finalizeCheckout({ sessionId });
+        if (sessionId) {
+          setProvider("stripe");
+          const result = await finalizeStripe({ sessionId });
+          if (cancelled) return;
+          setReferenceNumber(result.referenceNumber ?? null);
+          setEmail(result.email ?? null);
+          setPaymentStatus(result.paymentStatus);
+          return;
+        }
+
+        setProvider("paystack");
+        const result = await finalizePaystack({
+          reference: paystackReference!,
+        });
         if (cancelled) return;
         setReferenceNumber(result.referenceNumber ?? null);
         setEmail(result.email ?? null);
@@ -75,7 +94,9 @@ export function PaymentSuccess({
     return () => {
       cancelled = true;
     };
-  }, [finalizeCheckout, sessionId]);
+  }, [finalizePaystack, finalizeStripe, paystackReference, sessionId]);
+
+  const providerLabel = provider === "paystack" ? "Paystack" : "Stripe";
 
   if (loading) {
     return (
@@ -86,7 +107,7 @@ export function PaymentSuccess({
             Confirming payment
           </CardTitle>
           <CardDescription>
-            Please wait while we verify your Stripe checkout.
+            Please wait while we verify your {providerLabel} checkout.
           </CardDescription>
         </CardHeader>
       </Card>
@@ -145,8 +166,8 @@ export function PaymentSuccess({
           <Alert>
             <AlertTitle>Payment processing</AlertTitle>
             <AlertDescription>
-              Stripe confirmed checkout, but your record is still updating. Refresh
-              in a moment if you do not receive an email.
+              {providerLabel} confirmed checkout, but your record is still
+              updating. Refresh in a moment if you do not receive an email.
             </AlertDescription>
           </Alert>
         )}

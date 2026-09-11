@@ -82,7 +82,9 @@ function ConvexRequiredMessage() {
 function RegistrationFormInner() {
   const createRegistration = useMutation(api.registrations.create);
   const createCheckout = useAction(api.stripeCheckout.createCheckoutSession);
-  const initiatePaystack = useMutation(api.payments.initiatePaystackPayment);
+  const createPaystackCheckout = useAction(
+    api.paystackCheckout.createCheckoutSession,
+  );
 
   const [step, setStep] = useState<Step>("details");
   const [furthestStepIndex, setFurthestStepIndex] = useState(0);
@@ -226,13 +228,20 @@ function RegistrationFormInner() {
 
       setReferenceNumber(result.referenceNumber);
 
+      const urls = buildCheckoutUrls("/registration");
+
       if (selectedGateway === "paystack") {
-        const paymentResult = await initiatePaystack({
-          registrationId: result.id,
-          email,
-          amount: result.totalAmount ?? totals.grandTotal,
-          currency: result.currency ?? totals.currency,
+        const paymentResult = await createPaystackCheckout({
+          type: "registration",
+          recordId: result.id,
+          callbackUrl: urls.paystackCallbackUrl,
         });
+
+        if (paymentResult.mode === "checkout") {
+          window.location.href = paymentResult.url;
+          return;
+        }
+
         setPaymentMessage(
           paymentResult.message ?? "Payment processed via Paystack.",
         );
@@ -241,7 +250,6 @@ function RegistrationFormInner() {
         return;
       }
 
-      const urls = buildCheckoutUrls("/registration");
       const paymentResult = await createCheckout({
         type: "registration",
         recordId: result.id,
@@ -692,10 +700,10 @@ function RegistrationFormInner() {
           <CardContent className="space-y-4">
             {paystackOnly ? (
               <Alert>
-                <AlertTitle>Paystack</AlertTitle>
+                <AlertTitle>Paystack Checkout</AlertTitle>
                 <AlertDescription>
-                  This group is priced in GHS, which Stripe cannot charge. Pay
-                  with Paystack (Mobile Money and cards).
+                  This group is priced in GHS, which Stripe cannot charge. You
+                  will be redirected to Paystack (Mobile Money and cards).
                 </AlertDescription>
               </Alert>
             ) : (
@@ -755,7 +763,15 @@ function RegistrationFormInner() {
                       confirmation reference.
                     </AlertDescription>
                   </Alert>
-                ) : null}
+                ) : (
+                  <Alert>
+                    <AlertTitle>Paystack Checkout</AlertTitle>
+                    <AlertDescription>
+                      You will be redirected to Paystack, then return with your
+                      confirmation reference.
+                    </AlertDescription>
+                  </Alert>
+                )}
               </>
             )}
             {error && (
@@ -779,9 +795,7 @@ function RegistrationFormInner() {
               disabled={loading || !consent}
             >
               {loading
-                ? gateway === "stripe" && !paystackOnly
-                  ? "Redirecting..."
-                  : "Processing..."
+                ? "Redirecting..."
                 : paystackOnly || gateway === "paystack"
                   ? "Complete with Paystack"
                   : "Pay with Stripe"}

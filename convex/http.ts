@@ -36,18 +36,24 @@ http.route({
   path: "/webhooks/paystack",
   method: "POST",
   handler: httpAction(async (ctx, request) => {
-    const body = await request.json();
-    const reference = body?.data?.reference ?? body?.reference;
-    const status = body?.data?.status === "success" ? "paid" : "failed";
-    const metadata = body?.data?.metadata ?? {};
-
-    if (reference && metadata.recordId && metadata.type) {
-      await ctx.runMutation(internal.payments.confirmPayment, {
-        reference,
-        status,
-        type: metadata.type,
-        recordId: metadata.recordId,
+    const signature = request.headers.get("x-paystack-signature");
+    if (!signature) {
+      return new Response(JSON.stringify({ error: "Missing signature" }), {
+        status: 400,
       });
+    }
+
+    const body = await request.text();
+
+    try {
+      await ctx.runAction(internal.paystackCheckout.handleWebhook, {
+        body,
+        signature,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Webhook handling failed";
+      return new Response(JSON.stringify({ error: message }), { status: 400 });
     }
 
     return new Response(JSON.stringify({ received: true }), { status: 200 });

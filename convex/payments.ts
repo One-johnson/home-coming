@@ -152,7 +152,7 @@ export const applyMockPayment = internalMutation({
   },
 });
 
-/** @deprecated Prefer Stripe Checkout via stripeCheckout.createCheckoutSession */
+/** @deprecated Prefer Paystack Checkout via paystackCheckout.createCheckoutSession */
 export const initiatePaystackPayment = mutation({
   args: {
     registrationId: v.optional(v.id("registrations")),

@@ -50,7 +50,9 @@ function AccommodationPortalInner() {
   const hotels = useQuery(api.content.listHotels);
   const createBooking = useMutation(api.housing.createBooking);
   const createCheckout = useAction(api.stripeCheckout.createCheckoutSession);
-  const initiatePaystack = useMutation(api.payments.initiatePaystackPayment);
+  const createPaystackCheckout = useAction(
+    api.paystackCheckout.createCheckoutSession,
+  );
 
   const [selectedType, setSelectedType] = useState<HousingType>("condo");
   const [gateway, setGateway] = useState<CheckoutGateway>("stripe");
@@ -112,13 +114,20 @@ function AccommodationPortalInner() {
         mockPayment: false,
       });
 
+      const urls = buildCheckoutUrls("/accommodation");
+
       if (gateway === "paystack") {
-        const paymentResult = await initiatePaystack({
-          bookingId: result.id,
-          email: guestEmail,
-          amount: selectedHousing.pricePerStay,
-          currency: "USD",
+        const paymentResult = await createPaystackCheckout({
+          type: "booking",
+          recordId: result.id,
+          callbackUrl: urls.paystackCallbackUrl,
         });
+
+        if (paymentResult.mode === "checkout") {
+          window.location.href = paymentResult.url;
+          return;
+        }
+
         setReferenceNumber(result.referenceNumber);
         setPaymentMessage(
           paymentResult.message ?? "Payment processed via Paystack.",
@@ -128,7 +137,6 @@ function AccommodationPortalInner() {
         return;
       }
 
-      const urls = buildCheckoutUrls("/accommodation");
       const paymentResult = await createCheckout({
         type: "booking",
         recordId: result.id,
@@ -406,7 +414,7 @@ function AccommodationPortalInner() {
                   <p className="text-xs text-muted-foreground">
                     {gateway === "stripe"
                       ? "You will be redirected to Stripe Checkout."
-                      : "Paystack will simulate payment until credentials are configured."}
+                      : "You will be redirected to Paystack Checkout."}
                   </p>
                 </CardContent>
               </Card>

@@ -3,9 +3,11 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
+import { Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import type { Doc, Id } from "@convex/_generated/dataModel";
+import { ConfirmDeleteDialog } from "@/components/admin/ConfirmDeleteDialog";
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/ui/data-table";
 import {
@@ -34,8 +36,20 @@ function RegistrationsTable() {
   );
   const updateStatus = useMutation(api.registrations.updatePaymentStatus);
   const bulkUpdate = useMutation(api.registrations.bulkUpdatePaymentStatus);
+  const removeRegistration = useMutation(api.registrations.remove);
+  const bulkRemove = useMutation(api.registrations.bulkRemove);
 
   const [selected, setSelected] = useState<Doc<"registrations"> | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<
+    | { type: "single"; id: Id<"registrations">; label: string }
+    | {
+        type: "bulk";
+        ids: Id<"registrations">[];
+        clearSelection: () => void;
+      }
+    | null
+  >(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     const id = searchParams.get("id");
@@ -72,6 +86,40 @@ function RegistrationsTable() {
       toast.error(
         err instanceof Error ? err.message : "Failed to update status",
       );
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!sessionToken || !deleteTarget) return;
+    setDeleting(true);
+    try {
+      if (deleteTarget.type === "single") {
+        await removeRegistration({
+          sessionToken,
+          id: deleteTarget.id,
+        });
+        toast.success("Registration deleted");
+        if (selected?._id === deleteTarget.id) {
+          setSelected(null);
+        }
+      } else {
+        const result = await bulkRemove({
+          sessionToken,
+          ids: deleteTarget.ids,
+        });
+        toast.success(
+          `Deleted ${result.deleted} registration${result.deleted === 1 ? "" : "s"}`,
+        );
+        if (selected && deleteTarget.ids.includes(selected._id)) {
+          setSelected(null);
+        }
+        deleteTarget.clearSelection();
+      }
+      setDeleteTarget(null);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Delete failed");
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -142,6 +190,20 @@ function RegistrationsTable() {
                 </Button>
               ),
             )}
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={() =>
+                setDeleteTarget({
+                  type: "bulk",
+                  ids: selectedRows.map((r) => r._id),
+                  clearSelection,
+                })
+              }
+            >
+              <Trash2 className="size-4" />
+              Delete selected
+            </Button>
           </>
         )}
       />
@@ -198,12 +260,55 @@ function RegistrationsTable() {
         }
         footer={
           selected ? (
-            <PaymentStatusButtons
-              current={selected.paymentStatus}
-              onChange={(status) => void setPayment(selected._id, status)}
-            />
+            <>
+              <PaymentStatusButtons
+                current={selected.paymentStatus}
+                onChange={(status) => void setPayment(selected._id, status)}
+              />
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={() =>
+                  setDeleteTarget({
+                    type: "single",
+                    id: selected._id,
+                    label:
+                      selected.referenceNumber ??
+                      selected.fullName ??
+                      selected.email,
+                  })
+                }
+              >
+                <Trash2 className="size-4" />
+                Delete
+              </Button>
+            </>
           ) : null
         }
+      />
+
+      <ConfirmDeleteDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+        title={
+          deleteTarget?.type === "bulk"
+            ? `Delete ${deleteTarget.ids.length} registration${deleteTarget.ids.length === 1 ? "" : "s"}?`
+            : "Delete registration?"
+        }
+        description={
+          deleteTarget?.type === "bulk"
+            ? "Selected registrations will be permanently removed. This cannot be undone."
+            : `“${deleteTarget?.label ?? "This registration"}” will be permanently removed. This cannot be undone.`
+        }
+        confirmLabel={
+          deleteTarget?.type === "bulk"
+            ? `Delete ${deleteTarget.ids.length}`
+            : "Delete registration"
+        }
+        loading={deleting}
+        onConfirm={handleConfirmDelete}
       />
     </div>
   );

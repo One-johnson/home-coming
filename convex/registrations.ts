@@ -254,3 +254,69 @@ export const bulkUpdatePaymentStatus = mutation({
     return { updated };
   },
 });
+
+export const remove = mutation({
+  args: {
+    sessionToken: sessionTokenValidator,
+    id: v.id("registrations"),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireRole(ctx, args.sessionToken, [
+      "admin",
+      "registration",
+    ]);
+    const existing = await ctx.db.get(args.id);
+    if (!existing) throw new Error("Registration not found");
+
+    await ctx.db.delete(args.id);
+
+    await writeAuditLog(ctx, {
+      actorUserId: actor._id,
+      actorEmail: actor.email,
+      action: "registration.deleted",
+      entityType: "registrations",
+      entityId: args.id,
+      summary: `Deleted registration ${existing.referenceNumber ?? args.id} (${existing.email})`,
+      metadata: {
+        referenceNumber: existing.referenceNumber,
+        email: existing.email,
+        paymentStatus: existing.paymentStatus,
+      },
+    });
+  },
+});
+
+export const bulkRemove = mutation({
+  args: {
+    sessionToken: sessionTokenValidator,
+    ids: v.array(v.id("registrations")),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireRole(ctx, args.sessionToken, [
+      "admin",
+      "registration",
+    ]);
+    if (args.ids.length === 0) {
+      throw new Error("Select at least one registration");
+    }
+
+    let deleted = 0;
+    for (const id of args.ids) {
+      const existing = await ctx.db.get(id);
+      if (!existing) continue;
+      await ctx.db.delete(id);
+      deleted += 1;
+    }
+
+    await writeAuditLog(ctx, {
+      actorUserId: actor._id,
+      actorEmail: actor.email,
+      action: "registration.bulk_deleted",
+      entityType: "registrations",
+      summary: `Deleted ${deleted} registration${deleted === 1 ? "" : "s"}`,
+      metadata: { count: deleted },
+    });
+
+    return { deleted };
+  },
+});
