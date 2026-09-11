@@ -2,12 +2,14 @@
 
 import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
+import { Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import type { Doc, Id } from "@convex/_generated/dataModel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/ui/data-table";
+import { ConfirmDeleteDialog } from "@/components/admin/ConfirmDeleteDialog";
 import { emailExportRow, emailLogColumns } from "@/components/admin/columns";
 import { RecordDetailSheet } from "@/components/admin/RecordDetailSheet";
 import {
@@ -17,6 +19,14 @@ import {
 import { canAccessArea } from "@/lib/adminRoles";
 import { emailStatusBadgeClass } from "@/lib/adminColors";
 import { cn } from "@/lib/utils";
+
+type DeleteTarget =
+  | { type: "single"; id: Id<"emailLogs">; label: string }
+  | {
+      type: "bulk";
+      ids: Id<"emailLogs">[];
+      clearSelection: () => void;
+    };
 
 export default function AdminEmailsPage() {
   const { user, sessionToken } = useAdminSession();
@@ -29,7 +39,11 @@ export default function AdminEmailsPage() {
   const markSent = useMutation(api.emails.markEmailSent);
   const markFailed = useMutation(api.emails.markEmailFailed);
   const resend = useMutation(api.emails.resendEmail);
+  const remove = useMutation(api.emails.remove);
+  const bulkRemove = useMutation(api.emails.bulkRemove);
   const [selected, setSelected] = useState<Doc<"emailLogs"> | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   if (!allowed) {
     return (
@@ -50,6 +64,37 @@ export default function AdminEmailsPage() {
       toast.success(success);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Action failed");
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!sessionToken || !deleteTarget) return;
+    setDeleting(true);
+    try {
+      if (deleteTarget.type === "single") {
+        await remove({ sessionToken, id: deleteTarget.id });
+        toast.success("Email log deleted");
+        if (selected?._id === deleteTarget.id) {
+          setSelected(null);
+        }
+      } else {
+        const result = await bulkRemove({
+          sessionToken,
+          ids: deleteTarget.ids,
+        });
+        toast.success(
+          `Deleted ${result.deleted} email log${result.deleted === 1 ? "" : "s"}`,
+        );
+        if (selected && deleteTarget.ids.includes(selected._id)) {
+          setSelected(null);
+        }
+        deleteTarget.clearSelection();
+      }
+      setDeleteTarget(null);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Delete failed");
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -77,6 +122,22 @@ export default function AdminEmailsPage() {
             ],
           },
         ]}
+        bulkActions={({ selectedRows, clearSelection }) => (
+          <Button
+            size="sm"
+            variant="destructive"
+            onClick={() =>
+              setDeleteTarget({
+                type: "bulk",
+                ids: selectedRows.map((r) => r._id),
+                clearSelection,
+              })
+            }
+          >
+            <Trash2 className="size-4" />
+            Delete selected
+          </Button>
+        )}
       />
 
       <RecordDetailSheet
@@ -173,9 +234,47 @@ export default function AdminEmailsPage() {
               >
                 Mark failed
               </Button>
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={() =>
+                  setDeleteTarget({
+                    type: "single",
+                    id: selected._id,
+                    label: selected.subject || selected.to,
+                  })
+                }
+              >
+                <Trash2 className="size-4" />
+                Delete
+              </Button>
             </>
           ) : null
         }
+      />
+
+      <ConfirmDeleteDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+        title={
+          deleteTarget?.type === "bulk"
+            ? `Delete ${deleteTarget.ids.length} email log${deleteTarget.ids.length === 1 ? "" : "s"}?`
+            : "Delete email log?"
+        }
+        description={
+          deleteTarget?.type === "bulk"
+            ? "Selected email logs will be permanently removed. Pending sends for deleted rows will stop."
+            : `“${deleteTarget?.label ?? "This email"}” will be permanently removed.`
+        }
+        confirmLabel={
+          deleteTarget?.type === "bulk"
+            ? `Delete ${deleteTarget.ids.length}`
+            : "Delete email"
+        }
+        loading={deleting}
+        onConfirm={handleConfirmDelete}
       />
     </div>
   );

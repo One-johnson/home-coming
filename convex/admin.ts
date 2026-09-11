@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { query } from "./_generated/server";
+import { mutation, query } from "./_generated/server";
 import { requireAnyRole, requireRole, sessionTokenValidator } from "./users";
 
 function isPaid(status: string) {
@@ -314,5 +314,33 @@ export const listAuditLogs = query({
       .withIndex("by_created_at")
       .order("desc")
       .take(200);
+  },
+});
+
+export const removeAuditLog = mutation({
+  args: { sessionToken: sessionTokenValidator, id: v.id("auditLogs") },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, args.sessionToken, ["admin"]);
+    const existing = await ctx.db.get(args.id);
+    if (!existing) throw new Error("Audit log not found");
+    await ctx.db.delete(args.id);
+  },
+});
+
+export const bulkRemoveAuditLogs = mutation({
+  args: {
+    sessionToken: sessionTokenValidator,
+    ids: v.array(v.id("auditLogs")),
+  },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, args.sessionToken, ["admin"]);
+    let deleted = 0;
+    for (const id of args.ids) {
+      const existing = await ctx.db.get(id);
+      if (!existing) continue;
+      await ctx.db.delete(id);
+      deleted += 1;
+    }
+    return { deleted };
   },
 });

@@ -104,3 +104,50 @@ export const resendEmail = mutation({
     });
   },
 });
+
+export const remove = mutation({
+  args: { sessionToken: sessionTokenValidator, id: v.id("emailLogs") },
+  handler: async (ctx, args) => {
+    const actor = await requireRole(ctx, args.sessionToken, ["admin"]);
+    const existing = await ctx.db.get(args.id);
+    if (!existing) throw new Error("Email log not found");
+
+    await ctx.db.delete(args.id);
+    await writeAuditLog(ctx, {
+      actorUserId: actor._id,
+      actorEmail: actor.email,
+      action: "email.deleted",
+      entityType: "emailLogs",
+      entityId: args.id,
+      summary: `Deleted email log to ${existing.to} (${existing.status})`,
+    });
+  },
+});
+
+export const bulkRemove = mutation({
+  args: {
+    sessionToken: sessionTokenValidator,
+    ids: v.array(v.id("emailLogs")),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireRole(ctx, args.sessionToken, ["admin"]);
+    let deleted = 0;
+    for (const id of args.ids) {
+      const existing = await ctx.db.get(id);
+      if (!existing) continue;
+      await ctx.db.delete(id);
+      deleted += 1;
+    }
+
+    await writeAuditLog(ctx, {
+      actorUserId: actor._id,
+      actorEmail: actor.email,
+      action: "email.bulk_deleted",
+      entityType: "emailLogs",
+      summary: `Deleted ${deleted} email log${deleted === 1 ? "" : "s"}`,
+      metadata: { count: deleted },
+    });
+
+    return { deleted };
+  },
+});
