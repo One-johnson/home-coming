@@ -169,6 +169,7 @@ export const createRep = action({
         hubId: hub._id,
         username,
         passwordHash,
+        tempPassword,
         email: args.email?.trim().toLowerCase() || undefined,
       },
     );
@@ -262,6 +263,7 @@ export const bulkCreateReps = action({
           hubId: hub._id,
           username,
           passwordHash,
+          tempPassword,
         });
         usernameSeen.add(username.toLowerCase());
         results.created.push({

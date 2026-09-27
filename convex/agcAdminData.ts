@@ -421,6 +421,8 @@ export const listReps = query({
         email: rep.email ?? null,
         profileComplete: rep.profileComplete,
         status: rep.status,
+        // Only exposed while the temporary password is still valid.
+        tempPassword: rep.tempPassword ?? null,
         createdAt: rep.createdAt,
         updatedAt: rep.updatedAt,
       }))
@@ -467,6 +469,7 @@ export const insertRep = internalMutation({
     hubId: v.id("agcHubs"),
     username: v.string(),
     passwordHash: v.string(),
+    tempPassword: v.optional(v.string()),
     email: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -475,6 +478,7 @@ export const insertRep = internalMutation({
       username: args.username,
       email: args.email,
       passwordHash: args.passwordHash,
+      tempPassword: args.tempPassword,
       profileComplete: false,
       mustChangePassword: true,
       status: "pending_setup",

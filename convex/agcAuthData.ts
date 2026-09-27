@@ -142,6 +142,9 @@ export const activateRepLogin = internalMutation({
   handler: async (ctx, args) => {
     await ctx.db.patch(args.repId, {
       status: "active",
+      // The rep has their own password now — the temporary one is no longer
+      // valid and must not appear in exports.
+      tempPassword: undefined,
       updatedAt: Date.now(),
     });
   },

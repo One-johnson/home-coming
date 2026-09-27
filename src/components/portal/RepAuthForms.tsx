@@ -3,12 +3,14 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { Eye, EyeOff } from "lucide-react";
 import { useAction } from "convex/react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import { useRepSession } from "@/components/portal/RepSessionProvider";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { LinkButton as Button } from "@/components/ui/app-button";
+import { Button as IconButton } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -27,6 +29,7 @@ export function RepSignIn() {
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [setupUsername, setSetupUsername] = useState<string | null>(null);
@@ -84,21 +87,43 @@ export function RepSignIn() {
               id="rep-username"
               required
               autoComplete="username"
-              placeholder="e.g. christ_temple"
+              placeholder="e.g. ashanti_mampong"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
             />
+            <p className="text-xs text-muted-foreground">
+              Your username is your hub name in lowercase with spaces replaced
+              by underscores — e.g. the hub "Ashanti Mampong" signs in as{" "}
+              <span className="font-mono">ashanti_mampong</span>.
+            </p>
           </div>
           <div className="space-y-2">
             <Label htmlFor="rep-password">Password</Label>
-            <Input
-              id="rep-password"
-              type="password"
-              required
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
+            <div className="relative">
+              <Input
+                id="rep-password"
+                type={showPassword ? "text" : "password"}
+                required
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="pr-11"
+              />
+              <IconButton
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="absolute top-1/2 right-1.5 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+              >
+                {showPassword ? (
+                  <EyeOff className="size-4" />
+                ) : (
+                  <Eye className="size-4" />
+                )}
+              </IconButton>
+            </div>
           </div>
           <Button type="submit" className="w-full" disabled={loading}>
             {loading ? "Signing in…" : "Sign in"}

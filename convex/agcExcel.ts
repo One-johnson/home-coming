@@ -3,7 +3,7 @@
 import ExcelJS from "exceljs";
 import { v } from "convex/values";
 import { action } from "./_generated/server";
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { AGC_ACCOMMODATION_TYPE_KEYS } from "./lib/agcConfig";
 import type {
   AgcAccommodationType,
@@ -427,6 +427,80 @@ export const exportBookingsExcel = action({
     const buffer = await workbook.xlsx.writeBuffer();
     return {
       filename: `homecoming-2026-bookings-${new Date().toISOString().slice(0, 10)}.xlsx`,
+      contentBase64: Buffer.from(buffer as ArrayBuffer).toString("base64"),
+    };
+  },
+});
+
+export const exportRepsExcel = action({
+  args: { sessionToken: v.string() },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ filename: string; contentBase64: string }> => {
+    await ctx.runQuery(internal.agcAdminData.requireAdminSession, {
+      sessionToken: args.sessionToken,
+    });
+
+    const reps: Array<{
+      username: string;
+      hubName: string;
+      email: string | null;
+      status: string;
+      tempPassword: string | null;
+      createdAt: number;
+    }> = await ctx.runQuery(api.agcAdminData.listReps, {
+      sessionToken: args.sessionToken,
+    });
+
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet("Representatives");
+    sheet.columns = [
+      { header: "Username", key: "username", width: 26 },
+      { header: "Hub", key: "hub", width: 32 },
+      { header: "Password", key: "password", width: 20 },
+      { header: "Email", key: "email", width: 28 },
+      { header: "Status", key: "status", width: 16 },
+      { header: "Created At", key: "createdAt", width: 24 },
+    ];
+    sheet.getRow(1).font = { bold: true };
+    for (const rep of reps) {
+      sheet.addRow({
+        username: rep.username,
+        hub: rep.hubName,
+        // The temp password is only available while the account is still
+        // pending setup; activated reps keep their own private password.
+        password:
+          rep.status === "pending_setup" ? (rep.tempPassword ?? "") : "",
+        email: rep.email ?? "",
+        status: rep.status,
+        createdAt: new Date(rep.createdAt).toISOString(),
+      });
+    }
+    sheet.autoFilter = { from: "A1", to: "F1" };
+
+    const instructions = workbook.addWorksheet("How to use");
+    instructions.getColumn("A").width = 100;
+    instructions.addRow([
+      "Homecoming 2026 — AGC representative accounts",
+    ]).font = { bold: true };
+    instructions.addRow([""]);
+    instructions.addRow([
+      "The username is the hub name in lowercase with spaces replaced by underscores (e.g. Ashanti Mampong → ashanti_mampong).",
+    ]);
+    instructions.addRow([
+      'The password column holds the temporary password for accounts still in "pending setup". It stops working once the rep completes first-time setup.',
+    ]);
+    instructions.addRow([
+      "Reps sign in at /portal with their username and temporary password, complete first-time setup, then sign in with their new password.",
+    ]);
+    instructions.addRow([
+      "Keep this file secure — it grants access to the representative portal.",
+    ]);
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    return {
+      filename: `homecoming-2026-representatives-${new Date().toISOString().slice(0, 10)}.xlsx`,
       contentBase64: Buffer.from(buffer as ArrayBuffer).toString("base64"),
     };
   },

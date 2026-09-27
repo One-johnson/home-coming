@@ -373,6 +373,8 @@ export default defineSchema({
     username: v.string(),
     email: v.optional(v.string()),
     passwordHash: v.string(),
+    /** Temporary password kept while the account is pending setup; cleared once the rep activates. */
+    tempPassword: v.optional(v.string()),
     firstName: v.optional(v.string()),
     lastName: v.optional(v.string()),
     phone: v.optional(v.string()),

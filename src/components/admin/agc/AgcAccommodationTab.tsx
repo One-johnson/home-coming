@@ -24,6 +24,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Copy, CopyCheck, Download } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -79,6 +80,7 @@ type RepRow = {
   email: string | null;
   profileComplete: boolean;
   status: string;
+  tempPassword: string | null;
 };
 
 export function AgcAccommodationTab() {
@@ -104,6 +106,7 @@ export function AgcAccommodationTab() {
   const importHubsAction = useAction(api.agcAdmin.importHubs);
   const createHubMutation = useMutation(api.agcAdminData.createHub);
   const seedDefaults = useAction(api.agcAdmin.seedAgcDefaults);
+  const exportReps = useAction(api.agcExcel.exportRepsExcel);
 
   const [busyId, setBusyId] = useState<string | null>(null);
   const [poolForm, setPoolForm] = useState({
@@ -129,6 +132,8 @@ export function AgcAccommodationTab() {
   const [lastCreatedCredentials, setLastCreatedCredentials] = useState<
     string | null
   >(null);
+  const [copiedRepId, setCopiedRepId] = useState<string | null>(null);
+  const [exportingReps, setExportingReps] = useState(false);
   const [hubForm, setHubForm] = useState({ name: "", region: "ghana", country: "Ghana" });
   const [importText, setImportText] = useState("");
 
@@ -179,6 +184,49 @@ export function AgcAccommodationTab() {
     (hub: { _id: string; name: string }) =>
       !(reps ?? []).some((rep: { hubId: string }) => rep.hubId === hub._id),
   ).length;
+
+  const copyRepCredentials = async (rep: RepRow) => {
+    const password =
+      rep.status === "pending_setup"
+        ? (rep.tempPassword ?? "(not available)")
+        : "(rep has set their own password)";
+    const text = `Username: ${rep.username}\nPassword: ${password}`;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedRepId(rep._id);
+      toast.success(`Copied credentials for ${rep.username}`);
+      setTimeout(() => setCopiedRepId(null), 2000);
+    } catch {
+      toast.error("Clipboard unavailable in this browser");
+    }
+  };
+
+  const handleExportReps = async () => {
+    if (!sessionToken || exportingReps) return;
+    setExportingReps(true);
+    try {
+      const result = await exportReps({ sessionToken });
+      const binary = atob(result.contentBase64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i += 1) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      const blob = new Blob([bytes], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = result.filename;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      toast.success("Representatives exported");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Export failed");
+    } finally {
+      setExportingReps(false);
+    }
+  };
 
   const runBulkCreate = async () => {
     if (!sessionToken || bulkBusy) return;
@@ -612,11 +660,27 @@ export function AgcAccommodationTab() {
       <TabsContent value="reps" className="space-y-4">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Representative accounts</CardTitle>
-            <CardDescription>
-              One account per hub. Accounts stay "pending setup" until the rep
-              signs in with the new password they set during first-time setup.
-            </CardDescription>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <CardTitle className="text-base">Representative accounts</CardTitle>
+                <CardDescription>
+                  One account per hub. The username is the hub name in
+                  lowercase with underscores. Accounts stay "pending setup"
+                  until the rep signs in with the new password they set during
+                  first-time setup.
+                </CardDescription>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={exportingReps || (reps ?? []).length === 0}
+                onClick={() => void handleExportReps()}
+              >
+                <Download className="size-4" />
+                Export Excel
+              </Button>
+            </div>
           </CardHeader>
           <CardContent className="space-y-4">
             {(reps ?? []).length === 0 ? (
@@ -631,10 +695,30 @@ export function AgcAccommodationTab() {
                     className="flex flex-col justify-between gap-3 rounded-lg border p-3 text-sm"
                   >
                     <div>
-                      <p className="font-medium">{rep.hubName}</p>
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="font-medium">{rep.hubName}</p>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-xs"
+                          aria-label={`Copy username and password for ${rep.username}`}
+                          onClick={() => void copyRepCredentials(rep)}
+                        >
+                          {copiedRepId === rep._id ? (
+                            <CopyCheck className="size-3.5 text-emerald-600" />
+                          ) : (
+                            <Copy className="size-3.5" />
+                          )}
+                        </Button>
+                      </div>
                       <p className="font-mono text-xs text-muted-foreground">
                         {rep.username}
                       </p>
+                      {rep.status === "pending_setup" && rep.tempPassword ? (
+                        <p className="mt-1 font-mono text-xs text-amber-700 dark:text-amber-400">
+                          temp: {rep.tempPassword}
+                        </p>
+                      ) : null}
                       <p className="mt-1 text-xs text-muted-foreground">
                         {rep.email ?? "no email"}
                       </p>
