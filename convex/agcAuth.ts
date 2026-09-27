@@ -36,6 +36,14 @@ export type RepAuthResult = {
   };
 };
 
+/**
+ * Login outcome. "setup_required" is an expected state, not an error — the
+ * client switches to the first-time setup screen instead of showing an error.
+ */
+export type RepLoginResult =
+  | { kind: "ok"; result: RepAuthResult }
+  | { kind: "setup_required" };
+
 async function queueRepEmail(
   ctx: ActionCtx,
   args: { to: string; subject: string; body: string },
@@ -122,7 +130,7 @@ export const resetPassword = action({
 
 export const repLogin = action({
   args: { username: v.string(), password: v.string() },
-  handler: async (ctx, args): Promise<RepAuthResult> => {
+  handler: async (ctx, args): Promise<RepLoginResult> => {
     const username = normalizeUsername(args.username);
     const rep: Doc<"agcRepresentatives"> | null = await ctx.runQuery(
       internal.agcAuthData.getRepByUsername,
@@ -138,10 +146,12 @@ export const repLogin = action({
     const ok = await bcrypt.compare(args.password, rep.passwordHash);
     if (!ok) throw new Error("Invalid username or password");
 
+    // Expected flow-control outcome (NOT an error): the rep still has a
+    // temporary password and must complete first-time setup. Returning a
+    // tagged result keeps the browser console clean and lets the client show
+    // a friendly transition instead of an exception.
     if (rep.mustChangePassword) {
-      throw new Error(
-        "First-time setup required: set a new password to activate your account.",
-      );
+      return { kind: "setup_required" };
     }
 
     // The account stays "pending_setup" until the representative signs in
@@ -167,17 +177,20 @@ export const repLogin = action({
     );
 
     return {
-      sessionToken: token,
-      expiresAt,
-      rep: {
-        _id: rep._id,
-        username: rep.username,
-        hubName: hub?.name ?? rep.username,
-        firstName: rep.firstName ?? null,
-        lastName: rep.lastName ?? null,
-        email: rep.email ?? null,
-        phone: rep.phone ?? null,
-        country: rep.country ?? null,
+      kind: "ok",
+      result: {
+        sessionToken: token,
+        expiresAt,
+        rep: {
+          _id: rep._id,
+          username: rep.username,
+          hubName: hub?.name ?? rep.username,
+          firstName: rep.firstName ?? null,
+          lastName: rep.lastName ?? null,
+          email: rep.email ?? null,
+          phone: rep.phone ?? null,
+          country: rep.country ?? null,
+        },
       },
     };
   },

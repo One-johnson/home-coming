@@ -86,7 +86,7 @@ function PortalBody() {
           variant="outline"
           onClick={() => {
             void clearSession();
-            toast.success("Signed out");
+            toast.success("You've been signed out. See you soon!");
           }}
         >
           <LogOutIcon className="size-4" />

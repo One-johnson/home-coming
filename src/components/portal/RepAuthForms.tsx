@@ -20,7 +20,34 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { friendlyError } from "@/lib/friendlyError";
 import { EVENT } from "@/lib/eventConfig";
+
+/** Shared ghost eye toggle for password fields. */
+function PasswordEye({
+  show,
+  onToggle,
+  inputId,
+}: {
+  show: boolean;
+  onToggle: () => void;
+  inputId: string;
+}) {
+  return (
+    <IconButton
+      type="button"
+      variant="ghost"
+      size="icon"
+      className="absolute top-1/2 right-1.5 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+      onClick={onToggle}
+      aria-label={
+        show ? `Hide password for ${inputId}` : `Show password for ${inputId}`
+      }
+    >
+      {show ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+    </IconButton>
+  );
+}
 
 export function RepSignIn() {
   const login = useAction(api.agcAuth.repLogin);
@@ -39,17 +66,27 @@ export function RepSignIn() {
     setLoading(true);
     setError("");
     try {
-      const result = await login({ username, password });
-      setSession(result.sessionToken);
-      toast.success(`Welcome back, ${result.rep.hubName}`);
+      const outcome = await login({ username, password });
+
+      // Expected state, not an error: route to first-time setup with a
+      // friendly toast instead of surfacing a Convex exception.
+      if (outcome.kind === "setup_required") {
+        setSetupUsername(username.trim().toLowerCase());
+        toast.info("First-time setup", {
+          description:
+            "Your account is still using a temporary password. Set a new password and complete your profile to activate it.",
+        });
+        return;
+      }
+
+      setSession(outcome.result.sessionToken);
+      toast.success(`Welcome back, ${outcome.result.rep.hubName}`);
       router.refresh();
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Sign in failed";
-      setError(message);
-      // Reps whose first login is pending are pointed to setup mode.
-      if (message.toLowerCase().includes("first-time")) {
-        setSetupUsername(username);
-      }
+      // Genuine failures only (invalid credentials, disabled account, …).
+      const friendly = friendlyError(err);
+      setError(friendly.detail ? `${friendly.title}: ${friendly.detail}` : friendly.title);
+      toast.error(friendly.title, { description: friendly.detail });
     } finally {
       setLoading(false);
     }
@@ -93,8 +130,8 @@ export function RepSignIn() {
             />
             <p className="text-xs text-muted-foreground">
               Your username is your hub name in lowercase with spaces replaced
-              by underscores — e.g. the hub "Ashanti Mampong" signs in as{" "}
-              <span className="font-mono">ashanti_mampong</span>.
+              by underscores — e.g. the hub &ldquo;Ashanti Mampong&rdquo; signs
+              in as <span className="font-mono">ashanti_mampong</span>.
             </p>
           </div>
           <div className="space-y-2">
@@ -109,20 +146,11 @@ export function RepSignIn() {
                 onChange={(e) => setPassword(e.target.value)}
                 className="pr-11"
               />
-              <IconButton
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="absolute top-1/2 right-1.5 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                onClick={() => setShowPassword((v) => !v)}
-                aria-label={showPassword ? "Hide password" : "Show password"}
-              >
-                {showPassword ? (
-                  <EyeOff className="size-4" />
-                ) : (
-                  <Eye className="size-4" />
-                )}
-              </IconButton>
+              <PasswordEye
+                show={showPassword}
+                onToggle={() => setShowPassword((v) => !v)}
+                inputId="rep-password"
+              />
             </div>
           </div>
           <Button type="submit" className="w-full" disabled={loading}>
@@ -168,12 +196,18 @@ export function RepFirstTimeSetup({
   const [phone, setPhone] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [showTemp, setShowTemp] = useState(false);
+  const [showNew, setShowNew] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
   const [done, setDone] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (newPassword !== confirmPassword) {
       setError("New passwords do not match");
+      toast.error("Passwords don't match", {
+        description: "Re-enter the same password in both fields.",
+      });
       return;
     }
     setLoading(true);
@@ -191,7 +225,11 @@ export function RepFirstTimeSetup({
       setDone(true);
       toast.success("Setup complete — now sign in with your new password");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Setup failed");
+      const friendly = friendlyError(err);
+      setError(
+        friendly.detail ? `${friendly.title}: ${friendly.detail}` : friendly.title,
+      );
+      toast.error(friendly.title, { description: friendly.detail });
     } finally {
       setLoading(false);
     }
@@ -239,14 +277,26 @@ export function RepFirstTimeSetup({
           )}
           <div className="space-y-2">
             <Label htmlFor="setup-temp">Temporary password</Label>
-            <Input
-              id="setup-temp"
-              type="password"
-              required
-              autoComplete="off"
-              value={temporaryPassword}
-              onChange={(e) => setTemporaryPassword(e.target.value)}
-            />
+            <div className="relative">
+              <Input
+                id="setup-temp"
+                type={showTemp ? "text" : "password"}
+                required
+                autoComplete="off"
+                value={temporaryPassword}
+                onChange={(e) => setTemporaryPassword(e.target.value)}
+                className="pr-11"
+              />
+              <PasswordEye
+                show={showTemp}
+                onToggle={() => setShowTemp((v) => !v)}
+                inputId="setup-temp"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Ask the registration desk for your hub&rsquo;s temporary
+              password.
+            </p>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
@@ -293,27 +343,43 @@ export function RepFirstTimeSetup({
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="setup-new">New password</Label>
-              <Input
-                id="setup-new"
-                type="password"
-                required
-                minLength={8}
-                autoComplete="new-password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-              />
+              <div className="relative">
+                <Input
+                  id="setup-new"
+                  type={showNew ? "text" : "password"}
+                  required
+                  minLength={8}
+                  autoComplete="new-password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="pr-11"
+                />
+                <PasswordEye
+                  show={showNew}
+                  onToggle={() => setShowNew((v) => !v)}
+                  inputId="setup-new"
+                />
+              </div>
             </div>
             <div className="space-y-2">
               <Label htmlFor="setup-confirm">Confirm new password</Label>
-              <Input
-                id="setup-confirm"
-                type="password"
-                required
-                minLength={8}
-                autoComplete="new-password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-              />
+              <div className="relative">
+                <Input
+                  id="setup-confirm"
+                  type={showConfirm ? "text" : "password"}
+                  required
+                  minLength={8}
+                  autoComplete="new-password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="pr-11"
+                />
+                <PasswordEye
+                  show={showConfirm}
+                  onToggle={() => setShowConfirm((v) => !v)}
+                  inputId="setup-confirm"
+                />
+              </div>
             </div>
           </div>
           <Button type="submit" className="w-full" disabled={loading}>

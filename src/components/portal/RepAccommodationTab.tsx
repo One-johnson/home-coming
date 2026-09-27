@@ -36,6 +36,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { uploadFileToConvex } from "@/lib/galleryUpload";
+import { friendlyError } from "@/lib/friendlyError";
 import {
   AGC_ACCOMMODATION_LABELS,
   isGhsRegion,
@@ -219,7 +220,11 @@ export function RepAccommodationTab() {
         `Reservation held until ${new Date(result.expiresAt).toLocaleString()}`,
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Booking failed");
+      const friendly = friendlyError(err);
+      setError(
+        friendly.detail ? `${friendly.title}: ${friendly.detail}` : friendly.title,
+      );
+      toast.error(friendly.title, { description: friendly.detail });
     } finally {
       setLoading(false);
     }
@@ -255,7 +260,11 @@ export function RepAccommodationTab() {
       setReceipt(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Submission failed");
+      const friendly = friendlyError(err);
+      setError(
+        friendly.detail ? `${friendly.title}: ${friendly.detail}` : friendly.title,
+      );
+      toast.error(friendly.title, { description: friendly.detail });
     } finally {
       setLoading(false);
     }
@@ -279,7 +288,11 @@ export function RepAccommodationTab() {
       }
       toast.success(paymentResult.message ?? "Payment recorded.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Payment failed");
+      const friendly = friendlyError(err);
+      setError(
+        friendly.detail ? `${friendly.title}: ${friendly.detail}` : friendly.title,
+      );
+      toast.error(friendly.title, { description: friendly.detail });
     } finally {
       setLoading(false);
     }
@@ -295,7 +308,8 @@ export function RepAccommodationTab() {
       });
       toast.success("Reservation cancelled — beds returned to the pool.");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Cancel failed");
+      const friendly = friendlyError(err);
+      toast.error(friendly.title, { description: friendly.detail });
     } finally {
       setLoading(false);
     }
@@ -320,7 +334,8 @@ export function RepAccommodationTab() {
       anchor.click();
       URL.revokeObjectURL(url);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Download failed");
+      const friendly = friendlyError(err);
+      toast.error(friendly.title, { description: friendly.detail });
     }
   };
 
@@ -356,7 +371,11 @@ export function RepAccommodationTab() {
         );
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Upload failed");
+      const friendly = friendlyError(err);
+      setError(
+        friendly.detail ? `${friendly.title}: ${friendly.detail}` : friendly.title,
+      );
+      toast.error(friendly.title, { description: friendly.detail });
     } finally {
       setLoading(false);
     }
@@ -386,7 +405,11 @@ export function RepAccommodationTab() {
       toast.success("Guest substituted — history preserved.");
       setSubTarget(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Substitution failed");
+      const friendly = friendlyError(err);
+      setError(
+        friendly.detail ? `${friendly.title}: ${friendly.detail}` : friendly.title,
+      );
+      toast.error(friendly.title, { description: friendly.detail });
     } finally {
       setLoading(false);
     }

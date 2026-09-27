@@ -27,6 +27,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { uploadFileToConvex } from "@/lib/galleryUpload";
+import { friendlyError } from "@/lib/friendlyError";
 import {
   AGC_REGION_LABELS,
   isGhsRegion,
@@ -133,7 +134,11 @@ export function RepRegistrationTab() {
       setPaymentRef("");
       if (fileInputRef.current) fileInputRef.current.value = "";
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Submission failed");
+      const friendly = friendlyError(err);
+      setError(
+        friendly.detail ? `${friendly.title}: ${friendly.detail}` : friendly.title,
+      );
+      toast.error(friendly.title, { description: friendly.detail });
     } finally {
       setLoading(false);
     }
@@ -163,7 +168,11 @@ export function RepRegistrationTab() {
       }
       toast.success(paymentResult.message ?? "Registration recorded.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Registration failed");
+      const friendly = friendlyError(err);
+      setError(
+        friendly.detail ? `${friendly.title}: ${friendly.detail}` : friendly.title,
+      );
+      toast.error(friendly.title, { description: friendly.detail });
     } finally {
       setLoading(false);
     }
