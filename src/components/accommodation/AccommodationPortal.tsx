@@ -28,7 +28,7 @@ import { isConvexConfigured } from "@/lib/convex-config";
 import { cn } from "@/lib/utils";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 
-type CheckoutGateway = "stripe" | "paystack";
+type CheckoutGateway = "stripe" | "paypal";
 
 function ConvexRequiredMessage() {
   return (
@@ -50,9 +50,6 @@ function AccommodationPortalInner() {
   const hotels = useQuery(api.content.listHotels);
   const createBooking = useMutation(api.housing.createBooking);
   const createCheckout = useAction(api.stripeCheckout.createCheckoutSession);
-  const createPaystackCheckout = useAction(
-    api.paystackCheckout.createCheckoutSession,
-  );
 
   const [selectedType, setSelectedType] = useState<HousingType>("condo");
   const [gateway, setGateway] = useState<CheckoutGateway>("stripe");
@@ -115,27 +112,6 @@ function AccommodationPortalInner() {
       });
 
       const urls = buildCheckoutUrls("/accommodation");
-
-      if (gateway === "paystack") {
-        const paymentResult = await createPaystackCheckout({
-          type: "booking",
-          recordId: result.id,
-          callbackUrl: urls.paystackCallbackUrl,
-        });
-
-        if (paymentResult.mode === "checkout") {
-          window.location.href = paymentResult.url;
-          return;
-        }
-
-        setReferenceNumber(result.referenceNumber);
-        setPaymentMessage(
-          paymentResult.message ?? "Payment processed via Paystack.",
-        );
-        setConfirmed(true);
-        toast.success("Accommodation booked successfully");
-        return;
-      }
 
       const paymentResult = await createCheckout({
         type: "booking",
@@ -385,19 +361,18 @@ function AccommodationPortalInner() {
                     </span>
                   </Label>
                   <Label
-                    htmlFor="housing-gateway-paystack"
+                    htmlFor="housing-gateway-paypal"
                     className="flex cursor-pointer items-start gap-3 rounded-lg border p-3"
                   >
                     <RadioGroupItem
-                      id="housing-gateway-paystack"
-                      value="paystack"
+                      id="housing-gateway-paypal"
+                      value="paypal"
                       className="mt-0.5"
                     />
                     <span>
-                      <span className="font-medium">Paystack</span>
+                      <span className="font-medium">PayPal</span>
                       <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
-                        Mobile Money and cards (Africa) — mock until keys are
-                        added
+                        PayPal balance or cards
                       </span>
                     </span>
                   </Label>
@@ -412,9 +387,7 @@ function AccommodationPortalInner() {
                     USD per stay
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    {gateway === "stripe"
-                      ? "You will be redirected to Stripe Checkout."
-                      : "You will be redirected to Paystack Checkout."}
+                    You will be redirected to Stripe Checkout.
                   </p>
                 </CardContent>
               </Card>
@@ -429,14 +402,12 @@ function AccommodationPortalInner() {
                 {loading ? (
                   <>
                     <Loader2Icon className="size-4 animate-spin" />
-                    {gateway === "stripe" ? "Redirecting…" : "Processing…"}
+                    "Redirecting…"
                   </>
                 ) : !housingReady ? (
                   "Loading housing..."
                 ) : !selectedHousing ? (
                   "Housing unavailable"
-                ) : gateway === "paystack" ? (
-                  "Book & Pay with Paystack"
                 ) : (
                   "Book & Pay with Stripe"
                 )}

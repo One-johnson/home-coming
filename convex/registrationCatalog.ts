@@ -24,8 +24,8 @@ const regionKeyValidator = v.union(
 
 const gatewayValidator = v.union(
   v.literal("stripe"),
-  v.literal("paystack"),
   v.literal("paypal"),
+  v.literal("offline"),
 );
 
 /** Frontend static defaults mirrored for seeding (currency symbols). */
@@ -34,7 +34,7 @@ const GROUP_SEED: Array<{
   price: number;
   currency: string;
   currencySymbol: string;
-  gateway: "stripe" | "paystack" | "paypal";
+  gateway: "stripe" | "paypal" | "offline";
   defaultCountryCode: string;
   regionKey: RegistrationRegion;
   denominations: string[];
@@ -44,7 +44,7 @@ const GROUP_SEED: Array<{
     price: 20,
     currency: "GHS",
     currencySymbol: "₵",
-    gateway: "paystack",
+    gateway: "offline",
     defaultCountryCode: "+233",
     regionKey: "ghana",
     denominations: [
@@ -86,7 +86,7 @@ const GROUP_SEED: Array<{
     price: 20,
     currency: "GHS",
     currencySymbol: "₵",
-    gateway: "paystack",
+    gateway: "offline",
     defaultCountryCode: "+233",
     regionKey: "west_africa",
     denominations: [
@@ -219,7 +219,7 @@ const GROUP_SEED: Array<{
     price: 20,
     currency: "GHS",
     currencySymbol: "₵",
-    gateway: "paystack",
+    gateway: "offline",
     defaultCountryCode: "+233",
     regionKey: "ghana",
     denominations: [
@@ -269,7 +269,7 @@ const GROUP_SEED: Array<{
     price: 20,
     currency: "GHS",
     currencySymbol: "₵",
-    gateway: "paystack",
+    gateway: "offline",
     defaultCountryCode: "+233",
     regionKey: "ghana",
     denominations: [
@@ -289,7 +289,7 @@ const GROUP_SEED: Array<{
     price: 20,
     currency: "GHS",
     currencySymbol: "₵",
-    gateway: "paystack",
+    gateway: "offline",
     defaultCountryCode: "+233",
     regionKey: "ghana",
     denominations: ["Other"],

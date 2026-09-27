@@ -1,6 +1,6 @@
 import { SITE_FEATURES } from "@/lib/eventConfig";
 
-export type PaymentGateway = "stripe" | "paystack" | "paypal";
+export type PaymentGateway = "stripe" | "paypal" | "offline";
 
 export type RegistrationType = "individual" | "group";
 
@@ -35,7 +35,7 @@ export const GROUP_PRICING: Record<string, PricingConfig> = {
     price: 20,
     currency: "GHS",
     currencySymbol: "₵",
-    gateway: "paystack",
+    gateway: "offline",
     defaultCountryCode: "+233",
     regionKey: "ghana",
   },
@@ -43,7 +43,7 @@ export const GROUP_PRICING: Record<string, PricingConfig> = {
     price: 20,
     currency: "GHS",
     currencySymbol: "₵",
-    gateway: "paystack",
+    gateway: "offline",
     defaultCountryCode: "+233",
     regionKey: "west_africa",
   },
@@ -99,7 +99,7 @@ export const GROUP_PRICING: Record<string, PricingConfig> = {
     price: 20,
     currency: "GHS",
     currencySymbol: "₵",
-    gateway: "paystack",
+    gateway: "offline",
     defaultCountryCode: "+233",
     regionKey: "ghana",
   },
@@ -115,7 +115,7 @@ export const GROUP_PRICING: Record<string, PricingConfig> = {
     price: 20,
     currency: "GHS",
     currencySymbol: "₵",
-    gateway: "paystack",
+    gateway: "offline",
     defaultCountryCode: "+233",
     regionKey: "ghana",
   },
@@ -123,7 +123,7 @@ export const GROUP_PRICING: Record<string, PricingConfig> = {
     price: 20,
     currency: "GHS",
     currencySymbol: "₵",
-    gateway: "paystack",
+    gateway: "offline",
     defaultCountryCode: "+233",
     regionKey: "ghana",
   },
@@ -153,7 +153,7 @@ export const REGION_CONFIG: Record<
     price: 20,
     currency: "GHS",
     currencySymbol: "₵",
-    gateway: "paystack",
+    gateway: "offline",
     defaultCountryCode: "+233",
   },
   west_africa: {
@@ -161,7 +161,7 @@ export const REGION_CONFIG: Record<
     price: 20,
     currency: "GHS",
     currencySymbol: "₵",
-    gateway: "paystack",
+    gateway: "offline",
     defaultCountryCode: "+233",
   },
   rest_of_africa: {
@@ -312,27 +312,18 @@ export function formatPrice(amount: number, currency: string, symbol: string) {
   return `${symbol}${amount.toLocaleString()} ${currency}`;
 }
 
-export function isPaystackOnlyCurrency(currency: string) {
+export function isOfflineCurrency(currency: string) {
   return currency === "GHS";
 }
 
-export function registrationGatewaysForCurrency(
-  currency: string,
-): Array<"paystack" | "stripe"> {
-  if (isPaystackOnlyCurrency(currency)) return ["paystack"];
-  return ["paystack", "stripe"];
+/** GHS regions pay offline (bank / MoMo); everything else can use Stripe or PayPal. */
+export function gatewaysForCurrency(currency: string): Array<"stripe" | "paypal"> {
+  if (isOfflineCurrency(currency)) return [];
+  return ["stripe", "paypal"];
 }
 
-/** @deprecated Prefer registrationGatewaysForCurrency / getGroupPricing */
-export function isPaystackOnlyRegion(region: RegistrationRegion) {
+export function isOfflineRegion(region: RegistrationRegion) {
   return REGION_CONFIG[region].currency === "GHS";
-}
-
-/** @deprecated Prefer registrationGatewaysForCurrency */
-export function registrationGatewaysForRegion(
-  region: RegistrationRegion,
-): Array<"paystack" | "stripe"> {
-  return registrationGatewaysForCurrency(REGION_CONFIG[region].currency);
 }
 
 export function normalizeAddOnSelections(

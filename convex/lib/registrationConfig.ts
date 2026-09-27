@@ -9,7 +9,12 @@ export type RegistrationRegion =
   | "rest_of_europe"
   | "rest_of_world";
 
-export type PaymentGateway = "stripe" | "paystack" | "paypal";
+/**
+ * Gateways after the Paystack removal: Stripe for online international flows,
+ * PayPal alongside it, and `offline` for Ghana cedi pricing (bank / MoMo
+ * instructions with receipt verification in the admin console).
+ */
+export type PaymentGateway = "stripe" | "paypal" | "offline";
 
 export type GroupPricing = {
   price: number;
@@ -23,13 +28,13 @@ export const GROUP_PRICING: Record<string, GroupPricing> = {
   Ghana: {
     price: 20,
     currency: "GHS",
-    gateway: "paystack",
+    gateway: "offline",
     regionKey: "ghana",
   },
   "West Africa": {
     price: 20,
     currency: "GHS",
-    gateway: "paystack",
+    gateway: "offline",
     regionKey: "west_africa",
   },
   "UD Africa": {
@@ -71,7 +76,7 @@ export const GROUP_PRICING: Record<string, GroupPricing> = {
   "United Jesus": {
     price: 20,
     currency: "GHS",
-    gateway: "paystack",
+    gateway: "offline",
     regionKey: "ghana",
   },
   "Eschatos International": {
@@ -83,13 +88,13 @@ export const GROUP_PRICING: Record<string, GroupPricing> = {
   "Reasonable Service Church": {
     price: 20,
     currency: "GHS",
-    gateway: "paystack",
+    gateway: "offline",
     regionKey: "ghana",
   },
   "Affiliated Denominations": {
     price: 20,
     currency: "GHS",
-    gateway: "paystack",
+    gateway: "offline",
     regionKey: "ghana",
   },
   Other: {
@@ -110,12 +115,12 @@ export const REGION_CONFIG: Record<
     gateway: PaymentGateway;
   }
 > = {
-  ghana: { label: "Ghana", price: 20, currency: "GHS", gateway: "paystack" },
+  ghana: { label: "Ghana", price: 20, currency: "GHS", gateway: "offline" },
   west_africa: {
     label: "West Africa",
     price: 20,
     currency: "GHS",
-    gateway: "paystack",
+    gateway: "offline",
   },
   rest_of_africa: {
     label: "Rest of Africa",

@@ -33,34 +33,6 @@ http.route({
 });
 
 http.route({
-  path: "/webhooks/paystack",
-  method: "POST",
-  handler: httpAction(async (ctx, request) => {
-    const signature = request.headers.get("x-paystack-signature");
-    if (!signature) {
-      return new Response(JSON.stringify({ error: "Missing signature" }), {
-        status: 400,
-      });
-    }
-
-    const body = await request.text();
-
-    try {
-      await ctx.runAction(internal.paystackCheckout.handleWebhook, {
-        body,
-        signature,
-      });
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Webhook handling failed";
-      return new Response(JSON.stringify({ error: message }), { status: 400 });
-    }
-
-    return new Response(JSON.stringify({ received: true }), { status: 200 });
-  }),
-});
-
-http.route({
   path: "/webhooks/paypal",
   method: "POST",
   handler: httpAction(async (ctx, request) => {

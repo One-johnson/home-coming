@@ -62,7 +62,7 @@ import { useIsCompact } from "@/hooks/use-media-query";
 import { cn } from "@/lib/utils";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 
-type CheckoutGateway = "stripe" | "paystack";
+type CheckoutGateway = "stripe" | "paypal";
 
 type CheckoutStep = "tickets" | "details" | "review" | "payment";
 const CHECKOUT_STEPS: CheckoutStep[] = [
@@ -138,9 +138,6 @@ function ToursCheckoutInner() {
   const catalog = useQuery(api.registrationCatalog.listPublic);
   const createTourOrder = useMutation(api.tourOrders.create);
   const createCheckout = useAction(api.stripeCheckout.createCheckoutSession);
-  const createPaystackCheckout = useAction(
-    api.paystackCheckout.createCheckoutSession,
-  );
 
   const [sheetOpen, setSheetOpen] = useState(false);
   const [step, setStep] = useState<CheckoutStep>("tickets");
@@ -309,26 +306,6 @@ function ToursCheckoutInner() {
       setReferenceNumber(result.referenceNumber);
 
       const urls = buildCheckoutUrls("/tours");
-
-      if (gateway === "paystack") {
-        const paymentResult = await createPaystackCheckout({
-          type: "tour",
-          recordId: result.id,
-          callbackUrl: urls.paystackCallbackUrl,
-        });
-
-        if (paymentResult.mode === "checkout") {
-          window.location.href = paymentResult.url;
-          return;
-        }
-
-        setPaymentMessage(
-          paymentResult.message ?? "Payment processed via Paystack.",
-        );
-        setConfirmed(true);
-        toast.success("Tour order submitted successfully");
-        return;
-      }
 
       const paymentResult = await createCheckout({
         type: "tour",
@@ -881,42 +858,34 @@ function ToursCheckoutInner() {
                       </span>
                     </Label>
                     <Label
-                      htmlFor="tour-gateway-paystack"
+                      htmlFor="tour-gateway-paypal"
                       className="flex cursor-pointer items-start gap-3 rounded-lg border p-3"
                     >
                       <RadioGroupItem
-                        id="tour-gateway-paystack"
-                        value="paystack"
+                        id="tour-gateway-paypal"
+                        value="paypal"
                         className="mt-0.5"
                       />
                       <span>
                         <span className="font-medium text-foreground">
-                          Paystack
+                          PayPal
                         </span>
                         <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
-                          Mobile Money and cards (Africa)
+                          PayPal balance or cards
                         </span>
                       </span>
                     </Label>
                   </RadioGroup>
                 </div>
-                {gateway === "paystack" ? (
-                  <Alert>
-                    <AlertTitle>Paystack Checkout</AlertTitle>
-                    <AlertDescription>
-                      You will be redirected to Paystack to complete payment,
-                      then return with your confirmation.
-                    </AlertDescription>
-                  </Alert>
-                ) : (
-                  <Alert>
-                    <AlertTitle>Stripe Checkout</AlertTitle>
-                    <AlertDescription>
-                      You will be redirected to Stripe to complete payment, then
-                      return with your confirmation.
-                    </AlertDescription>
-                  </Alert>
-                )}
+                <Alert>
+                  <AlertTitle>
+                    {gateway === "stripe" ? "Stripe Checkout" : "PayPal Checkout"}
+                  </AlertTitle>
+                  <AlertDescription>
+                    You will be redirected to complete payment, then return with
+                    your confirmation.
+                  </AlertDescription>
+                </Alert>
                 {error && (
                   <Alert className="border-destructive/30 bg-destructive/5">
                     <AlertDescription>{error}</AlertDescription>
@@ -1008,10 +977,10 @@ function ToursCheckoutInner() {
                   {loading ? (
                     <>
                       <Loader2Icon className="size-4 animate-spin" />
-                      {gateway === "stripe" ? "Redirecting…" : "Processing…"}
+                      Redirecting…
                     </>
-                  ) : gateway === "paystack" ? (
-                    "Pay with Paystack"
+                  ) : gateway === "paypal" ? (
+                    "Pay with PayPal"
                   ) : (
                     "Pay with Stripe"
                   )}

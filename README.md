@@ -6,7 +6,8 @@ Convention website for the Homecoming Convention at Anagkazo Campus, Mampong, Gh
 
 - **Next.js** (App Router) + TypeScript + Tailwind CSS
 - **Convex** — database, serverless functions, file storage, auth
-- **Paystack** (Africa) + **PayPal** (Western countries) — stub mode until merchant credentials are configured
+- **Stripe** + **PayPal** (online payments) — stub mode until merchant credentials are configured
+- **Offline payments** for Ghana / West Africa (bank transfer / MoMo, reviewed by finance)
 
 ## UI Toolkit
 
@@ -58,12 +59,47 @@ npm run seed
 |-------|---------|
 | `/` | Landing page with hero, countdown, CTAs, previews |
 | `/about` | Convention story and First Lady welcome |
-| `/registration` | Individual & group registration with country routing |
+| `/registration` | Retired public form — redirects to `/portal` (registration is rep-only) |
 | `/accommodation` | Campus housing portal + preferred hotels |
 | `/gallery` | Past convention photo galleries |
 | `/messages` | Past convention message links |
 | `/faqs` | Frequently asked questions |
+| `/portal` | AGC 2026 hub representative portal (Registration \| Accommodation) |
 | `/admin` | Role-based admin dashboard |
+
+## AGC 2026 Representative Portal
+
+Hubs (denominations/countries) each get **one representative account**. The
+username is the hub name; a Super Admin creates the account and hands over a
+one-time temporary password. The rep completes first-time setup (new password
++ profile) at `/portal`, which has two tabs:
+
+- **Registration** — bulk delegate purchase by quantity (no attendee names).
+  Ghana / West Africa hubs (GHS 30) pay **offline** by bank transfer or MoMo
+  and upload a receipt for manual finance review; other regions pay online via
+  **Stripe or PayPal**.
+- **Accommodation** — per-guest booking (name, gender, type) or bulk upload via
+  an Excel template. Holds expire at the earlier of 72h or the Oct 13, 2026
+  deadline. Substitutions keep the same gender and accommodation type; the
+  original data is preserved in a substitution history. EBPV apartments have a
+  Bishop Special Rate.
+
+Admin: the **AGC 2026** page in the dashboard mirrors the same two tabs for
+review (approve / reject / request correction with a message), booking
+management, inventory pool reallocation, hub import, and rep account
+management (temp password re-issue, disable). Roles: `admin` (Super),
+`finance`, `accommodation`, `registration`. Excel exports for registrations
+and bookings (with a per-guest sheet) are on the AGC admin page.
+
+### Setup
+
+1. Seed defaults (settings + inventory pools) from **Admin → AGC 2026 → Hubs →
+   Seed defaults**.
+2. Import hubs (paste `Name, Region, Country` lines or add individually).
+3. Create a rep per hub and hand over the temporary password.
+4. Configure bank details + deadline under AGC settings (keys:
+   `registration_bank_details`, `accommodation_bank_details`, `deadline`,
+   `hold_hours`, `guest_titles` in the `agcSettings` table).
 
 ## Admin Setup
 
@@ -77,19 +113,18 @@ npm run seed
 
 | Region | Price | Gateway |
 |--------|-------|---------|
-| Ghana, West Africa | 20 GHS | **Paystack only** (Stripe does not support GHS) |
-| Rest of Africa | $10 USD | Paystack or Stripe |
-| USA / Rest of World | $20 USD | Paystack or Stripe |
-| Canada | 20 CAD | Paystack or Stripe |
-| Switzerland | 20 CHF | Paystack or Stripe |
-| UK | 20 GBP | Paystack or Stripe |
-| Rest of Europe | 20 EUR | Paystack or Stripe |
+| Ghana, West Africa | 30 GHS | **Offline** — bank transfer / MoMo, receipt reviewed by finance |
+| Rest of Africa | $10 USD | Stripe or PayPal |
+| USA / Rest of World | $20 USD | Stripe or PayPal |
+| Switzerland | 20 CHF | Stripe or PayPal |
+| England | 20 GBP | Stripe or PayPal |
+| Rest of Europe | 20 EUR | Stripe or PayPal |
 
-Do **not** convert ₵20 → $20 for Stripe — that would overcharge. GHS regions stay on Paystack.
+Do **not** convert ₵30 → $30 for Stripe — that would overcharge. GHS regions are offline only (no gateway checkout).
 
 ### Accommodation & Tours
 
-Users choose **Paystack** or **Stripe** at payment (priced in USD).
+Users choose **Stripe** or **PayPal** at payment (priced in USD).
 
 ### Stripe
 
@@ -107,11 +142,9 @@ Events: `checkout.session.completed`, `checkout.session.expired`
 
 Success paths: `/registration/success`, `/accommodation/success`, `/tours/success`
 
-### Paystack
+### Offline (GHS)
 
-Until `PAYSTACK_PUBLIC_KEY` (and related secrets) are set in Convex, Paystack checkouts **simulate payment** (`mock_paid`). Live Inline/Popup and webhook verification come later.
-
-Webhook stub: `https://<your-convex-site>.convex.site/webhooks/paystack`
+Ghana / West Africa registrations are paid by bank transfer or mobile money to the account details shown at checkout. Delegates upload a payment receipt, and finance staff approve or reject it from the admin **Payments** review queue.
 
 ## Email (Bluehost SMTP)
 

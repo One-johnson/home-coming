@@ -11,6 +11,8 @@ const checkoutTypeValidator = v.union(
   v.literal("registration"),
   v.literal("booking"),
   v.literal("tour"),
+  v.literal("agc_registration"),
+  v.literal("agc_booking"),
 );
 
 export const getCheckoutRecord = internalQuery({
@@ -19,6 +21,44 @@ export const getCheckoutRecord = internalQuery({
     recordId: v.string(),
   },
   handler: async (ctx, args) => {
+    if (args.type === "agc_registration") {
+      const record = await ctx.db.get(args.recordId as Id<"agcRegistrations">);
+      if (!record) return null;
+      const hub = record.hubId
+        ? await ctx.db.get(record.hubId)
+        : null;
+      return {
+        type: "agc_registration" as const,
+        recordId: record._id,
+        email: record.contactEmail ?? "",
+        totalAmount: record.totalAmount,
+        currency: record.currency,
+        gateway: record.paymentMode,
+        paymentStatus: record.paymentStatus,
+        paymentReference: record.paymentReference,
+        referenceNumber: record.referenceNumber,
+        description: `Homecoming 2026 registration × ${record.quantity} (${hub?.name ?? "hub"})`,
+      };
+    }
+
+    if (args.type === "agc_booking") {
+      const record = await ctx.db.get(args.recordId as Id<"agcBookings">);
+      if (!record) return null;
+      const hub = record.hubId ? await ctx.db.get(record.hubId) : null;
+      return {
+        type: "agc_booking" as const,
+        recordId: record._id,
+        email: record.contactEmail ?? "",
+        totalAmount: record.totalAmount,
+        currency: record.currency,
+        gateway: record.paymentMode,
+        paymentStatus: record.paymentStatus,
+        paymentReference: record.paymentReference,
+        referenceNumber: record.referenceNumber,
+        description: `Homecoming 2026 accommodation (${hub?.name ?? "hub"})`,
+      };
+    }
+
     if (args.type === "registration") {
       const record = await ctx.db.get(args.recordId as Id<"registrations">);
       if (!record) return null;
@@ -77,6 +117,18 @@ export const setPaymentReference = internalMutation({
     paymentReference: v.string(),
   },
   handler: async (ctx, args) => {
+    if (args.type === "agc_registration") {
+      await ctx.db.patch(args.recordId as Id<"agcRegistrations">, {
+        paymentReference: args.paymentReference,
+      });
+      return;
+    }
+    if (args.type === "agc_booking") {
+      await ctx.db.patch(args.recordId as Id<"agcBookings">, {
+        paymentReference: args.paymentReference,
+      });
+      return;
+    }
     if (args.type === "registration") {
       await ctx.db.patch(args.recordId as Id<"registrations">, {
         paymentReference: args.paymentReference,
@@ -102,6 +154,35 @@ export const applyMockPayment = internalMutation({
     reference: v.string(),
   },
   handler: async (ctx, args) => {
+    if (args.type === "agc_registration") {
+      const recordId = args.recordId as Id<"agcRegistrations">;
+      const existing = await ctx.db.get(recordId);
+      if (!existing) throw new Error("Registration not found");
+      await ctx.db.patch(recordId, {
+        paymentStatus: "confirmed",
+        paymentReference: args.reference,
+        paidAt: Date.now(),
+        confirmedAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      return;
+    }
+
+    if (args.type === "agc_booking") {
+      const recordId = args.recordId as Id<"agcBookings">;
+      const existing = await ctx.db.get(recordId);
+      if (!existing) throw new Error("Booking not found");
+      await ctx.db.patch(recordId, {
+        paymentStatus: "confirmed",
+        paymentReference: args.reference,
+        paidAt: Date.now(),
+        confirmedAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      await (await import("./agcAccommodation")).confirmBookingInventory(ctx, recordId);
+      return;
+    }
+
     if (args.type === "registration") {
       const existing = await ctx.db.get(args.recordId as Id<"registrations">);
       if (!existing) throw new Error("Registration not found");
@@ -149,87 +230,6 @@ export const applyMockPayment = internalMutation({
       "mock_paid",
       existing.paymentStatus,
     );
-  },
-});
-
-/** @deprecated Prefer Paystack Checkout via paystackCheckout.createCheckoutSession */
-export const initiatePaystackPayment = mutation({
-  args: {
-    registrationId: v.optional(v.id("registrations")),
-    bookingId: v.optional(v.id("housingBookings")),
-    tourOrderId: v.optional(v.id("tourOrders")),
-    email: v.string(),
-    amount: v.number(),
-    currency: v.string(),
-  },
-  handler: async (ctx, args) => {
-    const reference = `PAYSTACK-${Date.now()}`;
-    const paystackPublicKey = process.env.PAYSTACK_PUBLIC_KEY;
-
-    if (!paystackPublicKey || paystackPublicKey === "pk_test_placeholder") {
-      if (args.registrationId) {
-        const existing = await ctx.db.get(args.registrationId);
-        await ctx.db.patch(args.registrationId, {
-          paymentStatus: "mock_paid",
-          paymentReference: reference,
-        });
-        if (existing) {
-          await queuePaymentConfirmation(
-            ctx,
-            "registration",
-            args.registrationId,
-            "mock_paid",
-            existing.paymentStatus,
-          );
-        }
-      }
-      if (args.bookingId) {
-        const existing = await ctx.db.get(args.bookingId);
-        await ctx.db.patch(args.bookingId, {
-          paymentStatus: "mock_paid",
-          paymentReference: reference,
-        });
-        if (existing) {
-          await queuePaymentConfirmation(
-            ctx,
-            "booking",
-            args.bookingId,
-            "mock_paid",
-            existing.paymentStatus,
-          );
-        }
-      }
-      if (args.tourOrderId) {
-        const existing = await ctx.db.get(args.tourOrderId);
-        await ctx.db.patch(args.tourOrderId, {
-          paymentStatus: "mock_paid",
-          paymentReference: reference,
-        });
-        if (existing) {
-          await queuePaymentConfirmation(
-            ctx,
-            "tour",
-            args.tourOrderId,
-            "mock_paid",
-            existing.paymentStatus,
-          );
-        }
-      }
-      return {
-        mode: "mock" as const,
-        reference,
-        message: "Paystack credentials not configured. Payment simulated.",
-      };
-    }
-
-    return {
-      mode: "live" as const,
-      reference,
-      publicKey: paystackPublicKey,
-      amount: args.amount * 100,
-      currency: args.currency,
-      email: args.email,
-    };
   },
 });
 
@@ -316,15 +316,46 @@ export const confirmPayment = internalMutation({
   args: {
     reference: v.string(),
     status: v.union(v.literal("paid"), v.literal("failed")),
-    type: v.union(
-      v.literal("registration"),
-      v.literal("booking"),
-      v.literal("tour"),
-    ),
+    type: checkoutTypeValidator,
     recordId: v.string(),
   },
   handler: async (ctx, args) => {
     const paymentStatus = args.status === "paid" ? "paid" : "failed";
+
+    if (args.type === "agc_registration") {
+      const recordId = args.recordId as Id<"agcRegistrations">;
+      const existing = await ctx.db.get(recordId);
+      if (!existing) return;
+      if (existing.paymentStatus === "confirmed") return;
+      if (args.status === "failed") return;
+      await ctx.db.patch(recordId, {
+        paymentStatus: "confirmed",
+        paymentReference: args.reference,
+        paidAt: Date.now(),
+        confirmedAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      return;
+    }
+
+    if (args.type === "agc_booking") {
+      const recordId = args.recordId as Id<"agcBookings">;
+      const existing = await ctx.db.get(recordId);
+      if (!existing) return;
+      if (existing.bookingStatus === "confirmed") return;
+      if (args.status === "failed") return;
+      await ctx.db.patch(recordId, {
+        paymentStatus: "confirmed",
+        paymentReference: args.reference,
+        paidAt: Date.now(),
+        confirmedAt: Date.now(),
+        bookingStatus: "confirmed",
+        expiresAt: undefined,
+        updatedAt: Date.now(),
+      });
+      await (await import("./agcAccommodation")).confirmBookingInventory(ctx, recordId);
+      return;
+    }
 
     if (args.type === "registration") {
       const recordId = args.recordId as Id<"registrations">;

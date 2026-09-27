@@ -110,7 +110,7 @@ export const createBooking = mutation({
     checkOut: v.string(),
     guests: v.number(),
     notes: v.optional(v.string()),
-    gateway: v.union(v.literal("stripe"), v.literal("paystack")),
+    gateway: v.union(v.literal("stripe"), v.literal("paypal")),
     mockPayment: v.optional(v.boolean()),
     honeypot: v.optional(v.string()),
   },

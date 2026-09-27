@@ -37,8 +37,8 @@ import {
   calculateRegistrationTotal,
   formatPrice,
   getGroupPricing,
-  isPaystackOnlyCurrency,
-  registrationGatewaysForCurrency,
+  gatewaysForCurrency,
+  isOfflineCurrency,
   shouldShowChurchAffiliation,
   type PricingConfig,
 } from "@/lib/registrationConfig";
@@ -53,7 +53,7 @@ const STEP_LABELS: Record<WizardStep, string> = {
   details: "Details",
   payment: "Payment",
 };
-type CheckoutGateway = "stripe" | "paystack";
+type CheckoutGateway = "stripe" | "paypal";
 
 function ConvexRequiredMessage() {
   return (
@@ -74,9 +74,6 @@ function RegistrationFormInner() {
   const catalog = useQuery(api.registrationCatalog.listPublic);
   const createRegistration = useMutation(api.registrations.create);
   const createCheckout = useAction(api.stripeCheckout.createCheckoutSession);
-  const createPaystackCheckout = useAction(
-    api.paystackCheckout.createCheckoutSession,
-  );
 
   const [step, setStep] = useState<Step>("details");
   const [furthestStepIndex, setFurthestStepIndex] = useState(0);
@@ -91,7 +88,7 @@ function RegistrationFormInner() {
   const [accommodationInterest, setAccommodationInterest] = useState(false);
   const [consent, setConsent] = useState(false);
   const [honeypot, setHoneypot] = useState("");
-  const [gateway, setGateway] = useState<CheckoutGateway>("paystack");
+  const [gateway, setGateway] = useState<CheckoutGateway>("stripe");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [referenceNumber, setReferenceNumber] = useState<string | null>(null);
@@ -147,10 +144,8 @@ function RegistrationFormInner() {
     };
   }, [pricing, ticketQuantity]);
 
-  const paystackOnly = isPaystackOnlyCurrency(displayTotals.currency);
-  const availableGateways = registrationGatewaysForCurrency(
-    displayTotals.currency,
-  );
+  const offlineOnly = isOfflineCurrency(displayTotals.currency);
+  const availableGateways = gatewaysForCurrency(displayTotals.currency);
   const stepIndex = STEPS.indexOf(step as WizardStep);
   const progressValue =
     stepIndex >= 0 ? ((stepIndex + 1) / STEPS.length) * 100 : 0;
@@ -192,8 +187,8 @@ function RegistrationFormInner() {
         }
       : getGroupPricing(value || "Other");
     setCountryCode(nextPricing.defaultCountryCode);
-    const gateways = registrationGatewaysForCurrency(nextPricing.currency);
-    setGateway(gateways[0]);
+    const gateways = gatewaysForCurrency(nextPricing.currency);
+    setGateway(gateways[0] ?? "stripe");
   };
 
   const validateDetails = () => {
@@ -233,8 +228,8 @@ function RegistrationFormInner() {
     setError("");
     setLoading(true);
     try {
-      const selectedGateway: CheckoutGateway = paystackOnly
-        ? "paystack"
+      const selectedGateway: CheckoutGateway | undefined = offlineOnly
+        ? undefined
         : gateway;
 
       const result = await createRegistration({
@@ -257,27 +252,18 @@ function RegistrationFormInner() {
 
       setReferenceNumber(result.referenceNumber);
 
-      const urls = buildCheckoutUrls("/registration");
-
-      if (selectedGateway === "paystack") {
-        const paymentResult = await createPaystackCheckout({
-          type: "registration",
-          recordId: result.id,
-          callbackUrl: urls.paystackCallbackUrl,
-        });
-
-        if (paymentResult.mode === "checkout") {
-          window.location.href = paymentResult.url;
-          return;
-        }
-
+      if (offlineOnly) {
+        // GHS pricing is paid offline (bank transfer / MoMo). The backend
+        // stores the transaction as pending; instructions are shown below.
         setPaymentMessage(
-          paymentResult.message ?? "Payment processed via Paystack.",
+          "Complete your payment via bank transfer or Mobile Money using the instructions emailed to you. Your registration will be confirmed once payment is verified by the finance team.",
         );
         setStep("confirmation");
         toast.success("Registration submitted successfully");
         return;
       }
+
+      const urls = buildCheckoutUrls("/registration");
 
       const paymentResult = await createCheckout({
         type: "registration",
@@ -599,12 +585,14 @@ function RegistrationFormInner() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {paystackOnly ? (
+            {offlineOnly ? (
               <Alert>
-                <AlertTitle>Paystack Checkout</AlertTitle>
+                <AlertTitle>Offline payment — Bank transfer / Mobile Money</AlertTitle>
                 <AlertDescription>
-                  This group is priced in GHS, which Stripe cannot charge. You
-                  will be redirected to Paystack (Mobile Money and cards).
+                  This group is priced in Ghana cedis. After submitting, you will
+                  receive bank and MoMo payment instructions by email. Your
+                  registration is confirmed once the finance team verifies your
+                  payment.
                 </AlertDescription>
               </Alert>
             ) : (
@@ -618,24 +606,6 @@ function RegistrationFormInner() {
                     }
                     className="grid gap-2"
                   >
-                    {availableGateways.includes("paystack") && (
-                      <Label
-                        htmlFor="reg-gateway-paystack"
-                        className="flex cursor-pointer items-start gap-3 rounded-lg border p-3"
-                      >
-                        <RadioGroupItem
-                          id="reg-gateway-paystack"
-                          value="paystack"
-                          className="mt-0.5"
-                        />
-                        <span>
-                          <span className="font-medium">Paystack</span>
-                          <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
-                            Mobile Money and cards
-                          </span>
-                        </span>
-                      </Label>
-                    )}
                     {availableGateways.includes("stripe") && (
                       <Label
                         htmlFor="reg-gateway-stripe"
@@ -654,25 +624,35 @@ function RegistrationFormInner() {
                         </span>
                       </Label>
                     )}
+                    {availableGateways.includes("paypal") && (
+                      <Label
+                        htmlFor="reg-gateway-paypal"
+                        className="flex cursor-pointer items-start gap-3 rounded-lg border p-3"
+                      >
+                        <RadioGroupItem
+                          id="reg-gateway-paypal"
+                          value="paypal"
+                          className="mt-0.5"
+                        />
+                        <span>
+                          <span className="font-medium">PayPal</span>
+                          <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
+                            PayPal balance or cards
+                          </span>
+                        </span>
+                      </Label>
+                    )}
                   </RadioGroup>
                 </div>
-                {gateway === "stripe" ? (
-                  <Alert>
-                    <AlertTitle>Stripe Checkout</AlertTitle>
-                    <AlertDescription>
-                      You will be redirected to Stripe, then return with your
-                      confirmation reference.
-                    </AlertDescription>
-                  </Alert>
-                ) : (
-                  <Alert>
-                    <AlertTitle>Paystack Checkout</AlertTitle>
-                    <AlertDescription>
-                      You will be redirected to Paystack, then return with your
-                      confirmation reference.
-                    </AlertDescription>
-                  </Alert>
-                )}
+                <Alert>
+                  <AlertTitle>
+                    {gateway === "stripe" ? "Stripe Checkout" : "PayPal Checkout"}
+                  </AlertTitle>
+                  <AlertDescription>
+                    You will be redirected to complete payment, then return with
+                    your confirmation reference.
+                  </AlertDescription>
+                </Alert>
               </>
             )}
             {error && (
@@ -700,10 +680,12 @@ function RegistrationFormInner() {
                   <Loader2Icon className="size-4 animate-spin" />
                   Redirecting…
                 </>
-              ) : paystackOnly || gateway === "paystack" ? (
-                "Complete with Paystack"
-              ) : (
+              ) : offlineOnly ? (
+                "Submit registration"
+              ) : gateway === "stripe" ? (
                 "Pay with Stripe"
+              ) : (
+                "Pay with PayPal"
               )}
             </Button>
           </CardFooter>

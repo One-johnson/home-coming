@@ -20,7 +20,12 @@ function randomDigits() {
 export async function createUniqueReferenceNumber(
   ctx: MutationCtx,
   _kind: ReferenceKind,
-  table: "registrations" | "housingBookings" | "tourOrders",
+  table:
+    | "registrations"
+    | "housingBookings"
+    | "tourOrders"
+    | "agcRegistrations"
+    | "agcBookings",
 ) {
   for (let attempt = 0; attempt < 40; attempt++) {
     const referenceNumber = formatReferenceNumber(randomDigits());

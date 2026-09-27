@@ -15,8 +15,8 @@ const paymentStatusValidator = v.union(
 
 const gatewayValidator = v.union(
   v.literal("stripe"),
-  v.literal("paystack"),
   v.literal("paypal"),
+  v.literal("offline"),
 );
 
 const addOnSelectionValidator = v.object({
@@ -80,19 +80,19 @@ export const create = mutation({
       regionKey: pricing.regionKey,
     };
 
-    // GHS tickets are Paystack-only — Stripe cannot charge GHS on US accounts.
-    const gateway: "paystack" | "stripe" =
+    // GHS tickets are offline — bank / MoMo instructions with manual verification.
+    const gateway: "offline" | "stripe" =
       amounts.currency === "GHS"
-        ? "paystack"
-        : args.gateway === "stripe" || args.gateway === "paystack"
-          ? args.gateway
-          : amounts.gateway === "paystack"
-            ? "paystack"
+        ? "offline"
+        : args.gateway === "stripe" || args.gateway === "paypal"
+          ? "stripe"
+          : amounts.gateway === "offline"
+            ? "offline"
             : "stripe";
 
     if (gateway === "stripe" && amounts.currency === "GHS") {
       throw new Error(
-        "Stripe cannot charge GHS. Use Paystack for Ghana cedi pricing.",
+        "Stripe cannot charge GHS. Ghana cedi pricing is paid offline.",
       );
     }
 

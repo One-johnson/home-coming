@@ -33,7 +33,7 @@ export const create = mutation({
     denomination: v.string(),
     church: v.optional(v.string()),
     items: v.array(tourItemValidator),
-    gateway: v.union(v.literal("stripe"), v.literal("paystack")),
+    gateway: v.union(v.literal("stripe"), v.literal("paypal")),
     consent: v.boolean(),
     honeypot: v.optional(v.string()),
     mockPayment: v.optional(v.boolean()),

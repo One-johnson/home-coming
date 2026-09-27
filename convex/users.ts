@@ -6,6 +6,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 export const ADMIN_ROLES = [
   "admin",
   "content",
+  "finance",
   "registration",
   "accommodation",
 ] as const;
@@ -22,13 +23,13 @@ export type AdminArea =
   | "audit";
 
 export const AREA_ROLES: Record<AdminArea, readonly AdminRole[]> = {
-  registration: ["admin", "registration"],
+  registration: ["admin", "registration", "finance"],
   accommodation: ["admin", "accommodation"],
   content: ["admin", "content"],
   emails: ["admin"],
   team: ["admin"],
   seed: ["admin"],
-  audit: ["admin"],
+  audit: ["admin", "finance"],
 };
 
 export const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
@@ -36,6 +37,7 @@ export const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
 export const adminRoleValidator = v.union(
   v.literal("admin"),
   v.literal("content"),
+  v.literal("finance"),
   v.literal("registration"),
   v.literal("accommodation"),
 );
@@ -45,12 +47,7 @@ export const sessionTokenValidator = v.string();
 type Ctx = QueryCtx | MutationCtx;
 
 export function isAdminRole(role: string | undefined | null): role is AdminRole {
-  return (
-    role === "admin" ||
-    role === "content" ||
-    role === "registration" ||
-    role === "accommodation"
-  );
+  return ADMIN_ROLES.includes(role as AdminRole);
 }
 
 export function canAccessArea(
@@ -244,12 +241,7 @@ export const updateProfile = mutation({
     name: v.string(),
   },
   handler: async (ctx, args) => {
-    const user = await requireRole(ctx, args.sessionToken, [
-      "admin",
-      "content",
-      "registration",
-      "accommodation",
-    ]);
+    const user = await requireAnyRole(ctx, args.sessionToken);
     const name = args.name.trim();
     if (!name) {
       throw new Error("Name is required");

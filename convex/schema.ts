@@ -1,9 +1,24 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
+import {
+  agcAccommodationType,
+  agcBookingStatus,
+  agcBishopReview,
+  agcGender,
+  agcInventoryScope,
+  agcOfflinePayment,
+  agcPaymentMode,
+  agcPaymentStatus,
+  agcRegion,
+} from "./schemaTypes";
+
+export * from "./schemaTypes";
+
 const adminRole = v.union(
   v.literal("admin"),
   v.literal("content"),
+  v.literal("finance"),
   v.literal("registration"),
   v.literal("accommodation"),
 );
@@ -69,8 +84,8 @@ export default defineSchema({
     currency: v.string(),
     gateway: v.union(
       v.literal("stripe"),
-      v.literal("paystack"),
       v.literal("paypal"),
+      v.literal("offline"),
     ),
     paymentStatus: v.union(
       v.literal("pending_payment"),
@@ -109,8 +124,8 @@ export default defineSchema({
     currencySymbol: v.string(),
     gateway: v.union(
       v.literal("stripe"),
-      v.literal("paystack"),
       v.literal("paypal"),
+      v.literal("offline"),
     ),
     defaultCountryCode: v.string(),
     regionKey: v.union(
@@ -236,7 +251,6 @@ export default defineSchema({
     gateway: v.optional(
       v.union(
         v.literal("stripe"),
-        v.literal("paystack"),
         v.literal("paypal"),
       ),
     ),
@@ -298,7 +312,6 @@ export default defineSchema({
     currency: v.literal("USD"),
     gateway: v.union(
       v.literal("stripe"),
-      v.literal("paystack"),
       v.literal("paypal"),
     ),
     paymentStatus: v.union(
@@ -309,6 +322,7 @@ export default defineSchema({
     ),
     paymentReference: v.optional(v.string()),
     referenceNumber: v.optional(v.string()),
+
     consent: v.boolean(),
     createdAt: v.number(),
   })
@@ -336,4 +350,243 @@ export default defineSchema({
     .index("by_created_at", ["createdAt"])
     .index("by_status", ["status"])
     .index("by_type_reference", ["type", "referenceId"]),
+
+  // ----------------------------------------------------------------
+  // AGC 2026 representative portal (Phase 1 of the SRS)
+  // ----------------------------------------------------------------
+
+  /** Hubs/denominations/countries — the hub name is the rep username (SRS §5). */
+  agcHubs: defineTable({
+    name: v.string(),
+    region: agcRegion,
+    country: v.string(),
+    notes: v.optional(v.string()),
+    active: v.boolean(),
+    createdAt: v.number(),
+  })
+    .index("by_name", ["name"])
+    .index("by_region", ["region"]),
+
+  /** Representative accounts. Unique internal id ≠ username (SRS §5). */
+  agcRepresentatives: defineTable({
+    hubId: v.id("agcHubs"),
+    username: v.string(),
+    email: v.optional(v.string()),
+    passwordHash: v.string(),
+    firstName: v.optional(v.string()),
+    lastName: v.optional(v.string()),
+    phone: v.optional(v.string()),
+    country: v.optional(v.string()),
+    profileComplete: v.boolean(),
+    mustChangePassword: v.boolean(),
+    status: v.union(
+      v.literal("pending_setup"),
+      v.literal("active"),
+      v.literal("disabled"),
+    ),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_username", ["username"])
+    .index("by_hub", ["hubId"])
+    .index("by_email", ["email"]),
+
+  agcRepSessions: defineTable({
+    repId: v.id("agcRepresentatives"),
+    token: v.string(),
+    expiresAt: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_token", ["token"])
+    .index("by_rep", ["repId"]),
+
+  /** Password reset tokens for representatives (SRS §7). */
+  agcPasswordResets: defineTable({
+    repId: v.id("agcRepresentatives"),
+    token: v.string(),
+    expiresAt: v.number(),
+    usedAt: v.optional(v.number()),
+    createdAt: v.number(),
+  })
+    .index("by_token", ["token"])
+    .index("by_rep", ["repId"]),
+
+  /** Password reset tokens for platform-admin accounts (mirrors agcPasswordResets). */
+  adminPasswordResets: defineTable({
+    userId: v.id("users"),
+    token: v.string(),
+    expiresAt: v.number(),
+    usedAt: v.optional(v.number()),
+    createdAt: v.number(),
+  })
+    .index("by_token", ["token"])
+    .index("by_user", ["userId"]),
+
+  /** Configurable system settings (SRS §55) — one row per key. */
+  agcSettings: defineTable({
+    key: v.string(),
+    value: v.string(),
+    updatedAt: v.number(),
+  }).index("by_key", ["key"]),
+
+  /** Bulk registration purchases — attendee names are NOT captured (SRS §9). */
+  agcRegistrations: defineTable({
+    hubId: v.id("agcHubs"),
+    repId: v.id("agcRepresentatives"),
+    region: agcRegion,
+    contactEmail: v.optional(v.string()),
+    contactPhone: v.optional(v.string()),
+    quantity: v.number(),
+    unitPrice: v.number(),
+    currency: v.string(),
+    totalAmount: v.number(),
+    paymentMode: agcPaymentMode,
+    paymentStatus: agcPaymentStatus,
+    paymentReference: v.optional(v.string()),
+    offline: v.optional(agcOfflinePayment),
+    adminMessage: v.optional(v.string()),
+    paidAt: v.optional(v.number()),
+    confirmedAt: v.optional(v.number()),
+    referenceNumber: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_hub", ["hubId"])
+    .index("by_rep", ["repId"])
+    .index("by_payment_status", ["paymentStatus"])
+    .index("by_created_at", ["createdAt"])
+    .index("by_reference_number", ["referenceNumber"]),
+
+  /** Accommodation transaction (SRS §22, §38, §49). */
+  agcBookings: defineTable({
+    hubId: v.id("agcHubs"),
+    repId: v.id("agcRepresentatives"),
+    region: agcRegion,
+    contactEmail: v.optional(v.string()),
+    contactPhone: v.optional(v.string()),
+    currency: v.string(),
+    totalAmount: v.number(),
+    paymentMode: agcPaymentMode,
+    paymentStatus: agcPaymentStatus,
+    bookingStatus: agcBookingStatus,
+    paymentReference: v.optional(v.string()),
+    offline: v.optional(agcOfflinePayment),
+    adminMessage: v.optional(v.string()),
+    expiresAt: v.optional(v.number()),
+    paidAt: v.optional(v.number()),
+    confirmedAt: v.optional(v.number()),
+    referenceNumber: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_hub", ["hubId"])
+    .index("by_rep", ["repId"])
+    .index("by_payment_status", ["paymentStatus"])
+    .index("by_booking_status", ["bookingStatus"])
+    .index("by_expires_at", ["expiresAt"])
+    .index("by_created_at", ["createdAt"])
+    .index("by_reference_number", ["referenceNumber"]),
+
+  /** Named guests attached to a booking (SRS §37). */
+  agcGuests: defineTable({
+    bookingId: v.id("agcBookings"),
+    hubId: v.id("agcHubs"),
+    region: agcRegion,
+    country: v.string(),
+    firstName: v.string(),
+    lastName: v.string(),
+    gender: agcGender,
+    title: v.string(),
+    phone: v.optional(v.string()),
+    email: v.optional(v.string()),
+    accommodationType: agcAccommodationType,
+    pool: agcInventoryScope,
+    isBishopRate: v.boolean(),
+    status: v.union(
+      v.literal("active"),
+      v.literal("replaced"),
+      v.literal("cancelled"),
+    ),
+    createdAt: v.number(),
+  })
+    .index("by_booking", ["bookingId"])
+    .index("by_hub", ["hubId"])
+    .index("by_type_gender_status", [
+      "accommodationType",
+      "gender",
+      "status",
+    ]),
+
+  /** Per-line pricing snapshot for a booking (SRS §38). */
+  agcBookingLines: defineTable({
+    bookingId: v.id("agcBookings"),
+    accommodationType: agcAccommodationType,
+    quantity: v.number(),
+    unitPrice: v.number(),
+    isBishopRate: v.boolean(),
+  }).index("by_booking", ["bookingId"]),
+
+  /** Substitution history — never overwrite original data (SRS §43). */
+  agcSubstitutions: defineTable({
+    bookingId: v.id("agcBookings"),
+    guestId: v.id("agcGuests"),
+    previousFirstName: v.string(),
+    previousLastName: v.string(),
+    previousGender: agcGender,
+    previousType: agcAccommodationType,
+    newFirstName: v.string(),
+    newLastName: v.string(),
+    newGender: agcGender,
+    newType: agcAccommodationType,
+    overrideByAdmin: v.boolean(),
+    actorRepId: v.optional(v.id("agcRepresentatives")),
+    actorAdminEmail: v.optional(v.string()),
+    reason: v.optional(v.string()),
+    createdAt: v.number(),
+  }).index("by_guest", ["guestId"]).index("by_booking", ["bookingId"]),
+
+  /** Regional/global inventory pools (SRS §28). */
+  agcInventoryPools: defineTable({
+    accommodationType: agcAccommodationType,
+    scope: agcInventoryScope,
+    total: v.number(),
+    reserved: v.number(),
+    confirmed: v.number(),
+  })
+    .index("by_type_scope", ["accommodationType", "scope"])
+    .index("by_scope", ["scope"]),
+
+  /** Every inventory movement — audit + real-time availability (SRS §29, §31). */
+  agcInventoryLedger: defineTable({
+    poolId: v.id("agcInventoryPools"),
+    accommodationType: agcAccommodationType,
+    scope: agcInventoryScope,
+    action: v.union(
+      v.literal("reserve"),
+      v.literal("release"),
+      v.literal("confirm"),
+      v.literal("expire"),
+      v.literal("cancel"),
+      v.literal("reallocate"),
+    ),
+    delta: v.number(),
+    bookingId: v.optional(v.id("agcBookings")),
+    actorEmail: v.optional(v.string()),
+    note: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_pool", ["poolId"])
+    .index("by_booking", ["bookingId"])
+    .index("by_created_at", ["createdAt"]),
+
+  /** Pool reallocation history (SRS §29). */
+  agcReallocations: defineTable({
+    accommodationType: agcAccommodationType,
+    fromScope: agcInventoryScope,
+    toScope: agcInventoryScope,
+    quantity: v.number(),
+    actorEmail: v.string(),
+    note: v.optional(v.string()),
+    createdAt: v.number(),
+  }).index("by_created_at", ["createdAt"]),
 });

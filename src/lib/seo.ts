@@ -104,12 +104,7 @@ export const PAGE_SEO = {
     path: "/about",
     image: "/campus/campus1.jpg",
   },
-  registration: {
-    title: "Register for Homecoming",
-    description: `Register for ${EVENT.fullTitle}, ${EVENT.dates}. Group tickets with Paystack and Stripe checkout.`,
-    path: "/registration",
-    image: "/hero/slide-01.jpg",
-  },
+
   accommodation: {
     title: "Accommodation",
     description: `Book campus housing at ${EVENT.venue} or nearby hotels in ${EVENT.location} for ${EVENT.dates}.`,
@@ -189,7 +184,7 @@ export function buildEventJsonLd() {
     },
     offers: {
       "@type": "Offer",
-      url: `${siteUrl}/registration`,
+      url: siteUrl,
       availability: "https://schema.org/InStock",
       validFrom: new Date().toISOString().slice(0, 10),
     },

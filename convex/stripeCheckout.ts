@@ -9,6 +9,8 @@ const checkoutTypeValidator = v.union(
   v.literal("registration"),
   v.literal("booking"),
   v.literal("tour"),
+  v.literal("agc_registration"),
+  v.literal("agc_booking"),
 );
 
 function getStripe() {
@@ -22,7 +24,12 @@ function toStripeUnitAmount(amount: number) {
 }
 
 type CheckoutRecord = {
-  type: "registration" | "booking" | "tour";
+  type:
+    | "registration"
+    | "booking"
+    | "tour"
+    | "agc_registration"
+    | "agc_booking";
   recordId: string;
   email: string;
   totalAmount: number;
@@ -52,7 +59,12 @@ type CreateCheckoutResult =
     };
 
 type FinalizeCheckoutResult = {
-  type: "registration" | "booking" | "tour";
+  type:
+    | "registration"
+    | "booking"
+    | "tour"
+    | "agc_registration"
+    | "agc_booking";
   recordId: string;
   paymentStatus: string;
   referenceNumber: string | undefined;
@@ -103,15 +115,15 @@ export const createCheckoutSession = action({
       };
     }
 
-    if (record.gateway === "paystack") {
+    if (record.gateway === "offline") {
       throw new Error(
-        "This order is set up for Paystack, not Stripe. Complete payment with Paystack.",
+        "This order is set up for offline payment. Submit your receipt in the portal instead.",
       );
     }
 
     if (record.currency.toLowerCase() === "ghs") {
       throw new Error(
-        "Stripe cannot charge GHS. Ghana and West Africa registrations must use Paystack.",
+        "Stripe cannot charge GHS. Ghana cedi orders are paid offline.",
       );
     }
 
@@ -193,6 +205,8 @@ export const finalizeCheckoutSession = action({
       | "registration"
       | "booking"
       | "tour"
+      | "agc_registration"
+      | "agc_booking"
       | undefined;
     const recordId = session.metadata?.recordId;
 
@@ -201,12 +215,20 @@ export const finalizeCheckoutSession = action({
     }
 
     if (session.payment_status === "paid") {
-      await ctx.runMutation(internal.payments.confirmPayment, {
-        reference: session.id,
-        status: "paid",
-        type,
-        recordId,
-      });
+      if (type === "agc_registration" || type === "agc_booking") {
+        await ctx.runMutation(internal.agcRecords.confirmAgcOnlinePayment, {
+          reference: session.id,
+          type,
+          recordId,
+        });
+      } else {
+        await ctx.runMutation(internal.payments.confirmPayment, {
+          reference: session.id,
+          status: "paid",
+          type,
+          recordId,
+        });
+      }
     }
 
     const record = (await ctx.runQuery(internal.payments.getCheckoutRecord, {
@@ -251,16 +273,26 @@ export const handleWebhook = internalAction({
         | "registration"
         | "booking"
         | "tour"
+        | "agc_registration"
+        | "agc_booking"
         | undefined;
       const recordId = session.metadata?.recordId;
 
       if (type && recordId && session.payment_status === "paid") {
-        await ctx.runMutation(internal.payments.confirmPayment, {
-          reference: session.id,
-          status: "paid",
-          type,
-          recordId,
-        });
+        if (type === "agc_registration" || type === "agc_booking") {
+          await ctx.runMutation(internal.agcRecords.confirmAgcOnlinePayment, {
+            reference: session.id,
+            type,
+            recordId,
+          });
+        } else {
+          await ctx.runMutation(internal.payments.confirmPayment, {
+            reference: session.id,
+            status: "paid",
+            type,
+            recordId,
+          });
+        }
       }
     }
 
@@ -270,10 +302,12 @@ export const handleWebhook = internalAction({
         | "registration"
         | "booking"
         | "tour"
+        | "agc_registration"
+        | "agc_booking"
         | undefined;
       const recordId = session.metadata?.recordId;
 
-      if (type && recordId) {
+      if (type && recordId && type !== "agc_registration" && type !== "agc_booking") {
         await ctx.runMutation(internal.payments.confirmPayment, {
           reference: session.id,
           status: "failed",

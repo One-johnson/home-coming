@@ -3,6 +3,7 @@ export const ADMIN_ROLES = [
   "content",
   "registration",
   "accommodation",
+  "finance",
 ] as const;
 
 export type AdminRole = (typeof ADMIN_ROLES)[number];
@@ -17,13 +18,13 @@ export type AdminArea =
   | "audit";
 
 export const AREA_ROLES: Record<AdminArea, readonly AdminRole[]> = {
-  registration: ["admin", "registration"],
+  registration: ["admin", "registration", "finance"],
   accommodation: ["admin", "accommodation"],
   content: ["admin", "content"],
   emails: ["admin"],
   team: ["admin"],
   seed: ["admin"],
-  audit: ["admin"],
+  audit: ["admin", "finance"],
 };
 
 export function isAdminRole(role: string | undefined | null): role is AdminRole {
@@ -31,7 +32,8 @@ export function isAdminRole(role: string | undefined | null): role is AdminRole 
     role === "admin" ||
     role === "content" ||
     role === "registration" ||
-    role === "accommodation"
+    role === "accommodation" ||
+    role === "finance"
   );
 }
 
@@ -48,4 +50,5 @@ export const ROLE_LABELS: Record<AdminRole, string> = {
   content: "Content",
   registration: "Registration",
   accommodation: "Accommodation",
+  finance: "Finance",
 };
