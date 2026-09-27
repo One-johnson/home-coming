@@ -9,6 +9,14 @@ import { api } from "@convex/_generated/api";
 import type { Doc, Id } from "@convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -381,6 +389,11 @@ export function TourPackageManager() {
   const removePackage = useMutation(api.tourPackages.remove);
   const generateUploadUrl = useMutation(api.tourPackages.generateUploadUrl);
 
+  const [deleteTarget, setDeleteTarget] = useState<{
+    id: Id<"tourPackages">;
+    label: string;
+  } | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [drafts, setDrafts] = useState<Record<string, PackageDraft>>({});
   const [newDraft, setNewDraft] = useState(emptyDraft);
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -510,18 +523,17 @@ export function TourPackageManager() {
     }
   };
 
-  const remove = async (id: Id<"tourPackages">, label: string) => {
-    if (!sessionToken) return;
-    if (
-      !window.confirm(`Delete tour package “${label}”? This cannot be undone.`)
-    ) {
-      return;
-    }
+  const remove = async () => {
+    if (!sessionToken || !deleteTarget) return;
+    setDeleting(true);
     try {
-      await removePackage({ sessionToken, id });
-      toast.success(`Deleted ${label}`);
+      await removePackage({ sessionToken, id: deleteTarget.id });
+      toast.success(`Deleted ${deleteTarget.label}`);
+      setDeleteTarget(null);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Delete failed");
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -565,7 +577,9 @@ export function TourPackageManager() {
                     variant="ghost"
                     size="sm"
                     className="text-destructive"
-                    onClick={() => void remove(pkg._id, pkg.label)}
+                    onClick={() =>
+                      setDeleteTarget({ id: pkg._id, label: pkg.label })
+                    }
                   >
                     Delete
                   </Button>
@@ -623,6 +637,41 @@ export function TourPackageManager() {
           </Button>
         </CardContent>
       </Card>
+
+      <Dialog
+        open={deleteTarget !== null}
+        onOpenChange={(next) => {
+          if (!deleting) setDeleteTarget(next ? deleteTarget : null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete tour package?</DialogTitle>
+            <DialogDescription>
+              “{deleteTarget?.label}” will be permanently removed. This cannot
+              be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={deleting}
+              onClick={() => setDeleteTarget(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={deleting}
+              onClick={() => void remove()}
+            >
+              {deleting ? "Deleting…" : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

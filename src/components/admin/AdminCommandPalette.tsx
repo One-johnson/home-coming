@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/sheet";
 import { useAdminSession } from "@/components/admin/AdminSessionProvider";
 import { useIsCompact } from "@/hooks/use-media-query";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 function CommandBody({
@@ -168,12 +169,13 @@ export function AdminCommandPalette({
 
   return (
     <>
-      <button
+      <Button
         type="button"
+        variant="outline"
         onClick={() => setOpen(true)}
         className={cn(
-          "inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 text-sm text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground",
-          "w-9 justify-center sm:w-56 sm:justify-start lg:w-72",
+          "gap-2 bg-muted/40 text-muted-foreground shadow-sm",
+          "w-9 justify-center px-3 sm:w-56 sm:justify-start lg:w-72",
           className,
         )}
         aria-label="Search"
@@ -185,7 +187,7 @@ export function AdminCommandPalette({
         <kbd className="ml-auto hidden rounded border bg-background px-1.5 py-0.5 font-mono text-[10px] md:inline">
           ⌘K
         </kbd>
-      </button>
+      </Button>
 
       {isCompact ? (
         <Sheet open={open} onOpenChange={setOpen}>

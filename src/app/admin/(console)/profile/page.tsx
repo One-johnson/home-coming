@@ -137,9 +137,11 @@ export default function AdminProfilePage() {
                   onChange={(e) => setCurrentPassword(e.target.value)}
                   className="h-11 pr-11 pl-10"
                 />
-                <button
+                <Button
                   type="button"
-                  className="absolute top-1/2 right-2.5 flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-stone hover:bg-muted"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute top-1/2 right-2.5 -translate-y-1/2 text-stone hover:bg-muted"
                   onClick={() => setShowCurrent((v) => !v)}
                   aria-label={showCurrent ? "Hide password" : "Show password"}
                 >
@@ -148,7 +150,7 @@ export default function AdminProfilePage() {
                   ) : (
                     <Eye className="size-4" />
                   )}
-                </button>
+                </Button>
               </div>
             </div>
             <div className="space-y-2">
@@ -164,9 +166,11 @@ export default function AdminProfilePage() {
                   onChange={(e) => setNewPassword(e.target.value)}
                   className="h-11 pr-11 pl-10"
                 />
-                <button
+                <Button
                   type="button"
-                  className="absolute top-1/2 right-2.5 flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-stone hover:bg-muted"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute top-1/2 right-2.5 -translate-y-1/2 text-stone hover:bg-muted"
                   onClick={() => setShowNew((v) => !v)}
                   aria-label={showNew ? "Hide password" : "Show password"}
                 >
@@ -175,7 +179,7 @@ export default function AdminProfilePage() {
                   ) : (
                     <Eye className="size-4" />
                   )}
-                </button>
+                </Button>
               </div>
             </div>
             <div className="space-y-2">

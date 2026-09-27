@@ -397,13 +397,12 @@ export default function AdminContentPage() {
                 }
               />
               <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={announcementForm.active}
-                  onChange={(e) =>
+                  onCheckedChange={(checked) =>
                     setAnnouncementForm({
                       ...announcementForm,
-                      active: e.target.checked,
+                      active: checked === true,
                     })
                   }
                 />

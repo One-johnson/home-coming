@@ -88,9 +88,11 @@ export function AdminSignIn() {
                 onChange={(e) => setPassword(e.target.value)}
                 className="h-11 pr-11 pl-10"
               />
-              <button
+              <Button
                 type="button"
-                className="absolute top-1/2 right-2.5 flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-stone hover:bg-muted hover:text-ink"
+                variant="ghost"
+                size="icon"
+                className="absolute top-1/2 right-2.5 -translate-y-1/2 text-stone hover:bg-muted hover:text-ink"
                 onClick={() => setShowPassword((v) => !v)}
                 aria-label={showPassword ? "Hide password" : "Show password"}
               >
@@ -99,7 +101,7 @@ export function AdminSignIn() {
                 ) : (
                   <Eye className="size-4" />
                 )}
-              </button>
+              </Button>
             </div>
           </div>
           {authError && (
@@ -118,6 +120,15 @@ export function AdminSignIn() {
             )}
           </Button>
         </form>
+
+        <p className="mt-4 text-center text-sm text-muted-foreground">
+          <Link
+            href="/admin/reset-password"
+            className="font-medium text-gold hover:text-gold-dark"
+          >
+            Forgot your password?
+          </Link>
+        </p>
 
         {canRegister && (
           <p className="mt-6 text-center text-sm text-muted-foreground">

@@ -8,6 +8,14 @@ import { api } from "@convex/_generated/api";
 import type { Doc, Id } from "@convex/_generated/dataModel";
 import { ConfirmDeleteDialog } from "@/components/admin/ConfirmDeleteDialog";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   useAdminSession,
   useSessionArgs,
 } from "@/components/admin/AdminSessionProvider";
@@ -36,7 +44,7 @@ type GroupForm = {
   price: string;
   currency: string;
   currencySymbol: string;
-  gateway: "stripe" | "paystack" | "paypal";
+  gateway: "offline" | "stripe" | "paypal";
   defaultCountryCode: string;
   regionKey: Doc<"registrationGroups">["regionKey"];
   order: string;
@@ -94,6 +102,8 @@ export function GroupsManager() {
   );
   const seedDefaults = useMutation(api.registrationCatalog.seedDefaults);
 
+  const [replaceConfirmOpen, setReplaceConfirmOpen] = useState(false);
+  const [replaceBusy, setReplaceBusy] = useState(false);
   const [expandedId, setExpandedId] = useState<Id<"registrationGroups"> | null>(
     null,
   );
@@ -246,11 +256,20 @@ export function GroupsManager() {
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Seed failed");
     }
+  };  const handleReplaceSeed = async () => {
+    if (!sessionToken) return;
+    setReplaceBusy(true);
+    try {
+      await handleSeed(true);
+      setReplaceConfirmOpen(false);
+    } finally {
+      setReplaceBusy(false);
+    }
   };
 
   return (
     <div className="space-y-4">
-      <Card>
+    <Card>
         <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 space-y-0">
           <div>
             <CardTitle>Groups & denominations</CardTitle>
@@ -273,15 +292,7 @@ export function GroupsManager() {
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => {
-                  if (
-                    window.confirm(
-                      "Replace all groups and denominations with the default seed set?",
-                    )
-                  ) {
-                    void handleSeed(true);
-                  }
-                }}
+                onClick={() => setReplaceConfirmOpen(true)}
               >
                 Replace defaults
               </Button>
@@ -320,9 +331,10 @@ export function GroupsManager() {
                   className="overflow-hidden rounded-xl border border-border"
                 >
                   <div className="flex flex-wrap items-center gap-2 px-3 py-3">
-                    <button
+                    <Button
                       type="button"
-                      className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                      variant="ghost"
+                      className="min-w-0 flex-1 justify-start gap-2 px-2 text-left font-normal"
                       onClick={() =>
                         setExpandedId(expanded ? null : group._id)
                       }
@@ -344,7 +356,7 @@ export function GroupsManager() {
                       <span className="text-xs text-muted-foreground">
                         {group.denominations.length} denominations
                       </span>
-                    </button>
+                    </Button>
                     <Button
                       type="button"
                       size="sm"
@@ -557,6 +569,40 @@ export function GroupsManager() {
         loading={deleting}
         onConfirm={handleConfirmDelete}
       />
+
+      <Dialog
+        open={replaceConfirmOpen}
+        onOpenChange={(next) => {
+          if (!replaceBusy) setReplaceConfirmOpen(next);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Replace all defaults?</DialogTitle>
+            <DialogDescription>
+              All existing groups and denominations will be replaced with the
+              default seed set. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={replaceBusy}
+              onClick={() => setReplaceConfirmOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={replaceBusy}
+              onClick={() => void handleReplaceSeed()}
+            >
+              {replaceBusy ? "Replacing…" : "Replace defaults"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -624,7 +670,6 @@ function GroupEditor({
           <Select
             value={form.gateway}
             items={[
-              { value: "paystack", label: "Paystack" },
               { value: "stripe", label: "Stripe" },
               { value: "paypal", label: "PayPal" },
             ]}
@@ -640,7 +685,6 @@ function GroupEditor({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="paystack">Paystack</SelectItem>
               <SelectItem value="stripe">Stripe</SelectItem>
               <SelectItem value="paypal">PayPal</SelectItem>
             </SelectContent>

@@ -76,10 +76,12 @@ function PasswordField({
           onChange={(e) => onChange(e.target.value)}
           className="h-11 pr-11 pl-10"
         />
-        <button
+        <Button
           type="button"
+          variant="ghost"
+          size="icon"
           onClick={() => setVisible((v) => !v)}
-          className="absolute top-1/2 right-2.5 flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-stone transition-colors hover:bg-muted hover:text-ink"
+          className="absolute top-1/2 right-2.5 -translate-y-1/2 text-stone hover:bg-muted hover:text-ink"
           aria-label={visible ? "Hide password" : "Show password"}
         >
           {visible ? (
@@ -87,7 +89,7 @@ function PasswordField({
           ) : (
             <Eye className="size-4" aria-hidden />
           )}
-        </button>
+        </Button>
       </div>
     </div>
   );
