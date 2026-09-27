@@ -6,6 +6,9 @@ import AccommodationConfirmationEmail, {
 import RegistrationConfirmationEmail, {
   type RegistrationEmailProps,
 } from "./registration-confirmation";
+import RepCredentialsEmail, {
+  type RepCredentialsEmailProps,
+} from "./rep-credentials";
 import TourConfirmationEmail, { type TourEmailProps } from "./tour-confirmation";
 
 async function renderEmail<P extends object>(
@@ -24,6 +27,10 @@ export async function renderRegistrationEmail(props: RegistrationEmailProps) {
 
 export async function renderAccommodationEmail(props: AccommodationEmailProps) {
   return renderEmail(AccommodationConfirmationEmail, props);
+}
+
+export async function renderRepCredentialsEmail(props: RepCredentialsEmailProps) {
+  return renderEmail(RepCredentialsEmail, props);
 }
 
 export async function renderTourEmail(props: TourEmailProps) {

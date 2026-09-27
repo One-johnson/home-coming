@@ -402,7 +402,7 @@ function AccommodationPortalInner() {
                 {loading ? (
                   <>
                     <Loader2Icon className="size-4 animate-spin" />
-                    "Redirecting…"
+                    &ldquo;Redirecting…&rdquo;
                   </>
                 ) : !housingReady ? (
                   "Loading housing..."

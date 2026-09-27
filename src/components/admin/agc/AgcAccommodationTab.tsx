@@ -104,6 +104,7 @@ export function AgcAccommodationTab() {
   const reallocate = useMutation(api.agcAdminData.reallocatePool);
   const createRepAction = useAction(api.agcAdmin.createRep);
   const bulkCreateRepsAction = useAction(api.agcAdmin.bulkCreateReps);
+  const resendCredsAction = useAction(api.agcAdmin.issueTempPassword);
   const setRepStatus = useMutation(api.agcAdminData.setRepStatus);
   const importHubsAction = useAction(api.agcAdmin.importHubs);
   const createHubMutation = useMutation(api.agcAdminData.createHub);
@@ -136,6 +137,8 @@ export function AgcAccommodationTab() {
   >(null);
   const [copiedRepId, setCopiedRepId] = useState<string | null>(null);
   const [exportingReps, setExportingReps] = useState(false);
+  const [resendTarget, setResendTarget] = useState<RepRow | null>(null);
+  const [resendBusy, setResendBusy] = useState(false);
   const [hubForm, setHubForm] = useState({ name: "", region: "ghana", country: "Ghana" });
   const [importText, setImportText] = useState("");
 
@@ -238,6 +241,7 @@ export function AgcAccommodationTab() {
       const result = await bulkCreateRepsAction({
         sessionToken,
         tempPassword: bulkDefaultPassword.trim() || undefined,
+        clientOrigin: window.location.origin,
       });
       setBulkResult(result);
       if (result.created.length > 0) {
@@ -249,6 +253,30 @@ export function AgcAccommodationTab() {
       toast.error(...toastFriendlyErrorParts(err, "Bulk creation failed"));
     } finally {
       setBulkBusy(false);
+    }
+  };
+
+  /** Regenerate the temp password for one rep and email the credentials. */
+  const runResend = async () => {
+    if (!sessionToken || !resendTarget || resendBusy) return;
+    setResendBusy(true);
+    try {
+      const result = await resendCredsAction({
+        sessionToken,
+        repId: resendTarget._id as Id<"agcRepresentatives">,
+        clientOrigin: window.location.origin,
+      });
+      setLastCreatedCredentials(`${result.username}: ${result.tempPassword}`);
+      setResendTarget(null);
+      toast.success(
+        result.tempPassword
+          ? `New temporary password issued for ${result.username}`
+          : `Credentials resent for ${result.username}`,
+      );
+    } catch (err) {
+      toast.error(...toastFriendlyErrorParts(err, "Failed to resend credentials"));
+    } finally {
+      setResendBusy(false);
     }
   };
 
@@ -269,9 +297,11 @@ export function AgcAccommodationTab() {
         </TabsTrigger>
       </TabsList>
 
-      <TabsContent value="bookings" className="space-y-4">
+      <TabsContent value="bookings" className="grid items-start gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {(bookings ?? []).length === 0 && (
-          <p className="text-sm text-muted-foreground">No bookings yet.</p>
+          <p className="text-sm text-muted-foreground sm:col-span-2 lg:col-span-3">
+            No bookings yet.
+          </p>
         )}
         {(bookings ?? []).map((row: AdminBookingRow) => {
           const status = bookingStatusMeta(row.bookingStatus);
@@ -335,12 +365,16 @@ export function AgcAccommodationTab() {
                     Last message: {row.adminMessage}
                   </p>
                 )}
-                <ReviewActions
-                  disabled={busyId === row._id}
-                  onDecision={(decision, message) =>
-                    void decide(row, decision, message)
-                  }
-                />
+                {/* Decided bookings show as confirmed cards — actions only
+                    while a payment is awaiting review. */}
+                {row.paymentStatus === "pending_verification" && (
+                  <ReviewActions
+                    disabled={busyId === row._id}
+                    onDecision={(decision, message) =>
+                      void decide(row, decision, message)
+                    }
+                  />
+                )}
               </CardContent>
             </Card>
           );
@@ -665,7 +699,8 @@ export function AgcAccommodationTab() {
                 <CardTitle className="text-base">Representative accounts</CardTitle>
                 <CardDescription>
                   One account per hub. The username is the hub name in
-                  lowercase with underscores. Accounts stay "pending setup"
+                  lowercase with underscores. Accounts stay
+                  &ldquo;pending setup&rdquo;
                   until the rep signs in with the new password they set during
                   first-time setup.
                 </CardDescription>
@@ -740,6 +775,15 @@ export function AgcAccommodationTab() {
                             ? "active"
                             : "disabled"}
                       </Badge>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={resendBusy}
+                        onClick={() => setResendTarget(rep)}
+                      >
+                        Resend credentials
+                      </Button>
                       <Button
                         type="button"
                         variant="outline"
@@ -952,6 +996,7 @@ export function AgcAccommodationTab() {
                           sessionToken,
                           hubId: newRepHub.trim() as Id<"agcHubs">,
                           tempPassword: bulkDefaultPassword.trim() || undefined,
+                          clientOrigin: window.location.origin,
                         });
                         setLastCreatedCredentials(
                           `${result.username}: ${result.tempPassword}`,
@@ -969,6 +1014,47 @@ export function AgcAccommodationTab() {
             </div>
           </CardContent>
         </Card>
+
+        <Dialog
+          open={resendTarget !== null}
+          onOpenChange={(open) => {
+            if (!open) setResendTarget(null);
+          }}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>
+                Resend credentials for {resendTarget?.hubName}?
+              </DialogTitle>
+              <DialogDescription>
+                A new temporary password is generated — the rep&rsquo;s current
+                password and any active sessions stop working immediately. The
+                new credentials are emailed to{" "}
+                <strong>{resendTarget?.email ?? "(no email on file)"}</strong>
+                {resendTarget?.email
+                  ? ", and shown once here after issuing."
+                  : ". Add an email for the rep first, or copy the password here to share it manually."}
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={resendBusy}
+                onClick={() => setResendTarget(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                disabled={resendBusy}
+                onClick={() => void runResend()}
+              >
+                {resendBusy ? "Issuing…" : "Issue new credentials"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         <Dialog
           open={bulkConfirmOpen}

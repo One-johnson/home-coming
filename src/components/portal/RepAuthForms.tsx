@@ -259,7 +259,7 @@ export function RepFirstTimeSetup({
         </CardTitle>
         <CardDescription>
           Welcome, representative of <strong>{username}</strong>. Choose a new
-          password and complete your profile — you'll be signed in right
+          password and complete your profile — you&rsquo;ll be signed in right
           after.
         </CardDescription>
       </CardHeader>

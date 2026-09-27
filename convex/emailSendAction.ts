@@ -7,6 +7,7 @@ import { internalAction } from "./_generated/server";
 import {
   renderAccommodationEmail,
   renderRegistrationEmail,
+  renderRepCredentialsEmail,
   renderTourEmail,
 } from "../emails/render";
 import {
@@ -30,7 +31,36 @@ export const sendEmail = internalAction({
       let text = log.body;
       let html = log.htmlBody;
 
-      if (
+      if (log.referenceId && log.type === "agc_rep_notification") {
+        // Rep credentials emails stash their render props as JSON in
+        // referenceId (queued by queueRepCredentialsEmail).
+        try {
+          const props = JSON.parse(log.referenceId) as {
+            hubName: string;
+            username: string;
+            tempPassword: string;
+            isResend: boolean;
+            portalUrl: string;
+          };
+          const rendered = await renderRepCredentialsEmail({
+            bannerUrl: BANNER_SRC,
+            hubName: props.hubName,
+            username: props.username,
+            temporaryPassword: props.tempPassword,
+            isResend: props.isResend,
+            portalUrl: props.portalUrl,
+          });
+          await ctx.runMutation(internal.emailSender.storeRenderedEmail, {
+            id: args.emailLogId,
+            body: rendered.text,
+            htmlBody: rendered.html,
+          });
+          text = rendered.text;
+          html = rendered.html;
+        } catch {
+          // Malformed payload — fall through with the plain-text body.
+        }
+      } else if (
         log.referenceId &&
         (log.type === "registration_confirmation" ||
           log.type === "accommodation_confirmation" ||

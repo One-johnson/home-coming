@@ -55,3 +55,11 @@ export function buildResetUrl(
   ).replace(/\/$/, "");
   return `${base}${path}?token=${token}`;
 }
+
+/** Absolute /portal URL using the same origin validation as reset links. */
+export function buildPortalUrl(requestedOrigin: string | undefined): string {
+  const base = (
+    isAllowedResetOrigin(requestedOrigin) ? requestedOrigin! : envSiteUrl()
+  ).replace(/\/$/, "");
+  return `${base}/portal`;
+}

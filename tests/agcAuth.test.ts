@@ -224,3 +224,151 @@ test("repeated wrong passwords lock the account, then it recovers", async () => 
   // setup screen (the lock is gone — not a "locked out" error).
   expect(result.kind).toBe("setup_required");
 });
+
+test("createRep emails initial credentials to the rep", async () => {
+  const t = createTestConvex();
+  const hubId = await t.run((ctx) => ctx.db.insert("agcHubs", HUB));
+
+  // Admin principal + session (requireAdminViaAction checks role === "admin").
+  const { createHash, randomBytes } = await import("node:crypto");
+  const adminToken = createHash("sha256").update(randomBytes(24)).digest("hex");
+  await t.run(async (ctx) => {
+    const adminId = await ctx.db.insert("users", {
+      name: "Admin",
+      email: "admin@example.com",
+      passwordHash: "not-a-real-hash",
+      role: "admin",
+      active: true,
+      createdAt: Date.now(),
+    });
+    await ctx.db.insert("sessions", {
+      userId: adminId,
+      token: adminToken,
+      expiresAt: Date.now() + 3_600_000,
+      createdAt: Date.now(),
+    });
+  });
+
+  const created = await t.action(api.agcAdmin.createRep, {
+    sessionToken: adminToken,
+    hubId,
+    email: "rep@credhub.example",
+    clientOrigin: "http://localhost:5401",
+  });
+  expect(created.username).toBe("test_hub"); // derived from HUB.name
+  expect(created.tempPassword.length).toBeGreaterThanOrEqual(8);
+
+  // Rep record is pending setup with the temp password stored.
+  const rep = await t.run(async (ctx) =>
+    ctx.db
+      .query("agcRepresentatives")
+      .withIndex("by_username", (q) => q.eq("username", created.username))
+      .unique(),
+  );
+  expect(rep!.status).toBe("pending_setup");
+  expect(rep!.mustChangePassword).toBe(true);
+  expect(rep!.tempPassword).toBe(created.tempPassword);
+
+  // Credentials email queued (stub status — no SMTP in tests) with a
+  // portal link built from the client origin.
+  const logs = await t.run((ctx) => ctx.db.query("emailLogs").collect());
+  expect(logs).toHaveLength(1);
+  expect(logs[0].to).toBe("rep@credhub.example");
+  expect(logs[0].type).toBe("agc_rep_notification");
+  expect(logs[0].status).toBe("stub");
+  const payload = JSON.parse(logs[0].referenceId!) as {
+    username: string;
+    tempPassword: string;
+    isResend: boolean;
+    portalUrl: string;
+  };
+  expect(payload.username).toBe(created.username);
+  expect(payload.tempPassword).toBe(created.tempPassword);
+  expect(payload.isResend).toBe(false);
+  expect(payload.portalUrl).toBe("http://localhost:5401/portal");
+});
+
+test("issueTempPassword resets the rep to setup and emails new credentials", async () => {
+  const t = createTestConvex();
+  const hubId = await t.run((ctx) => ctx.db.insert("agcHubs", HUB));
+  const username = "resend_hub";
+  const { default: bcrypt } = await import("bcryptjs");
+  const oldHash = await bcrypt.hash("old-active-pass-1", 12);
+  const repId = await seedRep(t, hubId, username, oldHash, "old-temp");
+
+  // Make the rep look fully activated with a live session.
+  const liveToken = "live-session-token";
+  await t.run(async (ctx) => {
+    await ctx.db.patch(repId, {
+      email: "rep@resend.example",
+      status: "active",
+      mustChangePassword: false,
+      profileComplete: true,
+    });
+    await ctx.db.insert("agcRepSessions", {
+      repId,
+      token: liveToken,
+      expiresAt: Date.now() + 3_600_000,
+      createdAt: Date.now(),
+    });
+  });
+
+  const { createHash, randomBytes } = await import("node:crypto");
+  const adminToken = createHash("sha256").update(randomBytes(24)).digest("hex");
+  await t.run(async (ctx) => {
+    const adminId = await ctx.db.insert("users", {
+      name: "Admin",
+      email: "admin@example.com",
+      passwordHash: "not-a-real-hash",
+      role: "admin",
+      active: true,
+      createdAt: Date.now(),
+    });
+    await ctx.db.insert("sessions", {
+      userId: adminId,
+      token: adminToken,
+      expiresAt: Date.now() + 3_600_000,
+      createdAt: Date.now(),
+    });
+  });
+
+  const resend = await t.action(api.agcAdmin.issueTempPassword, {
+    sessionToken: adminToken,
+    repId,
+    clientOrigin: "http://localhost:3000",
+  });
+  expect(resend.username).toBe(username);
+  expect(resend.tempPassword.length).toBeGreaterThanOrEqual(8);
+
+  // Rep is reset to first-time setup with the new temp password stored.
+  const rep = await t.run((ctx) => ctx.db.get(repId));
+  expect(rep!.status).toBe("pending_setup");
+  expect(rep!.mustChangePassword).toBe(true);
+  expect(rep!.tempPassword).toBe(resend.tempPassword);
+
+  // The previously live session was killed.
+  const profile = await t.query(api.agcPortal.getRepProfile, {
+    sessionToken: liveToken,
+  });
+  expect(profile).toBeNull();
+
+  // Resend email queued with the new password.
+  const logs = await t.run((ctx) => ctx.db.query("emailLogs").collect());
+  expect(logs).toHaveLength(1);
+  expect(logs[0].to).toBe("rep@resend.example");
+  const payload = JSON.parse(logs[0].referenceId!) as {
+    tempPassword: string;
+    isResend: boolean;
+    portalUrl: string;
+  };
+  expect(payload.tempPassword).toBe(resend.tempPassword);
+  expect(payload.isResend).toBe(true);
+  expect(payload.portalUrl).toBe("http://localhost:3000/portal");
+
+  // The new temp password signs in (to the setup screen).
+  const login = await t.action(api.agcAuth.repLogin, {
+    username,
+    password: resend.tempPassword,
+  });
+  expect(login.kind).toBe("setup_required");
+});

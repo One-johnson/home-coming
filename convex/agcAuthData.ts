@@ -327,3 +327,72 @@ export const insertEmailLog = internalMutation({
     return { emailLogId, shouldSend: status === "pending" };
   },
 });
+
+// ------------------------------------------------------------------
+// Rep credentials emails (account created / credentials resent)
+// ------------------------------------------------------------------
+
+/**
+ * Queue the "your username + temporary password" email for a representative.
+ * Rendered to branded HTML by emailSendAction when SMTP is configured;
+ * otherwise logged with status "stub" so the content is still auditable.
+ * Safe to call for reps without an email on file — the call is a no-op.
+ */
+export const queueRepCredentialsEmail = internalMutation({
+  args: {
+    repId: v.id("agcRepresentatives"),
+    hubName: v.string(),
+    username: v.string(),
+    tempPassword: v.string(),
+    isResend: v.boolean(),
+    portalUrl: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const rep = await ctx.db.get(args.repId);
+    if (!rep?.email) return { emailLogId: null, shouldSend: false };
+
+    const subject = args.isResend
+      ? "Homecoming 2026 — new sign-in details for your representative account"
+      : "Homecoming 2026 — your representative account details";
+    const body = [
+      `Hello ${args.hubName} representative,`,
+      "",
+      args.isResend
+        ? "A new temporary password was issued for your representative account. Your previous password no longer works."
+        : "An account has been created for your hub on the Homecoming representative portal.",
+      "",
+      `Portal: ${args.portalUrl}`,
+      `Username: ${args.username}`,
+      `Temporary password: ${args.tempPassword}`,
+      "",
+      "Sign in with these details, choose a new password and complete your profile — your account activates right away.",
+      "",
+      "Please treat the temporary password as confidential until you have replaced it with your own.",
+      "",
+      "— Homecoming 2026 Registration Desk",
+    ].join("\n");
+
+    const status = isSmtpConfigured() ? ("pending" as const) : ("stub" as const);
+    const emailLogId: Id<"emailLogs"> = await ctx.db.insert("emailLogs", {
+      to: rep.email,
+      subject,
+      body,
+      type: "agc_rep_notification",
+      status,
+      createdAt: Date.now(),
+    });
+
+    // Stash the pieces needed for the branded HTML render.
+    await ctx.db.patch(emailLogId, {
+      referenceId: JSON.stringify({
+        hubName: args.hubName,
+        username: args.username,
+        tempPassword: args.tempPassword,
+        isResend: args.isResend,
+        portalUrl: args.portalUrl,
+      }),
+    });
+
+    return { emailLogId, shouldSend: status === "pending" };
+  },
+});

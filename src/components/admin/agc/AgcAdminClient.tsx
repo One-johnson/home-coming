@@ -128,9 +128,11 @@ function RegistrationsTab() {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="grid items-start gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {(rows ?? []).length === 0 && (
-        <p className="text-sm text-muted-foreground">No registrations yet.</p>
+        <p className="text-sm text-muted-foreground sm:col-span-2 lg:col-span-3">
+          No registrations yet.
+        </p>
       )}
       {(rows ?? []).map((row: AdminRegistrationRow) => {
         const status = paymentStatusMeta(row.paymentStatus);
@@ -181,12 +183,16 @@ function RegistrationsTab() {
                   Last message: {row.adminMessage}
                 </p>
               )}
-              <ReviewActions
-                disabled={busyId === row._id}
-                onDecision={(decision, message) =>
-                  void decide(row, decision, message)
-                }
-              />
+              {/* Decided rows show as confirmed cards — actions only while
+                  a payment is awaiting review. */}
+              {row.paymentStatus === "pending_verification" && (
+                <ReviewActions
+                  disabled={busyId === row._id}
+                  onDecision={(decision, message) =>
+                    void decide(row, decision, message)
+                  }
+                />
+              )}
             </CardContent>
           </Card>
         );

@@ -7,6 +7,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { requireAdminViaAction } from "./agcAdminData";
 import { AGC_REGIONS } from "./lib/agcConfig";
+import { buildPortalUrl } from "./lib/resetUrls";
 
 const BCRYPT_ROUNDS = 12;
 
@@ -135,6 +136,8 @@ export const createRep = action({
     email: v.optional(v.string()),
     /** Admin-chosen default (temporary) password; auto-generated when omitted. */
     tempPassword: v.optional(v.string()),
+    /** Browser origin, used to build the portal link in the credentials email. */
+    clientOrigin: v.optional(v.string()),
   },
   handler: async (
     ctx,
@@ -174,6 +177,24 @@ export const createRep = action({
       },
     );
 
+    // Send the credentials to the rep's email (no-op without one on file).
+    const credsEmail = await ctx.runMutation(
+      internal.agcAuthData.queueRepCredentialsEmail,
+      {
+        repId,
+        hubName: hub.name,
+        username,
+        tempPassword,
+        isResend: false,
+        portalUrl: buildPortalUrl(args.clientOrigin),
+      },
+    );
+    if (credsEmail.shouldSend) {
+      await ctx.scheduler.runAfter(0, internal.emailSendAction.sendEmail, {
+        emailLogId: credsEmail.emailLogId as Id<"emailLogs">,
+      });
+    }
+
     await ctx.runMutation(internal.agcAdminData.insertAuditEntry, {
       actorEmail: actor.email,
       summary: `Created representative account ${username} for hub ${hub.name}`,
@@ -190,6 +211,8 @@ export const bulkCreateReps = action({
     tempPassword: v.optional(v.string()),
     /** Limit creation to these hub ids; all hub-less hubs when omitted. */
     hubIds: v.optional(v.array(v.id("agcHubs"))),
+    /** Browser origin, used to build the portal link in credentials emails. */
+    clientOrigin: v.optional(v.string()),
   },
   handler: async (
     ctx,
@@ -259,12 +282,15 @@ export const bulkCreateReps = action({
       try {
         const tempPassword = trimmed || sharedTempPassword;
         const passwordHash = await bcrypt.hash(tempPassword, BCRYPT_ROUNDS);
-        await ctx.runMutation(internal.agcAdminData.insertRep, {
-          hubId: hub._id,
-          username,
-          passwordHash,
-          tempPassword,
-        });
+        const repId: Id<"agcRepresentatives"> = await ctx.runMutation(
+          internal.agcAdminData.insertRep,
+          {
+            hubId: hub._id,
+            username,
+            passwordHash,
+            tempPassword,
+          },
+        );
         usernameSeen.add(username.toLowerCase());
         results.created.push({
           hubId: hub._id,
@@ -272,6 +298,24 @@ export const bulkCreateReps = action({
           username,
           tempPassword,
         });
+
+        // Queue the credentials email for this rep (no-op without email).
+        const credsEmail = await ctx.runMutation(
+          internal.agcAuthData.queueRepCredentialsEmail,
+          {
+            repId: repId,
+            hubName: hub.name,
+            username,
+            tempPassword,
+            isResend: false,
+            portalUrl: buildPortalUrl(args.clientOrigin),
+          },
+        );
+        if (credsEmail.shouldSend) {
+          await ctx.scheduler.runAfter(0, internal.emailSendAction.sendEmail, {
+            emailLogId: credsEmail.emailLogId as Id<"emailLogs">,
+          });
+        }
       } catch (err) {
         results.errors.push({
           hubName: hub.name,
@@ -295,6 +339,8 @@ export const issueTempPassword = action({
     repId: v.id("agcRepresentatives"),
     /** Admin-chosen temporary password; auto-generated when omitted. */
     tempPassword: v.optional(v.string()),
+    /** Browser origin, used to build the portal link in the credentials email. */
+    clientOrigin: v.optional(v.string()),
   },
   handler: async (
     ctx,
@@ -315,12 +361,35 @@ export const issueTempPassword = action({
     await ctx.runMutation(internal.agcAdminData.resetRepCredentials, {
       repId: rep._id,
       passwordHash,
+      tempPassword,
     });
 
     await ctx.runMutation(internal.agcAdminData.insertAuditEntry, {
       actorEmail: actor.email,
       summary: `Issued a new temporary password for ${rep.username}`,
     });
+
+    // Resend the credentials (new temp password) to the rep's email.
+    const hub: Doc<"agcHubs"> | null = await ctx.runQuery(
+      internal.agcAdminData.getHubById,
+      { hubId: rep.hubId },
+    );
+    const credsEmail = await ctx.runMutation(
+      internal.agcAuthData.queueRepCredentialsEmail,
+      {
+        repId: rep._id,
+        hubName: hub?.name ?? rep.username,
+        username: rep.username,
+        tempPassword,
+        isResend: true,
+        portalUrl: buildPortalUrl(args.clientOrigin),
+      },
+    );
+    if (credsEmail.shouldSend) {
+      await ctx.scheduler.runAfter(0, internal.emailSendAction.sendEmail, {
+        emailLogId: credsEmail.emailLogId as Id<"emailLogs">,
+      });
+    }
 
     return { username: rep.username, tempPassword };
   },

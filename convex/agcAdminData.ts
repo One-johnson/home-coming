@@ -492,6 +492,8 @@ export const resetRepCredentials = internalMutation({
   args: {
     repId: v.id("agcRepresentatives"),
     passwordHash: v.string(),
+    /** New temporary password to display on admin cards / exports. */
+    tempPassword: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     // Kill sessions and force first-login setup again.
@@ -504,6 +506,7 @@ export const resetRepCredentials = internalMutation({
     }
     await ctx.db.patch(args.repId, {
       passwordHash: args.passwordHash,
+      tempPassword: args.tempPassword,
       mustChangePassword: true,
       profileComplete: false,
       status: "pending_setup",

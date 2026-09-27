@@ -1,6 +1,7 @@
 import { getBannerUrl } from "../_components/banner";
 import type { AccommodationEmailProps } from "../accommodation-confirmation";
 import type { RegistrationEmailProps } from "../registration-confirmation";
+import type { RepCredentialsEmailProps } from "../rep-credentials";
 import type { TourEmailProps } from "../tour-confirmation";
 
 export const previewRegistrationProps: RegistrationEmailProps = {
@@ -33,4 +34,13 @@ export const previewTourProps: TourEmailProps = {
     "Cape Coast Castle: Nov 5 × 1 (USD 25.00)",
   ],
   totalAmount: "USD 65.00",
+};
+
+export const previewRepCredentialsProps: RepCredentialsEmailProps = {
+  bannerUrl: getBannerUrl(),
+  hubName: "Ashanti Mampong",
+  username: "ashanti_mampong",
+  temporaryPassword: "HC-temp-4821",
+  isResend: false,
+  portalUrl: "http://localhost:3000/portal",
 };
