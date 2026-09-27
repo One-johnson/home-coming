@@ -3,7 +3,6 @@
     "title": "Homecoming",
     "tagline": "A gathering of all the churches — everyone is coming home.",
     "countdownLabel": "Countdown to Homecoming 2026",
-    "registerLabel": "Register Now",
     "accommodationLabel": "Book Accommodation",
     "slides": [
       {
@@ -39,8 +38,8 @@
   },
   "registrationCta": {
     "subtitle": "Join Us",
-    "title": "Register for Homecoming",
-    "body": "Secure your place at Homecoming. Register as a group, choose add-ons, and prepare for an unforgettable gathering."
+    "title": "Make the Most of Homecoming",
+    "body": "Explore guided tour packages and prepare for an unforgettable gathering on the mountain."
   },
   "venue": {
     "id": "venue",

@@ -20,10 +20,10 @@ export function StickyMobileCTA() {
       <Separator />
       <div className="mx-auto flex max-w-lg gap-3 p-3">
         <Button
-          href="/registration"
+          href="/tours"
           className="min-h-11 flex-1 border-gold bg-gold py-2.5 text-sm text-ink hover:bg-gold-dark hover:text-ink"
         >
-          Register
+          Tours
         </Button>
         {SITE_FEATURES.accommodationEnabled ? (
           <Button

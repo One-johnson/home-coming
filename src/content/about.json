@@ -9,8 +9,8 @@
     "image": "/gallery/2025/homecoming-16.jpg",
     "imageAlt": "The crowd at Homecoming 2025 waving the Ghana flag in the convention hall",
     "primaryCta": {
-      "href": "/registration",
-      "label": "Join us at Homecoming"
+      "href": "/tours",
+      "label": "Explore Tours"
     },
     "secondaryCta": {
       "href": "#church",
@@ -131,8 +131,8 @@
   "cta": {
     "subtitle": "The Homecoming 2026",
     "title": "Join us on the mountain",
-    "body": "Come worship, grow, and serve with us. Register for the convention, then secure your place to stay.",
-    "primaryLabel": "Register for Homecoming",
+    "body": "Come worship, grow, and serve with us. Explore tour packages and plan your journey to the mountain.",
+    "primaryLabel": "Explore Tours",
     "secondaryLabel": "Book accommodation"
   }
 }

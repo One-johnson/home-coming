@@ -23,8 +23,8 @@ export default function RegistrationSuccessPage() {
         <PaymentSuccess
           title="Registration complete"
           description={`Thank you for registering for ${EVENT.fullTitle}.`}
-          backHref="/registration"
-          backLabel="Back to registration"
+          backHref="/portal"
+          backLabel="Back to portal"
         />
       </Suspense>
     </Section>

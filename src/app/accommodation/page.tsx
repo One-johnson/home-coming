@@ -26,10 +26,10 @@ export default function AccommodationPage() {
         </p>
         <div className="flex flex-wrap justify-center gap-4">
           <Button
-            href="/registration"
+            href="/tours"
             className="min-h-12 border-gold bg-gold px-8 py-3.5 text-base text-ink hover:bg-gold-dark hover:text-ink"
           >
-            Register Now
+            Explore Tours
           </Button>
           <Button
             href="/"

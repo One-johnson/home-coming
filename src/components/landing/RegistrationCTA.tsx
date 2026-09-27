@@ -20,10 +20,10 @@ export function RegistrationCTA() {
       </p>
       <div className="flex flex-wrap justify-center gap-5">
         <Button
-          href="/registration"
+          href="/tours"
           className={`${ctaButtonClassName} border-gold bg-gold text-ink shadow-elevate hover:bg-gold-dark hover:text-ink`}
         >
-          Register Now
+          Explore Tours
         </Button>
         {SITE_FEATURES.accommodationEnabled ? (
           <Button

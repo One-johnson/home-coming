@@ -1,22 +1,9 @@
-import type { Metadata } from "next";
-import { Section } from "@/components/ui/Section";
-import { RegistrationForm } from "@/components/registration/RegistrationForm";
-import { createPageMetadata, PAGE_SEO } from "@/lib/seo";
+import { permanentRedirect } from "next/navigation";
 
-export const metadata: Metadata = createPageMetadata(PAGE_SEO.registration);
-
+/**
+ * Registration is handled exclusively by hub representatives in /portal
+ * (AGC 2026 flow). The legacy public form has been retired.
+ */
 export default function RegistrationPage() {
-  return (
-    <Section
-      subtitle="Register"
-      title="Register for Homecoming"
-      className="pt-24"
-    >
-      <p className="lead mx-auto mb-10 max-w-2xl text-center">
-        Choose your group for ticket pricing, add optional extras, then pay with
-        Paystack or Stripe.
-      </p>
-      <RegistrationForm />
-    </Section>
-  );
+  permanentRedirect("/portal");
 }

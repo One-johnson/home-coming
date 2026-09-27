@@ -26,11 +26,6 @@ export function Footer() {
             <h4 className="eyebrow eyebrow-light mb-0 text-[0.65rem]">Quick Links</h4>
             <ul className="mt-3 space-y-2 font-body text-sm">
               <li>
-                <Link href="/registration" className={footerLinkClassName}>
-                  Register
-                </Link>
-              </li>
-              <li>
                 <Link href="/tours" className={footerLinkClassName}>
                   Tours
                 </Link>

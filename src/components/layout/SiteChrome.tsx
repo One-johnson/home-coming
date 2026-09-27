@@ -8,12 +8,13 @@ import { StickyMobileCTA } from "@/components/layout/StickyMobileCTA";
 export function SiteChrome({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isAdmin = pathname.startsWith("/admin");
+  const isPortal = pathname.startsWith("/portal");
   const hideStickyCta =
     pathname.startsWith("/registration") ||
     pathname.startsWith("/tours") ||
     pathname.startsWith("/accommodation");
 
-  if (isAdmin) {
+  if (isAdmin || isPortal) {
     return <div className="min-h-svh bg-background">{children}</div>;
   }
 

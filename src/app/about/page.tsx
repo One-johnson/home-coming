@@ -25,10 +25,10 @@ export default function AboutPage() {
         </p>
         <div className="flex flex-wrap justify-center gap-5">
           <Button
-            href="/registration"
+            href="/tours"
             className="min-h-12 border-gold-light bg-gradient-to-r from-gold-light via-[#f0e6c8] to-gold px-9 py-4 text-base text-ink shadow-elevate hover:from-gold hover:via-gold-light hover:to-gold-dark hover:text-ink sm:min-h-[3.25rem] sm:px-10 sm:text-lg"
           >
-            {cta.primaryLabel}
+            Explore Tours
           </Button>
           {SITE_FEATURES.accommodationEnabled ? (
             <Button
