@@ -402,6 +402,14 @@ export default defineSchema({
     .index("by_token", ["token"])
     .index("by_rep", ["repId"]),
 
+  /** Login throttle: brute-force lockout for representative sign-in (per username). */
+  agcLoginThrottle: defineTable({
+    key: v.string(),
+    failedCount: v.number(),
+    lockedUntil: v.optional(v.number()),
+    lastFailureAt: v.optional(v.number()),
+  }).index("by_key", ["key"]),
+
   /** Password reset tokens for representatives (SRS §7). */
   agcPasswordResets: defineTable({
     repId: v.id("agcRepresentatives"),

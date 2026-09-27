@@ -1,5 +1,7 @@
 "use client";
 
+import { toastFriendlyErrorParts } from "@/lib/friendlyError";
+
 import Link from "next/link";
 import { useAction, useQuery } from "convex/react";
 import { useState } from "react";
@@ -43,7 +45,7 @@ export function AdminSignIn() {
       setSession(result.sessionToken);
       toast.success("Signed in");
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Sign in failed";
+      const message = toastFriendlyErrorParts.toastMessage(err, "Sign in failed");
       setAuthError(message);
       toast.error(message);
     } finally {

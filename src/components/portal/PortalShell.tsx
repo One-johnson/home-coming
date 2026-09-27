@@ -3,10 +3,7 @@
 import { useState } from "react";
 import { LogOutIcon } from "lucide-react";
 import { toast } from "sonner";
-import {
-  RepSessionFallbackProvider,
-  useRepSession,
-} from "@/components/portal/RepSessionProvider";
+import { useRepSession } from "@/components/portal/RepSessionProvider";
 import {
   RepFirstTimeSetup,
   RepSignIn,
@@ -36,7 +33,8 @@ function ConvexRequiredMessage() {
 }
 
 function PortalBody() {
-  const { sessionToken, isReady, rep, clearSession } = useRepSession();
+  const { sessionToken, isReady, rep, setSession, clearSession } =
+    useRepSession();
   const [tab, setTab] = useState("registration");
 
   if (!isReady) {
@@ -69,7 +67,7 @@ function PortalBody() {
   }
 
   if (rep.profileComplete === false) {
-    return <RepFirstTimeSetup username={rep.username} />;
+    return <RepFirstTimeSetup username={rep.username} onSetupComplete={setSession} />;
   }
 
   return (
@@ -127,8 +125,9 @@ export function PortalShell() {
   }
 
   return (
-    <RepSessionFallbackProvider>
-      <div className="mx-auto w-full max-w-6xl px-4 py-10">
+    // The real (or fallback) RepSessionProvider is mounted globally in
+    // ConvexClientProvider — no need to nest another one here.
+    <div className="mx-auto w-full max-w-6xl px-4 py-10">
         <header className="mb-8 text-center">
           <p className="text-sm uppercase tracking-widest text-muted-foreground">
             {EVENT.fullTitle}
@@ -143,6 +142,5 @@ export function PortalShell() {
         </header>
         <PortalBody />
       </div>
-    </RepSessionFallbackProvider>
   );
 }

@@ -82,7 +82,12 @@ export function RepSessionProvider({ children }: { children: ReactNode }) {
   );
 
   const setSession = useCallback((token: string) => {
-    window.localStorage.setItem(STORAGE_KEY, token);
+    try {
+      window.localStorage.setItem(STORAGE_KEY, token);
+    } catch {
+      // Storage may be unavailable (private mode, quota) — keep the in-memory
+      // session so the current tab still works.
+    }
     setSessionToken(token);
   }, []);
 

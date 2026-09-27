@@ -1,5 +1,7 @@
 "use client";
 
+import { toastFriendlyErrorParts } from "@/lib/friendlyError";
+
 import Image from "next/image";
 import { useMutation, useQuery } from "convex/react";
 import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
@@ -180,7 +182,7 @@ export function GalleryManager() {
       setEditAlbumOpen(false);
       toast.success("Album updated");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update album");
+      toast.error(...toastFriendlyErrorParts(err, "Failed to update album"));
     } finally {
       setSavingAlbum(false);
     }
@@ -208,9 +210,7 @@ export function GalleryManager() {
       setEditingImageId(null);
       toast.success("Caption updated");
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Failed to update caption",
-      );
+      toast.error(...toastFriendlyErrorParts(err, "Failed to update caption"));
     } finally {
       setSavingCaption(false);
     }
@@ -314,7 +314,7 @@ export function GalleryManager() {
       }
       setDeleteTarget(null);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Delete failed");
+      toast.error(...toastFriendlyErrorParts(err, "Delete failed"));
     } finally {
       setDeleting(false);
     }

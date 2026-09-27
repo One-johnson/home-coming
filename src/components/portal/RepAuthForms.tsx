@@ -83,9 +83,13 @@ export function RepSignIn() {
       toast.success(`Welcome back, ${outcome.result.rep.hubName}`);
       router.refresh();
     } catch (err) {
-      // Genuine failures only (invalid credentials, disabled account, …).
+      // Genuine failures only (invalid credentials, disabled account, lockout…).
       const friendly = friendlyError(err);
-      setError(friendly.detail ? `${friendly.title}: ${friendly.detail}` : friendly.title);
+      setError(
+        friendly.detail
+          ? `${friendly.title}: ${friendly.detail}`
+          : friendly.title,
+      );
       toast.error(friendly.title, { description: friendly.detail });
     } finally {
       setLoading(false);
@@ -97,6 +101,7 @@ export function RepSignIn() {
       <RepFirstTimeSetup
         username={setupUsername}
         onBack={() => setSetupUsername(null)}
+        onSetupComplete={setSession}
       />
     );
   }
@@ -177,12 +182,19 @@ export function RepSignIn() {
   );
 }
 
+/**
+ * First-time setup. On success the action now activates the account and
+ * returns a session, so the rep is signed in immediately — no second login,
+ * no "setup complete" card.
+ */
 export function RepFirstTimeSetup({
   username,
   onBack,
+  onSetupComplete,
 }: {
   username: string;
   onBack?: () => void;
+  onSetupComplete: (sessionToken: string) => void;
 }) {
   const completeSetup = useAction(api.agcAuth.completeFirstLoginSetup);
   const router = useRouter();
@@ -199,7 +211,6 @@ export function RepFirstTimeSetup({
   const [showTemp, setShowTemp] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
-  const [done, setDone] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -213,7 +224,7 @@ export function RepFirstTimeSetup({
     setLoading(true);
     setError("");
     try {
-      await completeSetup({
+      const { sessionToken, rep } = await completeSetup({
         username,
         temporaryPassword,
         newPassword,
@@ -222,39 +233,23 @@ export function RepFirstTimeSetup({
         email,
         phone,
       });
-      setDone(true);
-      toast.success("Setup complete — now sign in with your new password");
+
+      // Activated and signed in — land directly in the portal.
+      onSetupComplete(sessionToken);
+      toast.success(`Welcome, ${rep.hubName}! Your account is ready.`);
+      router.refresh();
     } catch (err) {
       const friendly = friendlyError(err);
       setError(
-        friendly.detail ? `${friendly.title}: ${friendly.detail}` : friendly.title,
+        friendly.detail
+          ? `${friendly.title}: ${friendly.detail}`
+          : friendly.title,
       );
       toast.error(friendly.title, { description: friendly.detail });
     } finally {
       setLoading(false);
     }
   };
-
-  if (done) {
-    return (
-      <Card className="mx-auto w-full max-w-md">
-        <CardHeader className="items-center text-center">
-          <CardTitle className="font-display text-2xl text-primary">
-            Setup complete
-          </CardTitle>
-          <CardDescription>
-            Your profile is saved and your new password is set. Sign in with
-            your username and new password to activate your account.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button className="w-full" onClick={() => router.push("/portal")}>
-            Go to sign in
-          </Button>
-        </CardContent>
-      </Card>
-    );
-  }
 
   return (
     <Card className="mx-auto w-full max-w-lg">
@@ -264,8 +259,8 @@ export function RepFirstTimeSetup({
         </CardTitle>
         <CardDescription>
           Welcome, representative of <strong>{username}</strong>. Choose a new
-          password and complete your profile, then sign in to activate the
-          account.
+          password and complete your profile — you'll be signed in right
+          after.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -383,7 +378,7 @@ export function RepFirstTimeSetup({
             </div>
           </div>
           <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? "Activating…" : "Activate account"}
+            {loading ? "Setting up your account…" : "Activate account"}
           </Button>
           {onBack && (
             <Button

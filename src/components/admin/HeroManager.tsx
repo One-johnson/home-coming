@@ -1,5 +1,7 @@
 "use client";
 
+import { toastFriendlyErrorParts } from "@/lib/friendlyError";
+
 import Image from "next/image";
 import { useMutation, useQuery } from "convex/react";
 import {
@@ -74,7 +76,7 @@ export function HeroManager() {
       });
       toast.success("Slide order updated");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Reorder failed");
+      toast.error(...toastFriendlyErrorParts(err, "Reorder failed"));
     }
   };
 
@@ -91,7 +93,7 @@ export function HeroManager() {
       });
       toast.success("Alt text saved");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Update failed");
+      toast.error(...toastFriendlyErrorParts(err, "Update failed"));
     }
   };
 
@@ -113,7 +115,7 @@ export function HeroManager() {
         `Added ${files.length} hero slide${files.length === 1 ? "" : "s"}`,
       );
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Upload failed");
+      toast.error(...toastFriendlyErrorParts(err, "Upload failed"));
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -134,7 +136,7 @@ export function HeroManager() {
       });
       toast.success("Hero image replaced");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Replace failed");
+      toast.error(...toastFriendlyErrorParts(err, "Replace failed"));
     } finally {
       setUploading(false);
       setReplaceTargetId(null);
@@ -150,7 +152,7 @@ export function HeroManager() {
       toast.success("Hero slide deleted");
       setDeleteTarget(null);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Delete failed");
+      toast.error(...toastFriendlyErrorParts(err, "Delete failed"));
     } finally {
       setDeleting(false);
     }
@@ -166,7 +168,7 @@ export function HeroManager() {
         toast.message("Hero slides already exist");
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Seed failed");
+      toast.error(...toastFriendlyErrorParts(err, "Seed failed"));
     }
   };
 

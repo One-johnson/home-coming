@@ -82,7 +82,11 @@ export async function assertBeforeDeadline(ctx: MutationCtx) {
 export const getRepProfile = query({
   args: { sessionToken: v.string() },
   handler: async (ctx, args) => {
-    const { rep, hub } = await requireRep(ctx, args.sessionToken);
+    // Returns null (never throws) for missing/expired sessions so the client
+    // provider can cleanly clear the stale token and show the sign-in form.
+    const result = await getRepByToken(ctx, args.sessionToken);
+    if (!result) return null;
+    const { rep, hub } = result;
     return {
       _id: rep._id,
       username: rep.username,

@@ -1,5 +1,7 @@
 "use client";
 
+import { toastFriendlyErrorParts } from "@/lib/friendlyError";
+
 import { useMutation, useQuery } from "convex/react";
 import { ChevronDown, Pencil, Plus, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -173,7 +175,7 @@ export function GroupsManager() {
       toast.success(editingGroupId === "new" ? "Group created" : "Group saved");
       setEditingGroupId(null);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Save failed");
+      toast.error(...toastFriendlyErrorParts(err, "Save failed"));
     } finally {
       setSaving(false);
     }
@@ -218,7 +220,7 @@ export function GroupsManager() {
         });
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Save failed");
+      toast.error(...toastFriendlyErrorParts(err, "Save failed"));
     }
   };
 
@@ -236,7 +238,7 @@ export function GroupsManager() {
       }
       setDeleteTarget(null);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Delete failed");
+      toast.error(...toastFriendlyErrorParts(err, "Delete failed"));
     } finally {
       setDeleting(false);
     }
@@ -254,7 +256,7 @@ export function GroupsManager() {
         toast.message("Catalog already exists — use Replace defaults to reset");
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Seed failed");
+      toast.error(...toastFriendlyErrorParts(err, "Seed failed"));
     }
   };  const handleReplaceSeed = async () => {
     if (!sessionToken) return;

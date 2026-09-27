@@ -5,9 +5,10 @@ import bcrypt from "bcryptjs";
 import { v } from "convex/values";
 import { action, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { isSmtpConfigured } from "./lib/smtpConfig";
 import { buildResetUrl } from "./lib/resetUrls";
+import { LOCK_MESSAGE } from "./lib/loginThrottle";
 
 const BCRYPT_ROUNDS = 12;
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
@@ -19,6 +20,26 @@ function normalizeUsername(username: string) {
 
 function createSessionToken() {
   return createHash("sha256").update(randomBytes(48)).digest("hex");
+}
+
+/**
+ * Issue a fresh session for a representative (single active session:
+ * existing ones are deleted first). Shared by repLogin and the
+ * first-time setup action so setup can sign the rep in directly.
+ */
+async function issueRepSession(
+  ctx: ActionCtx,
+  repId: Id<"agcRepresentatives">,
+): Promise<{ sessionToken: string; expiresAt: number }> {
+  await ctx.runMutation(internal.agcAuthData.deleteRepSessions, { repId });
+  const token = createSessionToken();
+  const expiresAt = Date.now() + SESSION_TTL_MS;
+  await ctx.runMutation(internal.agcAuthData.insertRepSession, {
+    repId,
+    token,
+    expiresAt,
+  });
+  return { sessionToken: token, expiresAt };
 }
 
 export type RepAuthResult = {
@@ -143,8 +164,25 @@ export const repLogin = action({
       );
     }
 
+    // Brute-force lockout: reject before hashing/bcrypt if this username
+    // is currently locked (protects the shared temp-password window).
+    const lock = await ctx.runQuery(internal.agcAuthData.checkLoginLock, {
+      username,
+    });
+    if (lock) throw new Error(LOCK_MESSAGE);
+
     const ok = await bcrypt.compare(args.password, rep.passwordHash);
-    if (!ok) throw new Error("Invalid username or password");
+    if (!ok) {
+      // Record the failure; flip to a lockout message once the cap is hit.
+      const throttle = await ctx.runMutation(
+        internal.agcAuthData.recordLoginFailure,
+        { username },
+      );
+      if (throttle.lockedUntil) {
+        throw new Error(LOCK_MESSAGE);
+      }
+      throw new Error("Invalid username or password");
+    }
 
     // Expected flow-control outcome (NOT an error): the rep still has a
     // temporary password and must complete first-time setup. Returning a
@@ -154,6 +192,9 @@ export const repLogin = action({
       return { kind: "setup_required" };
     }
 
+    // Successful sign-in: clear any stale failure counts for this username.
+    await ctx.runMutation(internal.agcAuthData.clearLoginFailures, { username });
+
     // The account stays "pending_setup" until the representative signs in
     // with the new password they chose during first-time setup.
     if (rep.status !== "active") {
@@ -162,14 +203,10 @@ export const repLogin = action({
       });
     }
 
-    await ctx.runMutation(internal.agcAuthData.deleteRepSessions, { repId: rep._id });
-    const token = createSessionToken();
-    const expiresAt = Date.now() + SESSION_TTL_MS;
-    await ctx.runMutation(internal.agcAuthData.insertRepSession, {
-      repId: rep._id,
-      token,
-      expiresAt,
-    });
+    const { sessionToken: token, expiresAt } = await issueRepSession(
+      ctx,
+      rep._id,
+    );
 
     const hub: Doc<"agcHubs"> | null = await ctx.runQuery(
       internal.agcAuthData.getHubById,
@@ -206,10 +243,7 @@ export const completeFirstLoginSetup = action({
     email: v.string(),
     phone: v.string(),
   },
-  handler: async (
-    ctx,
-    args,
-  ): Promise<{ success: true }> => {
+  handler: async (ctx, args): Promise<RepAuthResult> => {
     if (args.newPassword.length < 8) {
       throw new Error("New password must be at least 8 characters");
     }
@@ -225,8 +259,24 @@ export const completeFirstLoginSetup = action({
       );
     }
 
+    // Same throttle namespace as sign-in: hammering the setup form with a
+    // wrong temporary password gets locked out too.
+    const lock = await ctx.runQuery(internal.agcAuthData.checkLoginLock, {
+      username,
+    });
+    if (lock) throw new Error(LOCK_MESSAGE);
+
     const ok = await bcrypt.compare(args.temporaryPassword, rep.passwordHash);
-    if (!ok) throw new Error("Invalid username or password");
+    if (!ok) {
+      const throttle = await ctx.runMutation(
+        internal.agcAuthData.recordLoginFailure,
+        { username },
+      );
+      if (throttle.lockedUntil) {
+        throw new Error(LOCK_MESSAGE);
+      }
+      throw new Error("Invalid username or password");
+    }
 
     const email = args.email.trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -258,9 +308,35 @@ export const completeFirstLoginSetup = action({
       summary: `Representative ${rep.username} completed first-time setup`,
     });
 
-    // No session is issued here: the account remains "pending_setup" until
-    // the representative signs in with the new password (see repLogin).
-    return { success: true };
+    // The rep is verified and set up — activate immediately (clears the
+    // temporary password) and sign them straight in.
+    await ctx.runMutation(internal.agcAuthData.activateRepLogin, {
+      repId: rep._id,
+    });
+    await ctx.runMutation(internal.agcAuthData.clearLoginFailures, {
+      username,
+    });
+    const { sessionToken, expiresAt } = await issueRepSession(ctx, rep._id);
+
+    const hub: Doc<"agcHubs"> | null = await ctx.runQuery(
+      internal.agcAuthData.getHubById,
+      { hubId: rep.hubId },
+    );
+
+    return {
+      sessionToken,
+      expiresAt,
+      rep: {
+        _id: rep._id,
+        username: rep.username,
+        hubName: hub?.name ?? rep.username,
+        firstName: args.firstName.trim(),
+        lastName: args.lastName.trim(),
+        email,
+        phone: args.phone.trim(),
+        country: rep.country ?? null,
+      },
+    };
   },
 });
 

@@ -1,5 +1,7 @@
 "use client";
 
+import { toastFriendlyErrorParts } from "@/lib/friendlyError";
+
 import { useMutation, useQuery } from "convex/react";
 import {
   ChevronLeft,
@@ -739,7 +741,7 @@ export function VideoManager() {
       setEditingMessage(null);
       setImportOpen(true);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "CSV import failed");
+      toast.error(...toastFriendlyErrorParts(err, "CSV import failed"));
     } finally {
       if (csvInputRef.current) csvInputRef.current.value = "";
     }
@@ -773,7 +775,7 @@ export function VideoManager() {
       resetCreateRows(Math.max(...items.map((item) => item.order)) + 1);
       setEditorMode(null);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save video");
+      toast.error(...toastFriendlyErrorParts(err, "Failed to save video"));
     } finally {
       setSaving(false);
     }
@@ -806,7 +808,7 @@ export function VideoManager() {
       toast.success("Video updated");
       closeEditor();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save video");
+      toast.error(...toastFriendlyErrorParts(err, "Failed to save video"));
     } finally {
       setSaving(false);
     }
@@ -839,9 +841,7 @@ export function VideoManager() {
       }
       closeImport();
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Failed to import videos",
-      );
+      toast.error(...toastFriendlyErrorParts(err, "Failed to import videos"));
     } finally {
       setSaving(false);
     }
@@ -870,7 +870,7 @@ export function VideoManager() {
       }
       setDeleteTarget(null);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Delete failed");
+      toast.error(...toastFriendlyErrorParts(err, "Delete failed"));
     } finally {
       setDeleting(false);
     }

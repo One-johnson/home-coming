@@ -1,5 +1,7 @@
 "use client";
 
+import { toastFriendlyErrorParts } from "@/lib/friendlyError";
+
 import { useMemo, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { DownloadIcon, Loader2Icon } from "lucide-react";
@@ -119,7 +121,7 @@ function RegistrationsTab() {
       });
       toast.success(`Registration ${decision.replace(/_/g, " ")}d`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Review failed");
+      toast.error(...toastFriendlyErrorParts(err, "Review failed"));
     } finally {
       setBusyId(null);
     }
@@ -232,7 +234,7 @@ export function AgcAdminClient() {
           : await exportRegistrationsAction({ sessionToken });
       downloadBase64(result.filename, result.contentBase64);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Export failed");
+      toast.error(...toastFriendlyErrorParts(err, "Export failed"));
     } finally {
       setExporting(null);
     }

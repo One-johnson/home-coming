@@ -3,6 +3,12 @@ import { internalMutation, internalQuery } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { writeAuditLog } from "./lib/audit";
 import { isSmtpConfigured } from "./lib/smtpConfig";
+import {
+  LOCK_MS,
+  MAX_FAILURES,
+  throttleKey,
+  WINDOW_MS,
+} from "./lib/loginThrottle";
 
 // ------------------------------------------------------------------
 // Internal queries/mutations for the rep auth actions in agcAuth.ts.
@@ -26,6 +32,103 @@ export const getRepByEmail = internalQuery({
       .query("agcRepresentatives")
       .withIndex("by_email", (q) => q.eq("email", args.email))
       .unique();
+  },
+});
+
+// ------------------------------------------------------------------
+// Login throttle (brute-force lockout for rep sign-in and first-time
+// setup, keyed by normalized username).
+// ------------------------------------------------------------------
+
+/** Returns the lock expiry while locked, otherwise null. */
+export const checkLoginLock = internalQuery({
+  args: { username: v.string() },
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("agcLoginThrottle")
+      .withIndex("by_key", (q) => q.eq("key", throttleKey(args.username)))
+      .unique();
+    if (!row) return null;
+    if (row.lockedUntil && row.lockedUntil > Date.now()) {
+      return row.lockedUntil;
+    }
+    return null;
+  },
+});
+
+export const recordLoginFailure = internalMutation({
+  args: { username: v.string() },
+  handler: async (ctx, args) => {
+    const key = throttleKey(args.username);
+    const now = Date.now();
+
+    // Lazy cleanup keeps the table small: drop stale rows on every touch.
+    const stale = await ctx.db
+      .query("agcLoginThrottle")
+      .withIndex("by_key")
+      .collect();
+    for (const row of stale) {
+      const expired =
+        row.lockedUntil !== undefined && row.lockedUntil < now;
+      const windowOver =
+        row.lastFailureAt !== undefined &&
+        now - row.lastFailureAt > WINDOW_MS &&
+        (row.lockedUntil === undefined || row.lockedUntil < now);
+      if (expired || windowOver) {
+        await ctx.db.delete(row._id);
+      }
+    }
+
+    const row = await ctx.db
+      .query("agcLoginThrottle")
+      .withIndex("by_key", (q) => q.eq("key", key))
+      .unique();
+
+    if (!row) {
+      await ctx.db.insert("agcLoginThrottle", {
+        key,
+        failedCount: 1,
+        lastFailureAt: now,
+      });
+      return { lockedUntil: undefined };
+    }
+
+    // A failure after a previous lock expired restarts the count.
+    if (
+      row.lockedUntil !== undefined &&
+      row.lockedUntil <= now &&
+      now - (row.lastFailureAt ?? 0) > WINDOW_MS
+    ) {
+      await ctx.db.patch(row._id, {
+        failedCount: 1,
+        lockedUntil: undefined,
+        lastFailureAt: now,
+      });
+      return { lockedUntil: undefined };
+    }
+
+    const failedCount = row.failedCount + 1;
+    if (failedCount >= MAX_FAILURES) {
+      const lockedUntil = now + LOCK_MS;
+      await ctx.db.patch(row._id, { failedCount, lockedUntil, lastFailureAt: now });
+      return { lockedUntil };
+    }
+
+    await ctx.db.patch(row._id, { failedCount, lastFailureAt: now });
+    return { lockedUntil: undefined };
+  },
+});
+
+export const clearLoginFailures = internalMutation({
+  args: { username: v.string() },
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("agcLoginThrottle")
+      .withIndex("by_key", (q) => q.eq("key", throttleKey(args.username)))
+      .unique();
+    if (row) {
+      await ctx.db.delete(row._id);
+    }
   },
 });
 

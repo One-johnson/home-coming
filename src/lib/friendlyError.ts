@@ -47,6 +47,13 @@ export function friendlyError(err: unknown): FriendlyError {
       detail: "Please contact the registration desk for help.",
     };
   }
+  if (/too many failed attempts/i.test(message)) {
+    return {
+      title: "Too many failed attempts",
+      detail:
+        "For security this account is locked for 15 minutes. Try again later, or contact the registration desk if you've lost the password.",
+    };
+  }
   if (/reset link is invalid or has expired/i.test(message)) {
     return {
       title: "This reset link isn't valid anymore",
@@ -80,5 +87,50 @@ export function friendlyError(err: unknown): FriendlyError {
   }
 
   // Unknown but intentional server message — pass it through, cleaned up.
+  return { title: message };
+}
+
+/**
+ * Spread-friendly helper for catch blocks:
+ *   toast.error(...toastFriendlyErrorParts(err, "X failed"));
+ * or pull just the message:
+ *   const message = toastFriendlyErrorParts.toastMessage(err, "X failed");
+ */
+export const toastFriendlyErrorParts = Object.assign(
+  (err: unknown, fallback: string): [string, { description?: string }] => {
+    const { title, detail } = adminFriendlyError(err);
+    return [title || fallback, detail ? { description: detail } : {}];
+  },
+  {
+    toastMessage(err: unknown, fallback: string): string {
+      const { title, detail } = adminFriendlyError(err);
+      return detail ? `${title}: ${detail}` : title || fallback;
+    },
+  },
+);
+
+/**
+ * One-liner for catch blocks: shows a friendly sonner toast and returns a
+ * message string suitable for inline error state.
+ */
+export function toastFriendlyError(
+  toastApi: { error: (title: string, opts?: { description?: string }) => void },
+  err: unknown,
+): string {
+  const { title, detail } = adminFriendlyError(err);
+  toastApi.error(title, { description: detail });
+  return detail ? `${title}: ${detail}` : title;
+}
+
+/** Friendly error for admin surfaces: raw message for the inline alert, title+detail for the toast. */
+export function adminFriendlyError(err: unknown): FriendlyError {
+  const message = cleanErrorMessage(err);
+  if (/too many failed attempts/i.test(message)) {
+    return {
+      title: "Too many failed attempts",
+      detail:
+        "For security this account is locked for 15 minutes. Try again later.",
+    };
+  }
   return { title: message };
 }

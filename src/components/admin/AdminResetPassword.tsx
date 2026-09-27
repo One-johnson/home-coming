@@ -1,5 +1,7 @@
 "use client";
 
+import { toastFriendlyErrorParts } from "@/lib/friendlyError";
+
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useAction } from "convex/react";
@@ -44,7 +46,7 @@ export function AdminResetPassword() {
       // Always reported as sent — the endpoint never reveals valid emails.
       setSent(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Request failed");
+      setError(toastFriendlyErrorParts.toastMessage(err, "Request failed"));
     } finally {
       setBusy(false);
     }
@@ -63,7 +65,7 @@ export function AdminResetPassword() {
       setDone(true);
       toast.success("Password updated — sign in with your new password");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Reset failed");
+      setError(toastFriendlyErrorParts.toastMessage(err, "Reset failed"));
     } finally {
       setBusy(false);
     }

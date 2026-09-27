@@ -1,5 +1,7 @@
 "use client";
 
+import { toastFriendlyErrorParts } from "@/lib/friendlyError";
+
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -219,8 +221,7 @@ function AdminRegisterInner() {
       toast.success("Admin account created");
       router.replace("/admin");
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Registration failed";
+      const message = toastFriendlyErrorParts.toastMessage(err, "Registration failed");
       setError(message);
       toast.error(message);
     } finally {

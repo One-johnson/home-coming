@@ -1,5 +1,7 @@
 "use client";
 
+import { toastFriendlyErrorParts } from "@/lib/friendlyError";
+
 import { useState } from "react";
 import { useMutation, useQuery, useAction } from "convex/react";
 import { toast } from "sonner";
@@ -153,7 +155,7 @@ export function AgcAccommodationTab() {
       });
       toast.success(`Booking ${decision.replace(/_/g, " ")}d`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Review failed");
+      toast.error(...toastFriendlyErrorParts(err, "Review failed"));
     } finally {
       setBusyId(null);
     }
@@ -176,7 +178,7 @@ export function AgcAccommodationTab() {
       });
       toast.success("Pool reallocation recorded");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Reallocation failed");
+      toast.error(...toastFriendlyErrorParts(err, "Reallocation failed"));
     }
   };
 
@@ -222,7 +224,7 @@ export function AgcAccommodationTab() {
       URL.revokeObjectURL(url);
       toast.success("Representatives exported");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Export failed");
+      toast.error(...toastFriendlyErrorParts(err, "Export failed"));
     } finally {
       setExportingReps(false);
     }
@@ -244,9 +246,7 @@ export function AgcAccommodationTab() {
         );
       }
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Bulk creation failed",
-      );
+      toast.error(...toastFriendlyErrorParts(err, "Bulk creation failed"));
     } finally {
       setBulkBusy(false);
     }
@@ -500,7 +500,7 @@ export function AgcAccommodationTab() {
                   await seedDefaults({ sessionToken });
                   toast.success("Defaults seeded (settings + inventory pools)");
                 } catch (err) {
-                  toast.error(err instanceof Error ? err.message : "Seed failed");
+                  toast.error(...toastFriendlyErrorParts(err, "Seed failed"));
                 }
               }}
             >
@@ -589,7 +589,7 @@ export function AgcAccommodationTab() {
                       toast.success("Hub created");
                       setHubForm({ name: "", region: hubForm.region, country: hubForm.country });
                     } catch (err) {
-                      toast.error(err instanceof Error ? err.message : "Failed");
+                      toast.error(...toastFriendlyErrorParts(err, "Failed"));
                     }
                   }}
                   className="h-10 w-full"
@@ -646,7 +646,7 @@ export function AgcAccommodationTab() {
                     );
                     setImportText("");
                   } catch (err) {
-                    toast.error(err instanceof Error ? err.message : "Import failed");
+                    toast.error(...toastFriendlyErrorParts(err, "Import failed"));
                   }
                 }}
               >
@@ -757,9 +757,7 @@ export function AgcAccommodationTab() {
                               rep.status === "disabled" ? "Enabled" : "Disabled",
                             );
                           } catch (err) {
-                            toast.error(
-                              err instanceof Error ? err.message : "Failed",
-                            );
+                            toast.error(...toastFriendlyErrorParts(err, "Failed"));
                           }
                         }}
                       >
@@ -961,9 +959,7 @@ export function AgcAccommodationTab() {
                         toast.success("Representative created");
                         setNewRepHub("");
                       } catch (err) {
-                        toast.error(
-                          err instanceof Error ? err.message : "Failed",
-                        );
+                        toast.error(...toastFriendlyErrorParts(err, "Failed"));
                       }
                     }}
                 >

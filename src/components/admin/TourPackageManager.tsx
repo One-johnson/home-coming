@@ -1,5 +1,7 @@
 "use client";
 
+import { toastFriendlyErrorParts } from "@/lib/friendlyError";
+
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { useMutation, useQuery } from "convex/react";
@@ -459,7 +461,7 @@ export function TourPackageManager() {
       });
       toast.success("Image uploaded — save the package to apply");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Upload failed");
+      toast.error(...toastFriendlyErrorParts(err, "Upload failed"));
     } finally {
       setUploadingKey(null);
     }
@@ -474,7 +476,7 @@ export function TourPackageManager() {
         `Synced tours: ${result.inserted} added, ${result.updated} updated, ${result.deleted} removed`,
       );
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Seed failed");
+      toast.error(...toastFriendlyErrorParts(err, "Seed failed"));
     } finally {
       setSeeding(false);
     }
@@ -499,7 +501,7 @@ export function TourPackageManager() {
       });
       toast.success(`Updated ${parsed.label}`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Update failed");
+      toast.error(...toastFriendlyErrorParts(err, "Update failed"));
     } finally {
       setSavingId(null);
     }
@@ -517,7 +519,7 @@ export function TourPackageManager() {
       setNewDraft(emptyDraft());
       toast.success(`Created ${parsed.label}`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Create failed");
+      toast.error(...toastFriendlyErrorParts(err, "Create failed"));
     } finally {
       setCreating(false);
     }
@@ -531,7 +533,7 @@ export function TourPackageManager() {
       toast.success(`Deleted ${deleteTarget.label}`);
       setDeleteTarget(null);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Delete failed");
+      toast.error(...toastFriendlyErrorParts(err, "Delete failed"));
     } finally {
       setDeleting(false);
     }
