@@ -12,8 +12,18 @@ import {
   sessionTokenValidator,
   type AdminRole,
 } from "./users";
+import { buildResetUrl } from "./lib/resetUrls";
 
 const BCRYPT_ROUNDS = 12;
+const RESET_TTL_MS = 1000 * 60 * 60 * 3; // 3 hours (mirrors rep reset window)
+
+function siteUrl() {
+  return (
+    process.env.SITE_URL?.trim() ||
+    process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
+    "http://localhost:3000"
+  );
+}
 
 function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
@@ -191,6 +201,88 @@ export const adminCreateUser = action({
       email,
       role: args.role,
     };
+  },
+});
+
+export const requestAdminPasswordReset = action({
+  args: { email: v.string(), clientOrigin: v.optional(v.string()) },
+  handler: async (ctx, args): Promise<{ success: true }> => {
+    const email = normalizeEmail(args.email);
+    const user: Doc<"users"> | null = await ctx.runQuery(
+      internal.users.getAuthUserByEmail,
+      { email },
+    );
+
+    // Always report success so the endpoint cannot enumerate valid emails.
+    if (!user || user.active === false) return { success: true };
+
+    const token = createHash("sha256").update(randomBytes(32)).digest("hex");
+    await ctx.runMutation(internal.adminAuthData.insertAdminPasswordReset, {
+      userId: user._id,
+      token,
+      expiresAt: Date.now() + RESET_TTL_MS,
+    });
+
+    const url = buildResetUrl(
+      args.clientOrigin,
+      "/admin/reset-password",
+      token,
+    );
+    const result = await ctx.runMutation(internal.adminAuthData.insertEmailLog, {
+      to: user.email,
+      subject: "Homecoming admin — password reset",
+      body: [
+        "Hello,",
+        "",
+        "A password reset was requested for your Homecoming admin console account.",
+        `Open this link within 3 hours to choose a new password: ${url}`,
+        "",
+        "If you did not request this, you can ignore this email and your password will remain unchanged.",
+        "",
+        "— Homecoming Admin",
+      ].join("\n"),
+    });
+    if (result.shouldSend) {
+      await ctx.scheduler.runAfter(0, internal.emailSendAction.sendEmail, {
+        emailLogId: result.emailLogId,
+      });
+    }
+    return { success: true };
+  },
+});
+
+export const resetAdminPassword = action({
+  args: {
+    token: v.string(),
+    newPassword: v.string(),
+  },
+  handler: async (ctx, args): Promise<{ success: true }> => {
+    if (args.newPassword.length < 8) {
+      throw new Error("Password must be at least 8 characters");
+    }
+    const reset: Doc<"adminPasswordResets"> | null = await ctx.runQuery(
+      internal.adminAuthData.getAdminPasswordReset,
+      { token: args.token },
+    );
+    if (!reset || reset.usedAt || reset.expiresAt < Date.now()) {
+      throw new Error("This reset link is invalid or has expired");
+    }
+
+    const user: Doc<"users"> | null = await ctx.runQuery(
+      internal.users.getAuthUserById,
+      { userId: reset.userId },
+    );
+    if (!user || user.active === false) {
+      throw new Error("This reset link is invalid or has expired");
+    }
+
+    const passwordHash = await bcrypt.hash(args.newPassword, BCRYPT_ROUNDS);
+    await ctx.runMutation(internal.adminAuthData.completeAdminPasswordReset, {
+      resetId: reset._id,
+      userId: reset.userId,
+      passwordHash,
+    });
+    return { success: true };
   },
 });
 
