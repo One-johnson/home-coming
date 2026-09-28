@@ -26,34 +26,42 @@ staging frontend for free.
 ### 2.1 Second Convex deployment
 
 ```bash
-npx convex env list                    # confirm which deployment you're on
-npx convex deploy --create staging     # creates a separate deployment
+npx convex deployment create staging --type prod   # note the printed URL
+printf 'CONVEX_DEPLOYMENT=<deployment-name>\n' > .env.convex-staging.tmp
+npx convex dev --once --env-file .env.convex-staging.tmp  # push functions
+rm .env.convex-staging.tmp
 ```
 
-Then seed it with the required env vars (all fake/test values):
+Then seed it with the required env vars (all fake/test values); every
+command takes `--deployment staging`:
 
 ```bash
-npx convex env set IMPORT_SECRET <long-random-string>
-npx convex env set SITE_URL https://<preview-domain>
-npx convex env set SMTP_HOST mail.yourdomain.com
-npx convex env set SMTP_PORT 587
-npx convex env set SMTP_SECURE false
-npx convex env set SMTP_USER noreply@yourdomain.com
-npx convex env set SMTP_PASS <mailbox-password>
-npx convex env set SMTP_FROM "Homecoming <noreply@yourdomain.com>"
+npx convex env set IMPORT_SECRET <long-random-string> --deployment staging
+npx convex env set SITE_URL https://staging.homecomingconvention.com --deployment staging
+npx convex env set SMTP_HOST mail.yourdomain.com --deployment staging
+npx convex env set SMTP_PORT 587 --deployment staging
+npx convex env set SMTP_SECURE false --deployment staging
+npx convex env set SMTP_USER noreply@yourdomain.com --deployment staging
+npx convex env set SMTP_PASS <mailbox-password> --deployment staging
+npx convex env set SMTP_FROM "Homecoming <noreply@yourdomain.com>" --deployment staging
 # STRIPE_SECRET_KEY / PAYSTACK_SECRET_KEY: set sk_test_/test values only
 ```
 
 ### 2.2 Vercel preview env vars
 
-In **Vercel → Project → Settings → Environment Variables**, scope these to
-the **Preview** environment only (they must differ from Production):
+Already configured for this project: 8 vars scoped to the `staging` git
+branch + 4 payment keys covering all previews (inspect with
+`npx vercel env list preview`). To change one:
+
+```bash
+npx vercel env add <NAME> preview staging --value <v> --force --yes < /dev/null
+```
 
 | Variable | Value |
 |---|---|
 | `NEXT_PUBLIC_CONVEX_URL` | the staging Convex URL from 2.1 |
 | `NEXT_PUBLIC_CONVEX_SITE_URL` | the staging Convex site URL |
-| `NEXT_PUBLIC_SITE_URL` / `SITE_URL` | the preview domain |
+| `NEXT_PUBLIC_SITE_URL` / `SITE_URL` | `https://staging.homecomingconvention.com` |
 | `STRIPE_SECRET_KEY` | `sk_test_…` (test mode) |
 | `PAYSTACK_SECRET_KEY` | Paystack test secret |
 
