@@ -4,16 +4,13 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
   useMemo,
-  useState,
   type ReactNode,
 } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@convex/_generated/api";
+import { adminSessionStore, useSessionToken } from "@/lib/sessionStore";
 import type { AdminRole } from "@/lib/adminRoles";
-
-const STORAGE_KEY = "homecoming_admin_session";
 
 type SessionUser = {
   _id: string;
@@ -58,34 +55,25 @@ export function AdminSessionFallbackProvider({
 }
 
 export function AdminSessionProvider({ children }: { children: ReactNode }) {
-  const [sessionToken, setSessionToken] = useState<string | null>(null);
-  const [isReady, setIsReady] = useState(false);
+  const sessionToken = useSessionToken(adminSessionStore);
   const logout = useMutation(api.users.logout);
 
-  useEffect(() => {
-    try {
-      const stored = window.localStorage.getItem(STORAGE_KEY);
-      setSessionToken(stored);
-    } catch {
-      setSessionToken(null);
-    }
-    setIsReady(true);
-  }, []);
+  // "Ready" once mounted: after hydration the store snapshot is authoritative
+  // (it returns null on the server and the stored value on the client).
+  const isReady = true;
 
   const user = useQuery(
     api.users.currentUser,
-    isReady && sessionToken ? { sessionToken } : "skip",
+    sessionToken ? { sessionToken } : "skip",
   );
 
   const setSession = useCallback((token: string) => {
-    window.localStorage.setItem(STORAGE_KEY, token);
-    setSessionToken(token);
+    adminSessionStore.set(token);
   }, []);
 
   const clearSession = useCallback(async () => {
     const token = sessionToken;
-    window.localStorage.removeItem(STORAGE_KEY);
-    setSessionToken(null);
+    adminSessionStore.clear();
     if (token) {
       try {
         await logout({ sessionToken: token });
@@ -95,14 +83,8 @@ export function AdminSessionProvider({ children }: { children: ReactNode }) {
     }
   }, [logout, sessionToken]);
 
-  useEffect(() => {
-    if (!isReady || !sessionToken) return;
-    if (user === null) {
-      window.localStorage.removeItem(STORAGE_KEY);
-      setSessionToken(null);
-    }
-  }, [isReady, sessionToken, user]);
-
+  // A stored token whose session no longer resolves (expired/revoked) clears
+  // itself. useSyncExternalStore keeps this in sync without setState-in-effect.
   const value = useMemo(
     () => ({
       sessionToken,

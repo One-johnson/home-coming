@@ -34,6 +34,12 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         area: "registration",
       },
       {
+        href: "/admin/hubs-reps",
+        label: "Hubs & reps",
+        description: "Per-hub roster, activity, and drill-down",
+        area: "registration",
+      },
+      {
         href: "/admin/tours",
         label: "Tours",
         description: "Manage tour packages and orders",

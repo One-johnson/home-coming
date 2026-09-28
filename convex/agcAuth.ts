@@ -6,7 +6,6 @@ import { v } from "convex/values";
 import { action, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { isSmtpConfigured } from "./lib/smtpConfig";
 import { buildResetUrl } from "./lib/resetUrls";
 import { LOCK_MESSAGE } from "./lib/loginThrottle";
 

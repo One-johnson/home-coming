@@ -17,14 +17,6 @@ import { buildResetUrl } from "./lib/resetUrls";
 const BCRYPT_ROUNDS = 12;
 const RESET_TTL_MS = 1000 * 60 * 60 * 3; // 3 hours (mirrors rep reset window)
 
-function siteUrl() {
-  return (
-    process.env.SITE_URL?.trim() ||
-    process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
-    "http://localhost:3000"
-  );
-}
-
 function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
 }

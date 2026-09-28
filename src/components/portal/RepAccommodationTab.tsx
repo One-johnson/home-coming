@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { Loader2Icon, Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
@@ -39,7 +39,6 @@ import { uploadFileToConvex } from "@/lib/galleryUpload";
 import { friendlyError } from "@/lib/friendlyError";
 import {
   AGC_ACCOMMODATION_LABELS,
-  isGhsRegion,
   bookingStatusMeta,
   paymentStatusMeta,
 } from "@/lib/agcPortal";
@@ -64,13 +63,6 @@ type GuestDraft = {
   isBishopRate: boolean;
 };
 
-type BookingLine = {
-  accommodationType: string;
-  quantity: number;
-  unitPrice: number;
-  isBishopRate: boolean;
-};
-
 type GuestRow = {
   _id: string;
   firstName: string;
@@ -80,29 +72,6 @@ type GuestRow = {
   accommodationType: string;
   isBishopRate: boolean;
   status: string;
-};
-
-type RepBooking = {
-  _id: string;
-  referenceNumber: string;
-  currency: string;
-  totalAmount: number;
-  paymentMode: string;
-  paymentStatus: string;
-  bookingStatus: string;
-  expiresAt: string | null;
-  adminMessage: string | null;
-  offline: {
-    amountPaid: number;
-    referenceNumber: string;
-    paymentDate: string;
-    method: string;
-    receiptFileName?: string;
-  } | null;
-  createdAt: number;
-  confirmedAt: string | null;
-  guests: GuestRow[];
-  lines: BookingLine[];
 };
 
 const TITLE_OPTIONS = ["Bishop", "Rev.", "Pastor", "Elder", "Mr.", "Mrs.", "Ms.", "Dr."];
@@ -135,7 +104,7 @@ export function RepAccommodationTab() {
   const [paymentDate, setPaymentDate] = useState(() =>
     new Date().toISOString().slice(0, 10),
   );
-  const [method, setMethod] = useState<"bank_transfer" | "momo">("momo");
+  const [method] = useState<"bank_transfer" | "momo">("momo");
   const [receipt, setReceipt] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [loading, setLoading] = useState(false);
@@ -252,7 +221,6 @@ export function RepAccommodationTab() {
           receiptStorageId: storageId,
           receiptFileName: receipt.name,
           receiptContentType: receipt.type || undefined,
-          submittedAt: Date.now(),
         },
       });
       toast.success("Receipt submitted — finance will review it.");

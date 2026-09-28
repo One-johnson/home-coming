@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, startTransition } from "react";
 import Autoplay from "embla-carousel-autoplay";
 import Fade from "embla-carousel-fade";
 import {
@@ -33,7 +33,7 @@ export function HeroCarousel({
 
   const onSelect = useCallback(() => {
     if (!api) return;
-    setSelectedIndex(api.selectedScrollSnap());
+    startTransition(() => setSelectedIndex(api.selectedScrollSnap()));
   }, [api]);
 
   useEffect(() => {

@@ -4,7 +4,6 @@ import { v } from "convex/values";
 import {
   agcAccommodationType,
   agcBookingStatus,
-  agcBishopReview,
   agcGender,
   agcInventoryScope,
   agcOfflinePayment,
@@ -386,12 +385,16 @@ export default defineSchema({
       v.literal("active"),
       v.literal("disabled"),
     ),
+    /** Soft delete: set when a rep is removed; purged 7 days later. */
+    deletedAt: v.optional(v.number()),
+    deletedBy: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_username", ["username"])
     .index("by_hub", ["hubId"])
-    .index("by_email", ["email"]),
+    .index("by_email", ["email"])
+    .index("by_deleted_at", ["deletedAt"]),
 
   agcRepSessions: defineTable({
     repId: v.id("agcRepresentatives"),

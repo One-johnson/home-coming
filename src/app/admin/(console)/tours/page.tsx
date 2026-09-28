@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState, startTransition } from "react";
 import { useSearchParams } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
@@ -40,7 +40,7 @@ function TourOrdersTable() {
     const id = searchParams.get("id");
     if (!id || !orders) return;
     const match = orders.find((o) => o._id === id);
-    if (match) setSelected(match);
+    if (match) startTransition(() => setSelected(match));
   }, [searchParams, orders]);
 
   const regions = useMemo(() => {

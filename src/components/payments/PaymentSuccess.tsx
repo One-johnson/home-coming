@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, startTransition } from "react";
 import { useAction } from "convex/react";
 import { useSearchParams } from "next/navigation";
 import { CheckCircle2Icon, Loader2Icon, XCircleIcon } from "lucide-react";
@@ -44,14 +44,18 @@ export function PaymentSuccess({
 
   useEffect(() => {
     if (!isConvexConfigured()) {
-      setError("Convex is not configured.");
-      setLoading(false);
+      startTransition(() => {
+        setError("Convex is not configured.");
+        setLoading(false);
+      });
       return;
     }
 
     if (!sessionId) {
-      setError("Missing payment reference.");
-      setLoading(false);
+      startTransition(() => {
+        setError("Missing payment reference.");
+        setLoading(false);
+      });
       return;
     }
 

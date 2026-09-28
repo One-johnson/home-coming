@@ -260,6 +260,8 @@ export const submitOfflineRegistration = mutation({
           ...args.offline,
           receiptFileName: args.offline.receiptFileName ?? undefined,
           receiptContentType: args.offline.receiptContentType ?? undefined,
+          // Server clock — clients are not trusted for timestamps.
+          submittedAt: Date.now(),
         },
         referenceNumber,
         createdAt: Date.now(),

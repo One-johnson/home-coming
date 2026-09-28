@@ -25,4 +25,26 @@ crons.interval(
   {},
 );
 
+/**
+ * Permanently purge representative accounts that were soft-deleted more than
+ * 7 days ago (REP_SOFT_DELETE_TTL_MS). Runs hourly; the purge is idempotent.
+ */
+export const purgeDeletedRepsTick = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const result: { purged: number } = await ctx.runMutation(
+      internal.agcAdminData.purgeExpiredDeletedReps,
+      {},
+    );
+    return result;
+  },
+});
+
+crons.interval(
+  "purge soft-deleted representative accounts",
+  { hours: 1 },
+  internal.crons.purgeDeletedRepsTick,
+  {},
+);
+
 export default crons;

@@ -7,7 +7,7 @@ import {
   query,
   type ActionCtx,
 } from "./_generated/server";
-import type { MutationCtx, QueryCtx } from "./_generated/server";
+import type { MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
   getUserBySessionToken,
@@ -413,6 +413,7 @@ export const listReps = query({
     const hubs = await ctx.db.query("agcHubs").collect();
     const hubById = new Map(hubs.map((hub) => [hub._id, hub]));
     return reps
+      .filter((rep) => rep.deletedAt === undefined)
       .map((rep) => ({
         _id: rep._id,
         username: rep.username,
@@ -457,10 +458,11 @@ export const listAllHubsInternal = internalQuery({
 export const listAllRepsInternal = internalQuery({
   args: {},
   handler: async (ctx) => {
-    return await ctx.db
+    // Exclude soft-deleted reps so bulk creation can reuse those usernames.
+    return (await ctx.db
       .query("agcRepresentatives")
       .withIndex("by_username")
-      .collect();
+      .collect()).filter((rep) => rep.deletedAt === undefined);
   },
 });
 
@@ -516,10 +518,20 @@ export const resetRepCredentials = internalMutation({
 });
 
 /**
- * Shared rep-deletion: removes sessions and password-reset tokens before the
- * rep record itself. Hub records and their registrations are kept.
+ * Reps soft-deleted more than this long ago are purged permanently by cron.
  */
-async function deleteRepInternal(ctx: MutationCtx, repId: Id<"agcRepresentatives">) {
+export const REP_SOFT_DELETE_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
+
+/**
+ * Shared soft-delete: kills sessions/reset tokens/throttle rows and marks the
+ * rep deleted. The record lingers for REP_SOFT_DELETE_TTL_MS so an admin can
+ * undo; the cron purge removes it permanently afterwards.
+ */
+async function deleteRepInternal(
+  ctx: MutationCtx,
+  repId: Id<"agcRepresentatives">,
+  actorEmail: string,
+) {
   const sessions = await ctx.db
     .query("agcRepSessions")
     .withIndex("by_rep", (q) => q.eq("repId", repId))
@@ -543,6 +555,33 @@ async function deleteRepInternal(ctx: MutationCtx, repId: Id<"agcRepresentatives
     if (throttleRow) {
       await ctx.db.delete(throttleRow._id);
     }
+    await ctx.db.patch(repId, {
+      deletedAt: Date.now(),
+      deletedBy: actorEmail,
+      status: "disabled",
+      updatedAt: Date.now(),
+    });
+  }
+}
+
+/**
+ * Permanently remove a soft-deleted rep (cron purge or explicit). Cascades
+ * session/reset-token cleanup; the hub record is always kept.
+ */
+async function purgeRepInternal(ctx: MutationCtx, repId: Id<"agcRepresentatives">) {
+  const sessions = await ctx.db
+    .query("agcRepSessions")
+    .withIndex("by_rep", (q) => q.eq("repId", repId))
+    .collect();
+  for (const session of sessions) {
+    await ctx.db.delete(session._id);
+  }
+  const resets = await ctx.db
+    .query("agcPasswordResets")
+    .withIndex("by_rep", (q) => q.eq("repId", repId))
+    .collect();
+  for (const reset of resets) {
+    await ctx.db.delete(reset._id);
   }
   await ctx.db.delete(repId);
 }
@@ -599,18 +638,24 @@ export const deleteRep = mutation({
     const actor = await requireAdmin(ctx, args.sessionToken);
     const rep: Doc<"agcRepresentatives"> | null = await ctx.db.get(args.repId);
     if (!rep) throw new Error("Representative not found");
+    if (rep.deletedAt) throw new Error("Representative is already deleted");
 
-    await deleteRepInternal(ctx, args.repId);
+    await deleteRepInternal(ctx, args.repId, actor.email);
 
     await writeAuditLog(ctx, {
       actorEmail: actor.email,
       action: "agc_rep.deleted",
       entityType: "agcRepresentatives",
       entityId: args.repId,
-      summary: `Deleted representative account ${rep.username} (${rep.email ?? "no email"})`,
+      summary: `Deleted representative account ${rep.username} (${rep.email ?? "no email"}) — restorable for 7 days`,
     });
 
-    return { success: true as const };
+    return {
+      success: true as const,
+      username: rep.username,
+      /** When the soft-deleted record becomes unrecoverable. */
+      purgeAt: Date.now() + REP_SOFT_DELETE_TTL_MS,
+    };
   },
 });
 
@@ -627,12 +672,12 @@ export const deleteRepsBulk = mutation({
     const missing: string[] = [];
     for (const repId of args.repIds) {
       const rep = await ctx.db.get(repId);
-      if (!rep) {
+      if (!rep || rep.deletedAt) {
         missing.push(repId);
         continue;
       }
       usernames.push(rep.username);
-      await deleteRepInternal(ctx, repId);
+      await deleteRepInternal(ctx, repId, actor.email);
       deleted += 1;
     }
 
@@ -640,10 +685,115 @@ export const deleteRepsBulk = mutation({
       actorEmail: actor.email,
       action: "agc_rep.bulk_deleted",
       entityType: "agcRepresentatives",
-      summary: `Bulk-deleted ${deleted} representative account(s): ${usernames.join(", ") || "none"}`,
+      summary: `Bulk-deleted ${deleted} representative account(s): ${usernames.join(", ") || "none"} — restorable for 7 days`,
     });
 
     return { deleted, missing };
+  },
+});
+
+/** Undo a soft delete: the rep returns with sessions/reset tokens wiped. */
+export const restoreRep = mutation({
+  args: {
+    sessionToken: sessionTokenValidator,
+    repId: v.id("agcRepresentatives"),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireAdmin(ctx, args.sessionToken);
+    const rep: Doc<"agcRepresentatives"> | null = await ctx.db.get(args.repId);
+    if (!rep) throw new Error("Representative not found");
+    if (!rep.deletedAt) throw new Error("This representative is not deleted");
+
+    // Guard against username/email collisions with reps created after the
+    // delete. Uses collect() so stray duplicate rows cannot crash the check.
+    const usernameClash = (
+      await ctx.db
+        .query("agcRepresentatives")
+        .withIndex("by_username", (q) => q.eq("username", rep.username))
+        .collect()
+    ).find(
+      (row) => row._id !== rep._id && row.deletedAt === undefined,
+    );
+    if (usernameClash) {
+      throw new Error(
+        `Cannot restore: a new account for "${rep.username}" already exists. Delete it first.`,
+      );
+    }
+    if (rep.email) {
+      const emailClash = (
+        await ctx.db
+          .query("agcRepresentatives")
+          .withIndex("by_email", (q) => q.eq("email", rep.email))
+          .collect()
+      ).find(
+        (row) => row._id !== rep._id && row.deletedAt === undefined,
+      );
+      if (emailClash) {
+        throw new Error(
+          `Cannot restore: the email ${rep.email} is now used by another account.`,
+        );
+      }
+    }
+
+    await ctx.db.patch(args.repId, {
+      deletedAt: undefined,
+      deletedBy: undefined,
+      status: "pending_setup",
+      mustChangePassword: true,
+      profileComplete: false,
+      updatedAt: Date.now(),
+    });
+
+    await writeAuditLog(ctx, {
+      actorEmail: actor.email,
+      action: "agc_rep.restored",
+      entityType: "agcRepresentatives",
+      entityId: args.repId,
+      summary: `Restored deleted representative account ${rep.username} — first-time setup required again`,
+    });
+
+    return { success: true as const };
+  },
+});
+
+/** Soft-deleted reps that can still be restored, for the admin UI. */
+export const listDeletedReps = query({
+  args: { sessionToken: sessionTokenValidator },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx, args.sessionToken);
+    const now = Date.now();
+    const reps = (await ctx.db.query("agcRepresentatives").collect()).filter(
+      (rep) => rep.deletedAt !== undefined,
+    );
+    const hubs = await ctx.db.query("agcHubs").collect();
+    const hubById = new Map(hubs.map((hub) => [hub._id, hub]));
+    return reps
+      .map((rep) => ({
+        _id: rep._id,
+        username: rep.username,
+        hubName: hubById.get(rep.hubId)?.name ?? "(unknown hub)",
+        email: rep.email ?? null,
+        deletedAt: rep.deletedAt!,
+        deletedBy: rep.deletedBy ?? null,
+        purgeAt: rep.deletedAt! + REP_SOFT_DELETE_TTL_MS,
+        expired: rep.deletedAt! + REP_SOFT_DELETE_TTL_MS < now,
+      }))
+      .sort((a, b) => b.deletedAt - a.deletedAt);
+  },
+});
+
+/** Cron tick: permanently purge soft-deleted reps past the 7-day window. */
+export const purgeExpiredDeletedReps = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const cutoff = Date.now() - REP_SOFT_DELETE_TTL_MS;
+    const expired = (await ctx.db.query("agcRepresentatives").collect()).filter(
+      (rep) => rep.deletedAt !== undefined && rep.deletedAt < cutoff,
+    );
+    for (const rep of expired) {
+      await purgeRepInternal(ctx, rep._id);
+    }
+    return { purged: expired.length };
   },
 });
 
@@ -1353,6 +1503,124 @@ export const getAgcOverview = query({
         emailsFailed: emailLogs.filter((e) => e.status === "failed").length,
       },
     };
+  },
+});
+
+/**
+ * Per-hub drill-down: one row per hub with its rep account status and
+ * registration/booking activity, for the dedicated Hubs & reps view.
+ */
+export const getHubRoster = query({
+  args: { sessionToken: sessionTokenValidator },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, args.sessionToken, [
+      "admin",
+      "registration",
+      "accommodation",
+      "finance",
+    ]);
+
+    const hubs = await ctx.db.query("agcHubs").collect();
+    const reps = (await ctx.db.query("agcRepresentatives").collect()).filter(
+      (rep) => rep.deletedAt === undefined,
+    );
+    const registrations = await ctx.db.query("agcRegistrations").collect();
+    const bookings = await ctx.db.query("agcBookings").collect();
+
+    const repByHub = new Map<string, Doc<"agcRepresentatives">>();
+    for (const rep of reps) {
+      repByHub.set(rep.hubId, rep);
+    }
+
+    const regsByHub = new Map<string, Doc<"agcRegistrations">[]>();
+    for (const reg of registrations) {
+      const list = regsByHub.get(reg.hubId) ?? [];
+      list.push(reg);
+      regsByHub.set(reg.hubId, list);
+    }
+    const bookingsByHub = new Map<string, Doc<"agcBookings">[]>();
+    for (const booking of bookings) {
+      const list = bookingsByHub.get(booking.hubId) ?? [];
+      list.push(booking);
+      bookingsByHub.set(booking.hubId, list);
+    }
+
+    const now = Date.now();
+    return hubs
+      .map((hub) => {
+        const rep = repByHub.get(hub._id);
+        const regs = regsByHub.get(hub._id) ?? [];
+        const hubBookings = bookingsByHub.get(hub._id) ?? [];
+        const pendingRegs = regs.filter(
+          (r) => r.paymentStatus === "pending_verification",
+        ).length;
+        const confirmedRegs = regs.filter(
+          (r) => r.paymentStatus === "confirmed",
+        ).length;
+        const pendingBookings = hubBookings.filter(
+          (b) =>
+            b.paymentStatus === "pending_verification" ||
+            b.bookingStatus === "pending_verification",
+        ).length;
+        const confirmedBookings = hubBookings.filter(
+          (b) => b.paymentStatus === "confirmed",
+        ).length;
+        return {
+          _id: hub._id,
+          hubName: hub.name,
+          region: hub.region,
+          country: hub.country,
+          active: hub.active !== false,
+          rep: rep
+            ? {
+                _id: rep._id,
+                username: rep.username,
+                email: rep.email ?? null,
+                status: rep.status,
+                profileComplete: rep.profileComplete,
+              }
+            : null,
+          registrations: {
+            total: regs.length,
+            confirmed: confirmedRegs,
+            pending: pendingRegs,
+            delegates: regs.reduce((sum, r) => sum + r.quantity, 0),
+            lastActivityAt: regs.reduce<number>(
+              (latest, r) => Math.max(latest, r.createdAt),
+              0,
+            ),
+          },
+          bookings: {
+            total: hubBookings.length,
+            confirmed: confirmedBookings,
+            pending: pendingBookings,
+            lastActivityAt: hubBookings.reduce<number>(
+              (latest, b) => Math.max(latest, b.createdAt),
+              0,
+            ),
+          },
+          // A hub with recent pending work floats up for attention.
+          needsAttention:
+            pendingRegs + pendingBookings > 0 ||
+            (rep === undefined && hub.active !== false),
+          inactiveDays: Math.floor(
+            (now - Math.max(
+              regs.reduce<number>((latest, r) => Math.max(latest, r.createdAt), 0),
+              hubBookings.reduce<number>(
+                (latest, b) => Math.max(latest, b.createdAt),
+                0,
+              ),
+            )) /
+              (1000 * 60 * 60 * 24),
+          ),
+        };
+      })
+      .sort(
+        (a, b) =>
+          Number(b.needsAttention) - Number(a.needsAttention) ||
+          b.registrations.delegates - a.registrations.delegates ||
+          a.hubName.localeCompare(b.hubName),
+      );
   },
 });
 

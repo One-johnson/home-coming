@@ -4,15 +4,12 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
   useMemo,
-  useState,
   type ReactNode,
 } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@convex/_generated/api";
-
-const STORAGE_KEY = "homecoming_rep_session";
+import { repSessionStore, useSessionToken } from "@/lib/sessionStore";
 
 export type RepProfile = {
   _id: string;
@@ -62,39 +59,25 @@ export function RepSessionFallbackProvider({
 }
 
 export function RepSessionProvider({ children }: { children: ReactNode }) {
-  const [sessionToken, setSessionToken] = useState<string | null>(null);
-  const [isReady, setIsReady] = useState(false);
+  const sessionToken = useSessionToken(repSessionStore);
   const logout = useMutation(api.agcPortal.logoutRep);
 
-  useEffect(() => {
-    try {
-      const stored = window.localStorage.getItem(STORAGE_KEY);
-      setSessionToken(stored);
-    } catch {
-      setSessionToken(null);
-    }
-    setIsReady(true);
-  }, []);
+  // "Ready" once mounted: after hydration the store snapshot is authoritative
+  // (it returns null on the server and the stored value on the client).
+  const isReady = true;
 
   const rep = useQuery(
     api.agcPortal.getRepProfile,
-    isReady && sessionToken ? { sessionToken } : "skip",
+    sessionToken ? { sessionToken } : "skip",
   );
 
   const setSession = useCallback((token: string) => {
-    try {
-      window.localStorage.setItem(STORAGE_KEY, token);
-    } catch {
-      // Storage may be unavailable (private mode, quota) — keep the in-memory
-      // session so the current tab still works.
-    }
-    setSessionToken(token);
+    repSessionStore.set(token);
   }, []);
 
   const clearSession = useCallback(async () => {
     const token = sessionToken;
-    window.localStorage.removeItem(STORAGE_KEY);
-    setSessionToken(null);
+    repSessionStore.clear();
     if (token) {
       try {
         await logout({ sessionToken: token });
@@ -103,14 +86,6 @@ export function RepSessionProvider({ children }: { children: ReactNode }) {
       }
     }
   }, [logout, sessionToken]);
-
-  useEffect(() => {
-    if (!isReady || !sessionToken) return;
-    if (rep === null) {
-      window.localStorage.removeItem(STORAGE_KEY);
-      setSessionToken(null);
-    }
-  }, [isReady, sessionToken, rep]);
 
   const value = useMemo(
     () => ({

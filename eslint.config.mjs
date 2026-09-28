@@ -14,17 +14,9 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // Standalone maintenance scripts (CommonJS by design).
     "scripts/**",
+    // Convex codegen output — never edit or lint by hand.
+    "convex/_generated/**",
   ]),
-  {
-    rules: {
-      // react-hooks v6 (Next 16) rules that flag the established
-      // localStorage/session-bootstrap effect pattern across the app.
-      // Downgraded to warnings until those bootstraps are refactored
-      // (e.g. with useSyncExternalStore); they stay visible in lint output.
-      "react-hooks/set-state-in-effect": "warn",
-      "react-hooks/purity": "warn",
-    },
-  },
 ]);
 
 export default eslintConfig;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, startTransition } from "react";
 import { ExternalLink, Play } from "lucide-react";
 import {
   Card,
@@ -46,7 +46,7 @@ export function YouTubeVideoCard({
     const initial = isRumbleUrl(href)
       ? null
       : (thumbnailUrl ?? derived);
-    setResolvedThumb(initial ?? thumbnailUrl ?? derived);
+    startTransition(() => setResolvedThumb(initial ?? thumbnailUrl ?? derived));
 
     if (!href || (!isRumbleUrl(href) && initial)) return;
 

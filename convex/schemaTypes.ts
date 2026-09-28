@@ -66,11 +66,11 @@ export const agcOfflinePayment = v.object({
   amountPaid: v.number(),
   referenceNumber: v.string(),
   paymentDate: v.string(),
-  method: v.union(v.literal("bank_transfer"), v.literal("momo")),
-  receiptStorageId: v.optional(v.id("_storage")),
-  receiptFileName: v.optional(v.string()),
-  receiptContentType: v.optional(v.string()),
-  submittedAt: v.number(),
+  method: v.union(v.literal("bank_transfer"), v.literal("momo")),    receiptStorageId: v.optional(v.id("_storage")),
+    receiptFileName: v.optional(v.string()),
+    receiptContentType: v.optional(v.string()),
+    /** Server clock at submission; clients no longer send it. */
+    submittedAt: v.optional(v.number()),
   // Phase 1: manual review only — AI extraction is stubbed for later.
   aiMatch: v.optional(
     v.union(

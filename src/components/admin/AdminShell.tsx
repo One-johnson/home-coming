@@ -5,7 +5,6 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
 import {
-  BedDouble,
   Building2,
   CalendarDays,
   ChevronsUpDown,

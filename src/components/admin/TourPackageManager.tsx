@@ -2,7 +2,7 @@
 
 import { toastFriendlyErrorParts } from "@/lib/friendlyError";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, startTransition } from "react";
 import Image from "next/image";
 import { useMutation, useQuery } from "convex/react";
 import { ImagePlusIcon, Trash2Icon } from "lucide-react";
@@ -408,7 +408,7 @@ export function TourPackageManager() {
     if (!sessionToken || packages === undefined || autoSeedAttempted) {
       return;
     }
-    setAutoSeedAttempted(true);
+    startTransition(() => setAutoSeedAttempted(true));
     void ensureDefaults({ sessionToken })
       .then((result) => {
         if (result.inserted > 0 || result.updated > 0 || result.deleted > 0) {

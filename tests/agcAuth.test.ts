@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { api } from "../convex/_generated/api";
+import { api, internal } from "../convex/_generated/api";
 import type { RepAuthResult, RepLoginResult } from "../convex/agcAuth";
 import { createTestConvex } from "./testUtils";
 
@@ -493,9 +493,10 @@ test("deleteRep removes sessions and throttle rows but keeps the hub", async () 
   });
   expect(result.success).toBe(true);
 
-  // Rep, session, throttle all gone; hub remains.
+  // Soft-deleted: session gone, throttle gone, hub kept, record retained.
   const rep = await t.run((ctx) => ctx.db.get(repId));
-  expect(rep).toBeNull();
+  expect(rep).not.toBeNull();
+  expect(rep!.deletedAt).toBeTypeOf("number");
   const sessions = await t.run((ctx) =>
     ctx.db.query("agcRepSessions").collect(),
   );
@@ -530,5 +531,205 @@ test("deleteRepsBulk removes many reps in one call", async () => {
   const remaining = await t.run((ctx) =>
     ctx.db.query("agcRepresentatives").collect(),
   );
-  expect(remaining).toHaveLength(0);
+  // All soft-deleted, none live.
+  expect(remaining.every((r) => r.deletedAt !== undefined)).toBe(true);
+});
+
+test("soft delete hides the rep from logins and lists, restore revives it, purge removes it", async () => {
+  const t = createTestConvex();
+  const hubId = await t.run((ctx) => ctx.db.insert("agcHubs", HUB));
+  const adminToken = await seedAdmin(t);
+  const username = "undo_hub";
+  const tempPassword = "undo-temp-123";
+  const { default: bcrypt } = await import("bcryptjs");
+  const repId = await seedRep(
+    t,
+    hubId,
+    username,
+    await bcrypt.hash(tempPassword, 12),
+    tempPassword,
+  );
+
+  // Give the rep a live session.
+  await t.run(async (ctx) => {
+    await ctx.db.insert("agcRepSessions", {
+      repId,
+      token: "undo-session",
+      expiresAt: Date.now() + 3_600_000,
+      createdAt: Date.now(),
+    });
+  });
+
+  // Soft delete: still queryable by id, marked deleted, session gone.
+  const deleted = await t.mutation(api.agcAdminData.deleteRep, {
+    sessionToken: adminToken,
+    repId,
+  });
+  expect(deleted.username).toBe(username);
+  expect(deleted.purgeAt).toBeGreaterThan(Date.now());
+
+  const rawRep = await t.run((ctx) => ctx.db.get(repId));
+  expect(rawRep!.deletedAt).toBeTypeOf("number");
+  expect(rawRep!.status).toBe("disabled");
+
+  // Login with the temp password now fails (lookup excludes deleted).
+  await expect(
+    t.action(api.agcAuth.repLogin, { username, password: tempPassword }),
+  ).rejects.toThrow(/invalid username or password/i);
+
+  // Hidden from the reps list; visible in the deleted list.
+  const active = await t.query(api.agcAdminData.listReps, {
+    sessionToken: adminToken,
+  });
+  expect(active.map((r) => r._id)).not.toContain(repId);
+  const deletedList = await t.query(api.agcAdminData.listDeletedReps, {
+    sessionToken: adminToken,
+  });
+  expect(deletedList.map((r) => r._id)).toContain(repId);
+
+  // Restore: back in the active list, back to first-time setup.
+  await t.mutation(api.agcAdminData.restoreRep, {
+    sessionToken: adminToken,
+    repId,
+  });
+  const restored = await t.run((ctx) => ctx.db.get(repId));
+  expect(restored!.deletedAt).toBeUndefined();
+  expect(restored!.status).toBe("pending_setup");
+  expect(restored!.mustChangePassword).toBe(true);
+  const activeAfter = await t.query(api.agcAdminData.listReps, {
+    sessionToken: adminToken,
+  });
+  expect(activeAfter.map((r) => r._id)).toContain(repId);
+  const deletedAfter = await t.query(api.agcAdminData.listDeletedReps, {
+    sessionToken: adminToken,
+  });
+  expect(deletedAfter.map((r) => r._id)).not.toContain(repId);
+
+  // Soft delete again, then purge via the cron tick.
+  await t.mutation(api.agcAdminData.deleteRep, {
+    sessionToken: adminToken,
+    repId,
+  });
+  await t.run(async (ctx) => {
+    await ctx.db.patch(repId, { deletedAt: Date.now() - 8 * 24 * 3_600_000 });
+  });
+  const purged = await t.mutation(
+    internal.agcAdminData.purgeExpiredDeletedReps,
+    {},
+  );
+  expect(purged.purged).toBeGreaterThanOrEqual(1);
+  const gone = await t.run((ctx) => ctx.db.get(repId));
+  expect(gone).toBeNull();
+});
+
+test("restore refuses when another account took the username", async () => {
+  const t = createTestConvex();
+  const hubId = await t.run((ctx) => ctx.db.insert("agcHubs", HUB));
+  const adminToken = await seedAdmin(t);
+  const { default: bcrypt } = await import("bcryptjs");
+  const hash = await bcrypt.hash("clash-pass-123", 12);
+
+  const originalId = await seedRep(
+    t,
+    hubId,
+    "clash_hub",
+    hash,
+    "clash-pass-123",
+  );
+  await t.mutation(api.agcAdminData.deleteRep, {
+    sessionToken: adminToken,
+    repId: originalId,
+  });
+
+  // A second hub whose derived username collides with the deleted one.
+  const secondHub = await t.run((ctx) =>
+    ctx.db.insert("agcHubs", { ...HUB, name: "Clash Hub " }),
+  );
+  const secondId = await seedRep(
+    t,
+    secondHub,
+    "clash_hub",
+    hash,
+    "clash-pass-123",
+  );
+  // Two live rows with the same username would not normally exist; simulate
+  // the collision by restoring while the second row is live.
+  await t.run((ctx) => ctx.db.delete(secondId));
+  // Re-insert a live clash via the second hub's rep.
+  await seedRep(t, secondHub, "clash_hub", hash, "clash-pass-123");
+
+  await expect(
+    t.mutation(api.agcAdminData.restoreRep, {
+      sessionToken: adminToken,
+      repId: originalId,
+    }),
+  ).rejects.toThrow(/cannot restore/i);
+});
+
+test("getHubRoster aggregates per-hub registration and booking activity", async () => {
+  const t = createTestConvex();
+  const hubId = await t.run((ctx) => ctx.db.insert("agcHubs", HUB));
+  const adminToken = await seedAdmin(t);
+  const { default: bcrypt } = await import("bcryptjs");
+  const repId = await seedRep(
+    t,
+    hubId,
+    "roster_hub",
+    await bcrypt.hash("roster-pass-1", 12),
+    "roster-pass-1",
+  );
+
+  await t.run(async (ctx) => {
+    await ctx.db.insert("agcRegistrations", {
+      hubId,
+      repId,
+      region: HUB.region,
+      quantity: 4,
+      unitPrice: 30,
+      currency: "GHS",
+      totalAmount: 120,
+      paymentMode: "offline",
+      paymentStatus: "confirmed",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    await ctx.db.insert("agcRegistrations", {
+      hubId,
+      repId,
+      region: HUB.region,
+      quantity: 2,
+      unitPrice: 30,
+      currency: "GHS",
+      totalAmount: 60,
+      paymentMode: "offline",
+      paymentStatus: "pending_verification",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    await ctx.db.insert("agcBookings", {
+      hubId,
+      repId,
+      region: HUB.region,
+      currency: "GHS",
+      totalAmount: 40,
+      paymentMode: "offline",
+      paymentStatus: "confirmed",
+      bookingStatus: "confirmed",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+  });
+
+  const roster = await t.query(api.agcAdminData.getHubRoster, {
+    sessionToken: adminToken,
+  });
+  const row = roster.find((r) => r._id === hubId)!;
+  expect(row.rep!.username).toBe("roster_hub");
+  expect(row.registrations.total).toBe(2);
+  expect(row.registrations.delegates).toBe(6);
+  expect(row.registrations.confirmed).toBe(1);
+  expect(row.registrations.pending).toBe(1);
+  expect(row.bookings.confirmed).toBe(1);
+  expect(row.bookings.pending).toBe(0);
+  expect(row.needsAttention).toBe(true); // pending registration
 });

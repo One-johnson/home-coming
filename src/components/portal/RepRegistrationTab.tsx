@@ -123,7 +123,6 @@ export function RepRegistrationTab() {
           receiptStorageId: storageId,
           receiptFileName: receipt.name,
           receiptContentType: receipt.type || undefined,
-          submittedAt: Date.now(),
         },
       });
       toast.success(

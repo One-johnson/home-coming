@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, startTransition } from "react";
 import {
   useInView,
   useMotionValue,
@@ -39,7 +39,7 @@ function AnimatedStatValue({
 
   useEffect(() => {
     if (shouldReduceMotion) {
-      setDisplay(formatStatNumber(value, decimals));
+      startTransition(() => setDisplay(formatStatNumber(value, decimals)));
       return;
     }
     if (inView) {

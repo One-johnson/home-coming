@@ -12,7 +12,7 @@ import {
   Table2,
   Trash2,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, startTransition } from "react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import type { Doc, Id } from "@convex/_generated/dataModel";
@@ -552,19 +552,21 @@ export function VideoManager() {
 
   useEffect(() => {
     if (!messages || editorMode === "edit") return;
-    setVideoRows((rows) => {
-      if (
-        rows.length !== 1 ||
-        rows[0].title ||
-        rows[0].url ||
-        rows[0].order !== 1
-      ) {
-        return rows;
-      }
-      const nextOrder = Math.max(0, ...messages.map((m) => m.order)) + 1;
-      return rows[0].order === nextOrder
-        ? rows
-        : [{ ...rows[0], order: nextOrder }];
+    startTransition(() => {
+      setVideoRows((rows) => {
+        if (
+          rows.length !== 1 ||
+          rows[0].title ||
+          rows[0].url ||
+          rows[0].order !== 1
+        ) {
+          return rows;
+        }
+        const nextOrder = Math.max(0, ...messages.map((m) => m.order)) + 1;
+        return rows[0].order === nextOrder
+          ? rows
+          : [{ ...rows[0], order: nextOrder }];
+      });
     });
   }, [messages, editorMode]);
 
@@ -592,7 +594,7 @@ export function VideoManager() {
   // Keep the current card page within bounds when the list shrinks.
   useEffect(() => {
     if (cardPage > cardTotalPages - 1) {
-      setCardPage(cardTotalPages - 1);
+      startTransition(() => setCardPage(cardTotalPages - 1));
     }
   }, [cardPage, cardTotalPages]);
 

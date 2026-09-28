@@ -183,6 +183,7 @@ export function DataTable<TData, TValue>({
     return [selectColumn, ...sortableColumns];
   }, [columns]);
 
+  // eslint-disable-next-line react-hooks/incompatible-library -- TanStack Table v8's jsdoc-typing trips the react-compiler linter; the call is render-safe.
   const table = useReactTable({
     data,
     columns: tableColumns,

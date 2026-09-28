@@ -18,7 +18,6 @@ import { createUniqueReferenceNumber } from "./lib/referenceNumbers";
 import {
   assertBeforeDeadline,
   availabilityForRegion,
-  computeHoldExpiry,
   createBookingWithGuests,
   releaseBookingInventory,
   applySubstitution,
@@ -58,7 +57,7 @@ const paymentModeValidator = v.union(
 export const getAccommodationOverview = query({
   args: { sessionToken: v.string() },
   handler: async (ctx, args) => {
-    const { rep, hub } = await requireRep(ctx, args.sessionToken);
+    const { hub } = await requireRep(ctx, args.sessionToken);
     const [availability, holdHours, deadline] = await Promise.all([
       availabilityForRegion(ctx, hub.region),
       getHoldHours(ctx),
@@ -301,6 +300,8 @@ export const submitOfflineBookingPayment = mutation({
         ...args.offline,
         receiptFileName: args.offline.receiptFileName ?? undefined,
         receiptContentType: args.offline.receiptContentType ?? undefined,
+        // Server clock — clients are not trusted for timestamps.
+        submittedAt: Date.now(),
       },
       updatedAt: Date.now(),
     });

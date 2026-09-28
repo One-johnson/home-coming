@@ -18,20 +18,26 @@ import {
 export const getRepByUsername = internalQuery({
   args: { username: v.string() },
   handler: async (ctx, args) => {
-    return await ctx.db
+    // Soft-deleted reps must not authenticate or collide with new accounts.
+    const rep = await ctx.db
       .query("agcRepresentatives")
       .withIndex("by_username", (q) => q.eq("username", args.username))
       .unique();
+    if (!rep || rep.deletedAt !== undefined) return null;
+    return rep;
   },
 });
 
 export const getRepByEmail = internalQuery({
   args: { email: v.string() },
   handler: async (ctx, args) => {
-    return await ctx.db
+    // Soft-deleted reps' emails stay reserved until the record is purged.
+    const rep = await ctx.db
       .query("agcRepresentatives")
       .withIndex("by_email", (q) => q.eq("email", args.email))
       .unique();
+    if (!rep || rep.deletedAt !== undefined) return null;
+    return rep;
   },
 });
 
@@ -147,7 +153,9 @@ export const getRepBySession = internalQuery({
       .withIndex("by_token", (q) => q.eq("token", args.token))
       .unique();
     if (!session || session.expiresAt < Date.now()) return null;
-    return await ctx.db.get(session.repId);
+    const rep = await ctx.db.get(session.repId);
+    if (!rep || rep.deletedAt !== undefined) return null;
+    return rep;
   },
 });
 

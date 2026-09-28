@@ -76,6 +76,17 @@ type PoolRow = {
   available: number;
 };
 
+type DeletedRepRow = {
+  _id: string;
+  username: string;
+  hubName: string;
+  email: string | null;
+  deletedAt: number;
+  deletedBy: string | null;
+  purgeAt: number;
+  expired: boolean;
+};
+
 type RepRow = {
   _id: string;
   username: string;
@@ -110,6 +121,11 @@ export function AgcAccommodationTab() {
   const setRepEmail = useMutation(api.agcAdminData.setRepEmail);
   const deleteRepMutation = useMutation(api.agcAdminData.deleteRep);
   const deleteRepsBulkMutation = useMutation(api.agcAdminData.deleteRepsBulk);
+  const restoreRepMutation = useMutation(api.agcAdminData.restoreRep);
+  const deletedReps = useQuery(
+    api.agcAdminData.listDeletedReps,
+    sessionToken ? { sessionToken } : "skip",
+  );
   const importHubsAction = useAction(api.agcAdmin.importHubs);
   const createHubMutation = useMutation(api.agcAdminData.createHub);
   const seedDefaults = useAction(api.agcAdmin.seedAgcDefaults);
@@ -295,12 +311,32 @@ export function AgcAccommodationTab() {
   const runDeleteRep = async () => {
     if (!sessionToken || !deleteTarget || deleteBusy) return;
     setDeleteBusy(true);
+    const target = deleteTarget;
     try {
       await deleteRepMutation({
         sessionToken,
-        repId: deleteTarget._id as Id<"agcRepresentatives">,
+        repId: target._id as Id<"agcRepresentatives">,
       });
-      toast.success(`Deleted ${deleteTarget.username}`);
+      toast.success(`Deleted ${target.username} — restorable for 7 days`, {
+        action: {
+          label: "Undo",
+          onClick: () =>
+            void (async () => {
+              try {
+                await restoreRepMutation({
+                  sessionToken,
+                  repId: target._id as Id<"agcRepresentatives">,
+                });
+                toast.success(`Restored ${target.username}`);
+              } catch (err) {
+                toast.error(
+                  ...toastFriendlyErrorParts(err, "Failed to restore representative"),
+                );
+              }
+            })(),
+        },
+        duration: 10_000,
+      });
       setDeleteTarget(null);
     } catch (err) {
       toast.error(...toastFriendlyErrorParts(err, "Failed to delete representative"));
@@ -314,11 +350,35 @@ export function AgcAccommodationTab() {
     if (!sessionToken || bulkDeleteBusy || selectedRepIds.length === 0) return;
     setBulkDeleteBusy(true);
     try {
+      const deletedIds = [...selectedRepIds];
       const result = await deleteRepsBulkMutation({
         sessionToken,
-        repIds: selectedRepIds as Id<"agcRepresentatives">[],
+        repIds: deletedIds as Id<"agcRepresentatives">[],
       });
-      toast.success(`Deleted ${result.deleted} account(s)`);
+      toast.success(`Deleted ${result.deleted} account(s) — restorable for 7 days`, {
+        action: {
+          label: "Undo all",
+          onClick: () =>
+            void (async () => {
+              let restored = 0;
+              for (const repId of deletedIds) {
+                try {
+                  await restoreRepMutation({
+                    sessionToken,
+                    repId: repId as Id<"agcRepresentatives">,
+                  });
+                  restored += 1;
+                } catch {
+                  // Skip ids that were already restored or cannot clash-restore.
+                }
+              }
+              if (restored > 0) {
+                toast.success(`Restored ${restored} account(s)`);
+              }
+            })(),
+        },
+        duration: 10_000,
+      });
       if (result.missing.length > 0) {
         toast.info(`${result.missing.length} selected account(s) no longer exist`);
       }
@@ -941,6 +1001,61 @@ export function AgcAccommodationTab() {
                 </Button>
               </div>
             )}
+            {deletedReps && deletedReps.length > 0 && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3">
+                <p className="text-sm font-medium text-amber-900">
+                  Recently deleted ({deletedReps.length})
+                </p>
+                <p className="mt-0.5 text-xs text-amber-800">
+                  Restoring puts the account back into first-time setup; after
+                  7 days deleted accounts are removed permanently.
+                </p>
+                <ul className="mt-2 space-y-1.5">
+                  {deletedReps.map((rep: DeletedRepRow) => (
+                    <li
+                      key={rep._id}
+                      className="flex flex-wrap items-center justify-between gap-2 text-sm"
+                    >
+                      <span className="min-w-0 truncate">
+                        <span className="font-mono text-xs">{rep.username}</span>
+                        {" \u00b7 "}
+                        {rep.hubName}
+                        {" \u00b7 "}
+                        <span className="text-xs text-muted-foreground">
+                          {rep.expired
+                            ? "purge due"
+                            : `auto-removes ${new Date(rep.purgeAt).toLocaleDateString()}`}
+                        </span>
+                      </span>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={async () => {
+                          if (!sessionToken) return;
+                          try {
+                            await restoreRepMutation({
+                              sessionToken,
+                              repId: rep._id as Id<"agcRepresentatives">,
+                            });
+                            toast.success(`Restored ${rep.username}`);
+                          } catch (err) {
+                            toast.error(
+                              ...toastFriendlyErrorParts(
+                                err,
+                                "Failed to restore representative",
+                              ),
+                            );
+                          }
+                        }}
+                      >
+                        Restore
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <div className="rounded-lg border border-dashed p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
@@ -1202,9 +1317,10 @@ export function AgcAccommodationTab() {
                 Delete representative {deleteTarget?.username}?
               </DialogTitle>
               <DialogDescription>
-                This permanently removes the account, its sessions and reset
-                tokens. The hub itself is kept, so you can create a fresh
-                account for it later. This cannot be undone.
+                The account is disabled immediately and removed from the reps
+                list. It stays restorable for 7 days (an Undo button appears
+                right after), and is then purged permanently. The hub itself
+                is kept.
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>
@@ -1241,8 +1357,9 @@ export function AgcAccommodationTab() {
                 Delete {selectedRepIds.length} representative account(s)?
               </DialogTitle>
               <DialogDescription>
-                This permanently removes the selected accounts, their sessions
-                and reset tokens. Their hubs are kept. This cannot be undone.
+                The selected accounts are disabled immediately and stay
+                restorable for 7 days (an Undo button appears right after).
+                Their hubs are kept. After 7 days they are purged permanently.
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>

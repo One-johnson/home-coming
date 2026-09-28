@@ -14,7 +14,7 @@ function formatDate(ts: number) {
   return new Date(ts).toLocaleString();
 }
 
-export const multiSelectFilter = <T,>(
+export const multiSelectFilter = (
   row: { getValue: (columnId: string) => unknown },
   columnId: string,
   filterValue: string[],

@@ -1,7 +1,7 @@
 "use client";
 
 import { useAction, useMutation } from "convex/react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, startTransition } from "react";
 import { toast } from "sonner";
 import { Eye, EyeOff, Lock, User } from "lucide-react";
 import { api } from "@convex/_generated/api";
@@ -28,7 +28,7 @@ export default function AdminProfilePage() {
   const [savingPassword, setSavingPassword] = useState(false);
 
   useEffect(() => {
-    if (user?.name) setName(user.name);
+    if (user?.name) startTransition(() => setName(user.name));
   }, [user?.name]);
 
   if (!user || !sessionToken) {

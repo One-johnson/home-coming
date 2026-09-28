@@ -160,7 +160,7 @@ export function TypewriterSequence({
     }, 280);
 
     return () => clearTimeout(advanceTimer);
-  }, [started, shouldReduceMotion, paragraphIndex, charIndex, paragraphs.length]);
+  }, [started, shouldReduceMotion, paragraphIndex, charIndex, paragraphs]);
 
   if (shouldReduceMotion) {
     return (

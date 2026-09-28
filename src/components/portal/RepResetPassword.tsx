@@ -7,7 +7,6 @@ import { useAction } from "convex/react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
-import { useRepSession } from "@/components/portal/RepSessionProvider";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { LinkButton as Button } from "@/components/ui/app-button";
 import { Button as IconButton } from "@/components/ui/button";
@@ -47,7 +46,6 @@ function PasswordEye({
 export function RepResetPassword() {
   const searchParams = useSearchParams();
   const token = searchParams.get("token");
-  const { setSession } = useRepSession();
 
   const requestReset = useAction(api.agcAuth.requestPasswordReset);
   const resetPassword = useAction(api.agcAuth.resetPassword);

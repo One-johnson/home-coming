@@ -2,7 +2,7 @@
 
 import { toastFriendlyErrorParts } from "@/lib/friendlyError";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { DownloadIcon, Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
