@@ -11,7 +11,7 @@
     "test": "vitest run",
     "email:dev": "email dev --dir emails --port 3001",
     "seed": "echo Seed content from the admin dashboard after signing in",
-    "upload-gallery": "node scripts/upload-gallery-images.mjs"
+    "upload-gallery": "node scripts/register-static-gallery.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",

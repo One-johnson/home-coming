@@ -30,7 +30,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Progress } from "@/components/ui/progress";
 import {
   Select,
   SelectContent,
@@ -38,23 +37,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { uploadFilesToConvex } from "@/lib/galleryUpload";
-import { compressImageForUpload } from "@/lib/imageCompress";
+import {
+  compressImageForUpload,
+  emptyGalleryForm,
+  type GalleryForm,
+  staticFileName,
+} from "./galleryManagerForm";
 import { cn } from "@/lib/utils";
-
-type GalleryForm = {
-  year: number;
-  theme: string;
-  title: string;
-};
-
-function emptyGalleryForm(): GalleryForm {
-  return {
-    year: new Date().getFullYear(),
-    theme: "",
-    title: "",
-  };
-}
 
 function galleryLabel(gallery: {
   year: number;
@@ -67,11 +56,10 @@ function galleryLabel(gallery: {
 export function GalleryManager() {
   const { sessionToken } = useAdminSession();
   const galleries = useQuery(api.content.listGalleries);
-  const generateUploadUrl = useMutation(api.galleryStorage.generateUploadUrl);
   const createGallery = useMutation(api.galleryStorage.createGallery);
   const updateGallery = useMutation(api.galleryStorage.updateGallery);
   const updateGalleryImage = useMutation(api.galleryStorage.updateGalleryImage);
-  const addGalleryImage = useMutation(api.galleryStorage.addGalleryImage);
+  const addGalleryImage = useMutation(api.galleryStorage.addStaticGalleryImage);
   const deleteGalleryImage = useMutation(api.galleryStorage.deleteGalleryImage);
   const bulkDeleteGalleryImages = useMutation(
     api.galleryStorage.bulkDeleteGalleryImages,
@@ -80,9 +68,8 @@ export function GalleryManager() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedGalleryId, setSelectedGalleryId] = useState<string>("");
-  const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [uploadLabel, setUploadLabel] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveLabel, setSaveLabel] = useState("");
   const [newGallery, setNewGallery] = useState<GalleryForm>(emptyGalleryForm);
   const [selectedImageIds, setSelectedImageIds] = useState<
     Set<Id<"galleryImages">>
@@ -217,6 +204,11 @@ export function GalleryManager() {
     }
   };
 
+  /**
+   * Client-side compression pass (same as receipts), then register rows that
+   * point at the repo-hosted static file. No Convex storage is used — admins
+   * commit the optimized files via git and the Vercel CDN serves them free.
+   */
   const handleUpload = async (files: FileList | null) => {
     if (!sessionToken) {
       toast.error("Not signed in");
@@ -236,63 +228,51 @@ export function GalleryManager() {
       return;
     }
 
-    setUploading(true);
-    setUploadProgress(0);
-    setUploadLabel("Starting upload...");
+    setSaving(true);
+    setSaveLabel("Preparing files...");
 
     try {
       const galleryId = selectedGalleryId as Id<"galleries">;
+      const gallery = galleries?.find((g) => g._id === selectedGalleryId);
+      const year = gallery?.year ?? new Date().getFullYear();
       let completed = 0;
-
       let savedTotal = 0;
+
       for (const original of imageFiles) {
-        setUploadLabel(`Optimizing ${original.name}...`);
+        setSaveLabel(`Optimizing ${original.name}...`);
         const { file, savedBytes } = await compressImageForUpload(original);
         savedTotal += savedBytes;
 
-        setUploadLabel(`Uploading ${file.name}...`);
-        const storageIds = await uploadFilesToConvex(
-          [file],
-          () => generateUploadUrl({ sessionToken }),
-          (done, total, name) => {
-            setUploadProgress(
-              Math.round(
-                ((completed + done / total) / imageFiles.length) * 100,
-              ),
-            );
-            setUploadLabel(
-              name === "done" ? file.name : `Uploading ${name}...`,
-            );
-          },
-        );
-
+        setSaveLabel(`Registering ${file.name}...`);
         await addGalleryImage({
           sessionToken,
           galleryId,
-          storageId: storageIds[0],
+          fileName: staticFileName(file.name, year),
           caption: original.name.replace(/\.[^.]+$/, "").replace(/[-_]/g, " "),
         });
 
         completed += 1;
-        setUploadProgress(Math.round((completed / imageFiles.length) * 100));
+        setSaveLabel(
+          `Registered ${completed}/${imageFiles.length} — commit the optimized files in public/gallery/${year}/ to publish`,
+        );
       }
 
       toast.success(
         savedTotal > 0
-          ? `Uploaded ${imageFiles.length} image(s) — saved ${(
+          ? `Registered ${imageFiles.length} image(s) — saved ${(
               savedTotal / (1024 * 1024)
             ).toFixed(1)} MB with optimization`
-          : `Uploaded ${imageFiles.length} image(s)`,
+          : `Registered ${imageFiles.length} image(s)`,
       );
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Upload failed";
-      toast.error(message);
+      toast.error(
+        ...toastFriendlyErrorParts(error, "Failed to register images"),
+      );
     } finally {
-      setUploading(false);
-      setUploadLabel("");
+      setSaving(false);
     }
   };
 
@@ -419,7 +399,7 @@ export function GalleryManager() {
             <div className="space-y-1">
               <CardTitle>Manage album</CardTitle>
               <p className="text-sm text-muted-foreground">
-                Select an album to upload, edit, or remove photos.
+                Select an album to register, edit, or remove photos.
               </p>
             </div>
             {selectedGalleryId ? (
@@ -469,26 +449,26 @@ export function GalleryManager() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="gallery-files">Upload images</Label>
+              <Label htmlFor="gallery-files">Register images</Label>
               <Input
                 id="gallery-files"
                 ref={fileInputRef}
                 type="file"
                 accept="image/jpeg,image/png,image/webp,image/gif"
                 multiple
-                disabled={!selectedGalleryId || uploading}
+                disabled={!selectedGalleryId || saving}
                 onChange={(e) => handleUpload(e.target.files)}
               />
               <p className="text-sm text-muted-foreground">
-                JPEG, PNG, WebP, or GIF. Stored in Convex and shown on the public
-                gallery.
+                Rows point at repo-hosted files in public/gallery — zero storage
+                cost. Save the optimized files locally with the exact listed
+                names, commit them, and deploy to publish.
               </p>
             </div>
 
-            {uploading && (
+            {saving && (
               <div className="space-y-2">
-                <Progress value={uploadProgress} />
-                <p className="text-sm text-muted-foreground">{uploadLabel}</p>
+                <p className="text-sm text-muted-foreground">{saveLabel}</p>
               </div>
             )}
           </CardContent>
@@ -535,7 +515,7 @@ export function GalleryManager() {
           <CardContent>
             {selectedGallery.images.length === 0 ? (
               <p className="text-muted-foreground">
-                No images yet. Upload photos above.
+                No images yet. Register photos above.
               </p>
             ) : (
               <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8">

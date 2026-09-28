@@ -1236,6 +1236,10 @@ export const reviewAgcBooking = mutation({
  * file count, and a breakdown by which feature owns each blob (derived
  * from the metadata rows that reference the storage id).
  * Returns zeros when the caller lacks the "emails" (admin) area.
+ *
+ * Curated gallery photos are repo-hosted static files (public/gallery) and
+ * intentionally do not appear here — their storage cost is zero. Receipts,
+ * hero, and tour images still live in Convex storage.
  */
 async function storageUsage(ctx: QueryCtx, canSee: boolean) {
   if (!canSee) {
