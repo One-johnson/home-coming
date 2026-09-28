@@ -113,6 +113,8 @@ Another admin can test the entire system on a **staging environment** — a Verc
 
 See **[TESTING.md](TESTING.md)** for the full setup (one-time, ~20 minutes), how to invite the second admin, and the complete go-live test checklist (public pages, rep portal, admin console, test-card payments, emails).
 
+For a stable tester URL, **[STAGING.md](STAGING.md)** sets up `staging.homecomingconvention.com` — branch-based deployments, DNS, env scoping, and day-to-day management.
+
 `cp .env.example .env.local` documents every environment variable the app and its scripts need.
 
 ## Payment Integration
