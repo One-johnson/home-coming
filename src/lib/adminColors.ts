@@ -23,8 +23,10 @@ export const ADMIN_CHART = {
 
 export const ADMIN_STATUS_CHART: Record<string, string> = {
   Paid: ADMIN_CHART.emerald,
+  Confirmed: ADMIN_CHART.emerald,
   Pending: ADMIN_CHART.amber,
   Failed: ADMIN_CHART.rose,
+  Rejected: ADMIN_CHART.rose,
   "Mock paid": ADMIN_CHART.goldLight,
   Stub: ADMIN_CHART.stone,
   Sent: ADMIN_CHART.sky,

@@ -515,6 +515,190 @@ export const resetRepCredentials = internalMutation({
   },
 });
 
+/**
+ * Shared rep-deletion: removes sessions and password-reset tokens before the
+ * rep record itself. Hub records and their registrations are kept.
+ */
+async function deleteRepInternal(ctx: MutationCtx, repId: Id<"agcRepresentatives">) {
+  const sessions = await ctx.db
+    .query("agcRepSessions")
+    .withIndex("by_rep", (q) => q.eq("repId", repId))
+    .collect();
+  for (const session of sessions) {
+    await ctx.db.delete(session._id);
+  }
+  const resets = await ctx.db
+    .query("agcPasswordResets")
+    .withIndex("by_rep", (q) => q.eq("repId", repId))
+    .collect();
+  for (const reset of resets) {
+    await ctx.db.delete(reset._id);
+  }
+  const rep = await ctx.db.get(repId);
+  if (rep) {
+    const throttleRow = await ctx.db
+      .query("agcLoginThrottle")
+      .withIndex("by_key", (q) => q.eq("key", rep.username.toLowerCase()))
+      .unique();
+    if (throttleRow) {
+      await ctx.db.delete(throttleRow._id);
+    }
+  }
+  await ctx.db.delete(repId);
+}
+
+export const setRepEmail = mutation({
+  args: {
+    sessionToken: sessionTokenValidator,
+    repId: v.id("agcRepresentatives"),
+    /** Empty string clears the email. */
+    email: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireAdmin(ctx, args.sessionToken);
+    const rep: Doc<"agcRepresentatives"> | null = await ctx.db.get(args.repId);
+    if (!rep) throw new Error("Representative not found");
+
+    const email = args.email.trim().toLowerCase();
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      throw new Error("Please enter a valid email address");
+    }
+    if (email) {
+      const taken: Doc<"agcRepresentatives"> | null = await ctx.db
+        .query("agcRepresentatives")
+        .withIndex("by_email", (q) => q.eq("email", email))
+        .unique();
+      if (taken && taken._id !== rep._id) {
+        throw new Error("This email address is already in use by another representative");
+      }
+    }
+
+    await ctx.db.patch(args.repId, {
+      email: email || undefined,
+      updatedAt: Date.now(),
+    });
+
+    await writeAuditLog(ctx, {
+      actorEmail: actor.email,
+      action: "agc_rep.email_updated",
+      entityType: "agcRepresentatives",
+      entityId: args.repId,
+      summary: `Set email for ${rep.username}${email ? ` to ${email}` : " (cleared)"}`,
+    });
+
+    return { success: true as const };
+  },
+});
+
+export const deleteRep = mutation({
+  args: {
+    sessionToken: sessionTokenValidator,
+    repId: v.id("agcRepresentatives"),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireAdmin(ctx, args.sessionToken);
+    const rep: Doc<"agcRepresentatives"> | null = await ctx.db.get(args.repId);
+    if (!rep) throw new Error("Representative not found");
+
+    await deleteRepInternal(ctx, args.repId);
+
+    await writeAuditLog(ctx, {
+      actorEmail: actor.email,
+      action: "agc_rep.deleted",
+      entityType: "agcRepresentatives",
+      entityId: args.repId,
+      summary: `Deleted representative account ${rep.username} (${rep.email ?? "no email"})`,
+    });
+
+    return { success: true as const };
+  },
+});
+
+export const deleteRepsBulk = mutation({
+  args: {
+    sessionToken: sessionTokenValidator,
+    repIds: v.array(v.id("agcRepresentatives")),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireAdmin(ctx, args.sessionToken);
+
+    let deleted = 0;
+    const usernames: string[] = [];
+    const missing: string[] = [];
+    for (const repId of args.repIds) {
+      const rep = await ctx.db.get(repId);
+      if (!rep) {
+        missing.push(repId);
+        continue;
+      }
+      usernames.push(rep.username);
+      await deleteRepInternal(ctx, repId);
+      deleted += 1;
+    }
+
+    await writeAuditLog(ctx, {
+      actorEmail: actor.email,
+      action: "agc_rep.bulk_deleted",
+      entityType: "agcRepresentatives",
+      summary: `Bulk-deleted ${deleted} representative account(s): ${usernames.join(", ") || "none"}`,
+    });
+
+    return { deleted, missing };
+  },
+});
+
+/**
+ * Notify every platform admin that a payment is awaiting review.
+ * Returns one email log per admin (stub status when SMTP is unconfigured),
+ * so the caller can schedule delivery for each.
+ */
+export const notifyAdminsOfPendingReview = internalMutation({
+  args: {
+    kind: v.union(v.literal("registration"), v.literal("booking")),
+    referenceNumber: v.optional(v.string()),
+    hubName: v.string(),
+    amount: v.number(),
+    currency: v.string(),
+    recordId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const admins = await ctx.db
+      .query("users")
+      .withIndex("by_email")
+      .collect();
+    const label = args.kind === "registration" ? "Registration" : "Accommodation booking";
+    const subject = `Homecoming 2026 — ${label} awaiting review (${args.referenceNumber ?? args.hubName})`;
+    const body = [
+      "A payment was submitted and is waiting for review in the AGC console.",
+      "",
+      `${label}: ${args.referenceNumber ?? "(no reference yet)"}`,
+      `Hub: ${args.hubName}`,
+      `Amount: ${args.currency} ${args.amount}`,
+      "",
+      "Open the admin dashboard → AGC 2026 to approve or request a correction.",
+      "",
+      "— Homecoming 2026 automated notification",
+    ].join("\n");
+
+    const status = isSmtpConfigured() ? ("pending" as const) : ("stub" as const);
+    const queued: { emailLogId: Id<"emailLogs">; shouldSend: boolean }[] = [];
+    for (const admin of admins) {
+      if (!admin.email || admin.active === false) continue;
+      const emailLogId: Id<"emailLogs"> = await ctx.db.insert("emailLogs", {
+        to: admin.email,
+        subject,
+        body,
+        type: "agc_admin_pending_review",
+        referenceId: args.recordId,
+        status,
+        createdAt: Date.now(),
+      });
+      queued.push({ emailLogId, shouldSend: status === "pending" });
+    }
+    return queued;
+  },
+});
+
 export const setRepStatus = mutation({
   args: {
     sessionToken: sessionTokenValidator,
@@ -889,6 +1073,286 @@ export const reviewAgcBooking = mutation({
       type: "agc_booking_review",
     });
     return { success: true as const };
+  },
+});
+
+// ------------------------------------------------------------------
+// Dashboard overview — AGC data only (the legacy public-registration
+// tables are no longer the source of truth).
+// ------------------------------------------------------------------
+
+export const getAgcOverview = query({
+  args: { sessionToken: sessionTokenValidator },
+  handler: async (ctx, args) => {
+    const user = await requireRole(ctx, args.sessionToken, [
+      "admin",
+      "registration",
+      "accommodation",
+      "finance",
+      "content",
+    ]);
+
+    const canRegistration =
+      user.role === "admin" || user.role === "registration";
+    const canAccommodation =
+      user.role === "admin" || user.role === "accommodation";
+    const canContent = user.role === "admin" || user.role === "content";
+    const canEmails = user.role === "admin";
+
+    const registrations = canRegistration
+      ? await ctx.db.query("agcRegistrations").collect()
+      : [];
+    const bookings = canAccommodation
+      ? await ctx.db.query("agcBookings").collect()
+      : [];
+    const guests = canAccommodation
+      ? await ctx.db.query("agcGuests").collect()
+      : [];
+    const pools = canAccommodation
+      ? await ctx.db.query("agcInventoryPools").collect()
+      : [];
+    const emailLogs = canEmails
+      ? await ctx.db.query("emailLogs").collect()
+      : [];
+    const recentActivity =
+      user.role === "admin"
+        ? (
+            await ctx.db
+              .query("auditLogs")
+              .withIndex("by_created_at")
+              .order("desc")
+              .take(8)
+          ).map((log) => ({
+            _id: log._id,
+            action: log.action,
+            summary: log.summary,
+            actorEmail: log.actorEmail,
+            createdAt: log.createdAt,
+          }))
+        : [];
+
+    const hubName = new Map<string, string>();
+    if (canRegistration) {
+      for (const hub of await ctx.db.query("agcHubs").collect()) {
+        hubName.set(hub._id, hub.name);
+      }
+    }
+
+    const confirmedRegistrations = registrations.filter(
+      (row) => row.paymentStatus === "confirmed",
+    );
+    const pendingRegistrations = registrations.filter(
+      (row) => row.paymentStatus === "pending_verification",
+    );
+    const rejectedRegistrations = registrations.filter(
+      (row) => row.paymentStatus === "rejected",
+    );
+    const registrationRevenueByCurrency: Record<string, number> = {};
+    for (const row of confirmedRegistrations) {
+      registrationRevenueByCurrency[row.currency] =
+        (registrationRevenueByCurrency[row.currency] ?? 0) + row.totalAmount;
+    }
+
+    const confirmedBookings = bookings.filter(
+      (row) => row.paymentStatus === "confirmed",
+    );
+    const pendingBookings = bookings.filter(
+      (row) =>
+        row.paymentStatus === "pending_verification" ||
+        row.bookingStatus === "pending_verification",
+    );
+    const bookingRevenueByCurrency: Record<string, number> = {};
+    for (const row of confirmedBookings) {
+      bookingRevenueByCurrency[row.currency] =
+        (bookingRevenueByCurrency[row.currency] ?? 0) + row.totalAmount;
+    }
+
+    const regionBreakdown: Record<string, number> = {};
+    for (const row of registrations) {
+      regionBreakdown[row.region] = (regionBreakdown[row.region] ?? 0) + 1;
+    }
+    const modeBreakdown: Record<string, number> = {};
+    for (const row of registrations) {
+      modeBreakdown[row.paymentMode] = (modeBreakdown[row.paymentMode] ?? 0) + 1;
+    }
+
+    const now = Date.now();
+    const dayMs = 24 * 60 * 60 * 1000;
+    const weekMs = 7 * dayMs;
+    const thisWeekStart = now - weekMs;
+    const lastWeekStart = now - 2 * weekMs;
+    const registrationsThisWeek = registrations.filter(
+      (row) => row.createdAt >= thisWeekStart,
+    ).length;
+    const registrationsLastWeek = registrations.filter(
+      (row) => row.createdAt >= lastWeekStart && row.createdAt < thisWeekStart,
+    ).length;
+    const bookingsThisWeek = bookings.filter(
+      (row) => row.createdAt >= thisWeekStart,
+    ).length;
+
+    const last7Days = Array.from({ length: 7 }, (_, i) => {
+      const start = now - (6 - i) * dayMs;
+      const dayStart = new Date(start);
+      dayStart.setHours(0, 0, 0, 0);
+      const dayEnd = dayStart.getTime() + dayMs;
+      const count = registrations.filter(
+        (row) => row.createdAt >= dayStart.getTime() && row.createdAt < dayEnd,
+      ).length;
+      return {
+        label: dayStart.toLocaleDateString(undefined, { weekday: "short" }),
+        count,
+      };
+    });
+
+    const formatMoney = (byCurrency: Record<string, number>) =>
+      Object.entries(byCurrency)
+        .map(([currency, amount]) => `${currency} ${amount.toLocaleString()}`)
+        .join(" · ") || "—";
+
+    // Capacity from the AGC inventory pools (the source the booking flow uses).
+    const poolTotals = new Map<
+      string,
+      { total: number; reserved: number; confirmed: number }
+    >();
+    for (const pool of pools) {
+      const key = String(pool.accommodationType);
+      const agg = poolTotals.get(key) ?? { total: 0, reserved: 0, confirmed: 0 };
+      agg.total += pool.total;
+      agg.reserved += pool.reserved;
+      agg.confirmed += pool.confirmed;
+      poolTotals.set(key, agg);
+    }
+    const housing = [...poolTotals.entries()]
+      .map(([type, agg]) => ({
+        _id: type,
+        type,
+        capacityLimit: agg.total,
+        booked: agg.reserved + agg.confirmed,
+        remaining: Math.max(0, agg.total - agg.reserved - agg.confirmed),
+        pricePerStay: 0,
+      }))
+      .sort((a, b) => a.type.localeCompare(b.type));
+
+    const attention: {
+      id: string;
+      label: string;
+      detail: string;
+      href: string;
+      tone: "warn" | "danger" | "info";
+    }[] = [];
+
+    if (canRegistration && pendingRegistrations.length > 0) {
+      attention.push({
+        id: "agc-reg-pending",
+        label: "Registrations awaiting review",
+        detail: `${pendingRegistrations.length} payment receipt${pendingRegistrations.length === 1 ? "" : "s"} to verify`,
+        href: "/admin/agc",
+        tone: "warn",
+      });
+    }
+    if (canAccommodation && pendingBookings.length > 0) {
+      attention.push({
+        id: "agc-booking-pending",
+        label: "Bookings awaiting review",
+        detail: `${pendingBookings.length} accommodation payment${pendingBookings.length === 1 ? "" : "s"} to verify`,
+        href: "/admin/agc",
+        tone: "warn",
+      });
+    }
+    if (canRegistration && rejectedRegistrations.length > 0) {
+      attention.push({
+        id: "agc-reg-rejected",
+        label: "Rejected registrations",
+        detail: `${rejectedRegistrations.length} submission${rejectedRegistrations.length === 1 ? "" : "s"} were rejected`,
+        href: "/admin/agc",
+        tone: "info",
+      });
+    }
+    if (
+      canAccommodation &&
+      housing.some((row) => row.capacityLimit > 0 && row.remaining <= 5)
+    ) {
+      attention.push({
+        id: "agc-pools-low",
+        label: "Low accommodation capacity",
+        detail: housing
+          .filter((row) => row.capacityLimit > 0 && row.remaining <= 5)
+          .map((row) => `${row.type}: ${row.remaining} left`)
+          .join(" · "),
+        href: "/admin/agc",
+        tone: "info",
+      });
+    }
+    if (canEmails) {
+      const failedEmails = emailLogs.filter((e) => e.status === "failed").length;
+      const pendingEmails = emailLogs.filter((e) => e.status === "pending").length;
+      if (failedEmails > 0) {
+        attention.push({
+          id: "email-failed",
+          label: "Failed emails",
+          detail: `${failedEmails} email${failedEmails === 1 ? "" : "s"} failed to send`,
+          href: "/admin/emails",
+          tone: "danger",
+        });
+      } else if (pendingEmails > 0) {
+        attention.push({
+          id: "email-pending",
+          label: "Pending emails",
+          detail: `${pendingEmails} email${pendingEmails === 1 ? "" : "s"} awaiting delivery`,
+          href: "/admin/emails",
+          tone: "info",
+        });
+      }
+    }
+
+    return {
+      registrations: {
+        total: registrations.length,
+        delegates: registrations.reduce((sum, row) => sum + row.quantity, 0),
+        confirmed: confirmedRegistrations.length,
+        pending: pendingRegistrations.length,
+        rejected: rejectedRegistrations.length,
+        revenueByCurrency: registrationRevenueByCurrency,
+        revenueLabel: formatMoney(registrationRevenueByCurrency),
+        thisWeek: registrationsThisWeek,
+        lastWeek: registrationsLastWeek,
+        regionBreakdown,
+        modeBreakdown,
+        last7Days,
+      },
+      bookings: {
+        total: bookings.length,
+        activeGuests: guests.filter((guest) => guest.status === "active").length,
+        confirmed: confirmedBookings.length,
+        pending: pendingBookings.length,
+        revenueLabel: formatMoney(bookingRevenueByCurrency),
+        thisWeek: bookingsThisWeek,
+      },
+      housing,
+      content: {
+        faqs: canContent
+          ? (await ctx.db.query("faqs").collect()).length
+          : 0,
+        videos: canContent
+          ? (await ctx.db.query("messages").collect()).length
+          : 0,
+      },
+      emails: {
+        total: emailLogs.length,
+        pending: emailLogs.filter((e) => e.status === "pending").length,
+        stub: emailLogs.filter((e) => e.status === "stub").length,
+        sent: emailLogs.filter((e) => e.status === "sent").length,
+        failed: emailLogs.filter((e) => e.status === "failed").length,
+      },
+      attention,
+      recentActivity,
+      badges: {
+        registrationsPending: pendingRegistrations.length,
+        bookingsPending: pendingBookings.length,
+        emailsFailed: emailLogs.filter((e) => e.status === "failed").length,
+      },
+    };
   },
 });
 

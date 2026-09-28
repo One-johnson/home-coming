@@ -248,12 +248,10 @@ export const searchQuick = query({
 
     const pages = [
       { href: "/admin", label: "Overview" },
-      { href: "/admin/registrations", label: "Registrations" },
-      { href: "/admin/groups", label: "Groups" },
-      { href: "/admin/bookings", label: "Bookings" },
+      { href: "/admin/agc", label: "AGC console" },
+      { href: "/admin/tours", label: "Tours" },
       { href: "/admin/housing", label: "Housing" },
       { href: "/admin/hotels", label: "Hotels" },
-      { href: "/admin/tours", label: "Tours" },
       { href: "/admin/content", label: "Content" },
       { href: "/admin/hero", label: "Hero" },
       { href: "/admin/videos", label: "Videos" },
@@ -269,35 +267,35 @@ export const searchQuick = query({
     const canAccommodation =
       user.role === "admin" || user.role === "accommodation";
 
+    // AGC registrations: match reference number or hub contact email.
     const registrations = canRegistration
-      ? (await ctx.db.query("registrations").collect())
+      ? (await ctx.db.query("agcRegistrations").collect())
           .filter(
             (r) =>
-              r.email.toLowerCase().includes(q) ||
-              (r.fullName?.toLowerCase().includes(q) ?? false) ||
-              (r.referenceNumber?.toLowerCase().includes(q) ?? false),
+              (r.referenceNumber?.toLowerCase().includes(q) ?? false) ||
+              (r.contactEmail?.toLowerCase().includes(q) ?? false),
           )
           .slice(0, 8)
           .map((r) => ({
             _id: r._id,
-            label: r.referenceNumber ?? r.email,
-            sub: r.email,
+            label: r.referenceNumber ?? "(pending)",
+            sub: r.contactEmail ?? `Hub registration · ${r.quantity} delegate(s)`,
           }))
       : [];
 
+    // AGC bookings: match reference number or hub contact email.
     const bookings = canAccommodation
-      ? (await ctx.db.query("housingBookings").collect())
+      ? (await ctx.db.query("agcBookings").collect())
           .filter(
             (b) =>
-              b.guestEmail.toLowerCase().includes(q) ||
-              b.guestName.toLowerCase().includes(q) ||
-              (b.referenceNumber?.toLowerCase().includes(q) ?? false),
+              (b.referenceNumber?.toLowerCase().includes(q) ?? false) ||
+              (b.contactEmail?.toLowerCase().includes(q) ?? false),
           )
           .slice(0, 8)
           .map((b) => ({
             _id: b._id,
-            label: b.referenceNumber ?? b.guestName,
-            sub: b.guestEmail,
+            label: b.referenceNumber ?? "(pending)",
+            sub: b.contactEmail ?? `Booking · ${b.paymentStatus}`,
           }))
       : [];
 

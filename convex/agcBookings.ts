@@ -318,6 +318,26 @@ export const submitOfflineBookingPayment = mutation({
       },
     });
 
+    // Notify platform admins that a booking payment awaits review.
+    const adminNotify = await ctx.runMutation(
+      internal.agcAdminData.notifyAdminsOfPendingReview,
+      {
+        kind: "booking",
+        referenceNumber: booking.referenceNumber,
+        hubName: hub.name,
+        amount: args.offline.amountPaid,
+        currency: booking.currency,
+        recordId: args.bookingId,
+      },
+    );
+    for (const entry of adminNotify) {
+      if (entry.shouldSend) {
+        await ctx.scheduler.runAfter(0, internal.emailSendAction.sendEmail, {
+          emailLogId: entry.emailLogId,
+        });
+      }
+    }
+
     const status = isSmtpConfigured() ? ("pending" as const) : ("stub" as const);
     if (rep.email) {
       const emailLogId: Id<"emailLogs"> = await ctx.db.insert("emailLogs", {

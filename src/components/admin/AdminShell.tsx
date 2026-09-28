@@ -79,8 +79,8 @@ const NAV_ICONS: Record<
   React.ComponentType<{ className?: string }>
 > = {
   "/admin": LayoutDashboard,
-  "/admin/registrations": ClipboardList,
-  "/admin/bookings": BedDouble,
+  "/admin/agc": ClipboardList,
+  "/admin/groups": CalendarDays,
   "/admin/housing": Building2,
   "/admin/hotels": Hotel,
   "/admin/tours": CalendarDays,

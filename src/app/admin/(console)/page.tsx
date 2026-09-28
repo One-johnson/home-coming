@@ -12,6 +12,7 @@ import {
   Mail,
   TrendingDown,
   TrendingUp,
+  Users,
   Video,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -35,6 +36,60 @@ import {
 import { canAccessArea } from "@/lib/adminRoles";
 import { EVENT } from "@/lib/eventConfig";
 import { cn } from "@/lib/utils";
+
+type AgcOverview = {
+  registrations: {
+    total: number;
+    delegates: number;
+    confirmed: number;
+    pending: number;
+    rejected: number;
+    revenueLabel: string;
+    thisWeek: number;
+    lastWeek: number;
+    regionBreakdown: Record<string, number>;
+    modeBreakdown: Record<string, number>;
+    last7Days: { label: string; count: number }[];
+  };
+  bookings: {
+    total: number;
+    activeGuests: number;
+    confirmed: number;
+    pending: number;
+    revenueLabel: string;
+    thisWeek: number;
+  };
+  housing: {
+    _id: string;
+    type: string;
+    capacityLimit: number;
+    booked: number;
+    remaining: number;
+    pricePerStay: number;
+  }[];
+  content: { faqs: number; videos: number };
+  emails: {
+    total: number;
+    pending: number;
+    stub: number;
+    sent: number;
+    failed: number;
+  };
+  attention: {
+    id: string;
+    label: string;
+    detail: string;
+    href: string;
+    tone: "warn" | "danger" | "info";
+  }[];
+  recentActivity: {
+    _id: string;
+    action: string;
+    summary: string;
+    actorEmail: string | null;
+    createdAt: number;
+  }[];
+};
 
 function WeekDelta({ thisWeek, lastWeek }: { thisWeek: number; lastWeek: number }) {
   const delta = thisWeek - lastWeek;
@@ -115,9 +170,9 @@ export default function AdminOverviewPage() {
   const sessionArgs = useSessionArgs();
   const seedData = useMutation(api.seed.seed);
   const overview = useQuery(
-    api.admin.getOverview,
+    api.agcAdminData.getAgcOverview,
     sessionArgs ? sessionArgs : "skip",
-  );
+  ) as AgcOverview | undefined;
 
   const canRegistration = canAccessArea(role, "registration");
   const canAccommodation = canAccessArea(role, "accommodation");
@@ -145,20 +200,10 @@ export default function AdminOverviewPage() {
               <Button
                 size="sm"
                 nativeButton={false}
-                render={<Link href="/admin/registrations" />}
+                render={<Link href="/admin/agc" />}
               >
-                Registrations
+                AGC console
                 <ArrowUpRight className="size-4" />
-              </Button>
-            )}
-            {canContent && (
-              <Button
-                size="sm"
-                variant="outline"
-                nativeButton={false}
-                render={<Link href="/admin/videos" />}
-              >
-                Videos
               </Button>
             )}
           </>
@@ -182,7 +227,7 @@ export default function AdminOverviewPage() {
         <>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             {canRegistration && (
-              <Link href="/admin/registrations" className="group">
+              <Link href="/admin/agc" className="group">
                 <Card
                   className={cn(
                     "h-full overflow-hidden bg-gradient-to-br transition-all group-hover:shadow-sm",
@@ -205,23 +250,27 @@ export default function AdminOverviewPage() {
                   </CardHeader>
                   <CardContent className="space-y-3">
                     <p className="text-3xl font-semibold tabular-nums text-ink">
-                      {overview.registrations.total}
+                      {overview.registrations.delegates}
+                    </p>
+                    <p className="-mt-2 text-xs text-muted-foreground">
+                      delegates · {overview.registrations.total} submission
+                      {overview.registrations.total === 1 ? "" : "s"}
                     </p>
                     <div className="flex flex-wrap gap-1.5">
                       <StatusChip
-                        label="paid"
-                        value={overview.registrations.paid}
+                        label="confirmed"
+                        value={overview.registrations.confirmed}
                         tone="ok"
                       />
                       <StatusChip
-                        label="pending"
+                        label="awaiting review"
                         value={overview.registrations.pending}
                         tone="warn"
                       />
-                      {overview.registrations.failed > 0 && (
+                      {overview.registrations.rejected > 0 && (
                         <StatusChip
-                          label="failed"
-                          value={overview.registrations.failed}
+                          label="rejected"
+                          value={overview.registrations.rejected}
                           tone="danger"
                         />
                       )}
@@ -235,7 +284,7 @@ export default function AdminOverviewPage() {
               </Link>
             )}
             {canAccommodation && (
-              <Link href="/admin/bookings" className="group">
+              <Link href="/admin/agc" className="group">
                 <Card
                   className={cn(
                     "h-full overflow-hidden bg-gradient-to-br transition-all group-hover:shadow-sm",
@@ -258,22 +307,21 @@ export default function AdminOverviewPage() {
                   </CardHeader>
                   <CardContent className="space-y-3">
                     <p className="text-3xl font-semibold tabular-nums text-ink">
-                      {overview.bookings.total}
+                      {overview.bookings.activeGuests}
+                    </p>
+                    <p className="-mt-2 text-xs text-muted-foreground">
+                      active guests · {overview.bookings.confirmed} confirmed
+                      booking{overview.bookings.confirmed === 1 ? "" : "s"}
                     </p>
                     <div className="flex flex-wrap gap-1.5">
                       <StatusChip
-                        label="paid"
-                        value={overview.bookings.paid}
-                        tone="ok"
-                      />
-                      <StatusChip
-                        label="pending"
+                        label="awaiting review"
                         value={overview.bookings.pending}
                         tone="warn"
                       />
                     </div>
-                    <p className="text-xs font-medium text-amber-800">
-                      ${overview.bookings.revenue.toLocaleString()} revenue · +
+                    <p className="text-xs font-medium text-muted-foreground">
+                      {overview.bookings.revenueLabel} confirmed · +
                       {overview.bookings.thisWeek} this week
                     </p>
                   </CardContent>
@@ -498,26 +546,52 @@ export default function AdminOverviewPage() {
             </Card>
           </div>
 
-          <OverviewCharts
-            registrations={overview.registrations}
-            bookings={overview.bookings}
-            housing={overview.housing}
-            emails={overview.emails}
-            showRegistrations={canRegistration}
-            showAccommodation={canAccommodation}
-            showEmails={canEmails}
-          />
+          {canRegistration && (
+            <OverviewCharts
+              registrations={{
+                paid: overview.registrations.confirmed,
+                pending: overview.registrations.pending,
+                failed: overview.registrations.rejected,
+                revenue: 0,
+                regionBreakdown: overview.registrations.regionBreakdown,
+                gatewayBreakdown: overview.registrations.modeBreakdown,
+                last7Days: overview.registrations.last7Days,
+              }}
+              bookings={{
+                total: overview.bookings.total,
+                paid: overview.bookings.confirmed,
+                pending: overview.bookings.pending,
+                revenue: 0,
+              }}
+              housing={overview.housing}
+              emails={
+                canEmails
+                  ? {
+                      pending: overview.emails.pending,
+                      stub: overview.emails.stub,
+                      sent: overview.emails.sent,
+                      failed: overview.emails.failed,
+                    }
+                  : undefined
+              }
+              showRegistrations={canRegistration}
+              showAccommodation={canAccommodation}
+              showEmails={false}
+            />
+          )}
 
           {canAccommodation && overview.housing.length > 0 && (
             <Card className="overflow-hidden">
               <div className="h-1 w-full bg-gradient-to-r from-amber-400 to-emerald-500" />
               <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle className="text-base">Housing inventory</CardTitle>
+                <CardTitle className="text-base">
+                  Accommodation capacity
+                </CardTitle>
                 <Button
                   size="sm"
                   variant="outline"
                   nativeButton={false}
-                  render={<Link href="/admin/housing" />}
+                  render={<Link href="/admin/agc" />}
                 >
                   Manage
                 </Button>
@@ -562,10 +636,11 @@ export default function AdminOverviewPage() {
                         </Badge>
                       </div>
                       <p className="mt-1 text-sm text-muted-foreground">
-                        {h.booked}/{h.capacityLimit} booked · {h.remaining} left
+                        {h.booked}/{h.capacityLimit} taken · {h.remaining} left
                       </p>
                       <p className="text-sm font-medium tabular-nums text-ink">
-                        ${h.pricePerStay}
+                        <Users className="mr-1 inline size-3.5" />
+                        {h.booked} guests
                       </p>
                     </div>
                   );

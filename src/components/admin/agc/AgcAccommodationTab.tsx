@@ -26,7 +26,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Copy, CopyCheck, Download } from "lucide-react";
+import { Copy, CopyCheck, Download, Mail as MailIcon, Trash2 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -106,6 +107,9 @@ export function AgcAccommodationTab() {
   const bulkCreateRepsAction = useAction(api.agcAdmin.bulkCreateReps);
   const resendCredsAction = useAction(api.agcAdmin.issueTempPassword);
   const setRepStatus = useMutation(api.agcAdminData.setRepStatus);
+  const setRepEmail = useMutation(api.agcAdminData.setRepEmail);
+  const deleteRepMutation = useMutation(api.agcAdminData.deleteRep);
+  const deleteRepsBulkMutation = useMutation(api.agcAdminData.deleteRepsBulk);
   const importHubsAction = useAction(api.agcAdmin.importHubs);
   const createHubMutation = useMutation(api.agcAdminData.createHub);
   const seedDefaults = useAction(api.agcAdmin.seedAgcDefaults);
@@ -139,6 +143,14 @@ export function AgcAccommodationTab() {
   const [exportingReps, setExportingReps] = useState(false);
   const [resendTarget, setResendTarget] = useState<RepRow | null>(null);
   const [resendBusy, setResendBusy] = useState(false);
+  const [emailTarget, setEmailTarget] = useState<RepRow | null>(null);
+  const [emailValue, setEmailValue] = useState("");
+  const [emailBusy, setEmailBusy] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<RepRow | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [bulkDeleteBusy, setBulkDeleteBusy] = useState(false);
+  const [selectedRepIds, setSelectedRepIds] = useState<string[]>([]);
   const [hubForm, setHubForm] = useState({ name: "", region: "ghana", country: "Ghana" });
   const [importText, setImportText] = useState("");
 
@@ -254,6 +266,75 @@ export function AgcAccommodationTab() {
     } finally {
       setBulkBusy(false);
     }
+  };
+
+  /** Save a rep's contact email (empty string clears it). */
+  const runSaveEmail = async () => {
+    if (!sessionToken || !emailTarget || emailBusy) return;
+    setEmailBusy(true);
+    try {
+      await setRepEmail({
+        sessionToken,
+        repId: emailTarget._id as Id<"agcRepresentatives">,
+        email: emailValue,
+      });
+      toast.success(
+        emailValue.trim()
+          ? `Email updated for ${emailTarget.username}`
+          : `Email cleared for ${emailTarget.username}`,
+      );
+      setEmailTarget(null);
+    } catch (err) {
+      toast.error(...toastFriendlyErrorParts(err, "Failed to update email"));
+    } finally {
+      setEmailBusy(false);
+    }
+  };
+
+  /** Permanently delete one rep account (keeps the hub). */
+  const runDeleteRep = async () => {
+    if (!sessionToken || !deleteTarget || deleteBusy) return;
+    setDeleteBusy(true);
+    try {
+      await deleteRepMutation({
+        sessionToken,
+        repId: deleteTarget._id as Id<"agcRepresentatives">,
+      });
+      toast.success(`Deleted ${deleteTarget.username}`);
+      setDeleteTarget(null);
+    } catch (err) {
+      toast.error(...toastFriendlyErrorParts(err, "Failed to delete representative"));
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
+
+  /** Permanently delete every selected rep account. */
+  const runBulkDelete = async () => {
+    if (!sessionToken || bulkDeleteBusy || selectedRepIds.length === 0) return;
+    setBulkDeleteBusy(true);
+    try {
+      const result = await deleteRepsBulkMutation({
+        sessionToken,
+        repIds: selectedRepIds as Id<"agcRepresentatives">[],
+      });
+      toast.success(`Deleted ${result.deleted} account(s)`);
+      if (result.missing.length > 0) {
+        toast.info(`${result.missing.length} selected account(s) no longer exist`);
+      }
+      setSelectedRepIds([]);
+      setBulkDeleteOpen(false);
+    } catch (err) {
+      toast.error(...toastFriendlyErrorParts(err, "Bulk delete failed"));
+    } finally {
+      setBulkDeleteBusy(false);
+    }
+  };
+
+  const toggleRepSelected = (repId: string, checked: boolean) => {
+    setSelectedRepIds((prev) =>
+      checked ? [...prev, repId] : prev.filter((id) => id !== repId),
+    );
   };
 
   /** Regenerate the temp password for one rep and email the credentials. */
@@ -731,7 +812,19 @@ export function AgcAccommodationTab() {
                   >
                     <div>
                       <div className="flex items-center justify-between gap-2">
-                        <p className="font-medium">{rep.hubName}</p>
+                        <div className="flex min-w-0 items-center gap-2">
+                          <Checkbox
+                            checked={selectedRepIds.includes(rep._id)}
+                            onCheckedChange={(checked) =>
+                              toggleRepSelected(
+                                rep._id,
+                                checked === true,
+                              )
+                            }
+                            aria-label={`Select ${rep.username} for bulk delete`}
+                          />
+                          <p className="truncate font-medium">{rep.hubName}</p>
+                        </div>
                         <Button
                           type="button"
                           variant="ghost"
@@ -754,9 +847,18 @@ export function AgcAccommodationTab() {
                           temp: {rep.tempPassword}
                         </p>
                       ) : null}
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {rep.email ?? "no email"}
-                      </p>
+                      <button
+                        type="button"
+                        className="mt-1 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                        onClick={() => {
+                          setEmailTarget(rep);
+                          setEmailValue(rep.email ?? "");
+                        }}
+                        title="Click to set or edit the rep's email"
+                      >
+                        <MailIcon className="size-3" />
+                        {rep.email ?? "no email — click to add"}
+                      </button>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge
@@ -807,9 +909,36 @@ export function AgcAccommodationTab() {
                       >
                         {rep.status === "disabled" ? "Enable" : "Disable"}
                       </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                        onClick={() => setDeleteTarget(rep)}
+                      >
+                        Delete
+                      </Button>
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+            {(reps ?? []).length > 0 && (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-dashed p-3">
+                <p className="text-sm text-muted-foreground">
+                  {selectedRepIds.length === 0
+                    ? "Tick the boxes on rep cards to select several for bulk delete."
+                    : `${selectedRepIds.length} selected`}
+                </p>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  disabled={selectedRepIds.length === 0 || bulkDeleteBusy}
+                  onClick={() => setBulkDeleteOpen(true)}
+                >
+                  Delete selected
+                </Button>
               </div>
             )}
             <div className="rounded-lg border border-dashed p-4">
@@ -1014,6 +1143,129 @@ export function AgcAccommodationTab() {
             </div>
           </CardContent>
         </Card>
+
+        <Dialog
+          open={emailTarget !== null}
+          onOpenChange={(open) => {
+            if (!open) setEmailTarget(null);
+          }}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>
+                Email for {emailTarget?.hubName}
+              </DialogTitle>
+              <DialogDescription>
+                Credentials emails (account creation, resends) are sent to this
+                address. Clear the field to remove it.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2">
+              <Label htmlFor="rep-email-input">Email address</Label>
+              <Input
+                id="rep-email-input"
+                type="email"
+                placeholder="rep@example.com"
+                value={emailValue}
+                onChange={(e) => setEmailValue(e.target.value)}
+              />
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={emailBusy}
+                onClick={() => setEmailTarget(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                disabled={emailBusy}
+                onClick={() => void runSaveEmail()}
+              >
+                {emailBusy ? "Saving…" : "Save email"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog
+          open={deleteTarget !== null}
+          onOpenChange={(open) => {
+            if (!open) setDeleteTarget(null);
+          }}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>
+                Delete representative {deleteTarget?.username}?
+              </DialogTitle>
+              <DialogDescription>
+                This permanently removes the account, its sessions and reset
+                tokens. The hub itself is kept, so you can create a fresh
+                account for it later. This cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={deleteBusy}
+                onClick={() => setDeleteTarget(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={deleteBusy}
+                onClick={() => void runDeleteRep()}
+              >
+                <Trash2 className="size-4" />
+                {deleteBusy ? "Deleting…" : "Delete account"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog
+          open={bulkDeleteOpen}
+          onOpenChange={(open) => {
+            if (!open) setBulkDeleteOpen(false);
+          }}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>
+                Delete {selectedRepIds.length} representative account(s)?
+              </DialogTitle>
+              <DialogDescription>
+                This permanently removes the selected accounts, their sessions
+                and reset tokens. Their hubs are kept. This cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={bulkDeleteBusy}
+                onClick={() => setBulkDeleteOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={bulkDeleteBusy}
+                onClick={() => void runBulkDelete()}
+              >
+                <Trash2 className="size-4" />
+                {bulkDeleteBusy ? "Deleting…" : "Delete selected"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         <Dialog
           open={resendTarget !== null}

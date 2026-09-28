@@ -281,6 +281,26 @@ export const submitOfflineRegistration = mutation({
       },
     });
 
+    // Notify platform admins that a payment awaits review (stub-safe).
+    const adminNotify = await ctx.runMutation(
+      internal.agcAdminData.notifyAdminsOfPendingReview,
+      {
+        kind: "registration",
+        referenceNumber,
+        hubName: hub.name,
+        amount: pricing.price * args.quantity,
+        currency: pricing.currency,
+        recordId: registrationId,
+      },
+    );
+    for (const entry of adminNotify) {
+      if (entry.shouldSend) {
+        await ctx.scheduler.runAfter(0, internal.emailSendAction.sendEmail, {
+          emailLogId: entry.emailLogId,
+        });
+      }
+    }
+
     // Notify the rep that finance will review the receipt (§50; stub-safe).
     const status = isSmtpConfigured() ? ("pending" as const) : ("stub" as const);
     if (rep.email) {

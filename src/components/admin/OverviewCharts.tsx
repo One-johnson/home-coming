@@ -121,9 +121,9 @@ export function OverviewCharts({
   showEmails,
 }: OverviewChartsProps) {
   const statusData = [
-    { name: "Paid", value: registrations.paid },
+    { name: "Confirmed", value: registrations.paid },
     { name: "Pending", value: registrations.pending },
-    { name: "Failed", value: registrations.failed },
+    { name: "Rejected", value: registrations.failed },
   ].filter((d) => d.value > 0);
 
   const regionData = Object.entries(registrations.regionBreakdown)
@@ -154,7 +154,7 @@ export function OverviewCharts({
     : [];
 
   const bookingStatusData = [
-    { name: "Paid", value: bookings.paid },
+    { name: "Confirmed", value: bookings.paid },
     { name: "Pending", value: bookings.pending },
   ].filter((d) => d.value > 0);
 
@@ -226,7 +226,7 @@ export function OverviewCharts({
             )}
           </ChartCard>
 
-          <ChartCard title="Payment status" accent={ADMIN_CHART.emerald}>
+          <ChartCard title="Payment status (confirmed / pending / rejected)" accent={ADMIN_CHART.emerald}>
             {statusData.length === 0 ? (
               <EmptyChart message="No payment data yet" />
             ) : (
@@ -328,9 +328,9 @@ export function OverviewCharts({
             )}
           </ChartCard>
 
-          <ChartCard title="Paid by gateway" accent={ADMIN_CHART.violet}>
+          <ChartCard title="Submissions by payment mode" accent={ADMIN_CHART.violet}>
             {gatewayData.length === 0 ? (
-              <EmptyChart message="No paid gateway data yet" />
+              <EmptyChart message="No submission data yet" />
             ) : (
               <div className="h-[240px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
@@ -441,9 +441,9 @@ export function OverviewCharts({
             </ChartCard>
           )}
 
-          {showAccommodation && bookingStatusData.length > 0 && !showEmails && (
+          {showAccommodation && bookingStatusData.length > 0 && (
             <ChartCard
-              title="Booking payment status"
+              title="Booking payment status (confirmed / awaiting review)"
               accent={ADMIN_CHART.emerald}
             >
               <div className="h-[240px] w-full">
