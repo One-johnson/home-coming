@@ -107,6 +107,14 @@ and bookings (with a per-guest sheet) are on the AGC admin page.
 2. Sign in at `/admin`. Create additional staff from the **Team** tab (name, email, password, role).
 3. Passwords are hashed with bcryptjs. Auth uses opaque session tokens stored in the browser (no JWT / Convex Auth).
 
+## Testing before go-live
+
+Another admin can test the entire system on a **staging environment** — a Vercel preview deployment pointing at its own Convex deployment with payment **test keys** — using their own admin account, without touching production or real money.
+
+See **[TESTING.md](TESTING.md)** for the full setup (one-time, ~20 minutes), how to invite the second admin, and the complete go-live test checklist (public pages, rep portal, admin console, test-card payments, emails).
+
+`cp .env.example .env.local` documents every environment variable the app and its scripts need.
+
 ## Payment Integration
 
 ### Registration
