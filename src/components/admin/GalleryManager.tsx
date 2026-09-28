@@ -43,6 +43,7 @@ import {
   type GalleryForm,
   staticFileName,
 } from "./galleryManagerForm";
+import { computeGalleryDrift } from "@/lib/galleryDrift";
 import { cn } from "@/lib/utils";
 
 function galleryLabel(gallery: {
@@ -108,6 +109,34 @@ export function GalleryManager() {
       })),
     [galleries],
   );
+
+  /**
+   * Compares the admin's curated rows against the committed manifest so the
+   * UI can flag caption/album edits that are not published yet.
+   */
+  const { state: publishState, summary: driftSummary } = useMemo(() => {
+    if (!galleries) {
+      return { state: "loading" as const, summary: "" };
+    }
+    const drift = computeGalleryDrift(galleries);
+    if (!drift.hasDrift) {
+      return { state: "published" as const, summary: "" };
+    }
+    const captionCount = drift.years.reduce(
+      (sum, year) => sum + year.captions.length,
+      0,
+    );
+    const parts: string[] = [];
+    if (drift.years.length) {
+      parts.push(
+        `${drift.years.length} album${drift.years.length === 1 ? "" : "s"}`,
+      );
+    }
+    if (captionCount) {
+      parts.push(`${captionCount} caption${captionCount === 1 ? "" : "s"}`);
+    }
+    return { state: "drifted" as const, summary: parts.join(", ") };
+  }, [galleries]);
 
   const clearImageSelection = () => setSelectedImageIds(new Set());
 
@@ -474,7 +503,18 @@ export function GalleryManager() {
             )}
 
             <div className="space-y-2 rounded-lg border border-dashed border-border p-3">
-              <p className="text-sm font-medium">Publishing</p>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-medium">Publishing</p>
+                {publishState === "loading" ? null : publishState === "drifted" ? (
+                  <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800">
+                    Pending publish ({driftSummary})
+                  </span>
+                ) : (
+                  <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-800">
+                    Published ✓
+                  </span>
+                )}
+              </div>
               <p className="text-sm text-muted-foreground">
                 Captions and album edits go live when the gallery manifest is
                 regenerated and committed. From the project root:

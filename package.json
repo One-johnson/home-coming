@@ -13,6 +13,7 @@
     "upload-gallery": "node scripts/register-static-gallery.mjs",
     "gallery:sync": "node scripts/gallery-manifest.mjs sync",
     "gallery:check": "node scripts/gallery-manifest.mjs check",
+    "gallery:import": "node scripts/gallery-import.mjs",
     "build": "node scripts/gallery-manifest.mjs check && next build"
   },
   "dependencies": {

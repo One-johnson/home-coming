@@ -201,6 +201,16 @@ Curated annual galleries are **static files committed under `public/gallery/<yea
 
 ### Adding a new year
 
+One command runs the whole flow (optimize → register → sync → stage):
+
+```bash
+npm run gallery:import            # all years in gallery-import/
+npm run gallery:import -- 2026    # a single year
+git commit && git push            # deploying publishes the album
+```
+
+Or step by step:
+
 ```bash
 # 1. Put full-resolution photos in a year folder (jpg/png/webp/gif):
 #    gallery-import/2026/
@@ -219,7 +229,7 @@ git add public/gallery src/data/galleryManifest.json && git commit
 
 ### Captions and album details
 
-- **Edit captions in Admin → Galleries** (the database is the curation surface), then run `npm run gallery:sync` — it merges captions, titles, and themes from Convex into the manifest. Commit the manifest to publish those edits on the public site.
+- **Edit captions in Admin → Galleries** (the database is the curation surface). The manager shows a **Pending publish** badge while edits differ from the committed manifest, and the daily *Gallery caption sync* workflow opens a PR with the merged manifest — merge it (or run `npm run gallery:sync` locally and commit) to publish.
 - Direct manifest edits also work: `gallery:sync` never overwrites captions that Convex doesn't provide.
 - `npm run gallery:check` (also part of `build`) verifies the manifest matches the committed files.
 - The admin GalleryManager registers photos the same way: it records canonical `/gallery/<year>/...` rows and the admin commits the optimized files — it never uploads gallery bytes to Convex.

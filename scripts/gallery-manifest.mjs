@@ -237,6 +237,21 @@ async function sync() {
   }
 
   const manifest = buildManifest(existing, scanned, dbCurations);
+
+  // Idempotence: skip the write when nothing but generatedAt would change,
+  // so CI sync jobs don't produce no-op commits.
+  const { generatedAt: _ignored, ...existingContent } = existing;
+  const { generatedAt: _ignore2, ...manifestContent } = manifest;
+  if (
+    fs.existsSync(MANIFEST_PATH) &&
+    JSON.stringify(existingContent) === JSON.stringify(manifestContent)
+  ) {
+    console.log(
+      "✓ Manifest already up to date — nothing to write.",
+    );
+    return;
+  }
+
   fs.mkdirSync(path.dirname(MANIFEST_PATH), { recursive: true });
   fs.writeFileSync(MANIFEST_PATH, JSON.stringify(manifest, null, 2) + "\n");
   const total = scanned.reduce((sum, g) => sum + g.files.length, 0);
