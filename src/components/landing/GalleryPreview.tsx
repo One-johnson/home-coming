@@ -1,43 +1,17 @@
-"use client";
-
 import Image from "next/image";
 import Link from "next/link";
-import { useQuery } from "convex/react";
-import { api } from "@convex/_generated/api";
 import { Section } from "@/components/ui/Section";
 import { MotionItem, MotionStagger } from "@/components/ui/motion";
 import { LinkButton as Button } from "@/components/ui/app-button";
 import { AspectRatio } from "@/components/ui/aspect-ratio";
 import { Badge } from "@/components/ui/badge";
-import {
-  Card,
-  CardDescription,
-  CardHeader,
-} from "@/components/ui/card";
+import { Card, CardDescription, CardHeader } from "@/components/ui/card";
 import { EVENT } from "@/lib/eventConfig";
-import { isConvexConfigured } from "@/lib/convex-config";
+import { getManifestGallery } from "@/lib/galleryManifest";
 
-type GalleryImage = {
-  _id: string;
-  imageUrl?: string;
-  caption?: string;
-  storageId?: string;
-};
-
-type GalleryItem = {
-  _id: string;
-  year: number;
-  title: string;
-  theme: string;
-  images: GalleryImage[];
-};
-
-function hasRealPhotos(gallery: GalleryItem) {
-  return gallery.images.some((image) => image.storageId || image.imageUrl);
-}
-
-function GalleryPreviewContent({ gallery }: { gallery: GalleryItem | null }) {
-  const featured = gallery?.images.slice(0, 3) ?? [];
+export function GalleryPreview() {
+  const gallery = getManifestGallery(EVENT.lastHomecomingYear);
+  const featured = gallery?.entries.slice(0, 3) ?? [];
 
   return (
     <Section
@@ -59,15 +33,13 @@ function GalleryPreviewContent({ gallery }: { gallery: GalleryItem | null }) {
             <Link href="/gallery" className="group/card block h-full">
               <Card className="card-lift h-full overflow-hidden border-white/10 bg-white/5 pt-0 ring-1 ring-white/10 transition-colors hover:ring-gold-light/40">
                 <AspectRatio ratio={4 / 3} className="bg-black/20">
-                  {image.imageUrl ? (
-                    <Image
-                      src={image.imageUrl}
-                      alt={image.caption ?? "Homecoming 2025 photo"}
-                      fill
-                      className="object-cover transition duration-300 group-hover/card:scale-105"
-                      sizes="(max-width: 768px) 100vw, 33vw"
-                    />
-                  ) : null}
+                  <Image
+                    src={image.imageUrl}
+                    alt={image.caption ?? "Homecoming 2025 photo"}
+                    fill
+                    className="object-cover transition duration-300 group-hover/card:scale-105"
+                    sizes="(max-width: 768px) 100vw, 33vw"
+                  />
                 </AspectRatio>
                 {image.caption && (
                   <CardHeader>
@@ -83,7 +55,7 @@ function GalleryPreviewContent({ gallery }: { gallery: GalleryItem | null }) {
         {!featured.length && (
           <p className="col-span-full text-center text-white/80">
             Photos from last year&apos;s Homecoming will appear here once
-            connected.
+            published.
           </p>
         )}
       </MotionStagger>
@@ -111,23 +83,4 @@ function GalleryPreviewContent({ gallery }: { gallery: GalleryItem | null }) {
       </div>
     </Section>
   );
-}
-
-function GalleryPreviewConnected() {
-  const galleries = useQuery(api.content.listGalleries);
-  const lastYearGallery =
-    galleries?.find(
-      (g) => g.year === EVENT.lastHomecomingYear && hasRealPhotos(g),
-    ) ??
-    galleries?.find((g) => hasRealPhotos(g)) ??
-    null;
-
-  return <GalleryPreviewContent gallery={lastYearGallery} />;
-}
-
-export function GalleryPreview() {
-  if (!isConvexConfigured()) {
-    return <GalleryPreviewContent gallery={null} />;
-  }
-  return <GalleryPreviewConnected />;
 }

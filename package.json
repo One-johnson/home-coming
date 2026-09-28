@@ -5,13 +5,15 @@
   "scripts": {
     "dev": "next dev",
     "dev:convex": "convex dev",
-    "build": "next build",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
     "email:dev": "email dev --dir emails --port 3001",
     "seed": "echo Seed content from the admin dashboard after signing in",
-    "upload-gallery": "node scripts/register-static-gallery.mjs"
+    "upload-gallery": "node scripts/register-static-gallery.mjs",
+    "gallery:sync": "node scripts/gallery-manifest.mjs sync",
+    "gallery:check": "node scripts/gallery-manifest.mjs check",
+    "build": "node scripts/gallery-manifest.mjs check && next build"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",

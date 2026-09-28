@@ -189,6 +189,9 @@ async function main() {
   }
 
   console.log("\nStatic gallery registration complete.");
+  console.log(
+    "Next: run `npm run gallery:sync` to update the manifest, then commit public/gallery + src/data/galleryManifest.json.",
+  );
 }
 
 main().catch((error) => {

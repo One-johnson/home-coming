@@ -193,6 +193,35 @@ npm run email:dev
 
 Open **http://localhost:3001** to preview registration, accommodation, and tour confirmation templates.
 
+## Photo galleries (repo-hosted, zero storage cost)
+
+Curated annual galleries are **static files committed under `public/gallery/<year>/`**, served by the hosting CDN. They never touch Convex file storage — receipts, hero, and tour images still do. The committed manifest `src/data/galleryManifest.json` is the public pages' source of truth, and `npm run build` verifies it against `public/gallery/` so a missing photo fails CI instead of production.
+
+### Adding a new year
+
+```bash
+# 1. Put optimized photos in a year folder (jpg/png/webp/gif):
+#    gallery-import/2026/
+
+# 2. Copy them to public/gallery/2026/ and register rows in Convex
+#    (auto-creates the year album; requires IMPORT_SECRET):
+npm run upload-gallery
+
+# 3. Extend the committed manifest with the new year:
+npm run gallery:sync
+
+# 4. Sanity-check captions in src/data/galleryManifest.json, then:
+git add public/gallery src/data/galleryManifest.json && git commit
+```
+
+Deploying publishes the new album — the public gallery gains a year switcher automatically, and the landing preview always shows the latest year.
+
+### Caption fixes and manifest checks
+
+- Edit captions directly in `src/data/galleryManifest.json`, or rename files in `public/gallery/<year>/` and run `npm run gallery:sync`.
+- Run `npm run gallery:check` (also part of `build`) to verify the manifest matches the committed files.
+- The admin GalleryManager registers photos the same way: it records canonical `/gallery/<year>/...` rows and the admin commits the optimized files — it never uploads gallery bytes to Convex.
+
 ## Support
 
 homecomingisback@gmail.com
