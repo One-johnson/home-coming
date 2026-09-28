@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import Image from "next/image";
 import { useAction, useMutation, useQuery } from "convex/react";
+import type { TourPackageDisplay } from "@/lib/tourConfig";
 import {
   ArrowLeftIcon,
   CheckCircle2Icon,
@@ -13,7 +14,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
-import type { Doc, Id } from "@convex/_generated/dataModel";
 import { CountryCodeSelect } from "@/components/forms/CountryCodeSelect";
 import { LinkButton as AppButton } from "@/components/ui/app-button";
 import { Button } from "@/components/ui/button";
@@ -132,9 +132,12 @@ function QtyControl({
   );
 }
 
-function ToursCheckoutInner() {
+function ToursCheckoutInner({
+  packages,
+}: {
+  packages: TourPackageDisplay[];
+}) {
   const isCompact = useIsCompact();
-  const packages = useQuery(api.tourPackages.listPublic);
   const catalog = useQuery(api.registrationCatalog.listPublic);
   const createTourOrder = useMutation(api.tourOrders.create);
   const createCheckout = useAction(api.stripeCheckout.createCheckoutSession);
@@ -195,7 +198,7 @@ function ToursCheckoutInner() {
         return { pkg, quantity: item.quantity, unitPrice: item.unitPrice };
       })
       .filter(Boolean) as {
-      pkg: Doc<"tourPackages">;
+      pkg: TourPackageDisplay;
       quantity: number;
       unitPrice: number;
     }[];
@@ -213,14 +216,14 @@ function ToursCheckoutInner() {
     Boolean(denomination) &&
     consent;
 
-  const setQuantity = (id: Id<"tourPackages">, quantity: number) => {
+  const setQuantity = (id: string, quantity: number) => {
     setQuantities((current) => ({
       ...current,
       [id]: Number.isFinite(quantity) ? Math.max(0, Math.floor(quantity)) : 0,
     }));
   };
 
-  const openCheckoutForPackage = (packageId: Id<"tourPackages">) => {
+  const openCheckoutForPackage = (packageId: string) => {
     setConfirmed(false);
     setError("");
     setQuantities((current) => ({
@@ -296,6 +299,8 @@ function ToursCheckoutInner() {
         groupName: group,
         denomination,
         church: church || undefined,
+        // Slugs, not Convex ids — the server resolves and re-prices from
+        // the database so the manifest can never set prices.
         items: totals.selections,
         gateway,
         consent,
@@ -994,9 +999,13 @@ function ToursCheckoutInner() {
   );
 }
 
-export function ToursCheckout() {
+export function ToursCheckout({
+  packages,
+}: {
+  packages: TourPackageDisplay[];
+}) {
   if (!isConvexConfigured()) {
     return <ConvexRequiredMessage />;
   }
-  return <ToursCheckoutInner />;
+  return <ToursCheckoutInner packages={packages} />;
 }

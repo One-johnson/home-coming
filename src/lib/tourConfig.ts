@@ -5,8 +5,13 @@ import {
 } from "@/lib/registrationConfig";
 import type { Id } from "@convex/_generated/dataModel";
 
+/**
+ * Display view of a tour package. The public page feeds this from the
+ * repo-hosted manifest (id = slug, no Convex query); the checkout resolves
+ * real Convex rows by slug when the order is placed.
+ */
 export type TourPackageView = {
-  _id: Id<"tourPackages">;
+  _id: string;
   slug: string;
   label: string;
   dateLabel: string;
@@ -19,6 +24,9 @@ export type TourPackageView = {
   displayImageUrl?: string;
   badge?: string;
 };
+
+/** The manifest-backed shape — identical fields, no Convex types. */
+export type TourPackageDisplay = TourPackageView;
 
 export type TourPackageSelection = {
   packageId: Id<"tourPackages">;
@@ -60,7 +68,7 @@ export function calculateTourTotal(
 ) {
   const packageById = new Map(packages.map((pkg) => [pkg._id, pkg]));
   const lineItems: {
-    packageId: Id<"tourPackages">;
+    packageId: string;
     label: string;
     dateLabel: string;
     quantity: number;
@@ -71,7 +79,7 @@ export function calculateTourTotal(
   for (const [packageId, quantity] of Object.entries(quantities)) {
     const qty = Number.isFinite(quantity) ? Math.floor(quantity) : 0;
     if (qty < 1) continue;
-    const pkg = packageById.get(packageId as Id<"tourPackages">);
+    const pkg = packageById.get(packageId);
     if (!pkg) continue;
     lineItems.push({
       packageId: pkg._id,
@@ -93,7 +101,7 @@ export function calculateTourTotal(
     currencySymbol: TOUR_CURRENCY_SYMBOL,
     gateway,
     selections: lineItems.map((item) => ({
-      packageId: item.packageId,
+      packageSlug: item.packageId,
       quantity: item.quantity,
     })),
   };

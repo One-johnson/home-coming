@@ -1,0 +1,43 @@
+name: Content backup
+
+# Weekly snapshot of curated content (galleries + images, FAQs, messages)
+# for disaster recovery. Each run uploads a dated JSON artifact; artifacts
+# are retained for a year and can be downloaded from the Actions tab.
+#
+# Read-only: uses only public queries and needs no secrets.
+
+on:
+  schedule:
+    # Sundays 06:00 UTC — before the week's content edits typically land.
+    - cron: "0 6 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Snapshot content tables
+        env:
+          NEXT_PUBLIC_CONVEX_URL: ${{ secrets.NEXT_PUBLIC_CONVEX_URL }}
+        run: node scripts/backup-content.mjs backups
+
+      - name: Upload snapshot artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: content-backup-${{ github.run_id }}
+          path: backups/content-*.json
+          retention-days: 365
+          if-no-files-found: error

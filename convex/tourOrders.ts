@@ -17,8 +17,14 @@ const paymentStatusValidator = v.union(
   v.literal("mock_paid"),
 );
 
+/**
+ * Items are identified by package slug (the manifest's stable key): the
+ * public page renders from the repo-hosted manifest and has no Convex ids.
+ * Prices are ALWAYS re-resolved from the database here, so a stale or
+ * tampered manifest cannot change what an order costs.
+ */
 const tourItemValidator = v.object({
-  packageId: v.id("tourPackages"),
+  packageSlug: v.string(),
   quantity: v.number(),
 });
 
@@ -76,6 +82,9 @@ export const create = mutation({
       throw new Error("Select at least one tour package");
     }
 
+    const allPackages = await ctx.db.query("tourPackages").collect();
+    const bySlug = new Map(allPackages.map((pkg) => [pkg.slug, pkg]));
+
     const seen = new Set<string>();
     const lineItems: {
       packageId: Id<"tourPackages">;
@@ -86,16 +95,16 @@ export const create = mutation({
     let grandTotal = 0;
 
     for (const item of args.items) {
-      if (seen.has(item.packageId)) {
+      if (seen.has(item.packageSlug)) {
         throw new Error("Duplicate tour package in order");
       }
-      seen.add(item.packageId);
+      seen.add(item.packageSlug);
 
       if (!Number.isInteger(item.quantity) || item.quantity < 1) {
         throw new Error("Ticket quantities must be whole numbers of at least 1");
       }
 
-      const pkg = await ctx.db.get(item.packageId);
+      const pkg = bySlug.get(item.packageSlug);
       if (!pkg || !pkg.active) {
         throw new Error("One or more selected tour packages are unavailable");
       }

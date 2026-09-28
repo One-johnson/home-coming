@@ -234,6 +234,16 @@ git add public/gallery src/data/galleryManifest.json && git commit
 - `npm run gallery:check` (also part of `build`) verifies the manifest matches the committed files.
 - The admin GalleryManager registers photos the same way: it records canonical `/gallery/<year>/...` rows and the admin commits the optimized files — it never uploads gallery bytes to Convex.
 
+## Tour packages (repo-hosted manifest, DB-authoritative checkout)
+
+The public `/tours` page renders from `src/data/toursManifest.json` — zero Convex queries for package content. After editing tours in Admin → Tours, run `npm run tours:sync` and commit the manifest to publish. `npm run build` verifies the manifest and checks that any repo-hosted image paths exist.
+
+**Checkout safety:** orders are placed with package *slugs*; the server resolves them against the live database and re-prices before any payment, so the display manifest can never alter pricing.
+
+## Content backups
+
+`npm run backup:content` snapshots galleries (with image rows), FAQs, and messages to `backups/content-<timestamp>.json`. A weekly workflow (`.github/workflows/content-backup.yml`) runs the same snapshot every Sunday and stores it as a year-long CI artifact.
+
 ## Support
 
 homecomingisback@gmail.com

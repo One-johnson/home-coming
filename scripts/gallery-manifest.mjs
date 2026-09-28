@@ -266,12 +266,95 @@ async function sync() {
   );
 }
 
+/**
+ * Human-readable markdown summary of what changed between two manifest
+ * files — used as the caption-sync PR description so reviewers can approve
+ * caption edits in seconds.
+ *
+ *   node scripts/gallery-manifest.mjs diff --base <path-to-old-manifest>
+ */
+function diff() {
+  const baseIdx = process.argv.indexOf("--base");
+  const basePath = baseIdx !== -1 ? process.argv[baseIdx + 1] : null;
+  if (!basePath || !fs.existsSync(basePath)) {
+    fail("diff requires --base <path> pointing at the previous manifest");
+  }
+
+  const before = JSON.parse(fs.readFileSync(basePath, "utf8"));
+  const after = readManifest();
+  const lines = [];
+
+  const beforeYears = new Map(before.galleries?.map((g) => [g.year, g]) ?? []);
+  const afterYears = new Map(after.galleries?.map((g) => [g.year, g]) ?? []);
+
+  for (const year of new Set([...beforeYears.keys(), ...afterYears.keys()]).values()) {
+    const b = beforeYears.get(year);
+    const a = afterYears.get(year);
+    const yearLines = [];
+
+    if (!b) {
+      yearLines.push(`- **New album published** (${a.images.length} photos)`);
+    } else if (!a) {
+      yearLines.push("- **Album removed from the manifest**");
+    } else {
+      if ((b.title ?? "") !== (a.title ?? "")) {
+        yearLines.push(`- Title: “${b.title}” → “${a.title}”`);
+      }
+      if ((b.theme ?? "") !== (a.theme ?? "")) {
+        yearLines.push(`- Theme: “${b.theme}” → “${a.theme}”`);
+      }
+
+      const bByFile = new Map((b.images ?? []).map((i) => [i.file, i.caption]));
+      const aByFile = new Map((a.images ?? []).map((i) => [i.file, i.caption]));
+      const changed = [];
+      for (const [file, afterCaption] of aByFile) {
+        const beforeCaption = bByFile.get(file);
+        if ((beforeCaption ?? null) !== (afterCaption ?? null)) {
+          changed.push([file, beforeCaption, afterCaption]);
+        }
+      }
+      for (const file of bByFile.keys()) {
+        if (!aByFile.has(file)) {
+          changed.push([file, bByFile.get(file), "(removed)"]);
+        }
+      }
+      if (changed.length) {
+        yearLines.push(
+          `- Captions changed (${changed.length}):`,
+          "",
+          "  | Photo | Before | After |",
+          "  | --- | --- | --- |",
+        );
+        for (const [file, beforeCaption, afterCaption] of changed) {
+          const name = file.split("/").pop();
+          const b2 = beforeCaption?.trim() || "_(none)_";
+          const a2 =
+            typeof afterCaption === "string" ? afterCaption.trim() || "_(none)_" : afterCaption;
+          yearLines.push(`  | ${name} | ${b2} | ${a2} |`);
+        }
+      }
+    }
+
+    if (yearLines.length) {
+      lines.push(`### ${year}`, "", ...yearLines, "");
+    }
+  }
+
+  if (!lines.length) {
+    console.log("No caption or album changes detected.");
+    return;
+  }
+  console.log(lines.join("\n"));
+}
+
 const mode = process.argv[2];
 if (mode === "check") {
   check();
 } else if (mode === "sync") {
   await sync();
+} else if (mode === "diff") {
+  diff();
 } else {
-  console.error("Usage: node scripts/gallery-manifest.mjs <check|sync>");
+  console.error("Usage: node scripts/gallery-manifest.mjs <check|sync|diff --base <path>>");
   process.exit(1);
 }

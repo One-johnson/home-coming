@@ -1,0 +1,40 @@
+{
+  "generatedAt": "2026-09-28T12:31:18.298Z",
+  "packages": [
+    {
+      "slug": "accra_mon_nov_1",
+      "label": "Accra Tours",
+      "dateLabel": "Monday, November 1st",
+      "timeRange": "Full day",
+      "sites": [
+        "First Love Center",
+        "The Qodesh and St Kathryn's Hospital",
+        "Korle Gonno Cathedral (the first cathedral)",
+        "Korle Bu — Medical Canteen and School of Hygiene (where it all began)"
+      ],
+      "meals": "Breakfast snack and lunch",
+      "priceUsd": 40,
+      "priceGhs": 600,
+      "image": "/gallery/2025/homecoming-02.jpg",
+      "badge": "Accra",
+      "order": 1
+    },
+    {
+      "slug": "mountain_thu_nov_4",
+      "label": "Mountain Tours",
+      "dateLabel": "Thursday, November 4th",
+      "timeRange": "Full day",
+      "sites": [
+        "St Adelaide's School — Aburi",
+        "St Elizabeth's Home (Orphanage)",
+        "St Gamaliel's Hospital and Prosthesis Center"
+      ],
+      "meals": "Breakfast snack and lunch",
+      "priceUsd": 35,
+      "priceGhs": 525,
+      "image": "/gallery/2025/homecoming-08.jpg",
+      "badge": "Mountain",
+      "order": 2
+    }
+  ]
+}

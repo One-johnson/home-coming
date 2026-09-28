@@ -2,14 +2,14 @@
 
 import Image from "next/image";
 import { MapPinIcon } from "lucide-react";
-import type { Doc } from "@convex/_generated/dataModel";
+import type { TourPackageDisplay } from "@/lib/tourConfig";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { resolveTourImage } from "@/lib/tourConfig";
 import { cn } from "@/lib/utils";
 
 type TourPackageCardProps = {
-  pkg: Doc<"tourPackages">;
+  pkg: TourPackageDisplay;
   selectedQuantity?: number;
   onSelect: () => void;
 };
