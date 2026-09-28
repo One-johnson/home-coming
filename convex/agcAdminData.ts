@@ -140,25 +140,30 @@ export const seedAgcDefaultsInternal = internalMutation({
       [AGC_SETTING_KEYS.titles, JSON.stringify(AGC_DEFAULT_TITLES)],
     ];
     for (const [key, value] of settingsDefaults) {
-      const existing = await ctx.db
+      const matches = await ctx.db
         .query("agcSettings")
         .withIndex("by_key", (q) => q.eq("key", key))
-        .unique();
-      if (!existing) {
+        .collect();
+      if (matches.length === 0) {
         await ctx.db.insert("agcSettings", { key, value, updatedAt: Date.now() });
+      } else if (matches.length > 1) {
+        // Self-heal duplicate setting keys: keep the first, drop the rest.
+        const [keep, ...extras] = matches;
+        for (const extra of extras) await ctx.db.delete(extra._id);
+        void keep;
       }
     }
 
     for (const seed of AGC_INVENTORY_SEED) {
-      const existing = await ctx.db
+      const matches = await ctx.db
         .query("agcInventoryPools")
         .withIndex("by_type_scope", (q) =>
           q
             .eq("accommodationType", seed.accommodationType)
             .eq("scope", seed.scope),
         )
-        .unique();
-      if (!existing) {
+        .collect();
+      if (matches.length === 0) {
         await ctx.db.insert("agcInventoryPools", {
           accommodationType: seed.accommodationType,
           scope: seed.scope,
@@ -166,6 +171,17 @@ export const seedAgcDefaultsInternal = internalMutation({
           reserved: 0,
           confirmed: 0,
         });
+      } else if (matches.length > 1) {
+        // Self-heal duplicates (e.g. from overlapping imports + seed runs):
+        // keep the first, absorb extras into it, then delete them.
+        const [keep, ...extras] = matches;
+        for (const extra of extras) {
+          await ctx.db.patch(keep._id, {
+            reserved: keep.reserved + extra.reserved,
+            confirmed: keep.confirmed + extra.confirmed,
+          });
+          await ctx.db.delete(extra._id);
+        }
       }
     }
     return { success: true as const };

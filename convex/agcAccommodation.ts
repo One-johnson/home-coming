@@ -15,6 +15,17 @@ import type {
   AgcInventoryScope,
 } from "./schemaTypes";
 
+/**
+ * First row for an indexed query, or null — like .unique() but tolerant of
+ * accidental duplicates (which .unique() treats as a hard error).
+ */
+async function firstOrNull<T extends { _id: unknown }>(
+  query: { take: (n: number) => Promise<T[]> },
+): Promise<T | null> {
+  const rows = await query.take(1);
+  return rows[0] ?? null;
+}
+
 // ------------------------------------------------------------------
 // Settings helpers
 // ------------------------------------------------------------------
@@ -74,12 +85,15 @@ async function loadPoolMutable(
   type: AgcAccommodationType,
   scope: AgcInventoryScope,
 ): Promise<Doc<"agcInventoryPools">> {
-  const pool = await ctx.db
-    .query("agcInventoryPools")
-    .withIndex("by_type_scope", (q) =>
-      q.eq("accommodationType", type).eq("scope", scope),
-    )
-    .unique();
+  // Tolerate accidental duplicate rows instead of throwing like .unique()
+  // does — duplicates have crashed whole pages before (imports/seed races).
+  const pool = await firstOrNull(
+    ctx.db
+      .query("agcInventoryPools")
+      .withIndex("by_type_scope", (q) =>
+        q.eq("accommodationType", type).eq("scope", scope),
+      ),
+  );
   if (pool) return pool;
 
   // Lazily seed from defaults if the admin seed hasn't run yet.
@@ -120,12 +134,13 @@ async function loadPoolRead(
   type: AgcAccommodationType,
   scope: AgcInventoryScope,
 ): Promise<Doc<"agcInventoryPools">> {
-  const pool = await ctx.db
-    .query("agcInventoryPools")
-    .withIndex("by_type_scope", (q) =>
-      q.eq("accommodationType", type).eq("scope", scope),
-    )
-    .unique();
+  const pool = await firstOrNull(
+    ctx.db
+      .query("agcInventoryPools")
+      .withIndex("by_type_scope", (q) =>
+        q.eq("accommodationType", type).eq("scope", scope),
+      ),
+  );
   if (pool) return pool;
 
   const seed = seedFor(type, scope);
