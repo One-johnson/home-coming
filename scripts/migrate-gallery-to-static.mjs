@@ -66,18 +66,25 @@ if (!CONVEX_URL || !IMPORT_SECRET) {
   process.exit(1);
 }
 
-/** Same canonical rule as sanitizeStaticGalleryPath — keep in sync. */
-function staticFileName(fileName) {
-  const dot = fileName.lastIndexOf(".");
-  const ext = dot > 0 ? fileName.slice(dot).toLowerCase() : "";
+/** Same canonical slug rule as sanitizeStaticGalleryPath — keep in sync. */
+function baseName(raw) {
+  const dot = raw.lastIndexOf(".");
   const base =
-    (dot > 0 ? fileName.slice(0, dot) : fileName)
+    (dot > 0 ? raw.slice(0, dot) : raw)
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "")
       .slice(0, 64) || "photo";
-  return `${base}${ext}`;
+  return base;
 }
+
+const EXT_BY_CONTENT_TYPE = {
+  "image/jpeg": ".jpg",
+  "image/png": ".png",
+  "image/webp": ".webp",
+  "image/gif": ".gif",
+  "image/avif": ".avif",
+};
 
 const client = new ConvexHttpClient(CONVEX_URL);
 
@@ -103,18 +110,18 @@ async function main() {
         continue;
       }
 
-      const fileName = staticFileName(
-        image.caption
-          ? `${image.caption}${path.extname(new URL(sourceUrl).pathname)}`
-          : `gallery-image-${image.order}${path.extname(new URL(sourceUrl).pathname)}`,
+      // Convex storage URLs carry no file extension, so the canonical name
+      // falls back to the blob's content-type (fetched during download).
+      const base = baseName(
+        image.caption || `gallery-image-${image.order}`,
       );
-
       ops.push({
         gallery,
         image,
         sourceUrl,
-        fileName,
-        dest: path.join(PUBLIC_DIR, String(gallery.year), fileName),
+        base,
+        dest: null,
+        fileName: null,
       });
     }
   }
@@ -129,7 +136,7 @@ async function main() {
   );
 
   for (const op of ops) {
-    fs.mkdirSync(path.dirname(op.dest), { recursive: true });
+    fs.mkdirSync(path.dirname(op.dest || path.join(PUBLIC_DIR, String(op.gallery.year))), { recursive: true });
 
     const response = await fetch(op.sourceUrl);
     if (!response.ok) {
@@ -137,6 +144,17 @@ async function main() {
       continue;
     }
     const buffer = Buffer.from(await response.arrayBuffer());
+
+    const contentType = (response.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+    const ext = EXT_BY_CONTENT_TYPE[contentType];
+    if (!ext) {
+      console.error(
+        `  ✗ ${op.image._id}: unrecognized content-type "${contentType}"`,
+      );
+      continue;
+    }
+    op.fileName = `${op.base}${ext}`;
+    op.dest = path.join(PUBLIC_DIR, String(op.gallery.year), op.fileName);
 
     if (!dryRun) {
       fs.writeFileSync(op.dest, buffer);
