@@ -12,6 +12,7 @@ import { getManifestGallery } from "@/lib/galleryManifest";
 export function GalleryPreview() {
   const gallery = getManifestGallery(EVENT.lastHomecomingYear);
   const featured = gallery?.entries.slice(0, 3) ?? [];
+  const albumHref = gallery ? `/gallery/${gallery.year}` : "/gallery";
 
   return (
     <Section
@@ -30,7 +31,10 @@ export function GalleryPreview() {
       <MotionStagger className="grid gap-6 md:grid-cols-3">
         {featured.map((image) => (
           <MotionItem key={image._id}>
-            <Link href="/gallery" className="group/card block h-full">
+            <Link
+              href={albumHref}
+              className="group/card block h-full"
+            >
               <Card className="card-lift h-full overflow-hidden border-white/10 bg-white/5 pt-0 ring-1 ring-white/10 transition-colors hover:ring-gold-light/40">
                 <AspectRatio ratio={4 / 3} className="bg-black/20">
                   <Image
@@ -74,7 +78,7 @@ export function GalleryPreview() {
 
       <div className="mt-10 text-center">
         <Button
-          href="/gallery"
+          href={albumHref}
           variant="outline"
           className="min-h-12 border-gold bg-gold px-9 py-4 text-base text-ink hover:bg-gold-dark hover:text-ink sm:px-10 sm:text-lg"
         >

@@ -62,6 +62,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.10",
     "react-email": "^6.9.0",
+    "sharp": "^0.34.5",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vercel": "^56.1.0",

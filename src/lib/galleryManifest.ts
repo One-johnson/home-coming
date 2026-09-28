@@ -53,3 +53,24 @@ export function getManifestGallery(year?: number): (ManifestGallery & {
   }
   return { ...gallery, entries: toEntries(gallery) };
 }
+
+/**
+ * All album years, newest first, each with a cover image URL for index
+ * grids and an `entries` list shaped for the grid/lightbox components.
+ */
+export function listManifestGalleries(): (ManifestGallery & {
+  cover: string;
+  entries: ManifestImageEntry[];
+  count: number;
+})[] {
+  return galleryManifest
+    .slice()
+    .sort((a, b) => b.year - a.year)
+    .filter((gallery) => gallery.images.length > 0)
+    .map((gallery) => ({
+      ...gallery,
+      cover: gallery.images[0].file,
+      entries: toEntries(gallery),
+      count: gallery.images.length,
+    }));
+}

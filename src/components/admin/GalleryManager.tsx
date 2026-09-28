@@ -399,7 +399,8 @@ export function GalleryManager() {
             <div className="space-y-1">
               <CardTitle>Manage album</CardTitle>
               <p className="text-sm text-muted-foreground">
-                Select an album to register, edit, or remove photos.
+                Select an album to register photos, or edit captions and album
+                details (published via the gallery manifest).
               </p>
             </div>
             {selectedGalleryId ? (
@@ -462,7 +463,7 @@ export function GalleryManager() {
               <p className="text-sm text-muted-foreground">
                 Rows point at repo-hosted files in public/gallery — zero storage
                 cost. Save the optimized files locally with the exact listed
-                names, commit them, and deploy to publish.
+                names, commit them, and run gallery:sync to publish.
               </p>
             </div>
 
@@ -471,6 +472,21 @@ export function GalleryManager() {
                 <p className="text-sm text-muted-foreground">{saveLabel}</p>
               </div>
             )}
+
+            <div className="space-y-2 rounded-lg border border-dashed border-border p-3">
+              <p className="text-sm font-medium">Publishing</p>
+              <p className="text-sm text-muted-foreground">
+                Captions and album edits go live when the gallery manifest is
+                regenerated and committed. From the project root:
+              </p>
+              <code className="block rounded bg-muted px-2 py-1 text-xs">
+                npm run gallery:sync && git commit src/data/galleryManifest.json
+              </code>
+              <p className="text-sm text-muted-foreground">
+                The public site reads only the committed manifest, so an edit is
+                not live until that commit deploys.
+              </p>
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -669,7 +685,8 @@ export function GalleryManager() {
           <DialogHeader>
             <DialogTitle>Edit caption</DialogTitle>
             <DialogDescription>
-              Shown under the image in the admin preview and public gallery.
+              Shown in the admin preview. To publish it on the public gallery,
+              run gallery:sync and commit the manifest.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">

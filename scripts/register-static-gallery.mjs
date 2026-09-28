@@ -9,12 +9,14 @@
  *
  * Setup:
  * 1. Set IMPORT_SECRET in .env.local and in the Convex dashboard.
- * 2. Create folders: gallery-import/<year>/ and place .jpg/.png/.webp images
- *    inside (captions derive from filenames, e.g. "opening-service.jpg").
- * 3. Run: npm run register-static-gallery
+ * 2. Create folders: gallery-import/<year>/ and place full-resolution
+ *    .jpg/.png/.webp images inside (captions derive from filenames).
+ *    Files are auto-optimized into public/ (1600px long edge, quality 82 —
+ *    the same targets as the site's client-side compressor).
+ * 3. Run: npm run upload-gallery
  *
  *    For each year folder the script:
- *      - copies the files to public/gallery/<year>/ (unless --no-copy)
+ *      - optimizes the files into public/gallery/<year>/ (unless --no-copy)
  *      - ensures a galleries row exists for that year (auto-creates one
  *        titled "Homecoming <year>" unless the row already exists)
  *      - clears old rows for the gallery (unless --no-clear)
@@ -28,6 +30,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "../convex/_generated/api.js";
+import sharp from "sharp";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, "..");
@@ -86,17 +89,90 @@ if (!fs.existsSync(IMPORT_DIR)) {
 
 const client = new ConvexHttpClient(CONVEX_URL);
 
-/** Copies each source file to public/gallery/<year>/<name> (idempotent). */
-function copyToPublic(year, files, folderPath) {
-  const targetDir = path.join(PUBLIC_DIR, String(year));
-  fs.mkdirSync(targetDir, { recursive: true });
-  for (const fileName of files) {
+const SKIP_OPTIMIZATION_EXT = new Set([".gif", ".svg", ".pdf"]);
+
+/**
+ * Optimizes one image into public/gallery/<year>/<name>: 1600px long edge,
+ * quality 82 (same targets as the client-side compressor used for uploads).
+ * GIF/SVG are copied through; animations and vectors would be ruined by a
+ * raster re-encode. Returns the written file name (extension may change) and
+ * bytes saved.
+ */
+async function optimizeInto(targetDir, sourcePath, fileName) {
+  const ext = path.extname(fileName).toLowerCase();
+  const base = fileName.slice(0, -ext.length);
+
+  if (SKIP_OPTIMIZATION_EXT.has(ext)) {
     const target = path.join(targetDir, fileName);
     if (!fs.existsSync(target)) {
-      fs.copyFileSync(path.join(folderPath, fileName), target);
-      console.log(`  copied ${fileName} → public/gallery/${year}/`);
+      fs.copyFileSync(sourcePath, target);
+      console.log(`  copied ${fileName} (no optimization for ${ext})`);
     }
+    return { fileName, savedBytes: 0 };
   }
+
+  const source = sharp(sourcePath, { failOn: "none" });
+  const meta = await source.metadata();
+  const needsResize = (meta.width ?? 0) > 1600 || (meta.height ?? 0) > 1600;
+  const pipeline = needsResize
+    ? source.rotate().resize({
+        width: 1600,
+        height: 1600,
+        fit: "inside",
+        withoutEnlargement: true,
+      })
+    : source.rotate();
+
+  const isPng = ext === ".png";
+  const outExt = isPng ? ".png" : ".jpg";
+  const outName = `${base}${outExt}`;
+
+  const optimized = isPng
+    ? await pipeline.png({ compressionLevel: 9 }).toBuffer()
+    : await pipeline.jpeg({ quality: 82, mozjpeg: true }).toBuffer();
+  const originalSize = fs.statSync(sourcePath).size;
+
+  // Never store something bigger than the source.
+  if (optimized.length >= originalSize && !needsResize) {
+    fs.copyFileSync(sourcePath, path.join(targetDir, fileName));
+    return { fileName, savedBytes: 0 };
+  }
+
+  fs.writeFileSync(path.join(targetDir, outName), optimized);
+  if (outName !== fileName) {
+    console.log(`  ${fileName} → ${outName} (PNG kept PNG, size-optimized)`);
+  }
+  return {
+    fileName: outName,
+    savedBytes: Math.max(0, originalSize - optimized.length),
+  };
+}
+
+/**
+ * Optimizes each source file into public/gallery/<year>/ (idempotent).
+ * Returns the final file names in order — extensions may change during the
+ * optimization pass, so registration must use these.
+ */
+async function copyToPublic(year, files, folderPath) {
+  const targetDir = path.join(PUBLIC_DIR, String(year));
+  fs.mkdirSync(targetDir, { recursive: true });
+  const finalFiles = [];
+  let savedTotal = 0;
+  for (const fileName of files) {
+    const result = await optimizeInto(
+      targetDir,
+      path.join(folderPath, fileName),
+      fileName,
+    );
+    finalFiles.push(result.fileName);
+    savedTotal += result.savedBytes;
+  }
+  if (savedTotal > 0) {
+    console.log(
+      `  optimization saved ${(savedTotal / (1024 * 1024)).toFixed(1)} MB total`,
+    );
+  }
+  return finalFiles;
 }
 
 async function main() {
@@ -157,8 +233,9 @@ async function main() {
       continue;
     }
 
+    let finalFiles = files;
     if (!noCopy) {
-      copyToPublic(year, files, folderPath);
+      finalFiles = await copyToPublic(year, files, folderPath);
     } else {
       console.log(`  (--no-copy: assuming files already in public/gallery/${year}/)`);
     }
@@ -171,7 +248,7 @@ async function main() {
       });
     }
 
-    const images = files.map((fileName, index) => ({
+    const images = finalFiles.map((fileName, index) => ({
       path: fileName,
       caption: fileName.replace(/\.[^.]+$/, "").replace(/[-_]/g, " "),
       order: index,

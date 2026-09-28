@@ -11,14 +11,20 @@
  *
  *   node scripts/gallery-manifest.mjs sync
  *       Regenerates the manifest from public/gallery/ (new year folders are
- *       picked up automatically; titles/themes stay as previously synced).
- *       Captions are preserved for known files.
+ *       picked up automatically). Captions, titles, and themes merge from
+ *       Convex when reachable, so caption/album edits made in the admin
+ *       dashboard flow into the public site; otherwise previous manifest
+ *       values are kept.
  *
  * Year-agnostic by design: adding a new year is just
  *   1. put photos in gallery-import/<year>/ (or public/gallery/<year>/)
- *   2. npm run upload-gallery      → copies files + registers rows in Convex
+ *   2. npm run upload-gallery      → optimizes files + registers rows in Convex
  *   3. npm run gallery:sync        → extends the manifest
  *   4. commit + deploy
+ *
+ * Caption workflow: edit captions in Admin → Galleries, then run
+ * `npm run gallery:sync` and commit the manifest — the public site reads
+ * only the manifest, so edits publish with that commit.
  */
 
 import fs from "node:fs";
@@ -31,6 +37,67 @@ const PUBLIC_GALLERY = path.join(ROOT, "public", "gallery");
 const MANIFEST_PATH = path.join(ROOT, "src", "data", "galleryManifest.json");
 
 const IMAGE_EXT = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif"]);
+
+/** Minimal .env.local loader (same convention as the other scripts). */
+function loadEnvFile(filePath) {
+  if (!fs.existsSync(filePath)) return;
+  const content = fs.readFileSync(filePath, "utf8");
+  for (const line of content.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq === -1) continue;
+    const key = trimmed.slice(0, eq).trim();
+    let value = trimmed.slice(eq + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    if (!process.env[key]) {
+      process.env[key] = value;
+    }
+  }
+}
+
+/**
+ * Best-effort pull of admin-curated captions/titles/themes from Convex so
+ * `sync` publishes edits made in the admin dashboard. Returns {} on any
+ * failure (offline, missing env) — file captions remain the fallback.
+ */
+async function loadDbCurations() {
+  loadEnvFile(path.join(ROOT, ".env.local"));
+  if (!process.env.NEXT_PUBLIC_CONVEX_URL) {
+    return {};
+  }
+  try {
+    const { ConvexHttpClient } = await import("convex/browser");
+    const { api } = await import("../convex/_generated/api.js");
+    const client = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL);
+    const galleries = await client.query(api.content.listGalleries, {});
+    const byYear = {};
+    for (const gallery of galleries) {
+      const captions = {};
+      for (const image of gallery.images) {
+        if (image.imageUrl && image.caption) {
+          captions[path.basename(image.imageUrl)] = image.caption;
+        }
+      }
+      byYear[gallery.year] = {
+        title: gallery.title,
+        theme: gallery.theme,
+        captions,
+      };
+    }
+    return byYear;
+  } catch (error) {
+    console.warn(
+      `  (note: could not load captions from Convex — ${error instanceof Error ? error.message : error})`,
+    );
+    return {};
+  }
+}
 
 function readManifest() {
   if (!fs.existsSync(MANIFEST_PATH)) {
@@ -63,21 +130,24 @@ function manifestRow(galleries, year) {
   return galleries.galleries.find((g) => g.year === year);
 }
 
-function buildManifest(existing, scanned) {
+function buildManifest(existing, scanned, dbCurations = {}) {
   const now = new Date().toISOString();
   return {
     generatedAt: now,
     galleries: scanned.map(({ year, files }) => {
       const prev = manifestRow(existing, year);
+      const db = dbCurations[year];
       return {
         year,
-        title: prev?.title ?? `Homecoming ${year}`,
-        theme: prev?.theme ?? "The Homecoming",
+        // DB (admin dashboard) wins over the previous manifest so caption
+        // and album edits made by admins flow into the public site.
+        title: db?.title ?? prev?.title ?? `Homecoming ${year}`,
+        theme: db?.theme ?? prev?.theme ?? "The Homecoming",
         images: files.map((fileName) => {
           const prevImage = prev?.images.find((i) => i.file === fileName);
           return {
             file: `/gallery/${year}/${fileName}`,
-            caption: prevImage?.caption,
+            caption: db?.captions?.[fileName] ?? prevImage?.caption,
           };
         }),
       };
@@ -152,13 +222,21 @@ function check() {
   );
 }
 
-function sync() {
+async function sync() {
   const existing = readManifest();
   const scanned = scanPublicGallery();
   if (!scanned.length) {
     fail("No year folders found under public/gallery/ (e.g. public/gallery/2025/).");
   }
-  const manifest = buildManifest(existing, scanned);
+
+  const dbCurations = await loadDbCurations();
+  if (Object.keys(dbCurations).length) {
+    console.log(
+      `  merged captions/album info from Convex for year(s): ${Object.keys(dbCurations).join(", ")}`,
+    );
+  }
+
+  const manifest = buildManifest(existing, scanned, dbCurations);
   fs.mkdirSync(path.dirname(MANIFEST_PATH), { recursive: true });
   fs.writeFileSync(MANIFEST_PATH, JSON.stringify(manifest, null, 2) + "\n");
   const total = scanned.reduce((sum, g) => sum + g.files.length, 0);
@@ -168,13 +246,16 @@ function sync() {
   for (const gallery of manifest.galleries) {
     console.log(`  ${gallery.year}: ${gallery.images.length} photo(s) — ${gallery.title}`);
   }
+  console.log(
+    "Commit the manifest to publish caption edits on the public site.",
+  );
 }
 
 const mode = process.argv[2];
 if (mode === "check") {
   check();
 } else if (mode === "sync") {
-  sync();
+  await sync();
 } else {
   console.error("Usage: node scripts/gallery-manifest.mjs <check|sync>");
   process.exit(1);
