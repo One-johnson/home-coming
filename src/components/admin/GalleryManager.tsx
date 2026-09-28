@@ -39,6 +39,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { uploadFilesToConvex } from "@/lib/galleryUpload";
+import { compressImageForUpload } from "@/lib/imageCompress";
 import { cn } from "@/lib/utils";
 
 type GalleryForm = {
@@ -243,7 +244,12 @@ export function GalleryManager() {
       const galleryId = selectedGalleryId as Id<"galleries">;
       let completed = 0;
 
-      for (const file of imageFiles) {
+      let savedTotal = 0;
+      for (const original of imageFiles) {
+        setUploadLabel(`Optimizing ${original.name}...`);
+        const { file, savedBytes } = await compressImageForUpload(original);
+        savedTotal += savedBytes;
+
         setUploadLabel(`Uploading ${file.name}...`);
         const storageIds = await uploadFilesToConvex(
           [file],
@@ -264,14 +270,20 @@ export function GalleryManager() {
           sessionToken,
           galleryId,
           storageId: storageIds[0],
-          caption: file.name.replace(/\.[^.]+$/, "").replace(/[-_]/g, " "),
+          caption: original.name.replace(/\.[^.]+$/, "").replace(/[-_]/g, " "),
         });
 
         completed += 1;
         setUploadProgress(Math.round((completed / imageFiles.length) * 100));
       }
 
-      toast.success(`Uploaded ${imageFiles.length} image(s)`);
+      toast.success(
+        savedTotal > 0
+          ? `Uploaded ${imageFiles.length} image(s) — saved ${(
+              savedTotal / (1024 * 1024)
+            ).toFixed(1)} MB with optimization`
+          : `Uploaded ${imageFiles.length} image(s)`,
+      );
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }

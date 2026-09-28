@@ -27,6 +27,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { uploadFileToConvex } from "@/lib/galleryUpload";
+import { compressImageForUpload } from "@/lib/imageCompress";
 import { friendlyError } from "@/lib/friendlyError";
 import {
   AGC_REGION_LABELS,
@@ -109,7 +110,9 @@ export function RepRegistrationTab() {
     setLoading(true);
     setError("");
     try {
-      const storageId = await uploadFileToConvex(receipt, () =>
+      // Photos are compressed client-side; PDFs pass through unchanged.
+      const { file: uploadFile } = await compressImageForUpload(receipt);
+      const storageId = await uploadFileToConvex(uploadFile, () =>
         generateUploadUrl({ sessionToken }),
       );
       await submitOffline({
@@ -121,8 +124,8 @@ export function RepRegistrationTab() {
           paymentDate,
           method,
           receiptStorageId: storageId,
-          receiptFileName: receipt.name,
-          receiptContentType: receipt.type || undefined,
+          receiptFileName: uploadFile.name,
+          receiptContentType: uploadFile.type || undefined,
         },
       });
       toast.success(

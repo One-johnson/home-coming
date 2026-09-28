@@ -75,6 +75,14 @@ type AgcOverview = {
     sent: number;
     failed: number;
   };
+  storage: {
+    totalBytes: number;
+    fileCount: number;
+    galleryFiles: number;
+    receiptFiles: number;
+    heroTourFiles: number;
+    otherFiles: number;
+  };
   attention: {
     id: string;
     label: string;
@@ -136,6 +144,14 @@ function AttentionIcon({ tone }: { tone: "warn" | "danger" | "info" }) {
       <Info className="size-4" />
     </span>
   );
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes <= 0) return "0 MB";
+  const mb = bytes / (1024 * 1024);
+  if (mb >= 1024) return `${(mb / 1024).toFixed(2)} GB`;
+  if (mb >= 1) return `${mb.toFixed(1)} MB`;
+  return `${(bytes / 1024).toFixed(0)} KB`;
 }
 
 function StatusChip({
@@ -447,6 +463,22 @@ export default function AdminOverviewPage() {
                           tone="danger"
                         />
                       )}
+                    </div>
+                    <div className="rounded-lg border border-border/70 bg-muted/40 p-2">
+                      <p className="text-xs font-medium text-muted-foreground">
+                        File storage · {formatBytes(overview.storage.totalBytes)}
+                        {" \u00b7 "}
+                        {overview.storage.fileCount} file
+                        {overview.storage.fileCount === 1 ? "" : "s"}
+                      </p>
+                      <p className="mt-0.5 text-[11px] text-muted-foreground">
+                        {overview.storage.galleryFiles} gallery ·{" "}
+                        {overview.storage.receiptFiles} receipts ·{" "}
+                        {overview.storage.heroTourFiles} hero/tours
+                        {overview.storage.otherFiles > 0
+                          ? ` · ${overview.storage.otherFiles} other`
+                          : ""}
+                      </p>
                     </div>
                   </CardContent>
                 </Card>

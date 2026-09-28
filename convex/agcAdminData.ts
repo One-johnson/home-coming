@@ -7,7 +7,7 @@ import {
   query,
   type ActionCtx,
 } from "./_generated/server";
-import type { MutationCtx } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
   getUserBySessionToken,
@@ -1231,6 +1231,77 @@ export const reviewAgcBooking = mutation({
 // tables are no longer the source of truth).
 // ------------------------------------------------------------------
 
+/**
+ * File-storage usage from Convex's system `_storage` table: total bytes,
+ * file count, and a breakdown by which feature owns each blob (derived
+ * from the metadata rows that reference the storage id).
+ * Returns zeros when the caller lacks the "emails" (admin) area.
+ */
+async function storageUsage(ctx: QueryCtx, canSee: boolean) {
+  if (!canSee) {
+    return {
+      totalBytes: 0,
+      fileCount: 0,
+      galleryFiles: 0,
+      receiptFiles: 0,
+      heroTourFiles: 0,
+      otherFiles: 0,
+    };
+  }
+
+  const blobs = await ctx.db.system.query("_storage").collect();
+  const blobById = new Map<string, { _id: string; size: number }>(
+    blobs.map((b) => [b._id, { _id: b._id, size: b.size }]),
+  );
+
+  const usedBy = new Set<string>();
+  for (const image of await ctx.db.query("galleryImages").collect()) {
+    if (image.storageId) usedBy.add(image.storageId);
+  }
+  for (const gallery of await ctx.db.query("galleries").collect()) {
+    if (gallery.coverStorageId) usedBy.add(gallery.coverStorageId);
+  }
+  const galleryIds = new Set(usedBy);
+
+  const receiptIds = new Set<string>();
+  for (const reg of await ctx.db.query("agcRegistrations").collect()) {
+    if (reg.offline?.receiptStorageId) receiptIds.add(reg.offline.receiptStorageId);
+  }
+  for (const booking of await ctx.db.query("agcBookings").collect()) {
+    if (booking.offline?.receiptStorageId) receiptIds.add(booking.offline.receiptStorageId);
+  }
+
+  const heroTourIds = new Set<string>();
+  for (const slide of await ctx.db.query("heroSlides").collect()) {
+    if (slide.storageId) heroTourIds.add(slide.storageId);
+  }
+  for (const pkg of await ctx.db.query("tourPackages").collect()) {
+    if (pkg.imageStorageId) heroTourIds.add(pkg.imageStorageId);
+  }
+
+  let totalBytes = 0;
+  let galleryFiles = 0;
+  let receiptFiles = 0;
+  let heroTourFiles = 0;
+  let otherFiles = 0;
+  for (const blob of blobById.values()) {
+    totalBytes += blob.size;
+    if (galleryIds.has(blob._id)) galleryFiles += 1;
+    else if (receiptIds.has(blob._id)) receiptFiles += 1;
+    else if (heroTourIds.has(blob._id)) heroTourFiles += 1;
+    else otherFiles += 1;
+  }
+
+  return {
+    totalBytes,
+    fileCount: blobs.length,
+    galleryFiles,
+    receiptFiles,
+    heroTourFiles,
+    otherFiles,
+  };
+}
+
 export const getAgcOverview = query({
   args: { sessionToken: sessionTokenValidator },
   handler: async (ctx, args) => {
@@ -1495,6 +1566,7 @@ export const getAgcOverview = query({
         sent: emailLogs.filter((e) => e.status === "sent").length,
         failed: emailLogs.filter((e) => e.status === "failed").length,
       },
+      storage: await storageUsage(ctx, canEmails),
       attention,
       recentActivity,
       badges: {
