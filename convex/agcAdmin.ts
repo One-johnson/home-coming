@@ -2,6 +2,7 @@
 
 import bcrypt from "bcryptjs";
 import { v } from "convex/values";
+import { ConvexError } from "convex/values";
 import { action } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -148,7 +149,7 @@ export const createRep = action({
       internal.agcAdminData.getHubById,
       { hubId: args.hubId },
     );
-    if (!hub) throw new Error("Hub not found");
+    if (!hub) throw new ConvexError("Hub not found");
 
     const username = deriveUsername(hub.name);
     const existing: Doc<"agcRepresentatives"> | null = await ctx.runQuery(
@@ -156,14 +157,14 @@ export const createRep = action({
       { username },
     );
     if (existing) {
-      throw new Error(
+      throw new ConvexError(
         `A representative account already exists for ${hub.name} (username: ${username})`,
       );
     }
 
     const tempPassword = args.tempPassword?.trim() || generateTempPassword();
     if (tempPassword.length < 8) {
-      throw new Error("Default password must be at least 8 characters");
+      throw new ConvexError("Default password must be at least 8 characters");
     }
     const passwordHash = await bcrypt.hash(tempPassword, BCRYPT_ROUNDS);
     const repId: Id<"agcRepresentatives"> = await ctx.runMutation(
@@ -231,7 +232,7 @@ export const bulkCreateReps = action({
 
     const trimmed = args.tempPassword?.trim();
     if (trimmed && trimmed.length < 8) {
-      throw new Error("Default password must be at least 8 characters");
+      throw new ConvexError("Default password must be at least 8 characters");
     }
     // All reps created in this run share ONE temporary password
     // (auto-generated once when the admin did not choose one).
@@ -351,11 +352,11 @@ export const issueTempPassword = action({
       internal.agcAdminData.getRepById,
       { repId: args.repId },
     );
-    if (!rep) throw new Error("Representative not found");
+    if (!rep) throw new ConvexError("Representative not found");
 
     const tempPassword = args.tempPassword?.trim() || generateTempPassword();
     if (tempPassword.length < 8) {
-      throw new Error("Temporary password must be at least 8 characters");
+      throw new ConvexError("Temporary password must be at least 8 characters");
     }
     const passwordHash = await bcrypt.hash(tempPassword, BCRYPT_ROUNDS);
     await ctx.runMutation(internal.agcAdminData.resetRepCredentials, {

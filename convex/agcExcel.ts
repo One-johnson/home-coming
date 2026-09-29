@@ -2,6 +2,7 @@
 
 import ExcelJS from "exceljs";
 import { v } from "convex/values";
+import { ConvexError } from "convex/values";
 import { action } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { AGC_ACCOMMODATION_TYPE_KEYS } from "./lib/agcConfig";
@@ -226,7 +227,7 @@ export const downloadBookingTemplate = action({
       token: args.sessionToken,
     });
     if (!session || session.status === "disabled") {
-      throw new Error("Unauthorized");
+      throw new ConvexError("Unauthorized");
     }
 
     const workbook = buildTemplateWorkbook();
@@ -272,17 +273,17 @@ export const previewBookingExcel = action({
       token: args.sessionToken,
     });
     if (!session || session.status === "disabled") {
-      throw new Error("Unauthorized");
+      throw new ConvexError("Unauthorized");
     }
 
     const file = await ctx.storage.get(args.storageId);
-    if (!file) throw new Error("Uploaded file not found");
+    if (!file) throw new ConvexError("Uploaded file not found");
     const bytes = Buffer.from(await file.arrayBuffer());
 
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(bytes as unknown as ExcelJS.Buffer);
     const sheet = workbook.worksheets[0];
-    if (!sheet) throw new Error("The workbook has no sheets");
+    if (!sheet) throw new ConvexError("The workbook has no sheets");
 
     const { rows, errors } = parseGuestRows(worksheetToRows(sheet));
     return { rows, errors };
@@ -309,11 +310,11 @@ export const createBookingFromExcel = action({
       token: args.sessionToken,
     });
     if (!session || session.status === "disabled") {
-      throw new Error("Unauthorized");
+      throw new ConvexError("Unauthorized");
     }
 
     const file = await ctx.storage.get(args.storageId);
-    if (!file) throw new Error("Uploaded file not found");
+    if (!file) throw new ConvexError("Uploaded file not found");
     const bytes = Buffer.from(await file.arrayBuffer());
 
     const workbook = new ExcelJS.Workbook();
@@ -321,11 +322,11 @@ export const createBookingFromExcel = action({
     // it at runtime, so bridge the type mismatch here.
     await workbook.xlsx.load(bytes as unknown as ExcelJS.Buffer);
     const sheet = workbook.worksheets[0];
-    if (!sheet) throw new Error("The workbook has no sheets");
+    if (!sheet) throw new ConvexError("The workbook has no sheets");
 
     const { rows, errors } = parseGuestRows(worksheetToRows(sheet));
     if (rows.length === 0) {
-      throw new Error(
+      throw new ConvexError(
         errors.length > 0
           ? `No valid rows found. ${errors.join(" ")}`
           : "No guest rows found in the uploaded file",

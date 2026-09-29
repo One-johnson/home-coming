@@ -3,6 +3,7 @@
 import { createHash, randomBytes } from "crypto";
 import bcrypt from "bcryptjs";
 import { v } from "convex/values";
+import { ConvexError } from "convex/values";
 import { action } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -45,19 +46,19 @@ export const registerInitialAdmin = action({
   handler: async (ctx, args): Promise<AuthResult> => {
     const userCount: number = await ctx.runQuery(internal.users.countUsers, {});
     if (userCount > 0) {
-      throw new Error(
+      throw new ConvexError(
         "Admin registration is closed. Ask an existing admin to create your account.",
       );
     }
 
     if (args.password.length < 8) {
-      throw new Error("Password must be at least 8 characters");
+      throw new ConvexError("Password must be at least 8 characters");
     }
 
     const email = normalizeEmail(args.email);
     const name = args.name.trim();
     if (!name || !email) {
-      throw new Error("Name and email are required");
+      throw new ConvexError("Name and email are required");
     }
 
     const passwordHash = await bcrypt.hash(args.password, BCRYPT_ROUNDS);
@@ -105,16 +106,16 @@ export const login = action({
     );
 
     if (!user) {
-      throw new Error("Invalid email or password");
+      throw new ConvexError("Invalid email or password");
     }
 
     if (user.active === false) {
-      throw new Error("This account has been deactivated");
+      throw new ConvexError("This account has been deactivated");
     }
 
     const ok = await bcrypt.compare(args.password, user.passwordHash);
     if (!ok) {
-      throw new Error("Invalid email or password");
+      throw new ConvexError("Invalid email or password");
     }
 
     await ctx.runMutation(internal.users.deleteUserSessions, {
@@ -163,17 +164,17 @@ export const adminCreateUser = action({
       sessionToken: args.sessionToken,
     });
     if (!actor || actor.role !== "admin") {
-      throw new Error("Unauthorized");
+      throw new ConvexError("Unauthorized");
     }
 
     if (args.password.length < 8) {
-      throw new Error("Password must be at least 8 characters");
+      throw new ConvexError("Password must be at least 8 characters");
     }
 
     const email = normalizeEmail(args.email);
     const name = args.name.trim();
     if (!name || !email) {
-      throw new Error("Name and email are required");
+      throw new ConvexError("Name and email are required");
     }
 
     const passwordHash = await bcrypt.hash(args.password, BCRYPT_ROUNDS);
@@ -250,14 +251,14 @@ export const resetAdminPassword = action({
   },
   handler: async (ctx, args): Promise<{ success: true }> => {
     if (args.newPassword.length < 8) {
-      throw new Error("Password must be at least 8 characters");
+      throw new ConvexError("Password must be at least 8 characters");
     }
     const reset: Doc<"adminPasswordResets"> | null = await ctx.runQuery(
       internal.adminAuthData.getAdminPasswordReset,
       { token: args.token },
     );
     if (!reset || reset.usedAt || reset.expiresAt < Date.now()) {
-      throw new Error("This reset link is invalid or has expired");
+      throw new ConvexError("This reset link is invalid or has expired");
     }
 
     const user: Doc<"users"> | null = await ctx.runQuery(
@@ -265,7 +266,7 @@ export const resetAdminPassword = action({
       { userId: reset.userId },
     );
     if (!user || user.active === false) {
-      throw new Error("This reset link is invalid or has expired");
+      throw new ConvexError("This reset link is invalid or has expired");
     }
 
     const passwordHash = await bcrypt.hash(args.newPassword, BCRYPT_ROUNDS);
@@ -292,11 +293,11 @@ export const changePassword = action({
       sessionToken: args.sessionToken,
     });
     if (!actor) {
-      throw new Error("Unauthorized");
+      throw new ConvexError("Unauthorized");
     }
 
     if (args.newPassword.length < 8) {
-      throw new Error("New password must be at least 8 characters");
+      throw new ConvexError("New password must be at least 8 characters");
     }
 
     const fullUser: Doc<"users"> | null = await ctx.runQuery(
@@ -304,7 +305,7 @@ export const changePassword = action({
       { userId: actor._id },
     );
     if (!fullUser) {
-      throw new Error("User not found");
+      throw new ConvexError("User not found");
     }
 
     const ok = await bcrypt.compare(
@@ -312,7 +313,7 @@ export const changePassword = action({
       fullUser.passwordHash,
     );
     if (!ok) {
-      throw new Error("Current password is incorrect");
+      throw new ConvexError("Current password is incorrect");
     }
 
     const passwordHash = await bcrypt.hash(args.newPassword, BCRYPT_ROUNDS);

@@ -2,6 +2,7 @@
 
 import Stripe from "stripe";
 import { v } from "convex/values";
+import { ConvexError } from "convex/values";
 import { action, internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 
@@ -87,7 +88,7 @@ export const createCheckoutSession = action({
     })) as CheckoutRecord | null;
 
     if (!record) {
-      throw new Error("Payment record not found");
+      throw new ConvexError("Payment record not found");
     }
 
     if (
@@ -116,13 +117,13 @@ export const createCheckoutSession = action({
     }
 
     if (record.gateway === "offline") {
-      throw new Error(
+      throw new ConvexError(
         "This order is set up for offline payment. Submit your receipt in the portal instead.",
       );
     }
 
     if (record.currency.toLowerCase() === "ghs") {
-      throw new Error(
+      throw new ConvexError(
         "Stripe cannot charge GHS. Ghana cedi orders are paid offline.",
       );
     }
@@ -173,7 +174,7 @@ export const createCheckoutSession = action({
     });
 
     if (!session.url) {
-      throw new Error("Stripe did not return a checkout URL");
+      throw new ConvexError("Stripe did not return a checkout URL");
     }
 
     await ctx.runMutation(internal.payments.setPaymentReference, {
@@ -197,7 +198,7 @@ export const finalizeCheckoutSession = action({
   handler: async (ctx, args): Promise<FinalizeCheckoutResult> => {
     const stripe = getStripe();
     if (!stripe) {
-      throw new Error("Stripe is not configured");
+      throw new ConvexError("Stripe is not configured");
     }
 
     const session = await stripe.checkout.sessions.retrieve(args.sessionId);
@@ -211,7 +212,7 @@ export const finalizeCheckoutSession = action({
     const recordId = session.metadata?.recordId;
 
     if (!type || !recordId) {
-      throw new Error("Checkout session is missing payment metadata");
+      throw new ConvexError("Checkout session is missing payment metadata");
     }
 
     if (session.payment_status === "paid") {
@@ -258,7 +259,7 @@ export const handleWebhook = internalAction({
     const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
     if (!stripe || !webhookSecret) {
-      throw new Error("Stripe webhook is not configured");
+      throw new ConvexError("Stripe webhook is not configured");
     }
 
     const event = stripe.webhooks.constructEvent(

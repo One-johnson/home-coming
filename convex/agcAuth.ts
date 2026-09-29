@@ -3,6 +3,7 @@
 import { createHash, randomBytes } from "crypto";
 import bcrypt from "bcryptjs";
 import { v } from "convex/values";
+import { ConvexError } from "convex/values";
 import { action, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -128,14 +129,14 @@ export const resetPassword = action({
   },
   handler: async (ctx, args): Promise<{ success: true }> => {
     if (args.newPassword.length < 8) {
-      throw new Error("Password must be at least 8 characters");
+      throw new ConvexError("Password must be at least 8 characters");
     }
     const reset: Doc<"agcPasswordResets"> | null = await ctx.runQuery(
       internal.agcAuthData.getPasswordReset,
       { token: args.token },
     );
     if (!reset || reset.usedAt || reset.expiresAt < Date.now()) {
-      throw new Error("This reset link is invalid or has expired");
+      throw new ConvexError("This reset link is invalid or has expired");
     }
 
     const passwordHash = await bcrypt.hash(args.newPassword, BCRYPT_ROUNDS);
@@ -156,9 +157,9 @@ export const repLogin = action({
       internal.agcAuthData.getRepByUsername,
       { username },
     );
-    if (!rep) throw new Error("Invalid username or password");
+    if (!rep) throw new ConvexError("Invalid username or password");
     if (rep.status === "disabled") {
-      throw new Error(
+      throw new ConvexError(
         "This account has been disabled. Contact the registration desk.",
       );
     }
@@ -168,7 +169,7 @@ export const repLogin = action({
     const lock = await ctx.runQuery(internal.agcAuthData.checkLoginLock, {
       username,
     });
-    if (lock) throw new Error(LOCK_MESSAGE);
+    if (lock) throw new ConvexError(LOCK_MESSAGE);
 
     const ok = await bcrypt.compare(args.password, rep.passwordHash);
     if (!ok) {
@@ -178,9 +179,9 @@ export const repLogin = action({
         { username },
       );
       if (throttle.lockedUntil) {
-        throw new Error(LOCK_MESSAGE);
+        throw new ConvexError(LOCK_MESSAGE);
       }
-      throw new Error("Invalid username or password");
+      throw new ConvexError("Invalid username or password");
     }
 
     // Expected flow-control outcome (NOT an error): the rep still has a
@@ -244,16 +245,16 @@ export const completeFirstLoginSetup = action({
   },
   handler: async (ctx, args): Promise<RepAuthResult> => {
     if (args.newPassword.length < 8) {
-      throw new Error("New password must be at least 8 characters");
+      throw new ConvexError("New password must be at least 8 characters");
     }
     const username = normalizeUsername(args.username);
     const rep: Doc<"agcRepresentatives"> | null = await ctx.runQuery(
       internal.agcAuthData.getRepByUsername,
       { username },
     );
-    if (!rep) throw new Error("Invalid username or password");
+    if (!rep) throw new ConvexError("Invalid username or password");
     if (rep.status === "disabled") {
-      throw new Error(
+      throw new ConvexError(
         "This account has been disabled. Contact the registration desk.",
       );
     }
@@ -263,7 +264,7 @@ export const completeFirstLoginSetup = action({
     const lock = await ctx.runQuery(internal.agcAuthData.checkLoginLock, {
       username,
     });
-    if (lock) throw new Error(LOCK_MESSAGE);
+    if (lock) throw new ConvexError(LOCK_MESSAGE);
 
     const ok = await bcrypt.compare(args.temporaryPassword, rep.passwordHash);
     if (!ok) {
@@ -272,14 +273,14 @@ export const completeFirstLoginSetup = action({
         { username },
       );
       if (throttle.lockedUntil) {
-        throw new Error(LOCK_MESSAGE);
+        throw new ConvexError(LOCK_MESSAGE);
       }
-      throw new Error("Invalid username or password");
+      throw new ConvexError("Invalid username or password");
     }
 
     const email = args.email.trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      throw new Error("A valid email address is required");
+      throw new ConvexError("A valid email address is required");
     }
 
     const emailTaken: Doc<"agcRepresentatives"> | null = await ctx.runQuery(
@@ -287,7 +288,7 @@ export const completeFirstLoginSetup = action({
       { email },
     );
     if (emailTaken && emailTaken._id !== rep._id) {
-      throw new Error("This email address is already in use");
+      throw new ConvexError("This email address is already in use");
     }
 
     const passwordHash = await bcrypt.hash(args.newPassword, BCRYPT_ROUNDS);
@@ -351,15 +352,15 @@ export const changeRepPassword = action({
       { token: args.sessionToken },
     );
     if (!rep || rep.status === "disabled") {
-      throw new Error("Unauthorized");
+      throw new ConvexError("Unauthorized");
     }
 
     if (args.newPassword.length < 8) {
-      throw new Error("New password must be at least 8 characters");
+      throw new ConvexError("New password must be at least 8 characters");
     }
 
     const ok = await bcrypt.compare(args.currentPassword, rep.passwordHash);
-    if (!ok) throw new Error("Current password is incorrect");
+    if (!ok) throw new ConvexError("Current password is incorrect");
 
     const passwordHash = await bcrypt.hash(args.newPassword, BCRYPT_ROUNDS);
     await ctx.runMutation(internal.agcAuthData.updateRepPasswordHash, {
