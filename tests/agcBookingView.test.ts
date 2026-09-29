@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest";
 import {
   displayPaymentStatus,
+  guestAvatarClass,
+  guestInitials,
   guestRosterRows,
   isClosedBooking,
 } from "../src/lib/agcBookingView";
@@ -122,5 +124,26 @@ describe("guestRosterRows", () => {
 
   test("returns an empty array for bookings without guests", () => {
     expect(guestRosterRows([baseBooking({})])).toEqual([]);
+  });
+});
+
+describe("guestInitials", () => {
+  test("builds two-letter initials, tolerant of blanks", () => {
+    expect(guestInitials({ firstName: "Kwame", lastName: "Mensah" })).toBe("KM");
+    expect(guestInitials({ firstName: "ama", lastName: "boatswain" })).toBe("AB");
+    expect(guestInitials({ firstName: "  ", lastName: "  " })).toBe("?");
+  });
+});
+
+describe("guestAvatarClass", () => {
+  test("same guest always gets the same chip color", () => {
+    const g = { firstName: "Kwame", lastName: "Mensah", gender: "male" };
+    expect(guestAvatarClass(g)).toBe(guestAvatarClass(g));
+  });
+
+  test("male and female guests draw from different palettes", () => {
+    const male = { firstName: "Kojo", lastName: "Ann", gender: "male" };
+    const female = { firstName: "Ama", lastName: "Boat", gender: "female" };
+    expect(guestAvatarClass(male)).not.toBe(guestAvatarClass(female));
   });
 });

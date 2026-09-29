@@ -69,9 +69,12 @@ import {
 } from "@/lib/agcPortal";
 import {
   displayPaymentStatus,
+  guestAvatarClass,
+  guestInitials,
   guestRosterRows,
   isClosedBooking,
 } from "@/lib/agcBookingView";
+import { StatTile } from "@/components/portal/StatTile";
 import type {
   AccommodationOverview,
   RepBooking,
@@ -986,42 +989,33 @@ export function RepAccommodationTab() {
               const unitNoun = row.scope === "per_room" ? "rooms" : "beds";
               const nearlyGone = !soldOut && row.available <= Math.ceil(row.total * 0.1);
               return (
-                <Card key={row.accommodationType} className={soldOut ? "opacity-60" : undefined}>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="flex items-center justify-between gap-2 text-sm font-medium">
-                      {AGC_ACCOMMODATION_LABELS[
-                        row.accommodationType as keyof typeof AGC_ACCOMMODATION_LABELS
-                      ] ?? row.accommodationType}
-                      {soldOut && (
-                        <Badge variant="outline" className="text-[10px]">
-                          sold out
-                        </Badge>
-                      )}
-                    </CardTitle>
-                    <CardDescription>({row.scope.replace(/_/g, " ")})</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-2xl font-semibold tabular-nums">
-                      {row.available}
-                      <span className="ml-1 text-sm font-normal text-muted-foreground">
-                        of {row.total} {unitNoun} left
-                      </span>
-                    </p>
-                    {nearlyGone && (
-                      <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-400">
-                        Nearly gone — book soon
-                      </p>
-                    )}
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      {currency} {isOffline ? row.priceGhs : row.priceUsd}
-                      {row.accommodationType === "ebpv" &&
-                        ` · bishop ${currency} ${isOffline ? row.bishopPriceGhs : row.bishopPriceUsd}`}
-                    </p>
-                  </CardContent>
-                </Card>
+                <StatTile
+                  key={row.accommodationType}
+                  label={
+                    AGC_ACCOMMODATION_LABELS[
+                      row.accommodationType as keyof typeof AGC_ACCOMMODATION_LABELS
+                    ] ?? row.accommodationType
+                  }
+                  value={row.available}
+                  valueSuffix={`of ${row.total} ${unitNoun} left`}
+                  hint={
+                    soldOut
+                      ? "Sold out"
+                      : nearlyGone
+                        ? "Nearly gone — book soon"
+                        : row.scope.replace(/_/g, " ")
+                  }
+                  tone={soldOut ? "neutral" : nearlyGone ? "warning" : "info"}
+                  className={soldOut ? "opacity-60" : undefined}
+                >
+                  <p className="text-[11px] text-muted-foreground">
+                    {currency} {isOffline ? row.priceGhs : row.priceUsd}
+                    {row.accommodationType === "ebpv" &&
+                      ` · bishop ${currency} ${isOffline ? row.bishopPriceGhs : row.bishopPriceUsd}`}
+                  </p>
+                </StatTile>
               );
-            })}
-          </div>
+            })}          </div>
         )
       )}
 
@@ -1278,7 +1272,7 @@ export function RepAccommodationTab() {
         </CardContent>
       </Card>
 
-      {/* Guest roster — every name, gender, room type and payment status in one flat table. */}
+      {/* Guest roster — every name, gender, room type and payment status in one flat list. */}
       {rosterRows.length > 0 && (
         <Card>
           <CardHeader>
@@ -1287,9 +1281,12 @@ export function RepAccommodationTab() {
                 <CardTitle className="flex items-center gap-2 text-lg">
                   <UsersIcon className="size-4 text-gold-dark" />
                   Guest roster
+                  <Badge variant="outline" className="ml-1 text-[11px] font-normal text-muted-foreground">
+                    {rosterRows.length}
+                  </Badge>
                 </CardTitle>
                 <CardDescription>
-                  All {rosterRows.length} guest{rosterRows.length === 1 ? "" : "s"} across every booking — payment status follows the parent booking.
+                  Every guest across all bookings — payment status follows the parent booking.
                 </CardDescription>
               </div>
               <Button
@@ -1299,7 +1296,7 @@ export function RepAccommodationTab() {
                 onClick={() => setRosterOpen((open) => !open)}
                 aria-expanded={rosterOpen}
               >
-                {rosterOpen ? "Hide table" : "Show table"}
+                {rosterOpen ? "Hide guests" : "Show guests"}
                 <ChevronDownIcon
                   className={`size-4 transition-transform ${rosterOpen ? "rotate-180" : ""}`}
                 />
@@ -1308,44 +1305,99 @@ export function RepAccommodationTab() {
           </CardHeader>
           {rosterOpen && (
             <CardContent>
-              <div className="max-h-[60vh] overflow-auto rounded-lg border">
+              {/* Mobile: compact cards. */}
+              <ul className="space-y-2 md:hidden">
+                {rosterRows.map((row) => {
+                  const pay = displayPaymentStatus(row.booking);
+                  return (
+                    <li
+                      key={row.key}
+                      className="flex items-center gap-3 rounded-lg border p-2.5"
+                    >
+                      <span
+                        aria-hidden
+                        className={`flex size-8 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${guestAvatarClass(row.guest)}`}
+                      >
+                        {guestInitials(row.guest)}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">
+                          {row.guest.title} {row.guest.firstName} {row.guest.lastName}
+                        </p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {row.guest.gender} · {AGC_ACCOMMODATION_LABELS[
+                            row.guest.accommodationType as keyof typeof AGC_ACCOMMODATION_LABELS
+                          ] ?? row.guest.accommodationType}
+                        </p>
+                      </div>
+                      <div className="flex flex-col items-end gap-1">
+                        <Badge variant="outline" className={pay.className}>
+                          {pay.label}
+                        </Badge>
+                        <span className="font-mono text-[10px] text-muted-foreground">
+                          {row.booking.referenceNumber || "(pending)"}
+                        </span>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+
+              {/* Desktop: dense zebra table with avatar chips. */}
+              <div className="hidden max-h-[60vh] overflow-auto rounded-xl ring-1 ring-foreground/10 md:block">
                 <Table>
-                  <TableHeader className="sticky top-0 bg-card">
-                    <TableRow>
-                      <TableHead>#</TableHead>
-                      <TableHead>Guest name</TableHead>
-                      <TableHead>Gender</TableHead>
-                      <TableHead>Room type</TableHead>
-                      <TableHead>Booking ref</TableHead>
-                      <TableHead>Payment status</TableHead>
+                  <TableHeader className="sticky top-0 z-10 bg-card shadow-[0_1px_0_0_theme(colors.border)]">
+                    <TableRow className="hover:bg-transparent">
+                      <TableHead className="w-10 pl-3 text-xs">#</TableHead>
+                      <TableHead className="text-xs">Guest</TableHead>
+                      <TableHead className="text-xs">Gender</TableHead>
+                      <TableHead className="text-xs">Room type</TableHead>
+                      <TableHead className="text-xs">Booking</TableHead>
+                      <TableHead className="pr-3 text-xs">Payment</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {rosterRows.map((row, index) => {
                       const pay = displayPaymentStatus(row.booking);
                       return (
-                        <TableRow key={row.key}>
-                          <TableCell className="text-xs tabular-nums text-muted-foreground">
+                        <TableRow key={row.key} className="odd:bg-muted/40 hover:bg-muted/60">
+                          <TableCell className="pl-3 text-xs tabular-nums text-muted-foreground">
                             {index + 1}
                           </TableCell>
-                          <TableCell className="text-sm whitespace-nowrap">
-                            {row.guest.title} {row.guest.firstName} {row.guest.lastName}
-                            {row.guest.isBishopRate && (
-                              <Badge variant="outline" className="ml-2 text-[10px]">
-                                Bishop rate
-                              </Badge>
-                            )}
+                          <TableCell>
+                            <div className="flex items-center gap-2.5">
+                              <span
+                                aria-hidden
+                                className={`flex size-8 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${guestAvatarClass(row.guest)}`}
+                              >
+                                {guestInitials(row.guest)}
+                              </span>
+                              <div className="min-w-0">
+                                <p className="flex items-center gap-1.5 whitespace-nowrap text-sm font-medium">
+                                  <span className="truncate">
+                                    {row.guest.title} {row.guest.firstName} {row.guest.lastName}
+                                  </span>
+                                  {row.guest.isBishopRate && (
+                                    <Badge variant="outline" className="shrink-0 text-[10px]">
+                                      Bishop rate
+                                    </Badge>
+                                  )}
+                                </p>
+                              </div>
+                            </div>
                           </TableCell>
-                          <TableCell className="text-sm capitalize">{row.guest.gender}</TableCell>
-                          <TableCell className="text-sm">
+                          <TableCell className="text-sm capitalize text-muted-foreground">
+                            {row.guest.gender}
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap text-sm">
                             {AGC_ACCOMMODATION_LABELS[
                               row.guest.accommodationType as keyof typeof AGC_ACCOMMODATION_LABELS
                             ] ?? row.guest.accommodationType}
                           </TableCell>
-                          <TableCell className="font-mono text-xs">
+                          <TableCell className="font-mono text-xs text-muted-foreground">
                             {row.booking.referenceNumber || "(pending)"}
                           </TableCell>
-                          <TableCell>
+                          <TableCell className="pr-3">
                             <Badge variant="outline" className={pay.className}>
                               {pay.label}
                             </Badge>
@@ -1360,7 +1412,6 @@ export function RepAccommodationTab() {
           )}
         </Card>
       )}
-
       {/* Bookings list */}
       <Card>
         <CardHeader>

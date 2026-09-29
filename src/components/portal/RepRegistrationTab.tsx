@@ -26,6 +26,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { LinkButton as Button } from "@/components/ui/app-button";
+import { StatTile } from "@/components/portal/StatTile";
 import {
   Select,
   SelectContent,
@@ -266,55 +267,26 @@ export function RepRegistrationTab() {
     <div className="space-y-8">
       {/* Registration summary — totals across every purchase. */}
       <div className="grid gap-4 sm:grid-cols-3">
-        <Card>
-          <CardHeader className="pb-1">
-            <CardDescription className="flex items-center gap-1.5 text-xs">
-              <ClipboardListIcon className="size-3.5 text-gold-dark" />
-              Total registrations
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-semibold tabular-nums text-ink">
-              {summary.count}
-            </p>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              {summary.paid + summary.pending} delegate
-              {summary.paid + summary.pending === 1 ? "" : "s"} in total
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-1">
-            <CardDescription className="flex items-center gap-1.5 text-xs">
-              <CircleCheckIcon className="size-3.5 text-gold-dark" />
-              Total registered / booked (paid)
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-semibold tabular-nums text-emerald-700 dark:text-emerald-400">
-              {summary.paid}
-            </p>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              {currency} {summary.paidAmount} confirmed
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-1">
-            <CardDescription className="flex items-center gap-1.5 text-xs">
-              <UserXIcon className="size-3.5 text-gold-dark" />
-              Total reserved (awaiting payment)
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-semibold tabular-nums text-amber-700 dark:text-amber-400">
-              {summary.pending}
-            </p>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              {currency} {summary.pendingAmount} outstanding
-            </p>
-          </CardContent>
-        </Card>
+        <StatTile
+          icon={ClipboardListIcon}
+          label="Total registrations"
+          value={summary.count}
+          hint={`${summary.paid + summary.pending} delegate${summary.paid + summary.pending === 1 ? "" : "s"} in total`}
+        />
+        <StatTile
+          icon={CircleCheckIcon}
+          tone="positive"
+          label="Registered / booked (paid)"
+          value={summary.paid}
+          hint={`${currency} ${summary.paidAmount} confirmed`}
+        />
+        <StatTile
+          icon={UserXIcon}
+          tone="warning"
+          label="Reserved (awaiting payment)"
+          value={summary.pending}
+          hint={`${currency} ${summary.pendingAmount} outstanding`}
+        />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">

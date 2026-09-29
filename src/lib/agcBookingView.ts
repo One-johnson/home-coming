@@ -53,3 +53,37 @@ export function guestRosterRows(bookings: RepBooking[]): GuestRosterRow[] {
   }
   return rows;
 }
+
+/** One or two initials for an avatar chip ("Kwame Mensah" -> "KM"). */
+export function guestInitials(
+  guest: Pick<BookingGuest, "firstName" | "lastName">,
+): string {
+  const first = guest.firstName?.trim()?.[0] ?? "";
+  const last = guest.lastName?.trim()?.[0] ?? "";
+  return (first + last).toUpperCase() || "?";
+}
+
+/**
+ * Stable avatar chip color per guest (deterministic across renders).
+ * Gender-tinted pairs: cool for male, warm for female — subtle but scannable.
+ */
+export function guestAvatarClass(
+  guest: Pick<BookingGuest, "firstName" | "lastName" | "gender">,
+): string {
+  const seed = `${guest.firstName} ${guest.lastName}`
+    .toLowerCase()
+    .split("")
+    .reduce((acc, ch) => (acc * 31 + ch.charCodeAt(0)) % 997, 7);
+  const male = [
+    "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300",
+    "bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300",
+    "bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300",
+  ];
+  const female = [
+    "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300",
+    "bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-950 dark:text-fuchsia-300",
+    "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
+  ];
+  const palette = guest.gender === "female" ? female : male;
+  return palette[seed % palette.length];
+}

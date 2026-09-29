@@ -27,6 +27,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { StatTile } from "@/components/portal/StatTile";
 import { friendlyError } from "@/lib/friendlyError";
 import {
   AGC_ACCOMMODATION_LABELS,
@@ -86,20 +87,7 @@ function StatCard({
   value: string | number;
   hint?: string;
 }) {
-  return (
-    <Card>
-      <CardHeader className="pb-1">
-        <CardDescription className="flex items-center gap-1.5 text-xs">
-          <Icon className="size-3.5 text-gold-dark" />
-          {label}
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <p className="text-2xl font-semibold tabular-nums text-ink">{value}</p>
-        {hint && <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p>}
-      </CardContent>
-    </Card>
-  );
+  return <StatTile icon={Icon} label={label} value={value} hint={hint} />;
 }
 
 /** Paid / pending / cancelled delegate trio used for both sections. */
@@ -162,18 +150,16 @@ function RoomTypeBookings({
   return (
     <div className="grid gap-2 sm:grid-cols-2">
       {visible.map((row) => (
-        <div
+        <StatTile
           key={row.type}
-          className="rounded-lg border p-2.5"
+          size="sm"
+          label={
+            AGC_ACCOMMODATION_LABELS[row.type as keyof typeof AGC_ACCOMMODATION_LABELS] ??
+              row.type
+          }
+          value={row.booked}
+          valueSuffix="booked"
         >
-          <p className="truncate text-xs font-medium text-muted-foreground">
-            {AGC_ACCOMMODATION_LABELS[row.type as keyof typeof AGC_ACCOMMODATION_LABELS] ??
-              row.type}
-          </p>
-          <p className="text-lg font-semibold tabular-nums text-ink">
-            {row.booked}
-            <span className="text-xs font-normal text-muted-foreground"> booked</span>
-          </p>
           <p className="flex items-center gap-2 text-[11px] text-muted-foreground">
             <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400">
               <BedDoubleIcon className="size-3" /> {row.paid} paid
@@ -182,7 +168,7 @@ function RoomTypeBookings({
               <UsersIcon className="size-3" /> {row.awaiting} awaiting
             </span>
           </p>
-        </div>
+        </StatTile>
       ))}
     </div>
   );
