@@ -5,10 +5,13 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import {
   AlertTriangleIcon,
   CalendarClockIcon,
+  DownloadIcon,
+  LayoutGridIcon,
   Loader2Icon,
   PencilIcon,
   ReceiptTextIcon,
   SearchIcon,
+  TableIcon,
   Trash2Icon,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -53,8 +56,10 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { uploadFileToConvex } from "@/lib/galleryUpload";
 import { compressImageForUpload } from "@/lib/imageCompress";
+import { downloadBase64File } from "@/lib/downloadFile";
 import { friendlyError } from "@/lib/friendlyError";
 import {
   AGC_ACCOMMODATION_LABELS,
@@ -173,7 +178,7 @@ function PaymentDialog({
       receipt: File | null;
     },
   ) => void;
-  onSubmitOnline: (booking: RepBooking, gateway: "stripe" | "paypal") => void;
+  onSubmitOnline: (booking: RepBooking) => void;
   submitting: boolean;
 }) {
   const [amountPaid, setAmountPaid] = useState(
@@ -187,7 +192,6 @@ function PaymentDialog({
   );
   const [method] = useState<"bank_transfer" | "momo">("momo");
   const [receipt, setReceipt] = useState<File | null>(null);
-  const [gateway, setGateway] = useState<"stripe" | "paypal">("stripe");
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -246,22 +250,16 @@ function PaymentDialog({
           </div>
         ) : (
           <div className="space-y-3">
-            <div className="space-y-1.5">
-              <Label>Payment provider</Label>
-              <Select
-                value={gateway}
-                onValueChange={(value) =>
-                  setGateway((value as "stripe" | "paypal") ?? gateway)
-                }
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="stripe">Stripe</SelectItem>
-                  <SelectItem value="paypal">PayPal</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="flex items-start gap-3 rounded-lg border border-gold/40 bg-gold/5 p-3">
+              <span className="mt-0.5 flex size-4 items-center justify-center">
+                <span className="size-2 rounded-full bg-gold-dark" />
+              </span>
+              <span>
+                <span className="text-sm font-medium">Stripe</span>
+                <span className="mt-0.5 block text-xs text-muted-foreground">
+                  Cards for international payments
+                </span>
+              </span>
             </div>
             <p className="text-xs text-muted-foreground">
               You&apos;ll be redirected to complete the payment securely, then
@@ -286,7 +284,7 @@ function PaymentDialog({
                     method,
                     receipt,
                   })
-                : onSubmitOnline(booking, gateway)
+                : onSubmitOnline(booking)
             }
           >
             {submitting && <Loader2Icon className="size-4 animate-spin" />}
@@ -445,6 +443,7 @@ export function RepAccommodationTab() {
   const downloadTemplate = useAction(api.agcExcel.downloadBookingTemplate);
   const createFromExcel = useAction(api.agcExcel.createBookingFromExcel);
   const previewExcelAction = useAction(api.agcExcel.previewBookingExcel);
+  const exportBookings = useAction(api.agcExcel.exportRepBookingsExcel);
 
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [loading, setLoading] = useState(false);
@@ -485,11 +484,15 @@ export function RepAccommodationTab() {
   >("all");
   const [search, setSearch] = useState("");
 
+  // Desktop view mode: comfy cards or dense table (mobile is always cards).
+  const [viewMode, setViewMode] = useState<"cards" | "table">("cards");
+
   // Excel flow
   const [excelFileName, setExcelFileName] = useState("");
   const [excelStorageId, setExcelStorageId] = useState<Id<"_storage"> | null>(null);
   const [excelPreview, setExcelPreview] = useState<ExcelPreview | null>(null);
   const excelInputRef = useRef<HTMLInputElement>(null);
+  const [exporting, setExporting] = useState(false);
 
   const isOffline = overview ? overview.isGhsRegion : true;
   const currency = overview?.currency ?? "GHS";
@@ -615,6 +618,7 @@ export function RepAccommodationTab() {
     setLoading(true);
     setError("");
     try {
+      // PayPal is disabled — online hubs pay through Stripe checkout.
       const origin = window.location.origin;
       const paymentResult = await createCheckout({
         type: "agc_booking",
@@ -771,6 +775,21 @@ export function RepAccommodationTab() {
     }
   };
 
+  const handleDownloadExcel = async () => {
+    if (!sessionToken) return;
+    setExporting(true);
+    try {
+      const result = await exportBookings({ sessionToken });
+      downloadBase64File(result.filename, result.contentBase64);
+      toast.success(`Downloaded ${result.filename}`);
+    } catch (err) {
+      const friendly = friendlyError(err);
+      toast.error(friendly.title, { description: friendly.detail });
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const resetExcel = () => {
     setExcelPreview(null);
     setExcelStorageId(null);
@@ -895,6 +914,10 @@ export function RepAccommodationTab() {
           )),
     );
   }, [bookings, filter, search]);
+
+  /** Payment confirmed → the booking is locked: no edit/cancel/delete/substitute. */
+  const isLockedBooking = (booking: RepBooking) =>
+    booking.bookingStatus === "confirmed";
 
   return (
     <div className="space-y-8">
@@ -1212,11 +1235,31 @@ export function RepAccommodationTab() {
       {/* Bookings list */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Your bookings</CardTitle>
-          <CardDescription>
-            Holds expire automatically at the earlier of {overview?.holdHours ?? 72}{" "}
-            hours or the registration deadline.
-          </CardDescription>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <CardTitle className="text-lg">Your bookings</CardTitle>
+              <CardDescription>
+                Holds expire automatically at the earlier of {overview?.holdHours ?? 72}{" "}
+                hours or the registration deadline.
+              </CardDescription>
+            </div>
+            {(bookings?.length ?? 0) > 0 && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={exporting}
+                onClick={() => void handleDownloadExcel()}
+              >
+                {exporting ? (
+                  <Loader2Icon className="size-4 animate-spin" />
+                ) : (
+                  <DownloadIcon className="size-4" />
+                )}
+                Excel report
+              </Button>
+            )}
+          </div>
           {(bookings?.length ?? 0) > 3 && (
             <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
               <Tabs
@@ -1242,6 +1285,25 @@ export function RepAccommodationTab() {
                   onChange={(e) => setSearch(e.target.value)}
                 />
               </div>
+              {/* Desktop only — mobile always uses cards. */}
+              <ToggleGroup
+                value={[viewMode]}
+                onValueChange={(value) => {
+                  const next = value[0] as "cards" | "table" | undefined;
+                  if (next === "cards" || next === "table") setViewMode(next);
+                }}
+                variant="outline"
+                size="sm"
+                className="hidden md:inline-flex"
+                aria-label="Toggle bookings view"
+              >
+                <ToggleGroupItem value="cards" aria-label="Card view">
+                  <LayoutGridIcon className="size-4" />
+                </ToggleGroupItem>
+                <ToggleGroupItem value="table" aria-label="Table view">
+                  <TableIcon className="size-4" />
+                </ToggleGroupItem>
+              </ToggleGroup>
             </div>
           )}
         </CardHeader>
@@ -1275,7 +1337,7 @@ export function RepAccommodationTab() {
                 <li>
                   {isOffline
                     ? "Pay by bank transfer/MoMo and upload your receipt."
-                    : "Pay online with Stripe or PayPal."}
+                    : "Pay online with Stripe."}
                 </li>
                 <li>
                   Finance confirms your payment and your booking is locked in.
@@ -1292,7 +1354,111 @@ export function RepAccommodationTab() {
               No bookings match this filter.
             </p>
           ) : (
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <>
+              {/* Desktop table view (toggle in the header) */}
+              {viewMode === "table" && (
+                <div className="hidden overflow-x-auto rounded-lg border md:block">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Reference</TableHead>
+                        <TableHead>Guests</TableHead>
+                        <TableHead>Total</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Payment</TableHead>
+                        <TableHead>Hold expires</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredBookings.map((booking) => {
+                        const status = bookingStatusMeta(booking.bookingStatus);
+                        const payStatus = paymentStatusMeta(booking.paymentStatus);
+                        const canPay =
+                          booking.bookingStatus === "reserved" &&
+                          ((booking.paymentMode === "offline" &&
+                            (booking.paymentStatus === "awaiting_payment" ||
+                              booking.paymentStatus === "correction_requested")) ||
+                            (booking.paymentMode !== "offline" &&
+                              booking.paymentStatus === "awaiting_payment"));
+                        return (
+                          <TableRow key={booking._id}>
+                            <TableCell className="font-mono text-xs">
+                              {booking.referenceNumber || "(pending)"}
+                            </TableCell>
+                            <TableCell className="tabular-nums">
+                              {booking.guests.filter((g) => g.status === "active").length}
+                            </TableCell>
+                            <TableCell className="whitespace-nowrap">
+                              {booking.currency} {booking.totalAmount}
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className={status.className}>
+                                {status.label}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className={payStatus.className}>
+                                {payStatus.label}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-xs whitespace-nowrap text-muted-foreground">
+                              {booking.bookingStatus === "reserved" && booking.expiresAt
+                                ? new Date(booking.expiresAt).toLocaleString()
+                                : "—"}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {canPay ? (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => setPayTarget(booking)}
+                                >
+                                  {booking.paymentMode === "offline" ? "Receipt" : "Pay"}
+                                </Button>
+                              ) : booking.bookingStatus === "reserved" ? (
+                                <div className="flex justify-end gap-1">
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => openEdit(booking)}
+                                    disabled={loading}
+                                    aria-label="Edit reservation"
+                                  >
+                                    <PencilIcon className="size-3.5" />
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => setDeleteTarget(booking)}
+                                    disabled={loading}
+                                    aria-label="Delete reservation"
+                                    className="text-destructive hover:text-destructive"
+                                  >
+                                    <Trash2Icon className="size-3.5" />
+                                  </Button>
+                                </div>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">
+                                  {booking.bookingStatus === "confirmed" ? "Locked" : "—"}
+                                </span>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+              <div
+                className={`grid gap-4 md:grid-cols-2 xl:grid-cols-3${
+                  viewMode === "table" ? " md:hidden" : ""
+                }`}
+              >
             {filteredBookings.map((booking) => {
               const status = bookingStatusMeta(booking.bookingStatus);
               const payStatus = paymentStatusMeta(booking.paymentStatus);
@@ -1356,8 +1522,7 @@ export function RepAccommodationTab() {
                           }
                           {guest.isBishopRate && " · Bishop rate"}
                         </span>
-                        {booking.bookingStatus === "reserved" ||
-                        booking.bookingStatus === "confirmed" ? (
+                        {booking.bookingStatus === "reserved" ? (
                           <Button
                             type="button"
                             variant="link"
@@ -1423,10 +1588,17 @@ export function RepAccommodationTab() {
                       </>
                     )}
                   </div>
+                  {isLockedBooking(booking) && (
+                    <p className="mt-3 rounded bg-emerald-50 p-2 text-xs text-emerald-900 dark:bg-emerald-950 dark:text-emerald-300">
+                      Payment confirmed — this booking is locked. Contact the
+                      accommodation desk for any changes.
+                    </p>
+                  )}
                 </div>
               );
             })}
-            </div>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>

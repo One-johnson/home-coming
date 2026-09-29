@@ -1,6 +1,10 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import { mutation, query } from "./_generated/server";
+import {
+  internalQuery,
+  mutation,
+  query,
+} from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
@@ -228,7 +232,7 @@ export const submitOfflineRegistration = mutation({
     const pricing = regionPricing(hub.region);
     if (pricing.online) {
       throw new Error(
-        "Your hub pays online with Stripe or PayPal — no receipt upload needed.",
+        "Your hub pays online with Stripe — no receipt upload needed.",
       );
     }
 
@@ -333,7 +337,7 @@ export const submitOfflineRegistration = mutation({
   },
 });
 
-/** Online (Stripe/PayPal) registration purchase — checkout happens next. */
+/** Online (Stripe) registration purchase — Stripe checkout happens next. */
 export const createOnlineRegistration = mutation({
   args: {
     sessionToken: v.string(),
@@ -405,6 +409,179 @@ export const logoutRep = mutation({
       await ctx.db.delete(session._id);
     }
     return { success: true as const };
+  },
+});
+
+// ------------------------------------------------------------------
+// Rep overview stats (portal Overview tab)
+// Delegates are only counted as "paid" once their payment is confirmed;
+// pending and cancelled delegates are tracked as separate lines.
+// ------------------------------------------------------------------
+
+export const getRepOverview = query({
+  args: { sessionToken: v.string() },
+  handler: async (ctx, args) => {
+    const { rep, hub } = await requireRep(ctx, args.sessionToken);
+    const [registrations, bookings, deadline] = await Promise.all([
+      ctx.db
+        .query("agcRegistrations")
+        .withIndex("by_rep", (q) => q.eq("repId", rep._id))
+        .collect(),
+      ctx.db
+        .query("agcBookings")
+        .withIndex("by_rep", (q) => q.eq("repId", rep._id))
+        .collect(),
+      getRegistrationDeadline(ctx),
+    ]);
+
+    const isPaid = (paymentStatus: string) => paymentStatus === "confirmed";
+    const isClosed = (bookingStatus: string) =>
+      bookingStatus === "cancelled" || bookingStatus === "expired";
+
+    // --- Registrations (quantity-based; no named guests) ---
+    let regPaidDelegates = 0;
+    let regPendingDelegates = 0;
+    let regCancelledDelegates = 0;
+    let regPaidAmount = 0;
+    let regPendingAmount = 0;
+    let receiptsPending = 0;
+    let awaitingPayment = 0;
+    for (const row of registrations) {
+      if (isPaid(row.paymentStatus)) {
+        regPaidDelegates += row.quantity;
+        regPaidAmount += row.totalAmount;
+      } else if (row.paymentStatus === "rejected") {
+        // A rejected receipt means the registration did not go through —
+        // counted as cancelled delegates.
+        regCancelledDelegates += row.quantity;
+      } else {
+        regPendingDelegates += row.quantity;
+        regPendingAmount += row.totalAmount;
+      }
+      if (
+        row.paymentStatus === "pending_verification" ||
+        row.paymentStatus === "correction_requested"
+      ) {
+        receiptsPending += 1;
+      }
+      if (row.paymentStatus === "awaiting_payment") {
+        awaitingPayment += 1;
+      }
+    }
+
+    // --- Accommodation (named guests, grouped by booking outcome) ---
+    let accPaidGuests = 0;
+    let accPendingGuests = 0;
+    let accCancelledGuests = 0;
+    let accPaidAmount = 0;
+    let accPendingAmount = 0;
+    let confirmedBookings = 0;
+    let reservedBookings = 0;
+    let cancelledBookings = 0;
+    for (const booking of bookings) {
+      const activeGuestCount = (
+        await ctx.db
+          .query("agcGuests")
+          .withIndex("by_booking", (q) => q.eq("bookingId", booking._id))
+          .collect()
+      ).filter((guest) => guest.status === "active").length;
+
+      if (isPaid(booking.paymentStatus) && booking.bookingStatus === "confirmed") {
+        accPaidGuests += activeGuestCount;
+        accPaidAmount += booking.totalAmount;
+        confirmedBookings += 1;
+      } else if (isClosed(booking.bookingStatus)) {
+        // Cancelled/expired holds — guests no longer count toward the hub.
+        accCancelledGuests += activeGuestCount;
+        cancelledBookings += 1;
+      } else {
+        accPendingGuests += activeGuestCount;
+        accPendingAmount += booking.totalAmount;
+        reservedBookings += 1;
+      }
+      if (
+        booking.paymentStatus === "pending_verification" ||
+        booking.paymentStatus === "correction_requested"
+      ) {
+        receiptsPending += 1;
+      }
+      if (
+        booking.paymentStatus === "awaiting_payment" &&
+        booking.bookingStatus === "reserved"
+      ) {
+        awaitingPayment += 1;
+      }
+    }
+
+    return {
+      hubName: hub.name,
+      hubRegion: hub.region,
+      repName: `${rep.firstName ?? ""} ${rep.lastName ?? ""}`.trim(),
+      currency: hub.region === "ghana" || hub.region === "west_africa" ? "GHS" : "USD",
+      isGhsRegion: hub.region === "ghana" || hub.region === "west_africa",
+      deadline,
+      registrations: {
+        count: registrations.length,
+        paidDelegates: regPaidDelegates,
+        pendingDelegates: regPendingDelegates,
+        cancelledDelegates: regCancelledDelegates,
+        paidAmount: regPaidAmount,
+        pendingAmount: regPendingAmount,
+      },
+      accommodation: {
+        count: bookings.length,
+        confirmedBookings,
+        reservedBookings,
+        cancelledBookings,
+        paidGuests: accPaidGuests,
+        pendingGuests: accPendingGuests,
+        cancelledGuests: accCancelledGuests,
+        paidAmount: accPaidAmount,
+        pendingAmount: accPendingAmount,
+      },
+      receiptsPending,
+      awaitingPayment,
+      totalPaidDelegates: regPaidDelegates + accPaidGuests,
+      totalPendingDelegates: regPendingDelegates + accPendingGuests,
+      totalCancelledDelegates: regCancelledDelegates + accCancelledGuests,
+    };
+  },
+});
+
+// ------------------------------------------------------------------
+// Internal data feed for the rep Excel exports (actions live in agcExcel)
+// ------------------------------------------------------------------
+
+export const internalRepRegistrationExport = internalQuery({
+  args: { sessionToken: v.string() },
+  handler: async (ctx, args) => {
+    const { rep, hub } = await requireRep(ctx, args.sessionToken);
+    const registrations = await ctx.db
+      .query("agcRegistrations")
+      .withIndex("by_rep", (q) => q.eq("repId", rep._id))
+      .collect();
+    return {
+      hubName: hub.name,
+      region: hub.region,
+      repName: `${rep.firstName ?? ""} ${rep.lastName ?? ""}`.trim() || rep.username,
+      registrations: registrations.map((row) => ({
+        referenceNumber: row.referenceNumber ?? "",
+        region: row.region,
+        quantity: row.quantity,
+        unitPrice: row.unitPrice,
+        totalAmount: row.totalAmount,
+        currency: row.currency,
+        paymentMode: row.paymentMode,
+        paymentStatus: row.paymentStatus,
+        offlineRef: row.offline?.referenceNumber ?? "",
+        method: row.offline?.method ?? "",
+        paymentDate: row.offline?.paymentDate ?? "",
+        amountPaid: row.offline?.amountPaid ?? null,
+        adminMessage: row.adminMessage ?? null,
+        createdAt: row.createdAt,
+        paidAt: row.paidAt ?? null,
+      })),
+    };
   },
 });
 

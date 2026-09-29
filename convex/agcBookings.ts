@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import {
   internalMutation,
+  internalQuery,
   mutation,
   query,
 } from "./_generated/server";
@@ -646,5 +647,69 @@ export const substituteGuest = mutation({
       summary: `Rep ${rep.username} substituted ${guest.firstName} ${guest.lastName} → ${args.firstName} ${args.lastName}`,
     });
     return { success: true as const };
+  },
+});
+
+// ------------------------------------------------------------------
+// Internal data feed for the rep accommodation Excel export (agcExcel)
+// ------------------------------------------------------------------
+
+export const internalRepBookingExport = internalQuery({
+  args: { sessionToken: v.string() },
+  handler: async (ctx, args) => {
+    const { rep, hub } = await requireRep(ctx, args.sessionToken);
+    const bookings = await ctx.db
+      .query("agcBookings")
+      .withIndex("by_rep", (q) => q.eq("repId", rep._id))
+      .collect();
+    bookings.sort((a, b) => b.createdAt - a.createdAt);
+
+    const entries = [];
+    for (const booking of bookings) {
+      const [guests, lines] = await Promise.all([
+        ctx.db
+          .query("agcGuests")
+          .withIndex("by_booking", (q) => q.eq("bookingId", booking._id))
+          .collect(),
+        ctx.db
+          .query("agcBookingLines")
+          .withIndex("by_booking", (q) => q.eq("bookingId", booking._id))
+          .collect(),
+      ]);
+      entries.push({
+        booking: {
+          _id: booking._id,
+          referenceNumber: booking.referenceNumber ?? "",
+          region: booking.region,
+          bookingStatus: booking.bookingStatus,
+          paymentStatus: booking.paymentStatus,
+          paymentMode: booking.paymentMode,
+          totalAmount: booking.totalAmount,
+          currency: booking.currency,
+          expiresAt: booking.expiresAt ?? null,
+          createdAt: booking.createdAt,
+          confirmedAt: booking.confirmedAt ?? null,
+          adminMessage: booking.adminMessage ?? null,
+        },
+        guests: guests.map((guest) => ({
+          title: guest.title,
+          firstName: guest.firstName,
+          lastName: guest.lastName,
+          gender: guest.gender,
+          accommodationType: guest.accommodationType,
+          pool: guest.pool,
+          isBishopRate: guest.isBishopRate,
+          status: guest.status,
+        })),
+        lines: lines.map((line) => ({
+          accommodationType: line.accommodationType,
+          quantity: line.quantity,
+          unitPrice: line.unitPrice,
+          isBishopRate: line.isBishopRate,
+        })),
+      });
+    }
+
+    return { hubName: hub.name, repName: rep.username, entries };
   },
 });

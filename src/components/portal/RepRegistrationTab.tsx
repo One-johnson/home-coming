@@ -2,7 +2,10 @@
 
 import { useMemo, useRef, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
-import { Loader2Icon } from "lucide-react";
+import {
+  DownloadIcon,
+  Loader2Icon,
+} from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import { useRepSession } from "@/components/portal/RepSessionProvider";
@@ -17,7 +20,6 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { LinkButton as Button } from "@/components/ui/app-button";
 import {
   Select,
@@ -28,6 +30,7 @@ import {
 } from "@/components/ui/select";
 import { uploadFileToConvex } from "@/lib/galleryUpload";
 import { compressImageForUpload } from "@/lib/imageCompress";
+import { downloadBase64File } from "@/lib/downloadFile";
 import { friendlyError } from "@/lib/friendlyError";
 import {
   AGC_REGION_LABELS,
@@ -75,9 +78,11 @@ export function RepRegistrationTab() {
   const createOnline = useMutation(api.agcPortal.createOnlineRegistration);
   const generateUploadUrl = useMutation(api.agcPortal.generateReceiptUploadUrl);
   const createCheckout = useAction(api.stripeCheckout.createCheckoutSession);
+  const exportRegistrations = useAction(
+    api.agcExcel.exportRepRegistrationsExcel,
+  );
 
   const [quantity, setQuantity] = useState("1");
-  const [gateway, setGateway] = useState<"stripe" | "paypal">("stripe");
   const [amountPaid, setAmountPaid] = useState("");
   const [paymentRef, setPaymentRef] = useState("");
   const [paymentDate, setPaymentDate] = useState(() =>
@@ -87,6 +92,7 @@ export function RepRegistrationTab() {
   const [receipt, setReceipt] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [error, setError] = useState("");
 
   const isOffline = rep ? isGhsRegion(rep.hubRegion) : true;
@@ -99,6 +105,21 @@ export function RepRegistrationTab() {
   const qty = Math.max(1, Math.floor(Number(quantity) || 0));
 
   const history = useMemo(() => registrations ?? [], [registrations]);
+
+  const handleDownloadExcel = async () => {
+    if (!sessionToken) return;
+    setExporting(true);
+    try {
+      const result = await exportRegistrations({ sessionToken });
+      downloadBase64File(result.filename, result.contentBase64);
+      toast.success(`Downloaded ${result.filename}`);
+    } catch (err) {
+      const friendly = friendlyError(err);
+      toast.error(friendly.title, { description: friendly.detail });
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const handleOfflineSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -152,10 +173,11 @@ export function RepRegistrationTab() {
     setLoading(true);
     setError("");
     try {
+      // PayPal is disabled — online hubs pay through Stripe checkout.
       const created = await createOnline({
         sessionToken,
         quantity: qty,
-        paymentMode: gateway,
+        paymentMode: "stripe",
       });
       const origin = window.location.origin;
       const paymentResult = await createCheckout({
@@ -319,46 +341,17 @@ export function RepRegistrationTab() {
               <form className="space-y-4" onSubmit={handleOnlineSubmit}>
                 <div className="space-y-2">
                   <Label>Payment method</Label>
-                  <RadioGroup
-                    value={gateway}
-                    onValueChange={(value) =>
-                      setGateway(value as "stripe" | "paypal")
-                    }
-                    className="grid gap-2"
-                  >
-                    <Label
-                      htmlFor="portal-gateway-stripe"
-                      className="flex cursor-pointer items-start gap-3 rounded-lg border p-3"
-                    >
-                      <RadioGroupItem
-                        id="portal-gateway-stripe"
-                        value="stripe"
-                        className="mt-0.5"
-                      />
-                      <span>
-                        <span className="font-medium">Stripe</span>
-                        <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
-                          Cards for international payments
-                        </span>
+                  <div className="flex items-start gap-3 rounded-lg border border-gold/40 bg-gold/5 p-3">
+                    <span className="mt-0.5 flex size-4 items-center justify-center">
+                      <span className="size-2 rounded-full bg-gold-dark" />
+                    </span>
+                    <span>
+                      <span className="font-medium">Stripe</span>
+                      <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
+                        Cards for international payments
                       </span>
-                    </Label>
-                    <Label
-                      htmlFor="portal-gateway-paypal"
-                      className="flex cursor-pointer items-start gap-3 rounded-lg border p-3"
-                    >
-                      <RadioGroupItem
-                        id="portal-gateway-paypal"
-                        value="paypal"
-                        className="mt-0.5"
-                      />
-                      <span>
-                        <span className="font-medium">PayPal</span>
-                        <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
-                          PayPal balance or cards
-                        </span>
-                      </span>
-                    </Label>
-                  </RadioGroup>
+                    </span>
+                  </div>
                 </div>
                 <Button type="submit" className="w-full" disabled={loading}>
                   {loading && <Loader2Icon className="size-4 animate-spin" />}
@@ -373,10 +366,30 @@ export function RepRegistrationTab() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Purchase history</CardTitle>
-            <CardDescription>
-              Registration purchases for your hub, newest first.
-            </CardDescription>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <CardTitle className="text-lg">Purchase history</CardTitle>
+                <CardDescription>
+                  Registration purchases for your hub, newest first.
+                </CardDescription>
+              </div>
+              {(registrations?.length ?? 0) > 0 && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={exporting}
+                  onClick={() => void handleDownloadExcel()}
+                >
+                  {exporting ? (
+                    <Loader2Icon className="size-4 animate-spin" />
+                  ) : (
+                    <DownloadIcon className="size-4" />
+                  )}
+                  Excel report
+                </Button>
+              )}
+            </div>
           </CardHeader>
           <CardContent className="space-y-3">
             {history.length === 0 && (

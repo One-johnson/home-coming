@@ -620,4 +620,304 @@ export const exportRegistrationsExcel = action({
   },
 });
 
+// ------------------------------------------------------------------
+// Rep-portal exports — one hub's own accommodation / registration report
+// ------------------------------------------------------------------
+
+type RepBookingExportEntry = {
+  booking: {
+    referenceNumber: string;
+    region: string;
+    bookingStatus: string;
+    paymentStatus: string;
+    paymentMode: string;
+    totalAmount: number;
+    currency: string;
+    expiresAt: number | null;
+    createdAt: number;
+    confirmedAt: number | null;
+    adminMessage: string | null;
+  };
+  guests: Array<{
+    title: string;
+    firstName: string;
+    lastName: string;
+    gender: string;
+    accommodationType: string;
+    pool: string;
+    isBishopRate: boolean;
+    status: string;
+  }>;
+  lines: Array<{
+    accommodationType: string;
+    quantity: number;
+    unitPrice: number;
+    isBishopRate: boolean;
+  }>;
+};
+
+/** Rep-scoped accommodation report: bookings, guests and per-line pricing. */
+export const exportRepBookingsExcel = action({
+  args: { sessionToken: v.string() },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ filename: string; contentBase64: string }> => {
+    const data: {
+      hubName: string;
+      repName: string;
+      entries: RepBookingExportEntry[];
+    } = await ctx.runQuery(
+      internal.agcBookings.internalRepBookingExport,
+      { sessionToken: args.sessionToken },
+    );
+
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet("Bookings");
+    sheet.columns = [
+      { header: "Reference", key: "reference", width: 14 },
+      { header: "Hub", key: "hub", width: 28 },
+      { header: "Region", key: "region", width: 18 },
+      { header: "Status", key: "status", width: 20 },
+      { header: "Payment", key: "payment", width: 20 },
+      { header: "Mode", key: "mode", width: 12 },
+      { header: "Total", key: "total", width: 12 },
+      { header: "Currency", key: "currency", width: 10 },
+      { header: "Guests", key: "guests", width: 10 },
+      { header: "Paid Guests", key: "paidGuests", width: 12 },
+      { header: "Expires At", key: "expiresAt", width: 24 },
+      { header: "Confirmed At", key: "confirmedAt", width: 24 },
+      { header: "Created At", key: "createdAt", width: 24 },
+      { header: "Admin Message", key: "adminMessage", width: 32 },
+    ];
+    sheet.getRow(1).font = { bold: true };
+    let paidGuestTotal = 0;
+    let pendingGuestTotal = 0;
+    let cancelledGuestTotal = 0;
+    for (const entry of data.entries) {
+      const active = entry.guests.filter((g) => g.status === "active").length;
+      const isPaid =
+        entry.booking.paymentStatus === "confirmed" &&
+        entry.booking.bookingStatus === "confirmed";
+      const isClosed =
+        entry.booking.bookingStatus === "cancelled" ||
+        entry.booking.bookingStatus === "expired";
+      if (isPaid) paidGuestTotal += active;
+      else if (isClosed) cancelledGuestTotal += active;
+      else pendingGuestTotal += active;
+      sheet.addRow({
+        reference: entry.booking.referenceNumber,
+        hub: data.hubName,
+        region: entry.booking.region,
+        status: entry.booking.bookingStatus,
+        payment: entry.booking.paymentStatus,
+        mode: entry.booking.paymentMode,
+        total: entry.booking.totalAmount,
+        currency: entry.booking.currency,
+        guests: active,
+        paidGuests: isPaid ? active : 0,
+        expiresAt: entry.booking.expiresAt
+          ? new Date(entry.booking.expiresAt).toISOString()
+          : "",
+        confirmedAt: entry.booking.confirmedAt
+          ? new Date(entry.booking.confirmedAt).toISOString()
+          : "",
+        createdAt: new Date(entry.booking.createdAt).toISOString(),
+        adminMessage: entry.booking.adminMessage ?? "",
+      });
+    }
+    sheet.autoFilter = { from: "A1", to: "N1" };
+
+    const guestSheet = workbook.addWorksheet("Guests");
+    guestSheet.columns = [
+      { header: "Booking Reference", key: "reference", width: 16 },
+      { header: "Title", key: "title", width: 10 },
+      { header: "First Name", key: "firstName", width: 20 },
+      { header: "Last Name", key: "lastName", width: 20 },
+      { header: "Gender", key: "gender", width: 10 },
+      { header: "Type", key: "type", width: 18 },
+      { header: "Pool", key: "pool", width: 14 },
+      { header: "Bishop Rate", key: "bishop", width: 12 },
+      { header: "Status", key: "status", width: 12 },
+    ];
+    guestSheet.getRow(1).font = { bold: true };
+    for (const entry of data.entries) {
+      for (const guest of entry.guests) {
+        guestSheet.addRow({
+          reference: entry.booking.referenceNumber,
+          title: guest.title,
+          firstName: guest.firstName,
+          lastName: guest.lastName,
+          gender: guest.gender,
+          type: guest.accommodationType,
+          pool: guest.pool,
+          bishop: guest.isBishopRate ? "yes" : "no",
+          status: guest.status,
+        });
+      }
+    }
+    guestSheet.autoFilter = { from: "A1", to: "I1" };
+
+    const linesSheet = workbook.addWorksheet("Pricing Lines");
+    linesSheet.columns = [
+      { header: "Booking Reference", key: "reference", width: 16 },
+      { header: "Accommodation", key: "type", width: 18 },
+      { header: "Units", key: "quantity", width: 10 },
+      { header: "Unit Price", key: "unit", width: 12 },
+      { header: "Subtotal", key: "subtotal", width: 12 },
+      { header: "Currency", key: "currency", width: 10 },
+      { header: "Bishop Rate", key: "bishop", width: 12 },
+    ];
+    linesSheet.getRow(1).font = { bold: true };
+    for (const entry of data.entries) {
+      for (const line of entry.lines) {
+        linesSheet.addRow({
+          reference: entry.booking.referenceNumber,
+          type: line.accommodationType,
+          quantity: line.quantity,
+          unit: line.unitPrice,
+          subtotal: line.unitPrice * line.quantity,
+          currency: entry.booking.currency,
+          bishop: line.isBishopRate ? "yes" : "no",
+        });
+      }
+    }
+    linesSheet.autoFilter = { from: "A1", to: "G1" };
+
+    const summary = workbook.addWorksheet("Summary");
+    summary.getColumn("A").width = 34;
+    summary.getColumn("B").width = 16;
+    summary.addRow(["Homecoming 2026 — Accommodation report"]).font = { bold: true };
+    summary.addRow(["Hub", data.hubName]);
+    summary.addRow(["Representative", data.repName]);
+    summary.addRow(["Generated", new Date().toISOString()]);
+    summary.addRow([""]);
+    summary.addRow(["Bookings", data.entries.length]).font = { bold: true };
+    summary.addRow(["Paid guests", paidGuestTotal]).font = { bold: true };
+    summary.addRow(["Awaiting-payment guests", pendingGuestTotal]);
+    summary.addRow(["Cancelled/expired guests", cancelledGuestTotal]);
+    summary.addRow([""]);
+    summary.addRow([
+      "Paid guests count bookings whose payment is confirmed; cancelled and expired holds are listed separately.",
+    ]);
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    return {
+      filename: `homecoming-2026-accommodation-${new Date().toISOString().slice(0, 10)}.xlsx`,
+      contentBase64: Buffer.from(buffer as ArrayBuffer).toString("base64"),
+    };
+  },
+});
+
+/** Rep-scoped registration report: the hub's own registration purchases. */
+export const exportRepRegistrationsExcel = action({
+  args: { sessionToken: v.string() },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ filename: string; contentBase64: string }> => {
+    const data: {
+      hubName: string;
+      region: string;
+      repName: string;
+      registrations: Array<{
+        referenceNumber: string;
+        region: string;
+        quantity: number;
+        unitPrice: number;
+        totalAmount: number;
+        currency: string;
+        paymentMode: string;
+        paymentStatus: string;
+        offlineRef: string;
+        method: string;
+        paymentDate: string;
+        amountPaid: number | null;
+        adminMessage: string | null;
+        createdAt: number;
+        paidAt: number | null;
+      }>;
+    } = await ctx.runQuery(
+      internal.agcPortal.internalRepRegistrationExport,
+      { sessionToken: args.sessionToken },
+    );
+
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet("Registrations");
+    sheet.columns = [
+      { header: "Reference", key: "reference", width: 14 },
+      { header: "Region", key: "region", width: 18 },
+      { header: "Delegates", key: "quantity", width: 10 },
+      { header: "Unit Price", key: "unit", width: 12 },
+      { header: "Total", key: "total", width: 12 },
+      { header: "Currency", key: "currency", width: 10 },
+      { header: "Mode", key: "mode", width: 12 },
+      { header: "Payment Status", key: "status", width: 20 },
+      { header: "Offline Ref", key: "offlineRef", width: 20 },
+      { header: "Method", key: "method", width: 16 },
+      { header: "Payment Date", key: "paymentDate", width: 14 },
+      { header: "Amount Paid", key: "amountPaid", width: 12 },
+      { header: "Paid At", key: "paidAt", width: 24 },
+      { header: "Created At", key: "createdAt", width: 24 },
+      { header: "Admin Message", key: "adminMessage", width: 32 },
+    ];
+    sheet.getRow(1).font = { bold: true };
+    let paidDelegates = 0;
+    let pendingDelegates = 0;
+    let cancelledDelegates = 0;
+    let paidTotal = 0;
+    for (const row of data.registrations) {
+      if (row.paymentStatus === "confirmed") {
+        paidDelegates += row.quantity;
+        paidTotal += row.totalAmount;
+      } else if (row.paymentStatus === "rejected") {
+        cancelledDelegates += row.quantity;
+      } else {
+        pendingDelegates += row.quantity;
+      }
+      sheet.addRow({
+        reference: row.referenceNumber,
+        region: row.region,
+        quantity: row.quantity,
+        unit: row.unitPrice,
+        total: row.totalAmount,
+        currency: row.currency,
+        mode: row.paymentMode,
+        status: row.paymentStatus,
+        offlineRef: row.offlineRef,
+        method: row.method,
+        paymentDate: row.paymentDate,
+        amountPaid: row.amountPaid ?? "",
+        paidAt: row.paidAt ? new Date(row.paidAt).toISOString() : "",
+        createdAt: new Date(row.createdAt).toISOString(),
+        adminMessage: row.adminMessage ?? "",
+      });
+    }
+    sheet.autoFilter = { from: "A1", to: "O1" };
+
+    const summary = workbook.addWorksheet("Summary");
+    summary.getColumn("A").width = 34;
+    summary.getColumn("B").width = 16;
+    summary.addRow(["Homecoming 2026 — Registration report"]).font = { bold: true };
+    summary.addRow(["Hub", data.hubName]);
+    summary.addRow(["Representative", data.repName]);
+    summary.addRow(["Generated", new Date().toISOString()]);
+    summary.addRow([""]);
+    summary.addRow(["Paid delegates", paidDelegates]).font = { bold: true };
+    summary.addRow(["Awaiting-payment delegates", pendingDelegates]);
+    summary.addRow(["Cancelled delegates", cancelledDelegates]);
+    summary.addRow(["Paid amount", paidTotal]);
+    summary.addRow([""]);
+    summary.addRow([
+      "Delegates are counted as paid only once their payment is confirmed; cancelled registrations are listed separately.",
+    ]);
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    return {
+      filename: `homecoming-2026-registration-${new Date().toISOString().slice(0, 10)}.xlsx`,
+      contentBase64: Buffer.from(buffer as ArrayBuffer).toString("base64"),
+    };
+  },
+});
+
 

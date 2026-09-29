@@ -25,6 +25,10 @@ import {
 } from "./lib/agcConfig";
 import { agcRegion } from "./schemaTypes";
 import { isSmtpConfigured } from "./lib/smtpConfig";
+import {
+  confirmBookingInventory,
+  releaseBookingInventory,
+} from "./agcAccommodation";
 
 // ------------------------------------------------------------------
 // Data access for AGC admin features. Queries and mutations live here;
@@ -1195,11 +1199,9 @@ export const reviewAgcBooking = mutation({
         expiresAt: undefined,
         updatedAt: Date.now(),
       });
-      const { confirmBookingInventory } = await import("./agcAccommodation");
       await confirmBookingInventory(ctx, args.bookingId);
     } else if (args.decision === "reject") {
       if (booking.bookingStatus === "reserved") {
-        const { releaseBookingInventory } = await import("./agcAccommodation");
         await releaseBookingInventory(ctx, booking, "cancel");
       }
       await ctx.db.patch(args.bookingId, {

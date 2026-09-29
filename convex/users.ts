@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { mutation, query, internalMutation, internalQuery } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
+import { writeAuditLog } from "./lib/audit";
 
 export const ADMIN_ROLES = [
   "admin",
@@ -168,7 +169,6 @@ export const setUserRole = mutation({
 
     await assertNotRemovingLastAdmin(ctx, target, args.role);
     await ctx.db.patch(args.userId, { role: args.role });
-    const { writeAuditLog } = await import("./lib/audit");
     await writeAuditLog(ctx, {
       actorUserId: actor._id,
       actorEmail: actor.email,
@@ -221,7 +221,6 @@ export const setUserActive = mutation({
       }
     }
 
-    const { writeAuditLog } = await import("./lib/audit");
     await writeAuditLog(ctx, {
       actorUserId: actor._id,
       actorEmail: actor.email,

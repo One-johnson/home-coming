@@ -6,6 +6,7 @@ import {
 } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { queuePaymentConfirmation } from "./lib/paymentEmail";
+import { confirmBookingInventory } from "./agcAccommodation";
 
 const checkoutTypeValidator = v.union(
   v.literal("registration"),
@@ -179,7 +180,7 @@ export const applyMockPayment = internalMutation({
         confirmedAt: Date.now(),
         updatedAt: Date.now(),
       });
-      await (await import("./agcAccommodation")).confirmBookingInventory(ctx, recordId);
+      await confirmBookingInventory(ctx, recordId);
       return;
     }
 
@@ -353,7 +354,7 @@ export const confirmPayment = internalMutation({
         expiresAt: undefined,
         updatedAt: Date.now(),
       });
-      await (await import("./agcAccommodation")).confirmBookingInventory(ctx, recordId);
+      await confirmBookingInventory(ctx, recordId);
       return;
     }
 
