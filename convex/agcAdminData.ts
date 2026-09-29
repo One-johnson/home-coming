@@ -148,8 +148,22 @@ export const seedAgcDefaultsInternal = internalMutation({
         .query("agcSettings")
         .withIndex("by_key", (q) => q.eq("key", key))
         .collect();
-      if (matches.length === 0) {
-        await ctx.db.insert("agcSettings", { key, value, updatedAt: Date.now() });
+      const isBankKey =
+        key === AGC_SETTING_KEYS.registrationBank ||
+        key === AGC_SETTING_KEYS.accommodationBank;
+      const isPlaceholder =
+        isBankKey &&
+        (matches.length === 1 &&
+          (matches[0].value.trim() === "" ||
+            matches[0].value.includes("to be configured by the Super Admin")));
+      if (matches.length === 0 || isPlaceholder) {
+        // Missing rows — or bank-details rows still blank/placeholder — fall
+        // back to the configured defaults so reps always see payment info.
+        if (matches.length === 1) {
+          await ctx.db.patch(matches[0]._id, { value, updatedAt: Date.now() });
+        } else {
+          await ctx.db.insert("agcSettings", { key, value, updatedAt: Date.now() });
+        }
       } else if (matches.length > 1) {
         // Self-heal duplicate setting keys: keep the first, drop the rest.
         const [keep, ...extras] = matches;

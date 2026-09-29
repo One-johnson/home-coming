@@ -202,9 +202,26 @@ export const AGC_SETTING_KEYS = {
 
 export const AGC_DEFAULT_TITLES = ["Bishop", "Member"] as const;
 
+/**
+ * Offline (GHS) payment accounts, shown to reps on the registration and
+ * accommodation forms. Editable at runtime via the agcSettings table —
+ * these are the seed/self-heal defaults.
+ */
 export const AGC_DEFAULT_BANK_DETAILS = {
-  registration:
-    "Registration Account — bank details to be configured by the Super Admin.",
-  accommodation:
-    "Accommodation Account — bank details to be configured by the Super Admin.",
+  registration: [
+    "Registration Payments",
+    "Bank: Ecobank",
+    "Account Name: Lighthouse Chapel International",
+    "Branch: Tema Mall Branch",
+    "Account Number: 1441001359380",
+    "SWIFT Code: ECOCGHAC",
+  ].join("\n"),
+  accommodation: [
+    "Accommodation Payments",
+    "Bank: Ecobank",
+    "Account Name: Lighthouse Chapel International",
+    "Branch: Madina Branch",
+    "Account Number: 1441005099169",
+    "SWIFT Code: ECOCGHAC",
+  ].join("\n"),
 } as const;
