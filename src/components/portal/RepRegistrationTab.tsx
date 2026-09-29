@@ -67,7 +67,7 @@ function formatDateTime(ts: number) {
 }
 
 export function RepRegistrationTab() {
-  const { sessionToken } = useRepSession();
+  const { sessionToken, handleSessionError } = useRepSession();
   const rep = useQuery(api.agcPortal.getRepProfile, sessionToken ? { sessionToken } : "skip");
   const portalConfig = useQuery(api.agcPortal.getPortalConfig);
   const registrations = useQuery(
@@ -114,6 +114,8 @@ export function RepRegistrationTab() {
       downloadBase64File(result.filename, result.contentBase64);
       toast.success(`Downloaded ${result.filename}`);
     } catch (err) {
+      // Expired/revoked session → bounce to sign-in with a friendly toast.
+      if (handleSessionError(err)) return;
       const friendly = friendlyError(err);
       toast.error(friendly.title, { description: friendly.detail });
     } finally {
@@ -157,6 +159,8 @@ export function RepRegistrationTab() {
       setPaymentRef("");
       if (fileInputRef.current) fileInputRef.current.value = "";
     } catch (err) {
+      // Expired/revoked session → bounce to sign-in with a friendly toast.
+      if (handleSessionError(err)) return;
       const friendly = friendlyError(err);
       setError(
         friendly.detail ? `${friendly.title}: ${friendly.detail}` : friendly.title,
@@ -192,6 +196,8 @@ export function RepRegistrationTab() {
       }
       toast.success(paymentResult.message ?? "Registration recorded.");
     } catch (err) {
+      // Expired/revoked session → bounce to sign-in with a friendly toast.
+      if (handleSessionError(err)) return;
       const friendly = friendlyError(err);
       setError(
         friendly.detail ? `${friendly.title}: ${friendly.detail}` : friendly.title,

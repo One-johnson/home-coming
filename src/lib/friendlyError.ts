@@ -74,6 +74,35 @@ export function isSessionExpired(err: unknown): boolean {
   return /unauthorized/i.test(cleanErrorMessage(err));
 }
 
+/** Structured payload attached to ConvexError throws (e.g. agcAuth lockouts). */
+export function extractErrorData(err: unknown): Record<string, unknown> | null {
+  if (err instanceof ConvexError && err.data && typeof err.data === "object") {
+    return err.data as Record<string, unknown>;
+  }
+  return null;
+}
+
+export type LoginErrorInfo = {
+  /** Failures left before the 15-minute lock engages (invalid-credentials throws). */
+  attemptsRemaining?: number;
+  /** Epoch ms when the current lockout lifts (locked throws). */
+  lockedUntil?: number;
+};
+
+/** Pull lockout metadata out of a sign-in error, if the server sent it. */
+export function loginErrorInfo(err: unknown): LoginErrorInfo {
+  const data = extractErrorData(err);
+  if (!data) return {};
+  const info: LoginErrorInfo = {};
+  if (typeof data.attemptsRemaining === "number") {
+    info.attemptsRemaining = data.attemptsRemaining;
+  }
+  if (typeof data.lockedUntil === "number") {
+    info.lockedUntil = data.lockedUntil;
+  }
+  return info;
+}
+
 const mappings: Array<{
   test: RegExp;
   title: string;

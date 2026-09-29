@@ -132,7 +132,7 @@ function DelegateBreakdown({
 }
 
 export function RepOverviewTab() {
-  const { sessionToken } = useRepSession();
+  const { sessionToken, handleSessionError } = useRepSession();
   const overview = useQuery(
     api.agcPortal.getRepOverview,
     sessionToken ? { sessionToken } : "skip",
@@ -165,6 +165,8 @@ export function RepOverviewTab() {
       downloadBase64File(result.filename, result.contentBase64);
       toast.success(`Downloaded ${result.filename}`);
     } catch (err) {
+      // Expired/revoked session → bounce to sign-in with a friendly toast.
+      if (handleSessionError(err)) return;
       const friendly = friendlyError(err);
       toast.error(friendly.title, { description: friendly.detail });
     } finally {

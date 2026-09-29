@@ -4,6 +4,7 @@ import {
   cleanErrorMessage,
   friendlyError,
   isSessionExpired,
+  loginErrorInfo,
 } from "@/lib/friendlyError";
 
 describe("cleanErrorMessage", () => {
@@ -83,5 +84,36 @@ describe("isSessionExpired", () => {
       ),
     ).toBe(true);
     expect(isSessionExpired("Quantity must be positive")).toBe(false);
+  });
+});
+
+describe("loginErrorInfo", () => {
+  it("reads attemptsRemaining from structured invalid-credentials errors", () => {
+    const err = new ConvexError({
+      message: "Invalid username or password",
+      kind: "invalid_credentials",
+      attemptsRemaining: 3,
+    });
+    expect(loginErrorInfo(err)).toEqual({ attemptsRemaining: 3 });
+    // The message text still drives the friendly mapping.
+    expect(friendlyError(err).title).toBe("We couldn't sign you in");
+  });
+
+  it("reads lockedUntil from structured lockout errors", () => {
+    const err = new ConvexError({
+      message: "Too many failed attempts. For security, this account is locked for 15 minutes — please try again later.",
+      kind: "locked",
+      lockedUntil: 1_800_000_000_000,
+    });
+    expect(loginErrorInfo(err)).toEqual({ lockedUntil: 1_800_000_000_000 });
+    expect(friendlyError(err).title).toBe("Too many failed attempts");
+  });
+
+  it("returns empty for plain errors and string ConvexErrors", () => {
+    expect(loginErrorInfo(new Error("boom"))).toEqual({});
+    expect(loginErrorInfo(new ConvexError("Invalid username or password"))).toEqual(
+      {},
+    );
+    expect(loginErrorInfo(undefined)).toEqual({});
   });
 });

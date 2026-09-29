@@ -96,7 +96,7 @@ export const recordLoginFailure = internalMutation({
         failedCount: 1,
         lastFailureAt: now,
       });
-      return { lockedUntil: undefined };
+      return { lockedUntil: undefined, attemptsRemaining: MAX_FAILURES - 1 };
     }
 
     // A failure after a previous lock expired restarts the count.
@@ -110,18 +110,18 @@ export const recordLoginFailure = internalMutation({
         lockedUntil: undefined,
         lastFailureAt: now,
       });
-      return { lockedUntil: undefined };
+      return { lockedUntil: undefined, attemptsRemaining: MAX_FAILURES - 1 };
     }
 
     const failedCount = row.failedCount + 1;
     if (failedCount >= MAX_FAILURES) {
       const lockedUntil = now + LOCK_MS;
       await ctx.db.patch(row._id, { failedCount, lockedUntil, lastFailureAt: now });
-      return { lockedUntil };
+      return { lockedUntil, attemptsRemaining: 0 };
     }
 
     await ctx.db.patch(row._id, { failedCount, lastFailureAt: now });
-    return { lockedUntil: undefined };
+    return { lockedUntil: undefined, attemptsRemaining: MAX_FAILURES - failedCount };
   },
 });
 

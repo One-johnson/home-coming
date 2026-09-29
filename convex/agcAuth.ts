@@ -8,7 +8,7 @@ import { action, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { buildResetUrl } from "./lib/resetUrls";
-import { LOCK_MESSAGE } from "./lib/loginThrottle";
+import { LOCK_MESSAGE, MAX_FAILURES } from "./lib/loginThrottle";
 
 const BCRYPT_ROUNDS = 12;
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
@@ -16,6 +16,32 @@ const RESET_TTL_MS = 1000 * 60 * 60 * 3; // 3 hours (SRS §7)
 
 function normalizeUsername(username: string) {
   return username.trim().toLowerCase();
+}
+
+/** Structured error payload so the UI can show remaining attempts / lock time. */
+export type LoginErrorData = {
+  message: string;
+  kind: "invalid_credentials" | "locked" | "disabled" | "generic";
+  attemptsRemaining?: number;
+  lockedUntil?: number;
+};
+
+/** Throw a lockout error carrying the unlock timestamp for the UI countdown. */
+function throwLocked(lockedUntil: number): never {
+  throw new ConvexError<LoginErrorData>({
+    message: LOCK_MESSAGE,
+    kind: "locked",
+    lockedUntil,
+  });
+}
+
+/** Throw an invalid-credentials error carrying how many attempts are left. */
+function throwInvalidCredentials(attemptsRemaining: number): never {
+  throw new ConvexError<LoginErrorData>({
+    message: "Invalid username or password",
+    kind: "invalid_credentials",
+    attemptsRemaining,
+  });
 }
 
 function createSessionToken() {
@@ -157,11 +183,12 @@ export const repLogin = action({
       internal.agcAuthData.getRepByUsername,
       { username },
     );
-    if (!rep) throw new ConvexError("Invalid username or password");
+    if (!rep) throwInvalidCredentials(MAX_FAILURES);
     if (rep.status === "disabled") {
-      throw new ConvexError(
-        "This account has been disabled. Contact the registration desk.",
-      );
+      throw new ConvexError<LoginErrorData>({
+        message: "This account has been disabled. Contact the registration desk.",
+        kind: "disabled",
+      });
     }
 
     // Brute-force lockout: reject before hashing/bcrypt if this username
@@ -169,7 +196,7 @@ export const repLogin = action({
     const lock = await ctx.runQuery(internal.agcAuthData.checkLoginLock, {
       username,
     });
-    if (lock) throw new ConvexError(LOCK_MESSAGE);
+    if (lock) throwLocked(lock);
 
     const ok = await bcrypt.compare(args.password, rep.passwordHash);
     if (!ok) {
@@ -179,9 +206,9 @@ export const repLogin = action({
         { username },
       );
       if (throttle.lockedUntil) {
-        throw new ConvexError(LOCK_MESSAGE);
+        throwLocked(throttle.lockedUntil);
       }
-      throw new ConvexError("Invalid username or password");
+      throwInvalidCredentials(throttle.attemptsRemaining ?? MAX_FAILURES);
     }
 
     // Expected flow-control outcome (NOT an error): the rep still has a
@@ -252,11 +279,12 @@ export const completeFirstLoginSetup = action({
       internal.agcAuthData.getRepByUsername,
       { username },
     );
-    if (!rep) throw new ConvexError("Invalid username or password");
+    if (!rep) throwInvalidCredentials(MAX_FAILURES);
     if (rep.status === "disabled") {
-      throw new ConvexError(
-        "This account has been disabled. Contact the registration desk.",
-      );
+      throw new ConvexError<LoginErrorData>({
+        message: "This account has been disabled. Contact the registration desk.",
+        kind: "disabled",
+      });
     }
 
     // Same throttle namespace as sign-in: hammering the setup form with a
@@ -264,7 +292,7 @@ export const completeFirstLoginSetup = action({
     const lock = await ctx.runQuery(internal.agcAuthData.checkLoginLock, {
       username,
     });
-    if (lock) throw new ConvexError(LOCK_MESSAGE);
+    if (lock) throwLocked(lock);
 
     const ok = await bcrypt.compare(args.temporaryPassword, rep.passwordHash);
     if (!ok) {
@@ -273,9 +301,9 @@ export const completeFirstLoginSetup = action({
         { username },
       );
       if (throttle.lockedUntil) {
-        throw new ConvexError(LOCK_MESSAGE);
+        throwLocked(throttle.lockedUntil);
       }
-      throw new ConvexError("Invalid username or password");
+      throwInvalidCredentials(throttle.attemptsRemaining ?? MAX_FAILURES);
     }
 
     const email = args.email.trim().toLowerCase();

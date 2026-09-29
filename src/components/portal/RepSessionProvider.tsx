@@ -8,8 +8,10 @@ import {
   type ReactNode,
 } from "react";
 import { useMutation, useQuery } from "convex/react";
+import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import { repSessionStore, useSessionToken } from "@/lib/sessionStore";
+import { isSessionExpired } from "@/lib/friendlyError";
 
 export type RepProfile = {
   _id: string;
@@ -32,6 +34,12 @@ type RepSessionContextValue = {
   rep: RepProfile | null | undefined;
   setSession: (token: string) => void;
   clearSession: () => Promise<void>;
+  /**
+   * True if `err` means the session expired/was revoked — in that case the
+   * session is cleared and a friendly toast shown, so callers can just
+   * `if (handleSessionError(err)) return;` inside their catch blocks.
+   */
+  handleSessionError: (err: unknown) => boolean;
 };
 
 const RepSessionContext = createContext<RepSessionContextValue | null>(null);
@@ -44,6 +52,7 @@ const UNAVAILABLE_SESSION: RepSessionContextValue = {
     throw new Error("Rep session is unavailable without Convex configured.");
   },
   clearSession: async () => {},
+  handleSessionError: () => false,
 };
 
 export function RepSessionFallbackProvider({
@@ -87,6 +96,20 @@ export function RepSessionProvider({ children }: { children: ReactNode }) {
     }
   }, [logout, sessionToken]);
 
+  // Mid-action session expiry: bounce to sign-in with a friendly toast
+  // instead of leaving the rep stuck on a page whose every action fails.
+  const handleSessionError = useCallback(
+    (err: unknown): boolean => {
+      if (!isSessionExpired(err)) return false;
+      void clearSession();
+      toast.info("Your session has expired", {
+        description: "Please sign in again to continue.",
+      });
+      return true;
+    },
+    [clearSession],
+  );
+
   const value = useMemo(
     () => ({
       sessionToken,
@@ -94,8 +117,9 @@ export function RepSessionProvider({ children }: { children: ReactNode }) {
       rep: sessionToken ? rep : null,
       setSession,
       clearSession,
+      handleSessionError,
     }),
-    [sessionToken, isReady, rep, setSession, clearSession],
+    [sessionToken, isReady, rep, setSession, clearSession, handleSessionError],
   );
 
   return (

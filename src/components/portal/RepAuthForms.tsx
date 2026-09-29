@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, ShieldAlertIcon } from "lucide-react";
 import { useAction } from "convex/react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
@@ -20,8 +20,80 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { friendlyError } from "@/lib/friendlyError";
+import { friendlyError, loginErrorInfo } from "@/lib/friendlyError";
 import { EVENT } from "@/lib/eventConfig";
+
+const MAX_ATTEMPTS = 5;
+
+/**
+ * Lockout progress: dots for remaining attempts, or a live countdown while
+ * the 15-minute lock is active. `state` comes from the last failed sign-in.
+ */
+function LockoutIndicator({
+  attemptsRemaining,
+  lockedUntil,
+}: {
+  attemptsRemaining: number | null;
+  lockedUntil: number | null;
+}) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (lockedUntil === null) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [lockedUntil]);
+
+  if (lockedUntil !== null) {
+    const msLeft = Math.max(0, lockedUntil - now);
+    const minutes = Math.floor(msLeft / 60_000);
+    const seconds = Math.floor((msLeft % 60_000) / 1000);
+    if (msLeft <= 0) {
+      return null;
+    }
+    return (
+      <div
+        role="status"
+        className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
+      >
+        <ShieldAlertIcon className="size-4 shrink-0" />
+        <span>
+          Too many attempts — locked for{" "}
+          <strong className="tabular-nums">
+            {minutes}:{String(seconds).padStart(2, "0")}
+          </strong>
+          . Try again after the countdown.
+        </span>
+      </div>
+    );
+  }
+
+  if (attemptsRemaining === null) return null;
+  const attemptsUsed = Math.min(MAX_ATTEMPTS, Math.max(0, MAX_ATTEMPTS - attemptsRemaining));
+  return (
+    <div
+      role="status"
+      className="rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950"
+    >
+      <p className="text-xs font-medium text-amber-900 dark:text-amber-200">
+        {attemptsRemaining === 1
+          ? `Last attempt before a 15-minute lock`
+          : `${attemptsRemaining} attempts remaining before a 15-minute lock`}
+      </p>
+      <div className="mt-1.5 flex gap-1" aria-hidden="true">
+        {Array.from({ length: MAX_ATTEMPTS }).map((_, i) => (
+          <span
+            key={i}
+            className={`h-1.5 flex-1 rounded-full ${
+              i < attemptsUsed
+                ? "bg-destructive/70"
+                : "bg-amber-300 dark:bg-amber-800"
+            }`}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
 
 /** Shared ghost eye toggle for password fields. */
 function PasswordEye({
@@ -61,6 +133,10 @@ export function RepSignIn() {
   const [error, setError] = useState("");
   const [setupUsername, setSetupUsername] = useState<string | null>(null);
 
+  // Lockout progress state from the latest failed sign-in.
+  const [attemptsRemaining, setAttemptsRemaining] = useState<number | null>(null);
+  const [lockedUntil, setLockedUntil] = useState<number | null>(null);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -91,6 +167,15 @@ export function RepSignIn() {
           : friendly.title,
       );
       toast.error(friendly.title, { description: friendly.detail });
+      // Drive the lockout indicator from structured server data when present.
+      const info = loginErrorInfo(err);
+      if (info.lockedUntil) {
+        setLockedUntil(info.lockedUntil);
+        setAttemptsRemaining(null);
+      } else if (typeof info.attemptsRemaining === "number") {
+        setAttemptsRemaining(info.attemptsRemaining);
+        setLockedUntil(null);
+      }
     } finally {
       setLoading(false);
     }
@@ -122,6 +207,12 @@ export function RepSignIn() {
             <Alert variant="destructive">
               <AlertDescription>{error}</AlertDescription>
             </Alert>
+          )}
+          {(attemptsRemaining !== null || lockedUntil !== null) && (
+            <LockoutIndicator
+              attemptsRemaining={attemptsRemaining}
+              lockedUntil={lockedUntil}
+            />
           )}
           <div className="space-y-2">
             <Label htmlFor="rep-username">Hub username</Label>

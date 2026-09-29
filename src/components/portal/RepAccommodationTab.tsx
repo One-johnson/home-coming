@@ -422,7 +422,7 @@ function ExcelPreviewDialog({
 }
 
 export function RepAccommodationTab() {
-  const { sessionToken } = useRepSession();
+  const { sessionToken, handleSessionError } = useRepSession();
   const overview = useQuery(
     api.agcBookings.getAccommodationOverview,
     sessionToken ? { sessionToken } : "skip",
@@ -555,6 +555,8 @@ export function RepAccommodationTab() {
         `Reservation held until ${new Date(result.expiresAt).toLocaleString()}`,
       );
     } catch (err) {
+      // Expired/revoked session → bounce to sign-in with a friendly toast.
+      if (handleSessionError(err)) return;
       const friendly = friendlyError(err);
       setError(
         friendly.detail ? `${friendly.title}: ${friendly.detail}` : friendly.title,
@@ -603,6 +605,8 @@ export function RepAccommodationTab() {
       setPayTarget(null);
       toast.success("Receipt submitted — finance will review it.");
     } catch (err) {
+      // Expired/revoked session → bounce to sign-in with a friendly toast.
+      if (handleSessionError(err)) return;
       const friendly = friendlyError(err);
       setError(
         friendly.detail ? `${friendly.title}: ${friendly.detail}` : friendly.title,
@@ -633,6 +637,8 @@ export function RepAccommodationTab() {
       setPayTarget(null);
       toast.success(paymentResult.message ?? "Payment recorded.");
     } catch (err) {
+      // Expired/revoked session → bounce to sign-in with a friendly toast.
+      if (handleSessionError(err)) return;
       const friendly = friendlyError(err);
       setError(
         friendly.detail ? `${friendly.title}: ${friendly.detail}` : friendly.title,
@@ -654,6 +660,8 @@ export function RepAccommodationTab() {
       toast.success("Reservation cancelled — the held beds are back in the pool.");
       setCancelTarget(null);
     } catch (err) {
+      // Expired/revoked session → bounce to sign-in with a friendly toast.
+      if (handleSessionError(err)) return;
       const friendly = friendlyError(err);
       toast.error(friendly.title, { description: friendly.detail });
     } finally {
@@ -723,6 +731,8 @@ export function RepAccommodationTab() {
       toast.success(`Reservation ${editTarget.referenceNumber} updated.`);
       setEditTarget(null);
     } catch (err) {
+      // Expired/revoked session → bounce to sign-in with a friendly toast.
+      if (handleSessionError(err)) return;
       const friendly = friendlyError(err);
       setError(
         friendly.detail ? `${friendly.title}: ${friendly.detail}` : friendly.title,
@@ -744,6 +754,8 @@ export function RepAccommodationTab() {
       toast.success(`Reservation ${deleteTarget.referenceNumber} deleted — beds returned to the pool.`);
       setDeleteTarget(null);
     } catch (err) {
+      // Expired/revoked session → bounce to sign-in with a friendly toast.
+      if (handleSessionError(err)) return;
       const friendly = friendlyError(err);
       toast.error(friendly.title, { description: friendly.detail });
     } finally {
@@ -770,6 +782,8 @@ export function RepAccommodationTab() {
       anchor.click();
       URL.revokeObjectURL(url);
     } catch (err) {
+      // Expired/revoked session → bounce to sign-in with a friendly toast.
+      if (handleSessionError(err)) return;
       const friendly = friendlyError(err);
       toast.error(friendly.title, { description: friendly.detail });
     }
@@ -783,6 +797,8 @@ export function RepAccommodationTab() {
       downloadBase64File(result.filename, result.contentBase64);
       toast.success(`Downloaded ${result.filename}`);
     } catch (err) {
+      // Expired/revoked session → bounce to sign-in with a friendly toast.
+      if (handleSessionError(err)) return;
       const friendly = friendlyError(err);
       toast.error(friendly.title, { description: friendly.detail });
     } finally {
@@ -813,6 +829,8 @@ export function RepAccommodationTab() {
       setExcelFileName(file.name);
       setExcelPreview(result);
     } catch (err) {
+      // Expired/revoked session → bounce to sign-in with a friendly toast.
+      if (handleSessionError(err)) return;
       const friendly = friendlyError(err);
       setError(
         friendly.detail ? `${friendly.title}: ${friendly.detail}` : friendly.title,
@@ -845,6 +863,8 @@ export function RepAccommodationTab() {
         `Booked ${result.guestCount} guest(s) from Excel (${result.referenceNumber}).`,
       );
     } catch (err) {
+      // Expired/revoked session → bounce to sign-in with a friendly toast.
+      if (handleSessionError(err)) return;
       const friendly = friendlyError(err);
       setError(
         friendly.detail ? `${friendly.title}: ${friendly.detail}` : friendly.title,
@@ -879,6 +899,8 @@ export function RepAccommodationTab() {
       toast.success("Guest substituted — history preserved.");
       setSubTarget(null);
     } catch (err) {
+      // Expired/revoked session → bounce to sign-in with a friendly toast.
+      if (handleSessionError(err)) return;
       const friendly = friendlyError(err);
       setError(
         friendly.detail ? `${friendly.title}: ${friendly.detail}` : friendly.title,
