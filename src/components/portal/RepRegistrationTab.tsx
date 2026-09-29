@@ -3,8 +3,13 @@
 import { useMemo, useRef, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import {
+  BanknoteIcon,
+  CircleCheckIcon,
   DownloadIcon,
+  ClipboardListIcon,
   Loader2Icon,
+  ReceiptTextIcon,
+  UserXIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
@@ -47,6 +52,8 @@ type RegistrationRow = {
   totalAmount: number;
   paymentMode: string;
   paymentStatus: string;
+  /** Online registrations stuck at checkout — show a resume-payment button. */
+  canResumePayment: boolean;
   adminMessage: string | null;
   offline: {
     amountPaid: number;
@@ -94,6 +101,8 @@ export function RepRegistrationTab() {
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState("");
+  // Which history row is resuming Stripe checkout (resume-payment flow).
+  const [resumingId, setResumingId] = useState<string | null>(null);
 
   const isOffline = rep ? isGhsRegion(rep.hubRegion) : true;
   const regionPricing = portalConfig?.regions.find(
@@ -105,6 +114,51 @@ export function RepRegistrationTab() {
   const qty = Math.max(1, Math.floor(Number(quantity) || 0));
 
   const history = useMemo(() => registrations ?? [], [registrations]);
+
+  // Summary counts across ALL registrations — quantity-weighted, mirroring
+  // how the overview counts delegates.
+  const summary = useMemo(() => {
+    const totals = { paid: 0, pending: 0, count: 0, paidAmount: 0, pendingAmount: 0 };
+    for (const row of history) {
+      totals.count += 1;
+      if (row.paymentStatus === "confirmed") {
+        totals.paid += row.quantity;
+        totals.paidAmount += row.totalAmount;
+      } else if (row.paymentStatus !== "rejected") {
+        // Rejected receipts count as cancelled (mirrors getRepOverview).
+        totals.pending += row.quantity;
+        totals.pendingAmount += row.totalAmount;
+      }
+    }
+    return totals;
+  }, [history]);
+
+  const handleResumePayment = async (row: RegistrationRow) => {
+    if (!sessionToken) return;
+    setResumingId(row._id);
+    setError("");
+    try {
+      const origin = window.location.origin;
+      const paymentResult = await createCheckout({
+        type: "agc_registration",
+        recordId: row._id,
+        successUrl: `${origin}/portal/success?session_id={CHECKOUT_SESSION_ID}`,
+        cancelUrl: `${origin}/portal?canceled=1`,
+      });
+      if (paymentResult.mode === "checkout") {
+        window.location.assign(paymentResult.url);
+        return;
+      }
+      toast.success(paymentResult.message ?? "Payment recorded.");
+    } catch (err) {
+      // Expired/revoked session → bounce to sign-in with a friendly toast.
+      if (handleSessionError(err)) return;
+      const friendly = friendlyError(err);
+      toast.error(friendly.title, { description: friendly.detail });
+    } finally {
+      setResumingId(null);
+    }
+  };
 
   const handleDownloadExcel = async () => {
     if (!sessionToken) return;
@@ -210,6 +264,59 @@ export function RepRegistrationTab() {
 
   return (
     <div className="space-y-8">
+      {/* Registration summary — totals across every purchase. */}
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Card>
+          <CardHeader className="pb-1">
+            <CardDescription className="flex items-center gap-1.5 text-xs">
+              <ClipboardListIcon className="size-3.5 text-gold-dark" />
+              Total registrations
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-semibold tabular-nums text-ink">
+              {summary.count}
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {summary.paid + summary.pending} delegate
+              {summary.paid + summary.pending === 1 ? "" : "s"} in total
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-1">
+            <CardDescription className="flex items-center gap-1.5 text-xs">
+              <CircleCheckIcon className="size-3.5 text-gold-dark" />
+              Total registered / booked (paid)
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-semibold tabular-nums text-emerald-700 dark:text-emerald-400">
+              {summary.paid}
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {currency} {summary.paidAmount} confirmed
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-1">
+            <CardDescription className="flex items-center gap-1.5 text-xs">
+              <UserXIcon className="size-3.5 text-gold-dark" />
+              Total reserved (awaiting payment)
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-semibold tabular-nums text-amber-700 dark:text-amber-400">
+              {summary.pending}
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {currency} {summary.pendingAmount} outstanding
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
       <div className="grid gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
         <Card>
           <CardHeader>
@@ -281,9 +388,14 @@ export function RepRegistrationTab() {
                       min={0}
                       step="0.01"
                       required
-                      value={amountPaid}
+                      value={amountPaid || String(unitPrice * qty)}
                       onChange={(e) => setAmountPaid(e.target.value)}
                     />
+                    <p className="text-xs text-muted-foreground">
+                      Defaults to {currency} {unitPrice * qty} — the exact total
+                      for {qty} delegate{qty === 1 ? "" : "s"}. Payments must
+                      match the reservation.
+                    </p>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="off-date">Payment date</Label>
@@ -444,6 +556,26 @@ export function RepRegistrationTab() {
                     >
                       View submitted receipt ({row.offline?.receiptFileName})
                     </a>
+                  )}
+                  {row.canResumePayment && (
+                    <div className="mt-3 flex items-center gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={resumingId !== null}
+                        onClick={() => void handleResumePayment(row)}
+                      >
+                        {resumingId === row._id && (
+                          <Loader2Icon className="size-4 animate-spin" />
+                        )}
+                        <BanknoteIcon className="size-4" />
+                        Resume payment
+                      </Button>
+                      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                        <ReceiptTextIcon className="size-3" />
+                        {row.currency} {row.totalAmount} still due
+                      </span>
+                    </div>
                   )}
                 </div>
               );

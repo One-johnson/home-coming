@@ -308,8 +308,18 @@ function PortalFrame({
   onSignOut: () => void;
   children: React.ReactNode;
 }) {
-  const { isMobile } = useSidebar();
+  const { isMobile, state } = useSidebar();
   const meta = NAV_TITLES[tab];
+
+  // Anchor the fixed header to the sidebar edge so it spans the full width
+  // of the content area (same pattern as AdminShell), and shrink it to the
+  // icon rail width when the sidebar is collapsed.
+  const headerLeft =
+    isMobile || state === "collapsed"
+      ? isMobile
+        ? "0px"
+        : "var(--sidebar-width-icon)"
+      : "var(--sidebar-width)";
 
   if (isMobile) {
     // shadcn sidebar becomes a slide-in sheet on mobile — the bottom nav
@@ -343,7 +353,10 @@ function PortalFrame({
         onSignOut={onSignOut}
       />
       <SidebarInset className="min-w-0 overflow-x-hidden bg-neutral-100">
-        <header className="fixed top-0 right-0 z-30 border-b border-border/80 bg-white/95 shadow-[0_1px_0_0_rgba(212,175,55,0.35)] backdrop-blur-md transition-[left] duration-200 ease-linear supports-backdrop-filter:bg-white/85">
+        <header
+          className="fixed top-0 right-0 z-30 border-b border-border/80 bg-white/95 shadow-[0_1px_0_0_rgba(212,175,55,0.35)] backdrop-blur-md transition-[left] duration-200 ease-linear supports-backdrop-filter:bg-white/85"
+          style={{ left: headerLeft }}
+        >
           <div className="flex h-16 w-full min-w-0 items-center gap-3 px-4 sm:px-6">
             <SidebarTrigger className="-ml-1" />
             <div className="h-5 w-px shrink-0 bg-border" />

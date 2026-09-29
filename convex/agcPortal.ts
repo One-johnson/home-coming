@@ -193,6 +193,9 @@ export const listRepRegistrations = query({
         totalAmount: record.totalAmount,
         paymentMode: record.paymentMode,
         paymentStatus: record.paymentStatus,
+        // Online registrations can be abandoned mid-checkout — offer a way to
+        // resume payment for them instead of forcing a new registration.
+        canResumePayment: record.paymentStatus === "awaiting_payment",
         adminMessage: record.adminMessage ?? null,
         offline: record.offline ?? null,
         receiptUrl,
