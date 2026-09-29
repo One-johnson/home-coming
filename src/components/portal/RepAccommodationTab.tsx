@@ -5,6 +5,7 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import {
   AlertTriangleIcon,
   CalendarClockIcon,
+  ChevronDownIcon,
   DownloadIcon,
   LayoutGridIcon,
   Loader2Icon,
@@ -13,6 +14,7 @@ import {
   SearchIcon,
   TableIcon,
   Trash2Icon,
+  UsersIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
@@ -64,8 +66,12 @@ import { friendlyError } from "@/lib/friendlyError";
 import {
   AGC_ACCOMMODATION_LABELS,
   bookingStatusMeta,
-  paymentStatusMeta,
 } from "@/lib/agcPortal";
+import {
+  displayPaymentStatus,
+  guestRosterRows,
+  isClosedBooking,
+} from "@/lib/agcBookingView";
 import type {
   AccommodationOverview,
   RepBooking,
@@ -486,6 +492,13 @@ export function RepAccommodationTab() {
 
   // Desktop view mode: comfy cards or dense table (mobile is always cards).
   const [viewMode, setViewMode] = useState<"cards" | "table">("cards");
+
+  // Quick-scan guest roster (collapsed by default; it can be long).
+  const [rosterOpen, setRosterOpen] = useState(false);
+  const rosterRows = useMemo(
+    () => guestRosterRows(bookings ?? []),
+    [bookings],
+  );
 
   // Excel flow
   const [excelFileName, setExcelFileName] = useState("");
@@ -918,7 +931,13 @@ export function RepAccommodationTab() {
         case "active":
           return booking.bookingStatus === "reserved" || booking.bookingStatus === "pending_verification" || booking.bookingStatus === "correction_requested";
         case "awaiting":
-          return booking.paymentStatus === "awaiting_payment" || booking.paymentStatus === "correction_requested";
+          // Closed holds (cancelled/expired) are never "awaiting payment" —
+          // they no longer owe anything and must not inflate chase lists.
+          return (
+            !isClosedBooking(booking) &&
+            (booking.paymentStatus === "awaiting_payment" ||
+              booking.paymentStatus === "correction_requested")
+          );
         case "closed":
           return booking.bookingStatus === "confirmed" || booking.bookingStatus === "cancelled" || booking.bookingStatus === "expired";
         default:
@@ -963,6 +982,9 @@ export function RepAccommodationTab() {
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {overview.availability.map((row) => {
               const soldOut = row.available <= 0;
+              // Remaining rooms are the headline; price moves to a caption.
+              const unitNoun = row.scope === "per_room" ? "rooms" : "beds";
+              const nearlyGone = !soldOut && row.available <= Math.ceil(row.total * 0.1);
               return (
                 <Card key={row.accommodationType} className={soldOut ? "opacity-60" : undefined}>
                   <CardHeader className="pb-2">
@@ -976,23 +998,25 @@ export function RepAccommodationTab() {
                         </Badge>
                       )}
                     </CardTitle>
-                    <CardDescription>
-                      {row.available} of {row.total} available ({row.scope.replace(/_/g, " ")})
-                    </CardDescription>
+                    <CardDescription>({row.scope.replace(/_/g, " ")})</CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <p className="text-lg font-semibold">
-                      {currency}{" "}
-                      {isOffline
-                        ? row.priceGhs
-                        : row.priceUsd}
+                    <p className="text-2xl font-semibold tabular-nums">
+                      {row.available}
+                      <span className="ml-1 text-sm font-normal text-muted-foreground">
+                        of {row.total} {unitNoun} left
+                      </span>
                     </p>
-                    {row.accommodationType === "ebpv" && (
-                      <p className="text-xs text-muted-foreground">
-                        Bishop rate: {currency}{" "}
-                        {isOffline ? row.bishopPriceGhs : row.bishopPriceUsd}
+                    {nearlyGone && (
+                      <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-400">
+                        Nearly gone — book soon
                       </p>
                     )}
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      {currency} {isOffline ? row.priceGhs : row.priceUsd}
+                      {row.accommodationType === "ebpv" &&
+                        ` · bishop ${currency} ${isOffline ? row.bishopPriceGhs : row.bishopPriceUsd}`}
+                    </p>
                   </CardContent>
                 </Card>
               );
@@ -1254,6 +1278,89 @@ export function RepAccommodationTab() {
         </CardContent>
       </Card>
 
+      {/* Guest roster — every name, gender, room type and payment status in one flat table. */}
+      {rosterRows.length > 0 && (
+        <Card>
+          <CardHeader>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <UsersIcon className="size-4 text-gold-dark" />
+                  Guest roster
+                </CardTitle>
+                <CardDescription>
+                  All {rosterRows.length} guest{rosterRows.length === 1 ? "" : "s"} across every booking — payment status follows the parent booking.
+                </CardDescription>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setRosterOpen((open) => !open)}
+                aria-expanded={rosterOpen}
+              >
+                {rosterOpen ? "Hide table" : "Show table"}
+                <ChevronDownIcon
+                  className={`size-4 transition-transform ${rosterOpen ? "rotate-180" : ""}`}
+                />
+              </Button>
+            </div>
+          </CardHeader>
+          {rosterOpen && (
+            <CardContent>
+              <div className="max-h-[60vh] overflow-auto rounded-lg border">
+                <Table>
+                  <TableHeader className="sticky top-0 bg-card">
+                    <TableRow>
+                      <TableHead>#</TableHead>
+                      <TableHead>Guest name</TableHead>
+                      <TableHead>Gender</TableHead>
+                      <TableHead>Room type</TableHead>
+                      <TableHead>Booking ref</TableHead>
+                      <TableHead>Payment status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {rosterRows.map((row, index) => {
+                      const pay = displayPaymentStatus(row.booking);
+                      return (
+                        <TableRow key={row.key}>
+                          <TableCell className="text-xs tabular-nums text-muted-foreground">
+                            {index + 1}
+                          </TableCell>
+                          <TableCell className="text-sm whitespace-nowrap">
+                            {row.guest.title} {row.guest.firstName} {row.guest.lastName}
+                            {row.guest.isBishopRate && (
+                              <Badge variant="outline" className="ml-2 text-[10px]">
+                                Bishop rate
+                              </Badge>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-sm capitalize">{row.guest.gender}</TableCell>
+                          <TableCell className="text-sm">
+                            {AGC_ACCOMMODATION_LABELS[
+                              row.guest.accommodationType as keyof typeof AGC_ACCOMMODATION_LABELS
+                            ] ?? row.guest.accommodationType}
+                          </TableCell>
+                          <TableCell className="font-mono text-xs">
+                            {row.booking.referenceNumber || "(pending)"}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className={pay.className}>
+                              {pay.label}
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          )}
+        </Card>
+      )}
+
       {/* Bookings list */}
       <Card>
         <CardHeader>
@@ -1395,8 +1502,9 @@ export function RepAccommodationTab() {
                     <TableBody>
                       {filteredBookings.map((booking) => {
                         const status = bookingStatusMeta(booking.bookingStatus);
-                        const payStatus = paymentStatusMeta(booking.paymentStatus);
+                        const payStatus = displayPaymentStatus(booking);
                         const canPay =
+                          !isClosedBooking(booking) &&
                           booking.bookingStatus === "reserved" &&
                           ((booking.paymentMode === "offline" &&
                             (booking.paymentStatus === "awaiting_payment" ||
@@ -1483,13 +1591,15 @@ export function RepAccommodationTab() {
               >
             {filteredBookings.map((booking) => {
               const status = bookingStatusMeta(booking.bookingStatus);
-              const payStatus = paymentStatusMeta(booking.paymentStatus);
+              const payStatus = displayPaymentStatus(booking);
               const canPayOffline =
+                !isClosedBooking(booking) &&
                 booking.paymentMode === "offline" &&
                 booking.bookingStatus === "reserved" &&
                 (booking.paymentStatus === "awaiting_payment" ||
                   booking.paymentStatus === "correction_requested");
               const canPayOnline =
+                !isClosedBooking(booking) &&
                 booking.paymentMode !== "offline" &&
                 booking.bookingStatus === "reserved" &&
                 booking.paymentStatus === "awaiting_payment";

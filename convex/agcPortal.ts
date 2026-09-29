@@ -478,13 +478,33 @@ export const getRepOverview = query({
     let confirmedBookings = 0;
     let reservedBookings = 0;
     let cancelledBookings = 0;
+    // Per-room-type booked/paid/awaiting units (for the summary tiles).
+    const perType = new Map<
+      string,
+      { booked: number; paid: number; awaiting: number; cancelled: number }
+    >();
+    const perTypeEntry = (key: string) => {
+      let entry = perType.get(key);
+      if (!entry) {
+        entry = { booked: 0, paid: 0, awaiting: 0, cancelled: 0 };
+        perType.set(key, entry);
+      }
+      return entry;
+    };
     for (const booking of bookings) {
-      const activeGuestCount = (
-        await ctx.db
+      const [bookingGuests, bookingLines] = await Promise.all([
+        ctx.db
           .query("agcGuests")
           .withIndex("by_booking", (q) => q.eq("bookingId", booking._id))
-          .collect()
-      ).filter((guest) => guest.status === "active").length;
+          .collect(),
+        ctx.db
+          .query("agcBookingLines")
+          .withIndex("by_booking", (q) => q.eq("bookingId", booking._id))
+          .collect(),
+      ]);
+      const activeGuestCount = bookingGuests.filter(
+        (guest) => guest.status === "active",
+      ).length;
 
       if (isPaid(booking.paymentStatus) && booking.bookingStatus === "confirmed") {
         accPaidGuests += activeGuestCount;
@@ -498,6 +518,22 @@ export const getRepOverview = query({
         accPendingGuests += activeGuestCount;
         accPendingAmount += booking.totalAmount;
         reservedBookings += 1;
+      }
+      // Lines carry the reserved units (rooms, or beds on dorm/hostel).
+      for (const line of bookingLines) {
+        const entry = perTypeEntry(line.accommodationType);
+        const closed = isClosed(booking.bookingStatus);
+        if (!closed) entry.booked += line.quantity;
+        if (closed) {
+          entry.cancelled += line.quantity;
+        } else if (
+          isPaid(booking.paymentStatus) &&
+          booking.bookingStatus === "confirmed"
+        ) {
+          entry.paid += line.quantity;
+        } else {
+          entry.awaiting += line.quantity;
+        }
       }
       if (
         booking.paymentStatus === "pending_verification" ||
@@ -538,6 +574,11 @@ export const getRepOverview = query({
         cancelledGuests: accCancelledGuests,
         paidAmount: accPaidAmount,
         pendingAmount: accPendingAmount,
+        // Reserved units per room type, split by payment outcome.
+        perType: [...perType.entries()].map(([type, counts]) => ({
+          type,
+          ...counts,
+        })),
       },
       receiptsPending,
       awaitingPayment,

@@ -28,7 +28,10 @@ import {
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { friendlyError } from "@/lib/friendlyError";
-import { AGC_REGION_LABELS } from "@/lib/agcPortal";
+import {
+  AGC_ACCOMMODATION_LABELS,
+  AGC_REGION_LABELS,
+} from "@/lib/agcPortal";
 import { downloadBase64File } from "@/lib/downloadFile";
 
 type RepOverview = {
@@ -56,6 +59,14 @@ type RepOverview = {
     cancelledGuests: number;
     paidAmount: number;
     pendingAmount: number;
+    /** Reserved units per room type, split by payment outcome. */
+    perType: Array<{
+      type: string;
+      booked: number;
+      paid: number;
+      awaiting: number;
+      cancelled: number;
+    }>;
   };
   receiptsPending: number;
   awaitingPayment: number;
@@ -127,6 +138,52 @@ function DelegateBreakdown({
           {cancelled}
         </p>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Per-room-type tiles: how many units this hub has booked (paid or awaiting)
+ * in each accommodation type. Booked = live holds + confirmed payments.
+ */
+function RoomTypeBookings({
+  rows,
+}: {
+  rows: Array<{
+    type: string;
+    booked: number;
+    paid: number;
+    awaiting: number;
+    cancelled: number;
+  }>;
+}) {
+  const visible = rows.filter((row) => row.booked > 0);
+  if (visible.length === 0) return null;
+  return (
+    <div className="grid gap-2 sm:grid-cols-2">
+      {visible.map((row) => (
+        <div
+          key={row.type}
+          className="rounded-lg border p-2.5"
+        >
+          <p className="truncate text-xs font-medium text-muted-foreground">
+            {AGC_ACCOMMODATION_LABELS[row.type as keyof typeof AGC_ACCOMMODATION_LABELS] ??
+              row.type}
+          </p>
+          <p className="text-lg font-semibold tabular-nums text-ink">
+            {row.booked}
+            <span className="text-xs font-normal text-muted-foreground"> booked</span>
+          </p>
+          <p className="flex items-center gap-2 text-[11px] text-muted-foreground">
+            <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400">
+              <BedDoubleIcon className="size-3" /> {row.paid} paid
+            </span>
+            <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-400">
+              <UsersIcon className="size-3" /> {row.awaiting} awaiting
+            </span>
+          </p>
+        </div>
+      ))}
     </div>
   );
 }
@@ -324,6 +381,9 @@ export function RepOverviewTab() {
               pending={overview.accommodation.pendingGuests}
               cancelled={overview.accommodation.cancelledGuests}
             />
+            {overview.accommodation.perType.length > 0 && (
+              <RoomTypeBookings rows={overview.accommodation.perType} />
+            )}
             <p className="text-xs text-muted-foreground">
               Paid: {overview.currency} {overview.accommodation.paidAmount} ·
               Awaiting: {overview.currency}{" "}
