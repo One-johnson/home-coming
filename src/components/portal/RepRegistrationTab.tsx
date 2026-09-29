@@ -1,15 +1,22 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import {
   BanknoteIcon,
+  CalendarClockIcon,
+  CheckIcon,
   CircleCheckIcon,
   DownloadIcon,
   ClipboardListIcon,
   Loader2Icon,
+  MinusIcon,
+  PlusIcon,
   ReceiptTextIcon,
+  SearchIcon,
+  UploadIcon,
   UserXIcon,
+  XIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
@@ -23,10 +30,11 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { LinkButton as Button } from "@/components/ui/app-button";
 import { StatTile } from "@/components/portal/StatTile";
+import { cn } from "@/lib/utils";
 import {
   Select,
   SelectContent,
@@ -43,6 +51,13 @@ import {
   isGhsRegion,
   paymentStatusMeta,
 } from "@/lib/agcPortal";
+import {
+  REGISTRATION_FILTERS,
+  REGISTRATION_QUICK_PICKS,
+  matchesRegistrationFilter,
+  registrationStage,
+} from "@/lib/agcRegistrationView";
+import type { RegistrationFilterId } from "@/lib/agcRegistrationView";
 
 type RegistrationRow = {
   _id: string;
@@ -74,6 +89,144 @@ function formatDateTime(ts: number) {
   });
 }
 
+/** Submitted -> Under review -> Confirmed progress tracker for one purchase. */
+function StatusTimeline({ status }: { status: string }) {
+  const stage = registrationStage(status);
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {stage.steps.map((label, i) => {
+        const done = i < stage.current;
+        const active = i === stage.current;
+        return (
+          <div key={label} className="flex items-center gap-1.5">
+            <div
+              className={cn(
+                "flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium",
+                done && "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400",
+                active && stage.rejected &&
+                  "bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-400",
+                active && !stage.rejected &&
+                  "bg-gold/20 text-ink dark:bg-gold/15 dark:text-gold",
+                !done && !active && "bg-muted text-muted-foreground"
+              )}
+            >
+              {done && <CheckIcon className="size-2.5" aria-hidden />}
+              {active && stage.rejected && <XIcon className="size-2.5" aria-hidden />}
+              {label}
+            </div>
+            {i < stage.steps.length - 1 && (
+              <span
+                aria-hidden
+                className={cn("h-px w-3", i < stage.current ? "bg-emerald-400" : "bg-border")}
+              />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Drag-and-drop receipt uploader with image preview and a file chip. */
+function ReceiptDropzone({
+  file,
+  previewUrl,
+  onFile,
+  onClear,
+}: {
+  file: File | null;
+  previewUrl: string | null;
+  onFile: (file: File) => void;
+  onClear: () => void;
+}) {
+  const [dragging, setDragging] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const pick = (picked: File | null) => {
+    if (!picked) return;
+    if (!/.(pdf|jpe?g|png)$/i.test(picked.name)) {
+      toast.error("Receipt must be a PDF, JPG or PNG file.");
+      return;
+    }
+    onFile(picked);
+  };
+
+  return (
+    <div className="space-y-2">
+      <Label>Payment receipt</Label>
+      {file ? (
+        <div className="flex items-center gap-3 rounded-xl border bg-muted/30 p-3">
+          {previewUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={previewUrl}
+              alt={`Receipt preview: ${file.name}`}
+              className="size-14 rounded-lg border object-cover"
+            />
+          ) : (
+            <span className="flex size-14 shrink-0 items-center justify-center rounded-lg border bg-card">
+              <ReceiptTextIcon className="size-6 text-gold-dark" />
+            </span>
+          )}
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-medium">{file.name}</p>
+            <p className="text-xs text-muted-foreground">
+              {(file.size / 1024).toFixed(0)} KB · Ready to submit
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-8 shrink-0 text-muted-foreground hover:text-destructive"
+            onClick={onClear}
+            aria-label="Remove receipt"
+          >
+            <XIcon className="size-4" />
+          </Button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragging(true);
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragging(false);
+            pick(e.dataTransfer.files?.[0] ?? null);
+          }}
+          className={cn(
+            "flex w-full flex-col items-center gap-1.5 rounded-xl border border-dashed p-6 text-center outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+            dragging ? "border-gold bg-gold/5" : "border-border hover:border-gold/50 hover:bg-muted/40",
+          )}
+        >
+          <span className="flex size-9 items-center justify-center rounded-full bg-gold/15">
+            <UploadIcon className="size-4 text-gold-dark" />
+          </span>
+          <span className="text-sm font-medium">Drop receipt or click to browse</span>
+          <span className="text-xs text-muted-foreground">
+            PDF, JPG or PNG — finance reviews it manually
+          </span>
+        </button>
+      )}
+      <input
+        ref={inputRef}
+        type="file"
+        accept=".pdf,.jpg,.jpeg,.png"
+        className="hidden"
+        onChange={(e) => {
+          pick(e.target.files?.[0] ?? null);
+          e.target.value = "";
+        }}
+      />
+    </div>
+  );
+}
+
 export function RepRegistrationTab() {
   const { sessionToken, handleSessionError } = useRepSession();
   const rep = useQuery(api.agcPortal.getRepProfile, sessionToken ? { sessionToken } : "skip");
@@ -98,12 +251,16 @@ export function RepRegistrationTab() {
   );
   const [method, setMethod] = useState<"bank_transfer" | "momo">("momo");
   const [receipt, setReceipt] = useState<File | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState("");
   // Which history row is resuming Stripe checkout (resume-payment flow).
   const [resumingId, setResumingId] = useState<string | null>(null);
+  // History filter chips + reference search.
+  const [filter, setFilter] = useState<RegistrationFilterId>("all");
+  const [search, setSearch] = useState("");
+  // Post-submit success panel (reference number of the new purchase).
+  const [lastSubmitted, setLastSubmitted] = useState<string | null>(null);
 
   const isOffline = rep ? isGhsRegion(rep.hubRegion) : true;
   const regionPricing = portalConfig?.regions.find(
@@ -115,6 +272,16 @@ export function RepRegistrationTab() {
   const qty = Math.max(1, Math.floor(Number(quantity) || 0));
 
   const history = useMemo(() => registrations ?? [], [registrations]);
+
+  // Live image preview for the receipt dropzone (object URL, revoked on change).
+  const [receiptPreview, setReceiptPreview] = useState<string | null>(null);
+  const handleReceipt = (file: File | null) => {
+    setReceipt(file);
+    if (receiptPreview) URL.revokeObjectURL(receiptPreview);
+    setReceiptPreview(
+      file && /.(jpe?g|png)$/i.test(file.name) ? URL.createObjectURL(file) : null,
+    );
+  };
 
   // Summary counts across ALL registrations — quantity-weighted, mirroring
   // how the overview counts delegates.
@@ -133,6 +300,29 @@ export function RepRegistrationTab() {
     }
     return totals;
   }, [history]);
+
+  const filteredHistory = useMemo(
+    () =>
+      history.filter(
+        (row) =>
+          matchesRegistrationFilter(filter, row.paymentStatus) &&
+          (!search.trim() ||
+            row.referenceNumber.toLowerCase().includes(search.trim().toLowerCase())),
+      ),
+    [history, filter, search],
+  );
+
+  // Ticking clock (kept out of render for react-hooks/purity).
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Deadline urgency chip (day resolution).
+  const daysLeft = portalConfig?.deadline
+    ? Math.max(0, Math.ceil((Date.parse(portalConfig.deadline) - now) / 86_400_000))
+    : null;
 
   const handleResumePayment = async (row: RegistrationRow) => {
     if (!sessionToken) return;
@@ -193,7 +383,7 @@ export function RepRegistrationTab() {
       const storageId = await uploadFileToConvex(uploadFile, () =>
         generateUploadUrl({ sessionToken }),
       );
-      await submitOffline({
+      const result = await submitOffline({
         sessionToken,
         quantity: qty,
         offline: {
@@ -206,13 +396,13 @@ export function RepRegistrationTab() {
           receiptContentType: uploadFile.type || undefined,
         },
       });
+      setLastSubmitted(result.referenceNumber);
       toast.success(
         "Receipt submitted — finance will review it and email you the outcome.",
       );
-      setReceipt(null);
+      handleReceipt(null);
       setAmountPaid("");
       setPaymentRef("");
-      if (fileInputRef.current) fileInputRef.current.value = "";
     } catch (err) {
       // Expired/revoked session → bounce to sign-in with a friendly toast.
       if (handleSessionError(err)) return;
@@ -290,63 +480,155 @@ export function RepRegistrationTab() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
-        <Card>
+        <Card className="order-first self-start lg:order-none">
           <CardHeader>
-            <CardTitle className="text-lg">Register delegates</CardTitle>
-            <CardDescription>
-              {rep
-                ? `${rep.hubName} — ${AGC_REGION_LABELS[rep.hubRegion as keyof typeof AGC_REGION_LABELS] ?? rep.hubRegion}`
-                : "Loading…"}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="rounded-lg bg-muted/60 p-4 text-sm">
-              <p>
-                <span className="text-muted-foreground">Price per delegate:</span>{" "}
-                <strong>
-                  {currency} {unitPrice}
-                </strong>
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Attendee names are not needed for registration — only the number
-                of delegates.
-              </p>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <CardTitle className="text-lg">Register delegates</CardTitle>
+                <CardDescription>
+                  {rep
+                    ? `${rep.hubName} — ${AGC_REGION_LABELS[rep.hubRegion as keyof typeof AGC_REGION_LABELS] ?? rep.hubRegion}`
+                    : "Loading…"}
+                </CardDescription>
+              </div>
+              {daysLeft !== null && (
+                <Badge
+                  variant="outline"
+                  className={
+                    daysLeft <= 14
+                      ? "border-destructive/40 bg-destructive/10 text-destructive"
+                      : "text-xs"
+                  }
+                >
+                  <CalendarClockIcon className="mr-1 size-3" />
+                  {daysLeft} day{daysLeft === 1 ? "" : "s"} left
+                </Badge>
+              )}
             </div>
-
+          </CardHeader>
+          <CardContent className="space-y-5">
             {error && (
               <Alert variant="destructive">
                 <AlertDescription>{error}</AlertDescription>
               </Alert>
             )}
 
-            <div className="space-y-2">
-              <Label htmlFor="reg-qty">Number of delegates</Label>
-              <Input
-                id="reg-qty"
-                type="number"
-                min={1}
-                step={1}
-                value={quantity}
-                onChange={(e) => setQuantity(e.target.value)}
-              />
-            </div>
+            {lastSubmitted && (
+              <Alert className="border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950">
+                <CircleCheckIcon className="size-4 text-emerald-600 dark:text-emerald-400" />
+                <AlertTitle className="text-emerald-800 dark:text-emerald-300">
+                  Registration {lastSubmitted} submitted
+                </AlertTitle>
+                <AlertDescription className="text-emerald-800/90 dark:text-emerald-300/90">
+                  <ol className="mt-1 list-decimal space-y-0.5 pl-4">
+                    <li>Finance reviews your receipt.</li>
+                    <li>You get an email with the outcome.</li>
+                    <li>Once confirmed, your delegates are locked in.</li>
+                  </ol>
+                </AlertDescription>
+              </Alert>
+            )}
 
-            <p className="text-sm">
-              <span className="text-muted-foreground">Total:</span>{" "}
-              <strong>
-                {currency} {unitPrice * qty}
-              </strong>
-            </p>
+            {/* Step 1 — choose delegates */}
+            <section className="space-y-3">
+              <p className="flex items-center gap-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                <span className="flex size-5 items-center justify-center rounded-full bg-gold/20 text-[10px] font-bold text-gold-dark">1</span>
+                Choose delegates
+              </p>
+              <div className="rounded-xl border bg-muted/40 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Price per delegate</p>
+                    <p className="text-xl font-semibold tabular-nums text-ink">
+                      {currency} {unitPrice}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1 rounded-lg border bg-card p-1">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="size-8"
+                      onClick={() => setQuantity(String(Math.max(1, qty - 1)))}
+                      aria-label="Remove one delegate"
+                    >
+                      <MinusIcon className="size-4" />
+                    </Button>
+                    <Input
+                      id="reg-qty"
+                      type="number"
+                      min={1}
+                      step={1}
+                      className="h-8 w-14 border-0 bg-transparent text-center tabular-nums focus-visible:ring-0"
+                      value={quantity}
+                      onChange={(e) => setQuantity(e.target.value)}
+                      aria-label="Number of delegates"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="size-8"
+                      onClick={() => setQuantity(String(qty + 1))}
+                      aria-label="Add one delegate"
+                    >
+                      <PlusIcon className="size-4" />
+                    </Button>
+                  </div>
+                </div>
+                <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                  {REGISTRATION_QUICK_PICKS.map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => setQuantity(String(n))}
+                      className={cn(
+                        "rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors",
+                        qty === n
+                          ? "border-gold bg-gold/15 text-ink"
+                          : "text-muted-foreground hover:border-gold/40 hover:text-foreground",
+                      )}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                  <span className="ml-auto text-right text-xs text-muted-foreground">
+                    Attendee names are not needed — only the count.
+                  </span>
+                </div>
+              </div>
+            </section>
 
             {isOffline ? (
-              <form className="space-y-4" onSubmit={handleOfflineSubmit}>
-                <Alert>
-                  <AlertTitle>Offline payment (GHS)</AlertTitle>
-                  <AlertDescription>
-                    Pay {currency} {unitPrice * qty} by bank transfer or mobile
-                    money to the account below, then upload your receipt.
-                  </AlertDescription>
-                </Alert>
+              <form className="space-y-5" onSubmit={handleOfflineSubmit}>
+                {/* Step 2 — pay & upload receipt */}
+                <section className="space-y-3">
+                  <p className="flex items-center gap-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                    <span className="flex size-5 items-center justify-center rounded-full bg-gold/20 text-[10px] font-bold text-gold-dark">2</span>
+                    Pay &amp; upload receipt
+                  </p>
+                  <div className="flex items-center justify-between gap-3 rounded-xl border border-gold/40 bg-gold/5 px-4 py-3">
+                    <div>
+                      <p className="text-xs text-muted-foreground">Total due</p>
+                      <p className="text-xl font-semibold tabular-nums text-ink">
+                        {currency} {unitPrice * qty}
+                      </p>
+                    </div>
+                    <p className="text-right text-xs text-muted-foreground">
+                      {qty} delegate{qty === 1 ? "" : "s"} × {currency} {unitPrice}
+                      <br />
+                      Payments must match the reservation.
+                    </p>
+                  </div>
+                  <Alert>
+                    <AlertTitle>Offline payment (GHS)</AlertTitle>
+                    <AlertDescription>
+                      Pay {currency} {unitPrice * qty} by bank transfer or mobile
+                      money to the account below, then upload your receipt.
+                    </AlertDescription>
+                  </Alert>
+                </section>
+                <section className="space-y-4">
                 <div className="rounded-lg border bg-muted/40 p-3 text-sm whitespace-pre-line">
                   {portalConfig?.registrationBankDetails ||
                     "Account details will be shown here once configured by the Super Admin."}
@@ -408,29 +690,37 @@ export function RepRegistrationTab() {
                     />
                   </div>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="off-receipt">Payment receipt</Label>
-                  <Input
-                    ref={fileInputRef}
-                    id="off-receipt"
-                    type="file"
-                    accept=".pdf,.jpg,.jpeg,.png"
-                    required
-                    onChange={(e) => setReceipt(e.target.files?.[0] ?? null)}
+                <ReceiptDropzone
+                    file={receipt}
+                    previewUrl={receiptPreview}
+                    onFile={handleReceipt}
+                    onClear={() => handleReceipt(null)}
                   />
-                  <p className="text-xs text-muted-foreground">
-                    PDF, JPG or PNG. Finance reviews receipts manually.
-                  </p>
-                </div>
-                <Button type="submit" className="w-full" disabled={loading}>
+                </section>
+                <Button type="submit" className="w-full" disabled={loading || !receipt}>
                   {loading && <Loader2Icon className="size-4 animate-spin" />}
                   {loading ? "Submitting…" : "Submit for review"}
                 </Button>
               </form>
             ) : (
-              <form className="space-y-4" onSubmit={handleOnlineSubmit}>
-                <div className="space-y-2">
-                  <Label>Payment method</Label>
+              <form className="space-y-5" onSubmit={handleOnlineSubmit}>
+                {/* Step 2 — pay online */}
+                <section className="space-y-3">
+                  <p className="flex items-center gap-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                    <span className="flex size-5 items-center justify-center rounded-full bg-gold/20 text-[10px] font-bold text-gold-dark">2</span>
+                    Pay online
+                  </p>
+                  <div className="flex items-center justify-between gap-3 rounded-xl border border-gold/40 bg-gold/5 px-4 py-3">
+                    <div>
+                      <p className="text-xs text-muted-foreground">Total due</p>
+                      <p className="text-xl font-semibold tabular-nums text-ink">
+                        {currency} {unitPrice * qty}
+                      </p>
+                    </div>
+                    <p className="text-right text-xs text-muted-foreground">
+                      {qty} delegate{qty === 1 ? "" : "s"} × {currency} {unitPrice}
+                    </p>
+                  </div>
                   <div className="flex items-start gap-3 rounded-lg border border-gold/40 bg-gold/5 p-3">
                     <span className="mt-0.5 flex size-4 items-center justify-center">
                       <span className="size-2 rounded-full bg-gold-dark" />
@@ -442,7 +732,7 @@ export function RepRegistrationTab() {
                       </span>
                     </span>
                   </div>
-                </div>
+                </section>
                 <Button type="submit" className="w-full" disabled={loading}>
                   {loading && <Loader2Icon className="size-4 animate-spin" />}
                   {loading
@@ -454,54 +744,107 @@ export function RepRegistrationTab() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="order-last lg:order-none">
           <CardHeader>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <CardTitle className="text-lg">Purchase history</CardTitle>
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  Purchase history
+                  {history.length > 0 && (
+                    <Badge variant="outline" className="text-[11px] font-normal text-muted-foreground">
+                      {history.length}
+                    </Badge>
+                  )}
+                </CardTitle>
                 <CardDescription>
                   Registration purchases for your hub, newest first.
                 </CardDescription>
               </div>
-              {(registrations?.length ?? 0) > 0 && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={exporting}
-                  onClick={() => void handleDownloadExcel()}
-                >
-                  {exporting ? (
-                    <Loader2Icon className="size-4 animate-spin" />
-                  ) : (
-                    <DownloadIcon className="size-4" />
-                  )}
-                  Excel report
-                </Button>
+              {history.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <div className="relative">
+                    <SearchIcon className="absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      type="search"
+                      placeholder="Reference…"
+                      className="h-9 w-40 pl-8"
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={exporting}
+                    onClick={() => void handleDownloadExcel()}
+                  >
+                    {exporting ? (
+                      <Loader2Icon className="size-4 animate-spin" />
+                    ) : (
+                      <DownloadIcon className="size-4" />
+                    )}
+                    Excel report
+                  </Button>
+                </div>
               )}
             </div>
           </CardHeader>
           <CardContent className="space-y-3">
-            {history.length === 0 && (
-              <p className="text-sm text-muted-foreground">
-                No registrations yet.
-              </p>
+            {history.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                {REGISTRATION_FILTERS.map((f) => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => setFilter(f.id)}
+                    className={cn(
+                      "rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+                      filter === f.id
+                        ? "border-gold bg-gold/15 text-ink"
+                        : "text-muted-foreground hover:border-gold/40 hover:text-foreground",
+                    )}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
             )}
-            {history.map((row: RegistrationRow) => {
-              const status = paymentStatusMeta(row.paymentStatus);
-              return (
-                <div
-                  key={row._id}
-                  className="rounded-lg border p-4 text-sm"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="font-mono text-xs tracking-wider">
-                      {row.referenceNumber || "(pending)"}
-                    </span>
-                    <Badge variant="outline" className={status.className}>
-                      {status.label}
-                    </Badge>
-                  </div>
+
+            {history.length === 0 ? (
+              <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed p-8 text-center">
+                <span className="flex size-10 items-center justify-center rounded-full bg-gold/15">
+                  <ClipboardListIcon className="size-5 text-gold-dark" />
+                </span>
+                <p className="text-sm font-medium">No registrations yet</p>
+                <p className="max-w-xs text-xs text-muted-foreground">
+                  Use the form to register your first delegates — purchases
+                  will appear here with live payment status.
+                </p>
+              </div>
+            ) : filteredHistory.length === 0 ? (
+              <p className="py-4 text-center text-sm text-muted-foreground">
+                No purchases match this filter.
+              </p>
+            ) : (
+              filteredHistory.map((row: RegistrationRow) => {
+                const status = paymentStatusMeta(row.paymentStatus);
+                return (
+                  <div
+                    key={row._id}
+                    className="rounded-xl border p-4 text-sm transition-colors hover:border-gold/40"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-mono text-xs tracking-wider">
+                        {row.referenceNumber || "(pending)"}
+                      </span>
+                      <Badge variant="outline" className={status.className}>
+                        {status.label}
+                      </Badge>
+                    </div>
+                    <div className="mt-2">
+                      <StatusTimeline status={row.paymentStatus} />
+                    </div>
                   <p className="mt-2">
                     <strong>{row.quantity}</strong> delegate(s) —{" "}
                     <strong>
@@ -551,7 +894,8 @@ export function RepRegistrationTab() {
                   )}
                 </div>
               );
-            })}
+            })
+          )}
           </CardContent>
         </Card>
       </div>
