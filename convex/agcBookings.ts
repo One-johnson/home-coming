@@ -23,6 +23,13 @@ import {
   applySubstitution,
   getHoldHours,
   getDeadlineMs,
+  getPoolForRegion,
+  releaseUnits,
+  reserveUnits,
+  validateGuestInput,
+  computeBookingLines,
+  bookingTotal,
+  bookingCurrency,
   type BookingGuestInput,
 } from "./agcAccommodation";
 import { requireRep } from "./agcPortal";
@@ -257,6 +264,167 @@ export const cancelBooking = mutation({
       entityType: "agcBookings",
       entityId: args.bookingId,
       summary: `Rep ${rep.username} cancelled reservation ${booking.referenceNumber ?? ""}`,
+    });
+    return { success: true as const };
+  },
+});
+
+/**
+ * Replace the guest list of a reserved booking (rep-side edit). Atomic:
+ * releases the old units, re-validates capacity, re-prices from the current
+ * config, and re-reserves the new lines — any failure aborts the whole edit.
+ */
+export const editBooking = mutation({
+  args: {
+    sessionToken: v.string(),
+    bookingId: v.id("agcBookings"),
+    guests: v.array(guestValidator),
+  },
+  handler: async (ctx, args) => {
+    const { rep, hub } = await requireRep(ctx, args.sessionToken);
+    const booking: Doc<"agcBookings"> | null = await ctx.db.get(args.bookingId);
+    if (!booking || booking.repId !== rep._id) {
+      throw new Error("Booking not found");
+    }
+    if (booking.bookingStatus !== "reserved") {
+      throw new Error(
+        "Only reservations that are still on hold can be edited — contact the accommodation desk for confirmed bookings.",
+      );
+    }
+    if (args.guests.length === 0) {
+      throw new Error("Add at least one guest before saving");
+    }
+    for (let i = 0; i < args.guests.length; i += 1) {
+      const error = validateGuestInput(args.guests[i], i + 1);
+      if (error) throw new Error(error);
+    }
+    await assertBeforeDeadline(ctx);
+
+    const oldLines = await ctx.db
+      .query("agcBookingLines")
+      .withIndex("by_booking", (q) => q.eq("bookingId", booking._id))
+      .collect();
+
+    // 1. Release every held unit from the old lines.
+    for (const line of oldLines) {
+      const pool = await getPoolForRegion(ctx, line.accommodationType, booking.region);
+      await releaseUnits(ctx, pool, line.quantity, booking._id, "release");
+      await ctx.db.delete(line._id);
+    }
+
+    // 2. Compute and reserve the new lines (throws → whole edit aborts).
+    const lines = computeBookingLines(args.guests, booking.region);
+    const total = bookingTotal(lines);
+    const currency = bookingCurrency(booking.region);
+    for (const line of lines) {
+      const pool = await getPoolForRegion(ctx, line.accommodationType, booking.region);
+      await reserveUnits(ctx, pool, line.quantity, booking._id);
+      await ctx.db.insert("agcBookingLines", {
+        bookingId: booking._id,
+        accommodationType: line.accommodationType,
+        quantity: line.quantity,
+        unitPrice: line.unitPrice,
+        isBishopRate: line.isBishopRate,
+      });
+    }
+
+    // 3. Replace the guest roster.
+    for (const guest of await ctx.db
+      .query("agcGuests")
+      .withIndex("by_booking", (q) => q.eq("bookingId", booking._id))
+      .collect()) {
+      await ctx.db.delete(guest._id);
+    }
+    for (const guest of args.guests) {
+      await ctx.db.insert("agcGuests", {
+        bookingId: booking._id,
+        hubId: hub._id,
+        region: booking.region,
+        country: hub.country,
+        firstName: guest.firstName.trim(),
+        lastName: guest.lastName.trim(),
+        gender: guest.gender,
+        title: guest.title.trim(),
+        phone: guest.phone?.trim() || undefined,
+        email: guest.email?.trim() || undefined,
+        accommodationType: guest.accommodationType,
+        pool: await (async () => {
+          const pool = await getPoolForRegion(ctx, guest.accommodationType, booking.region);
+          return pool.scope;
+        })(),
+        isBishopRate: guest.isBishopRate,
+        status: "active",
+        createdAt: Date.now(),
+      });
+    }
+
+    await ctx.db.patch(booking._id, {
+      totalAmount: total,
+      currency,
+      updatedAt: Date.now(),
+    });
+
+    await writeAuditLog(ctx, {
+      actorEmail: rep.email ?? rep.username,
+      action: "agc_booking.edited_by_rep",
+      entityType: "agcBookings",
+      entityId: booking._id,
+      summary: `Rep ${rep.username} edited reservation ${booking.referenceNumber ?? ""} (${args.guests.length} guest(s), ${total} ${currency})`,
+    });
+    return { success: true as const };
+  },
+});
+
+/**
+ * Permanently remove a reservation that is still on hold. Unlike cancel
+ * (which keeps a cancelled row for the audit trail), delete erases the
+ * booking, its guests, lines, and ledger entries, returning the held units.
+ */
+export const deleteBooking = mutation({
+  args: {
+    sessionToken: v.string(),
+    bookingId: v.id("agcBookings"),
+  },
+  handler: async (ctx, args) => {
+    const { rep } = await requireRep(ctx, args.sessionToken);
+    const booking: Doc<"agcBookings"> | null = await ctx.db.get(args.bookingId);
+    if (!booking || booking.repId !== rep._id) {
+      throw new Error("Booking not found");
+    }
+    if (booking.bookingStatus !== "reserved") {
+      throw new Error(
+        "Only reservations that are still on hold can be deleted — cancelled and confirmed bookings are kept for the records.",
+      );
+    }
+
+    const oldLines = await ctx.db
+      .query("agcBookingLines")
+      .withIndex("by_booking", (q) => q.eq("bookingId", booking._id))
+      .collect();
+    for (const line of oldLines) {
+      const pool = await getPoolForRegion(ctx, line.accommodationType, booking.region);
+      await releaseUnits(ctx, pool, line.quantity, booking._id, "cancel");
+      await ctx.db.delete(line._id);
+    }
+    for (const guest of await ctx.db
+      .query("agcGuests")
+      .withIndex("by_booking", (q) => q.eq("bookingId", booking._id))
+      .collect()) {
+      await ctx.db.delete(guest._id);
+    }
+    // Ledger has no booking index; sweep by bookingId.
+    for (const entry of await ctx.db.query("agcInventoryLedger").collect()) {
+      if (entry.bookingId === booking._id) await ctx.db.delete(entry._id);
+    }
+
+    await ctx.db.delete(booking._id);
+
+    await writeAuditLog(ctx, {
+      actorEmail: rep.email ?? rep.username,
+      action: "agc_booking.deleted_by_rep",
+      entityType: "agcBookings",
+      entityId: args.bookingId,
+      summary: `Rep ${rep.username} deleted reservation ${booking.referenceNumber ?? ""}`,
     });
     return { success: true as const };
   },

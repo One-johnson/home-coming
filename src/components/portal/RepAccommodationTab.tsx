@@ -6,6 +6,7 @@ import {
   AlertTriangleIcon,
   CalendarClockIcon,
   Loader2Icon,
+  PencilIcon,
   ReceiptTextIcon,
   SearchIcon,
   Trash2Icon,
@@ -435,6 +436,8 @@ export function RepAccommodationTab() {
 
   const createBooking = useMutation(api.agcBookings.createBooking);
   const cancelBooking = useMutation(api.agcBookings.cancelBooking);
+  const editBooking = useMutation(api.agcBookings.editBooking);
+  const deleteBooking = useMutation(api.agcBookings.deleteBooking);
   const submitOffline = useMutation(api.agcBookings.submitOfflineBookingPayment);
   const substitute = useMutation(api.agcBookings.substituteGuest);
   const generateUploadUrl = useMutation(api.agcPortal.generateReceiptUploadUrl);
@@ -459,6 +462,13 @@ export function RepAccommodationTab() {
 
   // Cancel confirmation
   const [cancelTarget, setCancelTarget] = useState<RepBooking | null>(null);
+
+  // Edit dialog (reserved bookings only): drafts mirror the create form
+  const [editTarget, setEditTarget] = useState<RepBooking | null>(null);
+  const [editDrafts, setEditDrafts] = useState<Draft[]>([]);
+
+  // Delete confirmation
+  const [deleteTarget, setDeleteTarget] = useState<RepBooking | null>(null);
 
   // Substitution dialog
   const [subTarget, setSubTarget] = useState<RepBooking["guests"][number] | null>(
@@ -639,6 +649,96 @@ export function RepAccommodationTab() {
       });
       toast.success("Reservation cancelled — the held beds are back in the pool.");
       setCancelTarget(null);
+    } catch (err) {
+      const friendly = friendlyError(err);
+      toast.error(friendly.title, { description: friendly.detail });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const openEdit = (booking: RepBooking) => {
+    setEditTarget(booking);
+    setEditDrafts(
+      booking.guests
+        .filter((guest) => guest.status === "active")
+        .map((guest) => ({
+          firstName: guest.firstName,
+          lastName: guest.lastName,
+          gender: guest.gender === "female" ? "female" : "male",
+          title: guest.title,
+          accommodationType: (guest.accommodationType as Draft["accommodationType"]) ?? "dormitory",
+          isBishopRate: guest.isBishopRate,
+        })),
+    );
+  };
+
+  const editSummary = useMemo(
+    () => computeBookingSummary(editDrafts, region),
+    [editDrafts, region],
+  );
+  const editCapacityIssue = useMemo(() => {
+    // The edit releases the booking's current units before re-reserving, so
+    // effective availability = listed availability + this booking's held units.
+    if (!overview || !editTarget) return null;
+    const held = new Map<string, number>();
+    for (const line of editTarget.lines) {
+      held.set(line.accommodationType, (held.get(line.accommodationType) ?? 0) + line.quantity);
+    }
+    return capacityProblem(
+      editSummary,
+      overview.availability.map((row) => ({
+        accommodationType: row.accommodationType,
+        available: row.available + (held.get(row.accommodationType) ?? 0),
+      })),
+    );
+  }, [editSummary, overview, editTarget]);
+  const editAllValid = editDrafts.length > 0 && editDrafts.every(draftIsValid);
+
+  const handleEditSave = async () => {
+    if (!sessionToken || !editTarget) return;
+    if (editCapacityIssue) {
+      toast.error("Not enough capacity", { description: editCapacityIssue });
+      return;
+    }
+    setLoading(true);
+    setError("");
+    try {
+      await editBooking({
+        sessionToken,
+        bookingId: editTarget._id as Id<"agcBookings">,
+        guests: editDrafts.map((draft) => ({
+          firstName: draft.firstName,
+          lastName: draft.lastName,
+          gender: draft.gender,
+          title: draft.title || "Member",
+          accommodationType: draft.accommodationType,
+          isBishopRate: draft.isBishopRate,
+        })),
+      });
+      toast.success(`Reservation ${editTarget.referenceNumber} updated.`);
+      setEditTarget(null);
+    } catch (err) {
+      const friendly = friendlyError(err);
+      setError(
+        friendly.detail ? `${friendly.title}: ${friendly.detail}` : friendly.title,
+      );
+      toast.error(friendly.title, { description: friendly.detail });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteConfirmed = async () => {
+    if (!sessionToken || !deleteTarget) return;
+    setLoading(true);
+    try {
+      await deleteBooking({
+        sessionToken,
+        bookingId: deleteTarget._id as Id<"agcBookings">,
+      });
+      toast.success(`Reservation ${deleteTarget.referenceNumber} deleted — beds returned to the pool.`);
+      setDeleteTarget(null);
     } catch (err) {
       const friendly = friendlyError(err);
       toast.error(friendly.title, { description: friendly.detail });
@@ -1010,33 +1110,40 @@ export function RepAccommodationTab() {
             );
           })}
 
-          {/* Sticky live summary (mobile: sticks to the bottom) */}
+          {/* Sticky live summary (mobile: compact, sticks to the bottom) */}
           {drafts.length > 0 && (
-            <div className="sticky bottom-2 z-10 rounded-lg border bg-card p-4 shadow-sm">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="text-sm">
+            <div className="sticky bottom-2 z-10 rounded-lg border bg-card p-3 shadow-sm sm:p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
+                <div className="min-w-0 text-sm">
                   <p className="font-medium">
                     {drafts.length} guest{drafts.length === 1 ? "" : "s"} ·{" "}
                     {describeUnits(summary)}
                   </p>
-                  {summary.lines.map((line) => (
-                    <p key={`${line.accommodationType}-${line.isBishopRate}`} className="text-xs text-muted-foreground">
-                      {line.units} {line.unitLabel}
-                      {line.units === 1 ? "" : "s"} × {currency} {line.unitPrice}
-                      {line.isBishopRate ? " (bishop)" : ""} = {currency} {line.subtotal}
-                    </p>
-                  ))}
+                  <p className="truncate text-xs text-muted-foreground sm:hidden">
+                    {summary.lines
+                      .map((line) => `${line.units} ${line.unitLabel}${line.units === 1 ? "" : "s"}`)
+                      .join(" · ")}
+                  </p>
+                  <div className="hidden sm:block">
+                    {summary.lines.map((line) => (
+                      <p key={`${line.accommodationType}-${line.isBishopRate}`} className="text-xs text-muted-foreground">
+                        {line.units} {line.unitLabel}
+                        {line.units === 1 ? "" : "s"} × {currency} {line.unitPrice}
+                        {line.isBishopRate ? " (bishop)" : ""} = {currency} {line.subtotal}
+                      </p>
+                    ))}
+                  </div>
                 </div>
                 <div className="text-right">
                   <p className="text-xs text-muted-foreground">Total</p>
-                  <p className="text-xl font-semibold">
+                  <p className="text-lg font-semibold sm:text-xl">
                     {currency} {summary.totalAmount}
                   </p>
                 </div>
               </div>
               {capacityIssue && (
-                <p className="mt-2 flex items-center gap-1.5 text-xs font-medium text-amber-700">
-                  <AlertTriangleIcon className="size-3.5" /> {capacityIssue}
+                <p className="mt-2 flex items-start gap-1.5 text-xs font-medium text-amber-700">
+                  <AlertTriangleIcon className="mt-0.5 size-3.5 shrink-0" /> {capacityIssue}
                 </p>
               )}
             </div>
@@ -1111,7 +1218,7 @@ export function RepAccommodationTab() {
             hours or the registration deadline.
           </CardDescription>
           {(bookings?.length ?? 0) > 3 && (
-            <div className="mt-2 flex flex-wrap items-center gap-2">
+            <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
               <Tabs
                 value={filter}
                 onValueChange={(value) =>
@@ -1185,7 +1292,8 @@ export function RepAccommodationTab() {
               No bookings match this filter.
             </p>
           ) : (
-            filteredBookings.map((booking) => {
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {filteredBookings.map((booking) => {
               const status = bookingStatusMeta(booking.bookingStatus);
               const payStatus = paymentStatusMeta(booking.paymentStatus);
               const canPayOffline =
@@ -1197,11 +1305,12 @@ export function RepAccommodationTab() {
                 booking.paymentMode !== "offline" &&
                 booking.bookingStatus === "reserved" &&
                 booking.paymentStatus === "awaiting_payment";
+              const isReserved = booking.bookingStatus === "reserved";
               const activeGuests = booking.guests.filter(
                 (guest) => guest.status === "active",
               );
               return (
-                <div key={booking._id} className="rounded-lg border p-4 text-sm">
+                <div key={booking._id} className="flex flex-col rounded-lg border p-4 text-sm">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="font-mono text-xs tracking-wider">
                       {booking.referenceNumber || "(pending)"}
@@ -1263,36 +1372,61 @@ export function RepAccommodationTab() {
                     ))}
                   </div>
 
-                  <div className="mt-3 flex flex-wrap gap-2">
+                  <div className="mt-auto flex flex-wrap items-center gap-2 pt-3">
                     {canPayOffline && (
                       <Button
                         type="button"
                         variant="outline"
+                        size="sm"
                         onClick={() => setPayTarget(booking)}
                       >
-                        <ReceiptTextIcon className="size-4" /> Submit payment receipt
+                        <ReceiptTextIcon className="size-4" /> Submit receipt
                       </Button>
                     )}
                     {canPayOnline && (
-                      <Button type="button" onClick={() => setPayTarget(booking)}>
+                      <Button type="button" size="sm" onClick={() => setPayTarget(booking)}>
                         Pay online
                       </Button>
                     )}
-                    {booking.bookingStatus === "reserved" && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => setCancelTarget(booking)}
-                        disabled={loading}
-                        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                      >
-                        Cancel
-                      </Button>
+                    {isReserved && (
+                      <>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => openEdit(booking)}
+                          disabled={loading}
+                        >
+                          <PencilIcon className="size-4" /> Edit
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setCancelTarget(booking)}
+                          disabled={loading}
+                          className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setDeleteTarget(booking)}
+                          disabled={loading}
+                          aria-label="Delete reservation"
+                          className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                        >
+                          <Trash2Icon className="size-4" />
+                        </Button>
+                      </>
                     )}
                   </div>
                 </div>
               );
-            })
+            })}
+            </div>
           )}
         </CardContent>
       </Card>
@@ -1347,6 +1481,224 @@ export function RepAccommodationTab() {
             >
               {loading && <Loader2Icon className="size-4 animate-spin" />}
               Cancel reservation
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit reservation dialog (reserved bookings only) */}
+      <Dialog
+        open={editTarget !== null}
+        onOpenChange={(open) => !open && setEditTarget(null)}
+      >
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Edit reservation {editTarget?.referenceNumber}</DialogTitle>
+            <DialogDescription>
+              The hold is released and re-reserved with your changes — if a bed
+              type sells out meanwhile, saving fails and nothing changes. New
+              total: {currency} {editSummary.totalAmount} ({describeUnits(editSummary)}).
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[50vh] space-y-3 overflow-y-auto pr-1">
+            {editDrafts.map((draft, index) => (
+              <div key={index} className="rounded-lg border p-3">
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Title</Label>
+                    <Select
+                      value={draft.title}
+                      onValueChange={(value) =>
+                        setEditDrafts((prev) =>
+                          prev.map((d, i) =>
+                            i === index ? { ...d, title: value ?? d.title } : d,
+                          ),
+                        )
+                      }
+                    >
+                      <SelectTrigger className="h-9 w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {TITLE_OPTIONS.map((option) => (
+                          <SelectItem key={option} value={option}>
+                            {option}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Gender</Label>
+                    <Select
+                      value={draft.gender}
+                      onValueChange={(value) =>
+                        setEditDrafts((prev) =>
+                          prev.map((d, i) =>
+                            i === index
+                              ? { ...d, gender: (value as "male" | "female") ?? d.gender }
+                              : d,
+                          ),
+                        )
+                      }
+                    >
+                      <SelectTrigger className="h-9 w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="male">Male</SelectItem>
+                        <SelectItem value="female">Female</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">First name</Label>
+                    <Input
+                      className="h-9"
+                      value={draft.firstName}
+                      onChange={(e) =>
+                        setEditDrafts((prev) =>
+                          prev.map((d, i) =>
+                            i === index ? { ...d, firstName: e.target.value } : d,
+                          ),
+                        )
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Last name</Label>
+                    <Input
+                      className="h-9"
+                      value={draft.lastName}
+                      onChange={(e) =>
+                        setEditDrafts((prev) =>
+                          prev.map((d, i) =>
+                            i === index ? { ...d, lastName: e.target.value } : d,
+                          ),
+                        )
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1 sm:col-span-2">
+                    <Label className="text-xs">Accommodation</Label>
+                    <Select
+                      value={draft.accommodationType}
+                      onValueChange={(value) =>
+                        setEditDrafts((prev) =>
+                          prev.map((d, i) => {
+                            if (i !== index) return d;
+                            const next = (value ?? d.accommodationType) as Draft["accommodationType"];
+                            return {
+                              ...d,
+                              accommodationType: next,
+                              isBishopRate: next === "ebpv" ? d.isBishopRate : false,
+                            };
+                          }),
+                        )
+                      }
+                    >
+                      <SelectTrigger className="h-9 w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {overview?.accommodationTypes.map((type) => (
+                          <SelectItem key={type.type} value={type.type}>
+                            {type.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <label className="flex items-center gap-2 text-xs sm:col-span-2">
+                    <Checkbox
+                      checked={draft.isBishopRate}
+                      disabled={draft.accommodationType !== "ebpv"}
+                      onCheckedChange={(checked) =>
+                        setEditDrafts((prev) =>
+                          prev.map((d, i) =>
+                            i === index ? { ...d, isBishopRate: checked === true } : d,
+                          ),
+                        )
+                      }
+                    />
+                    Bishop Special Rate (EBPV only)
+                  </label>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="mt-2 h-auto px-2 py-1 text-xs text-destructive hover:text-destructive"
+                  onClick={() =>
+                    setEditDrafts((prev) => prev.filter((_, i) => i !== index))
+                  }
+                >
+                  <Trash2Icon className="size-3" /> Remove
+                </Button>
+              </div>
+            ))}
+            {editDrafts.length === 0 && (
+              <p className="text-sm text-muted-foreground">
+                No guests left — add one or delete the reservation instead.
+              </p>
+            )}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setEditDrafts((prev) => [...prev, emptyDraft()])}
+            >
+              + Add guest
+            </Button>
+          </div>
+          {editCapacityIssue && (
+            <p className="flex items-center gap-1.5 text-xs font-medium text-amber-700">
+              <AlertTriangleIcon className="size-3.5" /> {editCapacityIssue}
+            </p>
+          )}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setEditTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={() => void handleEditSave()}
+              disabled={loading || !editAllValid || Boolean(editCapacityIssue)}
+            >
+              {loading && <Loader2Icon className="size-4 animate-spin" />}
+              Save changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete confirmation */}
+      <Dialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete this reservation?</DialogTitle>
+            <DialogDescription>
+              {deleteTarget?.referenceNumber} will be permanently removed —
+              guests, payment lines, and the hold itself. The beds return to
+              the pool immediately. This cannot be undone; use Cancel instead
+              if you want a record kept.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setDeleteTarget(null)}>
+              Keep reservation
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => void handleDeleteConfirmed()}
+              disabled={loading}
+            >
+              {loading && <Loader2Icon className="size-4 animate-spin" />}
+              Delete permanently
             </Button>
           </DialogFooter>
         </DialogContent>

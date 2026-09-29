@@ -72,10 +72,10 @@ function PortalBody() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-card p-4">
-        <div>
-          <p className="font-display text-lg text-primary">{rep.hubName}</p>
-          <p className="text-xs text-muted-foreground">
+      <div className="flex flex-col gap-3 rounded-lg border bg-card p-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <p className="truncate font-display text-lg text-primary">{rep.hubName}</p>
+          <p className="break-words text-xs text-muted-foreground">
             {rep.firstName} {rep.lastName} · {rep.email} · Hub: {rep.username}
           </p>
         </div>
@@ -86,6 +86,7 @@ function PortalBody() {
             void clearSession();
             toast.success("You've been signed out. See you soon!");
           }}
+          className="w-full sm:w-auto"
         >
           <LogOutIcon className="size-4" />
           Sign out
@@ -127,12 +128,12 @@ export function PortalShell() {
   return (
     // The real (or fallback) RepSessionProvider is mounted globally in
     // ConvexClientProvider — no need to nest another one here.
-    <div className="mx-auto w-full max-w-6xl px-4 py-10">
-        <header className="mb-8 text-center">
-          <p className="text-sm uppercase tracking-widest text-muted-foreground">
+    <div className="mx-auto w-full max-w-6xl px-3 py-6 sm:px-4 sm:py-10">
+        <header className="mb-6 text-center sm:mb-8">
+          <p className="text-xs uppercase tracking-widest text-muted-foreground sm:text-sm">
             {EVENT.fullTitle}
           </p>
-          <h1 className="font-display text-3xl text-primary sm:text-4xl">
+          <h1 className="font-display text-2xl text-primary sm:text-3xl md:text-4xl">
             Representative Portal
           </h1>
           <p className="mx-auto mt-2 max-w-2xl text-sm text-muted-foreground">

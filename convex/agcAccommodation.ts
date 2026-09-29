@@ -187,7 +187,7 @@ async function writeLedger(
 }
 
 /** Reserve units in a single pool. Throws when capacity is insufficient (§30). */
-async function reserveUnits(
+export async function reserveUnits(
   ctx: MutationCtx,
   pool: Doc<"agcInventoryPools">,
   units: number,
@@ -208,7 +208,7 @@ async function reserveUnits(
 }
 
 /** Release units from a pool (expiry / cancellation / admin release). */
-async function releaseUnits(
+export async function releaseUnits(
   ctx: MutationCtx,
   pool: Doc<"agcInventoryPools">,
   units: number,
