@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import type { Doc, Id } from "@convex/_generated/dataModel";
+import { cleanErrorMessage } from "@/lib/friendlyError";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import {
   useAdminSession,
@@ -92,7 +93,7 @@ export default function AdminHotelsPage() {
         `Hotels synced (${result.inserted} new, ${result.updated} updated, ${result.deleted} removed)`,
       );
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Sync failed");
+      toast.error(cleanErrorMessage(err) || "Sync failed");
     } finally {
       setSyncing(false);
     }
@@ -129,7 +130,7 @@ export default function AdminHotelsPage() {
       });
       toast.success(`Updated ${draft.name}`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Update failed");
+      toast.error(cleanErrorMessage(err) || "Update failed");
     } finally {
       setSavingId(null);
     }

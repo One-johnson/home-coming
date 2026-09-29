@@ -35,6 +35,7 @@ import {
 } from "@/lib/adminColors";
 import { canAccessArea } from "@/lib/adminRoles";
 import { EVENT } from "@/lib/eventConfig";
+import { cleanErrorMessage } from "@/lib/friendlyError";
 import { cn } from "@/lib/utils";
 
 type AgcOverview = {
@@ -697,9 +698,7 @@ export default function AdminOverviewPage() {
                   toast.success("Default content seeded");
                 } catch (err) {
                   toast.error(
-                    err instanceof Error
-                      ? err.message
-                      : "Failed to seed content",
+                    cleanErrorMessage(err) || "Failed to seed content",
                   );
                 }
               }}

@@ -5,6 +5,7 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import { ArrowLeftIcon, CheckCircle2Icon, Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
+import { cleanErrorMessage } from "@/lib/friendlyError";
 import { CountryCodeSelect } from "@/components/forms/CountryCodeSelect";
 import { LinkButton as Button } from "@/components/ui/app-button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -281,7 +282,7 @@ function RegistrationFormInner() {
       setStep("confirmation");
       toast.success("Registration submitted successfully");
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Registration failed";
+      const message = cleanErrorMessage(err);
       setError(message);
       toast.error(message);
     } finally {

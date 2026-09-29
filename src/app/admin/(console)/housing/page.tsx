@@ -5,6 +5,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import type { Doc, Id } from "@convex/_generated/dataModel";
+import { cleanErrorMessage } from "@/lib/friendlyError";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -62,7 +63,7 @@ export default function AdminHousingPage() {
       });
       toast.success(`Updated ${item.type}`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Update failed");
+      toast.error(cleanErrorMessage(err) || "Update failed");
     }
   };
 

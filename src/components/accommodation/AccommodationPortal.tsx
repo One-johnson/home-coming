@@ -5,6 +5,7 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import { CheckCircle2Icon, Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
+import { cleanErrorMessage } from "@/lib/friendlyError";
 import { LinkButton as Button } from "@/components/ui/app-button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -132,7 +133,7 @@ function AccommodationPortalInner() {
         paymentResult.message ?? "Accommodation booked successfully",
       );
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Booking failed";
+      const message = cleanErrorMessage(err);
       setError(message);
       toast.error(message);
     } finally {

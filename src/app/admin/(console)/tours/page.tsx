@@ -6,6 +6,7 @@ import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import type { Doc, Id } from "@convex/_generated/dataModel";
+import { cleanErrorMessage } from "@/lib/friendlyError";
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/ui/data-table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -68,9 +69,7 @@ function TourOrdersTable() {
         setSelected((prev) => (prev ? { ...prev, paymentStatus } : prev));
       }
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Failed to update status",
-      );
+      toast.error(cleanErrorMessage(err) || "Failed to update status");
     }
   };
 
@@ -121,11 +120,7 @@ function TourOrdersTable() {
                       );
                       clearSelection();
                     } catch (err) {
-                      toast.error(
-                        err instanceof Error
-                          ? err.message
-                          : "Bulk update failed",
-                      );
+                      toast.error(cleanErrorMessage(err) || "Bulk update failed");
                     }
                   }}
                 >

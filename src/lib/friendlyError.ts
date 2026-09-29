@@ -1,8 +1,12 @@
+import { ConvexError } from "convex/values";
+
 /**
  * Convex surfaces thrown errors to the client as strings like:
- *   "[CONVEX A(agcAuth:repLogin)] Server Error\nUncaught Error: Invalid username or password"
- * or "Uncaught Error: ..." — strip the plumbing so users only see the friendly
- * message our actions intentionally throw.
+ *   "[CONVEX A(agcAuth:repLogin)] Server Error\nUncaught Error: Invalid username or password"   (old format)
+ *   "[Request ID: 96a6d283e177e540] Server Error\nUncaught Error: The registration deadline has passed.\nCalled by client"   (current format)
+ * Some layers also wrap intentional messages in ConvexError({ message }).
+ * Strip all the plumbing so users only see the friendly message our
+ * functions intentionally throw.
  */
 export type FriendlyError = {
   /** Short, human-readable headline for a toast title or inline alert. */
@@ -11,20 +15,147 @@ export type FriendlyError = {
   detail?: string;
 };
 
-const CONVEX_PREFIX_RE =
-  /^\s*\[CONVEX[^\]]*\]\s*(?:Server Error\s*)?(?:Uncaught Error:\s*)?/i;
-
-/** Remove Convex error plumbing ("[CONVEX A(...)] Server Error Uncaught Error: "). */
-export function cleanErrorMessage(err: unknown): string {
-  const raw =
-    err instanceof Error
-      ? err.message
-      : typeof err === "string"
-        ? err
-        : "Something went wrong. Please try again.";
-  const cleaned = raw.replace(CONVEX_PREFIX_RE, "").trim();
-  return cleaned || "Something went wrong. Please try again.";
+/** Extract the raw message string from anything throwable. */
+function rawErrorMessage(err: unknown): string {
+  if (err instanceof ConvexError) {
+    const data: unknown = err.data;
+    if (typeof data === "string" && data.trim()) return data;
+    if (
+      data &&
+      typeof data === "object" &&
+      "message" in data &&
+      typeof (data as { message: unknown }).message === "string"
+    ) {
+      return (data as { message: string }).message;
+    }
+  }
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  return "";
 }
+
+const CONVEX_NOISE_PATTERNS: RegExp[] = [
+  // Old format: "[CONVEX A(agcAuth:repLogin)] Server Error"
+  /^\s*\[CONVEX[^\]]*\]\s*/i,
+  // Current format: "[Request ID: 96a6d283e177e540]"
+  /^\s*\[Request ID:\s*[^\]]*\]\s*/i,
+  // "Server Error", "Client Error" — leading severity labels
+  /^\s*(?:Server|Client)\s*Error\s*:?\s*/i,
+  // "Uncaught Error:", "Uncaught TypeError:" etc.
+  /^\s*Uncaught\s+\w*(?:Error|Exception)\s*:\s*/i,
+  // "Called by client" trailer
+  /\s*Called by (?:client|server)\s*$/i,
+];
+
+/** Recursively strip Convex plumbing from a raw error string. */
+export function cleanErrorMessage(err: unknown): string {
+  let text = rawErrorMessage(err);
+  for (let i = 0; i < 3; i += 1) {
+    const before = text;
+    for (const pattern of CONVEX_NOISE_PATTERNS) {
+      text = text.replace(pattern, "");
+    }
+    if (text === before) break;
+  }
+  text = text.trim();
+  // If what remains is still obviously plumbing (raw JS crash text like
+  // "Cannot read properties of undefined (reading 'total')"), hide it —
+  // a stack-frame toast is worse than a short honest fallback.
+  const TECHNICAL_CRASH_RE =
+    /cannot read propert(y|ies)\b|is not a function\b|is not defined\b|is not a constructor\b|is not iterable\b|cannot destructure\b|\(reading '/i;
+  if (/^\s*(Error|TypeError|RangeError)\b/.test(text) || TECHNICAL_CRASH_RE.test(text)) {
+    return "Something went wrong. Please try again.";
+  }
+  return text || "Something went wrong. Please try again.";
+}
+
+/** Session expired mid-action → send the rep back to sign-in. */
+export function isSessionExpired(err: unknown): boolean {
+  return /unauthorized/i.test(cleanErrorMessage(err));
+}
+
+const mappings: Array<{
+  test: RegExp;
+  title: string;
+  detail: string;
+}> = [
+  {
+    test: /invalid username or password/i,
+    title: "We couldn't sign you in",
+    detail:
+      "Check your hub username and password, then try again. Usernames are the hub name in lowercase with underscores (e.g. ashanti_mampong).",
+  },
+  {
+    test: /account has been disabled|not active yet/i,
+    title: "This account is not active",
+    detail: "Please contact the registration desk for help.",
+  },
+  {
+    test: /unauthorized/i,
+    title: "Your session has expired",
+    detail: "Please sign in again to continue.",
+  },
+  {
+    test: /too many failed attempts/i,
+    title: "Too many failed attempts",
+    detail:
+      "For security this account is locked for 15 minutes. Try again later, or contact the registration desk if you've lost the password.",
+  },
+  {
+    test: /reset link is invalid or has expired/i,
+    title: "This reset link isn't valid anymore",
+    detail: "Reset links expire after 3 hours — request a fresh one.",
+  },
+  {
+    test: /password must be at least 8/i,
+    title: "Password is too short",
+    detail: "Please use at least 8 characters.",
+  },
+  {
+    test: /already in use/i,
+    title: "Email already registered",
+    detail:
+      "That email address is linked to another account. Try a different one.",
+  },
+  {
+    test: /valid email address is required/i,
+    title: "Check your email address",
+    detail: "Please enter a valid email address.",
+  },
+  {
+    test: /registration deadline has passed/i,
+    title: "The deadline has passed",
+    detail:
+      "Registrations are closed. Contact the registration desk for assistance.",
+  },
+  {
+    test: /only reservations that are still on hold/i,
+    title: "This booking can't be changed anymore",
+    detail:
+      "Payment was already confirmed, so the booking is locked. Contact the accommodation desk for any changes.",
+  },
+  {
+    test: /hold window for this reservation has expired/i,
+    title: "This reservation's hold has expired",
+    detail: "Create a new booking — the held beds were returned to the pool.",
+  },
+  {
+    test: /no longer receive a payment submission/i,
+    title: "This booking can't receive a payment anymore",
+    detail:
+      "The hold may have expired or the payment was already processed. Check the booking status and try again.",
+  },
+  {
+    test: /not enough capacity|sold out/i,
+    title: "Not enough capacity",
+    detail: "Some of the selected accommodation is fully booked. Try fewer guests or another type.",
+  },
+  {
+    test: /network|fetch failed|Failed to fetch/i,
+    title: "Connection problem",
+    detail: "We couldn't reach the server. Check your internet and retry.",
+  },
+];
 
 /**
  * Map a thrown error to a friendly toast-friendly shape. Known auth/validation
@@ -33,59 +164,11 @@ export function cleanErrorMessage(err: unknown): string {
  */
 export function friendlyError(err: unknown): FriendlyError {
   const message = cleanErrorMessage(err);
-
-  if (/invalid username or password/i.test(message)) {
-    return {
-      title: "We couldn't sign you in",
-      detail:
-        "Check your hub username and password, then try again. Usernames are the hub name in lowercase with underscores (e.g. ashanti_mampong).",
-    };
+  for (const mapping of mappings) {
+    if (mapping.test.test(message)) {
+      return { title: mapping.title, detail: mapping.detail };
+    }
   }
-  if (/account has been disabled/i.test(message)) {
-    return {
-      title: "This account is disabled",
-      detail: "Please contact the registration desk for help.",
-    };
-  }
-  if (/too many failed attempts/i.test(message)) {
-    return {
-      title: "Too many failed attempts",
-      detail:
-        "For security this account is locked for 15 minutes. Try again later, or contact the registration desk if you've lost the password.",
-    };
-  }
-  if (/reset link is invalid or has expired/i.test(message)) {
-    return {
-      title: "This reset link isn't valid anymore",
-      detail: "Reset links expire after 3 hours — request a fresh one.",
-    };
-  }
-  if (/password must be at least 8/i.test(message)) {
-    return {
-      title: "Password is too short",
-      detail: "Please use at least 8 characters.",
-    };
-  }
-  if (/already in use/i.test(message)) {
-    return {
-      title: "Email already registered",
-      detail:
-        "That email address is linked to another account. Try a different one.",
-    };
-  }
-  if (/valid email address is required/i.test(message)) {
-    return {
-      title: "Check your email address",
-      detail: "Please enter a valid email address.",
-    };
-  }
-  if (/network|fetch failed|Failed to fetch/i.test(message)) {
-    return {
-      title: "Connection problem",
-      detail: "We couldn't reach the server. Check your internet and retry.",
-    };
-  }
-
   // Unknown but intentional server message — pass it through, cleaned up.
   return { title: message };
 }
@@ -125,9 +208,10 @@ export function toastFriendlyError(
 /** Friendly error for admin surfaces: raw message for the inline alert, title+detail for the toast. */
 export function adminFriendlyError(err: unknown): FriendlyError {
   const message = cleanErrorMessage(err);
-  if (/too many failed attempts/i.test(message)) {
+  const lockout = mappings.find((m) => m.test.test(message));
+  if (lockout && /too many failed attempts/i.test(message)) {
     return {
-      title: "Too many failed attempts",
+      title: lockout.title,
       detail:
         "For security this account is locked for 15 minutes. Try again later.",
     };

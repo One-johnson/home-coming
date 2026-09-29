@@ -6,6 +6,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import type { Doc, Id } from "@convex/_generated/dataModel";
+import { cleanErrorMessage } from "@/lib/friendlyError";
 import { ConfirmDeleteDialog } from "@/components/admin/ConfirmDeleteDialog";
 import {
   useAdminSession,
@@ -195,7 +196,7 @@ export default function AdminContentPage() {
                   toast.success(editingFaq ? "FAQ updated" : "FAQ saved");
                 } catch (err) {
                   toast.error(
-                    err instanceof Error ? err.message : "Failed to save FAQ",
+                    cleanErrorMessage(err) || "Failed to save FAQ",
                   );
                 }
               }}
@@ -367,9 +368,7 @@ export default function AdminContentPage() {
                   toast.success("Announcement saved");
                 } catch (err) {
                   toast.error(
-                    err instanceof Error
-                      ? err.message
-                      : "Failed to save announcement",
+                    cleanErrorMessage(err) || "Failed to save announcement",
                   );
                 }
               }}
@@ -472,9 +471,7 @@ export default function AdminContentPage() {
                               toast.success("Announcement deleted");
                             } catch (err) {
                               toast.error(
-                                err instanceof Error
-                                  ? err.message
-                                  : "Delete failed",
+                                cleanErrorMessage(err) || "Delete failed",
                               );
                             }
                           }}

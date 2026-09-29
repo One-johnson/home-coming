@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/card";
 import { EVENT } from "@/lib/eventConfig";
 import { isConvexConfigured } from "@/lib/convex-config";
+import { cleanErrorMessage } from "@/lib/friendlyError";
 
 type PaymentSuccessProps = {
   title: string;
@@ -70,7 +71,7 @@ export function PaymentSuccess({
         setPaymentStatus(result.paymentStatus);
       } catch (err) {
         if (cancelled) return;
-        setError(err instanceof Error ? err.message : "Could not verify payment");
+        setError(cleanErrorMessage(err) || "Could not verify payment");
       } finally {
         if (!cancelled) setLoading(false);
       }

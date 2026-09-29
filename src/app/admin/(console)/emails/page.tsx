@@ -6,6 +6,7 @@ import { Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import type { Doc, Id } from "@convex/_generated/dataModel";
+import { cleanErrorMessage } from "@/lib/friendlyError";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/ui/data-table";
@@ -63,7 +64,7 @@ export default function AdminEmailsPage() {
       await action(id);
       toast.success(success);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Action failed");
+      toast.error(cleanErrorMessage(err) || "Action failed");
     }
   };
 
@@ -92,7 +93,7 @@ export default function AdminEmailsPage() {
       }
       setDeleteTarget(null);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Delete failed");
+      toast.error(cleanErrorMessage(err) || "Delete failed");
     } finally {
       setDeleting(false);
     }

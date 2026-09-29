@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { useAdminSession } from "@/components/admin/AdminSessionProvider";
 import { ROLE_LABELS } from "@/lib/adminRoles";
+import { cleanErrorMessage } from "@/lib/friendlyError";
 
 export default function AdminProfilePage() {
   const { user, sessionToken, clearSession } = useAdminSession();
@@ -44,7 +45,7 @@ export default function AdminProfilePage() {
       await updateProfile({ sessionToken, name });
       toast.success("Profile updated");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update profile");
+      toast.error(cleanErrorMessage(err) || "Failed to update profile");
     } finally {
       setSavingProfile(false);
     }
@@ -69,9 +70,7 @@ export default function AdminProfilePage() {
       setConfirmPassword("");
       await clearSession();
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Failed to change password",
-      );
+      toast.error(cleanErrorMessage(err) || "Failed to change password");
     } finally {
       setSavingPassword(false);
     }

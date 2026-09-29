@@ -6,6 +6,7 @@ import { Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
+import { cleanErrorMessage } from "@/lib/friendlyError";
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/ui/data-table";
 import { ConfirmDeleteDialog } from "@/components/admin/ConfirmDeleteDialog";
@@ -55,7 +56,7 @@ export default function AdminAuditPage() {
       deleteTarget.clearSelection();
       setDeleteTarget(null);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Delete failed");
+      toast.error(cleanErrorMessage(err) || "Delete failed");
     } finally {
       setDeleting(false);
     }

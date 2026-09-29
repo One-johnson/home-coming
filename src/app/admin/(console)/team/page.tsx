@@ -5,6 +5,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
+import { cleanErrorMessage } from "@/lib/friendlyError";
 import { LinkButton as Button } from "@/components/ui/app-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -74,7 +75,7 @@ export default function AdminTeamPage() {
       });
       toast.success("Team member created");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to create user");
+      toast.error(cleanErrorMessage(err) || "Failed to create user");
     }
   };
 
@@ -84,7 +85,7 @@ export default function AdminTeamPage() {
       await setUserRole({ sessionToken, userId, role: nextRole });
       toast.success(`Role set to ${ROLE_LABELS[nextRole]}`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update role");
+      toast.error(cleanErrorMessage(err) || "Failed to update role");
     }
   };
 
@@ -94,9 +95,7 @@ export default function AdminTeamPage() {
       await setUserActive({ sessionToken, userId, active });
       toast.success(active ? "User activated" : "User deactivated");
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Failed to update status",
-      );
+      toast.error(cleanErrorMessage(err) || "Failed to update status");
     }
   };
 
