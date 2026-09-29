@@ -29,6 +29,7 @@ import {
   useAdminSession,
   useSessionArgs,
 } from "@/components/admin/AdminSessionProvider";
+import { SessionExpiryBanner } from "@/components/auth/SessionExpiryBanner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -376,7 +377,8 @@ function AdminSidebar({
 }
 
 export function AdminShell({ children }: { children: React.ReactNode }) {
-  const { user, isReady, sessionToken, clearSession } = useAdminSession();
+  const { user, isReady, sessionToken, clearSession, sessionExpiresAt } =
+    useAdminSession();
   const sessionArgs = useSessionArgs();
   const overview = useQuery(
     api.admin.getOverview,
@@ -431,6 +433,10 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
 
   return (
     <SidebarProvider defaultOpen className="max-w-full overflow-x-hidden">
+      <SessionExpiryBanner
+        expiresAt={sessionExpiresAt}
+        onSignOut={() => void signOut()}
+      />
       <AdminConsoleFrame
         name={user.name}
         email={user.email}

@@ -10,7 +10,11 @@ import {
 import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
-import { repSessionStore, useSessionToken } from "@/lib/sessionStore";
+import {
+  repSessionStore,
+  sessionExpiresAt,
+  useSessionToken,
+} from "@/lib/sessionStore";
 import { isSessionExpired } from "@/lib/friendlyError";
 
 export type RepProfile = {
@@ -32,7 +36,9 @@ type RepSessionContextValue = {
   sessionToken: string | null;
   isReady: boolean;
   rep: RepProfile | null | undefined;
-  setSession: (token: string) => void;
+  /** Epoch ms when the server-side session ends, if known. */
+  sessionExpiresAt: number | null;
+  setSession: (token: string, expiresAt?: number) => void;
   clearSession: () => Promise<void>;
   /**
    * True if `err` means the session expired/was revoked — in that case the
@@ -48,6 +54,7 @@ const UNAVAILABLE_SESSION: RepSessionContextValue = {
   sessionToken: null,
   isReady: true,
   rep: null,
+  sessionExpiresAt: null,
   setSession: () => {
     throw new Error("Rep session is unavailable without Convex configured.");
   },
@@ -80,8 +87,8 @@ export function RepSessionProvider({ children }: { children: ReactNode }) {
     sessionToken ? { sessionToken } : "skip",
   );
 
-  const setSession = useCallback((token: string) => {
-    repSessionStore.set(token);
+  const setSession = useCallback((token: string, expiresAt?: number) => {
+    repSessionStore.set(token, expiresAt);
   }, []);
 
   const clearSession = useCallback(async () => {
@@ -110,16 +117,26 @@ export function RepSessionProvider({ children }: { children: ReactNode }) {
     [clearSession],
   );
 
+  const expiresAt = sessionExpiresAt(sessionToken);
   const value = useMemo(
     () => ({
       sessionToken,
       isReady,
+      sessionExpiresAt: expiresAt,
       rep: sessionToken ? rep : null,
       setSession,
       clearSession,
       handleSessionError,
     }),
-    [sessionToken, isReady, rep, setSession, clearSession, handleSessionError],
+    [
+      sessionToken,
+      isReady,
+      expiresAt,
+      rep,
+      setSession,
+      clearSession,
+      handleSessionError,
+    ],
   );
 
   return (

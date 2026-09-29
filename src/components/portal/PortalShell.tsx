@@ -13,6 +13,7 @@ import {
   RepFirstTimeSetup,
   RepSignIn,
 } from "@/components/portal/RepAuthForms";
+import { SessionExpiryBanner } from "@/components/auth/SessionExpiryBanner";
 import { RepOverviewTab } from "@/components/portal/RepOverviewTab";
 import { RepRegistrationTab } from "@/components/portal/RepRegistrationTab";
 import { RepAccommodationTab } from "@/components/portal/RepAccommodationTab";
@@ -220,8 +221,14 @@ function PortalBottomNav({
 }
 
 function PortalBody() {
-  const { sessionToken, isReady, rep, setSession, clearSession } =
-    useRepSession();
+  const {
+    sessionToken,
+    isReady,
+    rep,
+    setSession,
+    clearSession,
+    sessionExpiresAt,
+  } = useRepSession();
   const [tab, setTab] = useState<PortalTab>("overview");
 
   if (!isReady) return <PortalLoading />;
@@ -245,6 +252,10 @@ function PortalBody() {
 
   const content = (
     <div className="space-y-6 pb-24 md:pb-0">
+      <SessionExpiryBanner
+        expiresAt={sessionExpiresAt}
+        onSignOut={signOut}
+      />
       <div className="flex flex-col gap-3 rounded-lg border bg-card p-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
         <div className="min-w-0">
           <p className="truncate font-display text-lg text-primary">

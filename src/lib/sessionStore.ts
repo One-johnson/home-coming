@@ -49,12 +49,18 @@ class LocalValueStore {
     return () => this.listeners.delete(listener);
   };
 
-  /** Persist a token and notify subscribers in this tab. */
-  set(token: string) {
-    this.cached = token;
+  /** Persist a token (optionally with its expiry) and notify subscribers. */
+  set(token: string, expiresAt?: number) {
+    // Expiry-aware sessions are stored as JSON; bare tokens stay bare so
+    // existing localStorage entries keep working after an upgrade.
+    const stored =
+      typeof expiresAt === "number"
+        ? JSON.stringify({ t: token, e: expiresAt })
+        : token;
+    this.cached = stored;
     for (const listener of this.listeners) listener();
     try {
-      window.localStorage.setItem(this.key, token);
+      window.localStorage.setItem(this.key, stored);
     } catch {
       // Keep the in-memory session even if persistence fails.
     }
@@ -76,6 +82,20 @@ export const adminSessionStore = new LocalValueStore(
   "homecoming_admin_session",
 );
 export const repSessionStore = new LocalValueStore("homecoming_rep_session");
+
+/**
+ * Read the expiry (epoch ms) recorded alongside a stored session, if any.
+ * Returns null for legacy bare-token entries and missing sessions.
+ */
+export function sessionExpiresAt(raw: string | null): number | null {
+  if (!raw || !raw.startsWith("{")) return null;
+  try {
+    const parsed = JSON.parse(raw) as { t?: string; e?: number };
+    return typeof parsed.e === "number" ? parsed.e : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Hook that tracks one of the stores above. Returns the token (or null) and

@@ -2,18 +2,21 @@
 
 import { toastFriendlyErrorParts } from "@/lib/friendlyError";
 
+
 import Link from "next/link";
 import { useAction, useQuery } from "convex/react";
 import { useState } from "react";
 import { Eye, EyeOff, Loader2, Lock, Mail } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
+import { LockoutIndicator } from "@/components/auth/LockoutIndicator";
 import { LinkButton as Button } from "@/components/ui/app-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useAdminSession } from "@/components/admin/AdminSessionProvider";
 import { isConvexConfigured } from "@/lib/convex-config";
+import { loginErrorInfo } from "@/lib/friendlyError";
 
 export function AdminSignIn() {
   const login = useAction(api.authActions.login);
@@ -24,6 +27,10 @@ export function AdminSignIn() {
   const [showPassword, setShowPassword] = useState(false);
   const [authError, setAuthError] = useState("");
   const [signingIn, setSigningIn] = useState(false);
+
+  // Lockout progress state from the latest failed sign-in.
+  const [attemptsRemaining, setAttemptsRemaining] = useState<number | null>(null);
+  const [lockedUntil, setLockedUntil] = useState<number | null>(null);
 
   if (!isConvexConfigured()) {
     return (
@@ -42,12 +49,21 @@ export function AdminSignIn() {
     setSigningIn(true);
     try {
       const result = await login({ email, password });
-      setSession(result.sessionToken);
+      setSession(result.sessionToken, result.expiresAt);
       toast.success("Signed in");
     } catch (err) {
       const message = toastFriendlyErrorParts.toastMessage(err, "Sign in failed");
       setAuthError(message);
       toast.error(message);
+      // Drive the lockout indicator from structured server data when present.
+      const info = loginErrorInfo(err);
+      if (info.lockedUntil) {
+        setLockedUntil(info.lockedUntil);
+        setAttemptsRemaining(null);
+      } else if (typeof info.attemptsRemaining === "number") {
+        setAttemptsRemaining(info.attemptsRemaining);
+        setLockedUntil(null);
+      }
     } finally {
       setSigningIn(false);
     }
@@ -64,6 +80,12 @@ export function AdminSignIn() {
         </p>
 
         <form onSubmit={handleSignIn} className="mt-8 space-y-4">
+          {(attemptsRemaining !== null || lockedUntil !== null) && (
+            <LockoutIndicator
+              attemptsRemaining={attemptsRemaining}
+              lockedUntil={lockedUntil}
+            />
+          )}
           <div className="space-y-2">
             <Label htmlFor="admin-email">Email</Label>
             <div className="relative">

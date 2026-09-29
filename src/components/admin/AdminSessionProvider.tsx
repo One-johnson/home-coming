@@ -9,7 +9,11 @@ import {
 } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@convex/_generated/api";
-import { adminSessionStore, useSessionToken } from "@/lib/sessionStore";
+import {
+  adminSessionStore,
+  sessionExpiresAt,
+  useSessionToken,
+} from "@/lib/sessionStore";
 import type { AdminRole } from "@/lib/adminRoles";
 
 type SessionUser = {
@@ -23,7 +27,9 @@ type AdminSessionContextValue = {
   sessionToken: string | null;
   isReady: boolean;
   user: SessionUser | null | undefined;
-  setSession: (token: string) => void;
+  /** Epoch ms when the server-side session ends, if known. */
+  sessionExpiresAt: number | null;
+  setSession: (token: string, expiresAt?: number) => void;
   clearSession: () => Promise<void>;
 };
 
@@ -35,6 +41,7 @@ const UNAVAILABLE_SESSION: AdminSessionContextValue = {
   sessionToken: null,
   isReady: true,
   user: null,
+  sessionExpiresAt: null,
   setSession: () => {
     throw new Error("Admin session is unavailable without Convex configured.");
   },
@@ -67,8 +74,8 @@ export function AdminSessionProvider({ children }: { children: ReactNode }) {
     sessionToken ? { sessionToken } : "skip",
   );
 
-  const setSession = useCallback((token: string) => {
-    adminSessionStore.set(token);
+  const setSession = useCallback((token: string, expiresAt?: number) => {
+    adminSessionStore.set(token, expiresAt);
   }, []);
 
   const clearSession = useCallback(async () => {
@@ -85,15 +92,17 @@ export function AdminSessionProvider({ children }: { children: ReactNode }) {
 
   // A stored token whose session no longer resolves (expired/revoked) clears
   // itself. useSyncExternalStore keeps this in sync without setState-in-effect.
+  const expiresAt = sessionExpiresAt(sessionToken);
   const value = useMemo(
     () => ({
       sessionToken,
       isReady,
+      sessionExpiresAt: expiresAt,
       user: sessionToken ? user : null,
       setSession,
       clearSession,
     }),
-    [sessionToken, isReady, user, setSession, clearSession],
+    [sessionToken, isReady, expiresAt, user, setSession, clearSession],
   );
 
   return (

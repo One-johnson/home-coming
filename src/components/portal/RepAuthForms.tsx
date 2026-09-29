@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Eye, EyeOff, ShieldAlertIcon } from "lucide-react";
+import { Eye, EyeOff } from "lucide-react";
 import { useAction } from "convex/react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import { useRepSession } from "@/components/portal/RepSessionProvider";
+import { LockoutIndicator } from "@/components/auth/LockoutIndicator";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { LinkButton as Button } from "@/components/ui/app-button";
 import { Button as IconButton } from "@/components/ui/button";
@@ -22,78 +23,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { friendlyError, loginErrorInfo } from "@/lib/friendlyError";
 import { EVENT } from "@/lib/eventConfig";
-
-const MAX_ATTEMPTS = 5;
-
-/**
- * Lockout progress: dots for remaining attempts, or a live countdown while
- * the 15-minute lock is active. `state` comes from the last failed sign-in.
- */
-function LockoutIndicator({
-  attemptsRemaining,
-  lockedUntil,
-}: {
-  attemptsRemaining: number | null;
-  lockedUntil: number | null;
-}) {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (lockedUntil === null) return;
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [lockedUntil]);
-
-  if (lockedUntil !== null) {
-    const msLeft = Math.max(0, lockedUntil - now);
-    const minutes = Math.floor(msLeft / 60_000);
-    const seconds = Math.floor((msLeft % 60_000) / 1000);
-    if (msLeft <= 0) {
-      return null;
-    }
-    return (
-      <div
-        role="status"
-        className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
-      >
-        <ShieldAlertIcon className="size-4 shrink-0" />
-        <span>
-          Too many attempts — locked for{" "}
-          <strong className="tabular-nums">
-            {minutes}:{String(seconds).padStart(2, "0")}
-          </strong>
-          . Try again after the countdown.
-        </span>
-      </div>
-    );
-  }
-
-  if (attemptsRemaining === null) return null;
-  const attemptsUsed = Math.min(MAX_ATTEMPTS, Math.max(0, MAX_ATTEMPTS - attemptsRemaining));
-  return (
-    <div
-      role="status"
-      className="rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950"
-    >
-      <p className="text-xs font-medium text-amber-900 dark:text-amber-200">
-        {attemptsRemaining === 1
-          ? `Last attempt before a 15-minute lock`
-          : `${attemptsRemaining} attempts remaining before a 15-minute lock`}
-      </p>
-      <div className="mt-1.5 flex gap-1" aria-hidden="true">
-        {Array.from({ length: MAX_ATTEMPTS }).map((_, i) => (
-          <span
-            key={i}
-            className={`h-1.5 flex-1 rounded-full ${
-              i < attemptsUsed
-                ? "bg-destructive/70"
-                : "bg-amber-300 dark:bg-amber-800"
-            }`}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
 
 /** Shared ghost eye toggle for password fields. */
 function PasswordEye({
@@ -155,7 +84,7 @@ export function RepSignIn() {
         return;
       }
 
-      setSession(outcome.result.sessionToken);
+      setSession(outcome.result.sessionToken, outcome.result.expiresAt);
       toast.success(`Welcome back, ${outcome.result.rep.hubName}`);
       router.refresh();
     } catch (err) {
@@ -285,7 +214,7 @@ export function RepFirstTimeSetup({
 }: {
   username: string;
   onBack?: () => void;
-  onSetupComplete: (sessionToken: string) => void;
+  onSetupComplete: (sessionToken: string, expiresAt?: number) => void;
 }) {
   const completeSetup = useAction(api.agcAuth.completeFirstLoginSetup);
   const router = useRouter();
@@ -315,7 +244,7 @@ export function RepFirstTimeSetup({
     setLoading(true);
     setError("");
     try {
-      const { sessionToken, rep } = await completeSetup({
+      const { sessionToken, expiresAt, rep } = await completeSetup({
         username,
         temporaryPassword,
         newPassword,
@@ -326,7 +255,7 @@ export function RepFirstTimeSetup({
       });
 
       // Activated and signed in — land directly in the portal.
-      onSetupComplete(sessionToken);
+      onSetupComplete(sessionToken, expiresAt);
       toast.success(`Welcome, ${rep.hubName}! Your account is ready.`);
       router.refresh();
     } catch (err) {

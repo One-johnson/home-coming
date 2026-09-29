@@ -14,6 +14,7 @@ import {
   type AdminRole,
 } from "./users";
 import { buildResetUrl } from "./lib/resetUrls";
+import { LOCK_MESSAGE } from "./lib/loginThrottle";
 
 const BCRYPT_ROUNDS = 12;
 const RESET_TTL_MS = 1000 * 60 * 60 * 3; // 3 hours (mirrors rep reset window)
@@ -24,6 +25,32 @@ function normalizeEmail(email: string) {
 
 function createSessionToken() {
   return createHash("sha256").update(randomBytes(48)).digest("hex");
+}
+
+/** Structured error payload for admin sign-in (mirrors agcAuth's shape). */
+export type AdminLoginErrorData = {
+  message: string;
+  kind: "invalid_credentials" | "locked" | "deactivated" | "generic";
+  attemptsRemaining?: number;
+  lockedUntil?: number;
+};
+
+/** Thrown while an admin email is locked out; carries the unlock time. */
+function throwAdminLocked(lockedUntil: number): never {
+  throw new ConvexError<AdminLoginErrorData>({
+    message: LOCK_MESSAGE,
+    kind: "locked",
+    lockedUntil,
+  });
+}
+
+/** Thrown on wrong admin credentials; carries the remaining attempt budget. */
+function throwAdminInvalidCredentials(attemptsRemaining: number): never {
+  throw new ConvexError<AdminLoginErrorData>({
+    message: "Invalid email or password",
+    kind: "invalid_credentials",
+    attemptsRemaining,
+  });
 }
 
 type AuthResult = {
@@ -100,23 +127,48 @@ export const login = action({
   },
   handler: async (ctx, args): Promise<AuthResult> => {
     const email = normalizeEmail(args.email);
+
+    // Brute-force lockout, mirroring rep sign-in (shared throttle table,
+    // "admin:"-namespaced keys so admin emails never collide with usernames).
+    const lock: number | null = await ctx.runQuery(
+      internal.users.checkAdminLock,
+      { email },
+    );
+    if (lock) throwAdminLocked(lock);
+
     const user: Doc<"users"> | null = await ctx.runQuery(
       internal.users.getAuthUserByEmail,
       { email },
     );
 
     if (!user) {
-      throw new ConvexError("Invalid email or password");
+      const throttle = await ctx.runMutation(
+        internal.users.recordAdminFailure,
+        { email },
+      );
+      if (throttle.lockedUntil) throwAdminLocked(throttle.lockedUntil);
+      throwAdminInvalidCredentials(throttle.attemptsRemaining);
     }
 
     if (user.active === false) {
-      throw new ConvexError("This account has been deactivated");
+      throw new ConvexError<AdminLoginErrorData>({
+        message: "This account has been deactivated",
+        kind: "deactivated",
+      });
     }
 
     const ok = await bcrypt.compare(args.password, user.passwordHash);
     if (!ok) {
-      throw new ConvexError("Invalid email or password");
+      const throttle = await ctx.runMutation(
+        internal.users.recordAdminFailure,
+        { email },
+      );
+      if (throttle.lockedUntil) throwAdminLocked(throttle.lockedUntil);
+      throwAdminInvalidCredentials(throttle.attemptsRemaining);
     }
+
+    // Successful sign-in clears the failure budget.
+    await ctx.runMutation(internal.users.clearAdminFailures, { email });
 
     await ctx.runMutation(internal.users.deleteUserSessions, {
       userId: user._id,

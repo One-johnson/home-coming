@@ -3,6 +3,11 @@ import { mutation, query, internalMutation, internalQuery } from "./_generated/s
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import { writeAuditLog } from "./lib/audit";
+import {
+  LOCK_MS,
+  MAX_FAILURES,
+  WINDOW_MS,
+} from "./lib/loginThrottle";
 
 export const ADMIN_ROLES = [
   "admin",
@@ -359,6 +364,97 @@ export const deleteUserSessions = internalMutation({
       .collect();
     for (const session of sessions) {
       await ctx.db.delete(session._id);
+    }
+  },
+});
+
+// ------------------------------------------------------------------
+// Admin sign-in throttle — shares the rep table with "admin:"-prefixed
+// keys so an admin email can never collide with a rep username.
+// ------------------------------------------------------------------
+
+const adminThrottleKey = (email: string) => `admin:${email.trim().toLowerCase()}`;
+
+export const checkAdminLock = internalQuery({
+  args: { email: v.string() },
+  handler: async (ctx, args): Promise<number | null> => {
+    const key = adminThrottleKey(args.email);
+    const row = await ctx.db
+      .query("agcLoginThrottle")
+      .withIndex("by_key", (q) => q.eq("key", key))
+      .unique();
+    if (!row) return null;
+    if (row.lockedUntil && row.lockedUntil > Date.now()) {
+      return row.lockedUntil;
+    }
+    return null;
+  },
+});
+
+export const recordAdminFailure = internalMutation({
+  args: { email: v.string() },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ lockedUntil: number | undefined; attemptsRemaining: number }> => {
+    const key = adminThrottleKey(args.email);
+    const now = Date.now();
+
+    // Lazy cleanup: drop expired locks and rolled-over windows (admin keys
+    // only — the rep flow cleans its own namespace on its own writes).
+    const stale = await ctx.db
+      .query("agcLoginThrottle")
+      .withIndex("by_key")
+      .take(200);
+    for (const row of stale) {
+      if (!row.key.startsWith("admin:")) continue;
+      const expired = row.lockedUntil !== undefined && row.lockedUntil < now;
+      const windowOver =
+        row.lastFailureAt !== undefined &&
+        now - row.lastFailureAt > WINDOW_MS &&
+        (row.lockedUntil === undefined || row.lockedUntil < now);
+      if (expired || windowOver) {
+        await ctx.db.delete(row._id);
+      }
+    }
+
+    const row = await ctx.db
+      .query("agcLoginThrottle")
+      .withIndex("by_key", (q) => q.eq("key", key))
+      .unique();
+
+    if (!row) {
+      await ctx.db.insert("agcLoginThrottle", {
+        key,
+        failedCount: 1,
+        lastFailureAt: now,
+      });
+      return { lockedUntil: undefined, attemptsRemaining: MAX_FAILURES - 1 };
+    }
+
+    const failedCount = row.failedCount + 1;
+    if (failedCount >= MAX_FAILURES) {
+      const lockedUntil = now + LOCK_MS;
+      await ctx.db.patch(row._id, { failedCount, lockedUntil, lastFailureAt: now });
+      return { lockedUntil, attemptsRemaining: 0 };
+    }
+
+    await ctx.db.patch(row._id, { failedCount, lastFailureAt: now });
+    return { lockedUntil: undefined, attemptsRemaining: MAX_FAILURES - failedCount };
+  },
+});
+
+export const clearAdminFailures = internalMutation({
+  args: { email: v.string() },
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("agcLoginThrottle")
+      .withIndex("by_key", (q) =>
+        q.eq("key", adminThrottleKey(args.email)),
+      )
+      .unique();
+    if (row) {
+      await ctx.db.delete(row._id);
     }
   },
 });
