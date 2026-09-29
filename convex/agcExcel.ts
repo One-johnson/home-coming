@@ -243,6 +243,52 @@ export const downloadBookingTemplate = action({
 // created inside an internal mutation so inventory writes stay atomic.
 // ------------------------------------------------------------------
 
+/**
+ * Dry-run parse of an uploaded workbook — returns the same rows/errors the
+ * booking action would use, without booking anything. Powers the client's
+ * "review your sheet" preview so reps can fix problems before committing.
+ */
+export const previewBookingExcel = action({
+  args: {
+    sessionToken: v.string(),
+    storageId: v.id("_storage"),
+  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    rows: Array<{
+      rowNumber: number;
+      title: string;
+      firstName: string;
+      lastName: string;
+      gender: string;
+      accommodationType: string;
+      isBishopRate: boolean;
+    }>;
+    errors: string[];
+  }> => {
+    const session = await ctx.runQuery(internal.agcAuthData.getRepBySession, {
+      token: args.sessionToken,
+    });
+    if (!session || session.status === "disabled") {
+      throw new Error("Unauthorized");
+    }
+
+    const file = await ctx.storage.get(args.storageId);
+    if (!file) throw new Error("Uploaded file not found");
+    const bytes = Buffer.from(await file.arrayBuffer());
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(bytes as unknown as ExcelJS.Buffer);
+    const sheet = workbook.worksheets[0];
+    if (!sheet) throw new Error("The workbook has no sheets");
+
+    const { rows, errors } = parseGuestRows(worksheetToRows(sheet));
+    return { rows, errors };
+  },
+});
+
 export const createBookingFromExcel = action({
   args: {
     sessionToken: v.string(),
