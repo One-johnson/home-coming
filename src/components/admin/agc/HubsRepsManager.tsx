@@ -6,21 +6,28 @@ import {
   AlertTriangle,
   ChevronDown,
   ChevronRight,
+  Download,
   InboxIcon,
   KeyRound,
   Mail,
-  SearchIcon,
   PowerOff,
+  SearchIcon,
+  Sparkles,
+  Trash2,
+  UserPlus,
   UserX,
+  UsersRound,
 } from "lucide-react";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import { useAdminSession } from "@/components/admin/AdminSessionProvider";
 import { toastFriendlyErrorParts } from "@/lib/friendlyError";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatTile } from "@/components/portal/StatTile";
 import { toast } from "sonner";
@@ -54,8 +61,37 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 type HubRow = HubRosterRow;
+
+/** Toast with a 10s undo window — used for soft-deletes (7-day restore). */
+function deleteToast(
+  message: string,
+  undo: () => Promise<void>,
+): void {
+  toast.success(message, {
+    action: {
+      label: "Undo",
+      onClick: () => void undo(),
+    },
+    duration: 10_000,
+  });
+}
 
 function RepStatusBadge({ status }: { status: string }) {
   return (
@@ -125,18 +161,26 @@ function StatCell({
 }
 
 /**
- * Inline rep actions for the detail panel: enable/disable the account and
- * issue fresh credentials (new temp password, invalidates the old one).
+ * Inline rep actions for the detail panel: enable/disable the account,
+ * issue fresh credentials, edit the contact email, and delete the account.
  */
 function RepActions({
   rep,
+  isAdmin,
   onCredentials,
+  onEditEmail,
+  onDeleted,
 }: {
   rep: NonNullable<HubRow["rep"]>;
+  isAdmin: boolean;
   onCredentials: (text: string) => void;
+  onEditEmail: (rep: NonNullable<HubRow["rep"]>) => void;
+  onDeleted: (username: string, undo: () => Promise<void>) => void;
 }) {
   const { sessionToken } = useAdminSession();
   const setRepStatus = useMutation(api.agcAdminData.setRepStatus);
+  const deleteRepMutation = useMutation(api.agcAdminData.deleteRep);
+  const restoreRepMutation = useMutation(api.agcAdminData.restoreRep);
   const issueTempPassword = useAction(api.agcAdmin.issueTempPassword);
   const [busy, setBusy] = useState(false);
 
@@ -183,6 +227,34 @@ function RepActions({
     }
   };
 
+  const deleteRep = async () => {
+    if (!sessionToken || busy) return;
+    setBusy(true);
+    try {
+      const result = await deleteRepMutation({
+        sessionToken,
+        repId: rep._id as Id<"agcRepresentatives">,
+      });
+      onDeleted(result.username, async () => {
+        try {
+          await restoreRepMutation({
+            sessionToken,
+            repId: rep._id as Id<"agcRepresentatives">,
+          });
+          toast.success(`Restored ${result.username}`);
+        } catch (err) {
+          toast.error(
+            ...toastFriendlyErrorParts(err, "Failed to restore representative"),
+          );
+        }
+      });
+    } catch (err) {
+      toast.error(...toastFriendlyErrorParts(err, "Failed to delete representative"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="mt-2 flex flex-wrap items-center gap-2">
       <Button
@@ -205,17 +277,379 @@ function RepActions({
         <KeyRound className="size-3.5" />
         Reset password
       </Button>
+      {isAdmin && (
+        <>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            onClick={() => onEditEmail(rep)}
+          >
+            <Mail className="size-3.5" />
+            Edit email
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={busy}
+            onClick={() => void deleteRep()}
+            className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+          >
+            <Trash2 className="size-3.5" />
+            Delete
+          </Button>
+        </>
+      )}
     </div>
   );
 }
 
-/** Expanded detail: mini stat tiles + rep contact card. */
-function HubDetail({
+/** Inline create-rep form shown in the hub detail panel when a hub has no rep. */
+function CreateRepForm({
   hub,
+  isAdmin,
   onCredentials,
 }: {
   hub: HubRow;
+  isAdmin: boolean;
+  onCredentials: (text: string) => void;
+}) {
+  const { sessionToken } = useAdminSession();
+  const createRepAction = useAction(api.agcAdmin.createRep);
+  const [email, setEmail] = useState("");
+  const [tempPassword, setTempPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  if (!isAdmin) {
+    return (
+      <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+        <UserX className="size-4" />
+        No rep account yet — ask an admin to create one.
+      </p>
+    );
+  }
+
+  const create = async () => {
+    if (!sessionToken || busy) return;
+    setBusy(true);
+    try {
+      const result = await createRepAction({
+        sessionToken,
+        hubId: hub._id as Id<"agcHubs">,
+        email: email.trim() || undefined,
+        tempPassword: tempPassword.trim() || undefined,
+        clientOrigin: window.location.origin,
+      });
+      onCredentials(`${result.username}: ${result.tempPassword}`);
+      toast.success(`Representative created for ${hub.hubName}`);
+    } catch (err) {
+      toast.error(...toastFriendlyErrorParts(err, "Failed to create representative"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="min-w-0 flex-1 space-y-2">
+      <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+        <UserX className="size-4" />
+        No rep account yet — create one for this hub.
+      </p>
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="space-y-1">
+          <Label htmlFor={`rep-email-${hub._id}`} className="text-xs">
+            Email (optional)
+          </Label>
+          <Input
+            id={`rep-email-${hub._id}`}
+            type="email"
+            placeholder="rep@example.com"
+            className="h-8 w-56"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor={`rep-pass-${hub._id}`} className="text-xs">
+            Temp password (optional)
+          </Label>
+          <Input
+            id={`rep-pass-${hub._id}`}
+            type="text"
+            placeholder="auto-generated"
+            className="h-8 w-44"
+            value={tempPassword}
+            onChange={(e) => setTempPassword(e.target.value)}
+          />
+        </div>
+        <Button type="button" size="sm" disabled={busy} onClick={() => void create()}>
+          <UserPlus className="size-3.5" />
+          Create rep
+        </Button>
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        Username is derived from the hub name. Credentials are emailed when an
+        address is given — copy them here either way; the password shows once.
+      </p>
+    </div>
+  );
+}
+
+function EditEmailDialog({
+  rep,
+  onClose,
+}: {
+  rep: NonNullable<HubRow["rep"]> | null;
+  onClose: () => void;
+}) {
+  const { sessionToken } = useAdminSession();
+  const setRepEmail = useMutation(api.agcAdminData.setRepEmail);
+  const [email, setEmail] = useState(rep?.email ?? "");
+  const [busy, setBusy] = useState(false);
+
+  const save = async () => {
+    if (!sessionToken || !rep || busy) return;
+    setBusy(true);
+    try {
+      await setRepEmail({
+        sessionToken,
+        repId: rep._id as Id<"agcRepresentatives">,
+        email,
+      });
+      toast.success(
+        email.trim()
+          ? `Email updated for ${rep.username}`
+          : `Email cleared for ${rep.username}`,
+      );
+      onClose();
+    } catch (err) {
+      toast.error(...toastFriendlyErrorParts(err, "Failed to update email"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog
+      open={rep !== null}
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Edit email — {rep?.username ?? ""}</DialogTitle>
+          <DialogDescription>
+            Used for credential emails. Clear the field to remove the address.
+          </DialogDescription>
+        </DialogHeader>
+        <Input
+          type="email"
+          placeholder={rep?.email ?? "rep@example.com"}
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+        />
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="button" disabled={busy} onClick={() => void save()}>
+            Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Bulk-create reps for every hub without one, with a shared temp password. */
+function BulkCreateDialog({
+  hubs,
+  onClose,
+  onResult,
+}: {
+  hubs: HubRow[];
+  onClose: () => void;
+  onResult: (result: {
+    created: Array<{ username: string; tempPassword: string }>;
+    skipped: Array<{ hubName: string; reason: string }>;
+  }) => void;
+}) {
+  const { sessionToken } = useAdminSession();
+  const bulkCreateRepsAction = useAction(api.agcAdmin.bulkCreateReps);
+  const [defaultPassword, setDefaultPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const candidates = hubs.filter((hub) => hub.rep === null && hub.active);
+  const run = async () => {
+    if (!sessionToken || busy) return;
+    setBusy(true);
+    try {
+      const result = await bulkCreateRepsAction({
+        sessionToken,
+        tempPassword: defaultPassword.trim() || undefined,
+        clientOrigin: window.location.origin,
+      });
+      onResult(result);
+      if (result.created.length > 0) {
+        toast.success(
+          `Created ${result.created.length} representative account(s)`,
+        );
+      }
+      onClose();
+    } catch (err) {
+      toast.error(...toastFriendlyErrorParts(err, "Bulk creation failed"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Create reps in bulk</DialogTitle>
+          <DialogDescription>
+            {candidates.length === 0
+              ? "Every active hub already has a representative."
+              : `${candidates.length} active hub(s) without a rep: ${candidates
+                  .slice(0, 4)
+                  .map((h) => h.hubName)
+                  .join(", ")}${candidates.length > 4 ? "…" : ""}`}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2">
+          <Label htmlFor="bulk-default-password">Shared temp password (optional)</Label>
+          <Input
+            id="bulk-default-password"
+            type="text"
+            placeholder="auto-generated"
+            value={defaultPassword}
+            onChange={(e) => setDefaultPassword(e.target.value)}
+          />
+          <p className="text-xs text-muted-foreground">
+            One password is shared by all accounts created in this run and must
+            be changed on first sign-in. Leave blank to auto-generate.
+          </p>
+        </div>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            disabled={busy || candidates.length === 0}
+            onClick={() => void run()}
+          >
+            <Sparkles className="size-4" />
+            Create {candidates.length || ""} rep(s)
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function BulkDeleteDialog({
+  selected,
+  onClose,
+  onCleared,
+}: {
+  selected: Map<string, string>;
+  onClose: () => void;
+  onCleared: () => void;
+}) {
+  const { sessionToken } = useAdminSession();
+  const deleteRepsBulkMutation = useMutation(api.agcAdminData.deleteRepsBulk);
+  const restoreRepMutation = useMutation(api.agcAdminData.restoreRep);
+  const [busy, setBusy] = useState(false);
+
+  const entries = [...selected.entries()];
+  const run = async () => {
+    if (!sessionToken || busy || entries.length === 0) return;
+    setBusy(true);
+    try {
+      const ids = entries.map(([id]) => id) as Id<"agcRepresentatives">[];
+      const result = await deleteRepsBulkMutation({ sessionToken, repIds: ids });
+      if (result.deleted > 0) {
+        deleteToast(
+          `Deleted ${result.deleted} account(s) — restorable for 7 days`,
+          async () => {
+            let restored = 0;
+            for (const repId of ids) {
+              try {
+                await restoreRepMutation({ sessionToken, repId });
+                restored += 1;
+              } catch {
+                // Skip ids that were already restored or cannot clash-restore.
+              }
+            }
+            if (restored > 0) toast.success(`Restored ${restored} account(s)`);
+          },
+        );
+      }
+      if (result.missing.length > 0) {
+        toast.info(`${result.missing.length} selected account(s) no longer exist`);
+      }
+      onCleared();
+      onClose();
+    } catch (err) {
+      toast.error(...toastFriendlyErrorParts(err, "Bulk delete failed"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Delete {entries.length} rep account(s)?</DialogTitle>
+          <DialogDescription>
+            Accounts are soft-deleted and restorable for 7 days. Hubs are kept.
+          </DialogDescription>
+        </DialogHeader>
+        <ul className="max-h-40 space-y-1 overflow-y-auto rounded-lg border p-2 text-sm">
+          {entries.map(([id, username]) => (
+            <li key={id} className="font-mono text-xs">
+              {username}
+            </li>
+          ))}
+        </ul>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            disabled={busy || entries.length === 0}
+            onClick={() => void run()}
+          >
+            <Trash2 className="size-4" />
+            Delete {entries.length}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Expanded detail: mini stat tiles + rep account card. */
+function HubDetail({
+  hub,
+  isAdmin,
+  onCredentials,
+  onEditEmail,
+  onDeleted,
+}: {
+  hub: HubRow;
+  isAdmin: boolean;
   onCredentials: (v: string) => void;
+  onEditEmail: (rep: NonNullable<HubRow["rep"]>) => void;
+  onDeleted: (username: string, undo: () => Promise<void>) => void;
 }) {
   return (
     <div className="space-y-3 rounded-xl bg-muted/40 p-3">
@@ -239,7 +673,7 @@ function HubDetail({
           <StatTile size="sm" tone="warning" label="Awaiting review" value={hub.bookings.pending} />
         </div>
       </div>
-      <div className="flex flex-wrap items-center gap-3 rounded-xl border bg-card p-3">
+      <div className="flex flex-wrap items-start gap-3 rounded-xl border bg-card p-3">
         <HubAvatar hubName={hub.hubName} large />
         {hub.rep ? (
           <div className="min-w-0">
@@ -254,30 +688,46 @@ function HubDetail({
               <Mail className="size-3" />
               {hub.rep.email ?? "no email on file"}
             </p>
-            <RepActions rep={hub.rep} onCredentials={onCredentials} />
+            <RepActions
+              rep={hub.rep}
+              isAdmin={isAdmin}
+              onCredentials={onCredentials}
+              onEditEmail={onEditEmail}
+              onDeleted={onDeleted}
+            />
           </div>
         ) : (
-          <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
-            <UserX className="size-4" />
-            No rep account yet — create one in the AGC console.
-          </p>
+          <CreateRepForm hub={hub} isAdmin={isAdmin} onCredentials={onCredentials} />
         )}
       </div>
     </div>
   );
 }
+
 export function HubsRepsManager() {
-  const { sessionToken } = useAdminSession();
-  // Credential banner (shown after RepActions issues a temp password).
-  const [credentials, setCredentials] = useState<string | null>(null);
+  const { sessionToken, user } = useAdminSession();
+  // Rep account setup/maintenance is admin-only server-side; staff can browse.
+  const isAdmin = user?.role === "admin";
+
   const roster = useQuery(
     api.agcAdminData.getHubRoster,
     sessionToken ? { sessionToken } : "skip",
   ) as HubRow[] | undefined;
+  const exportReps = useAction(api.agcExcel.exportRepsExcel);
+
+  // Credential banner (shown after create/reset issues a temp password).
+  const [credentials, setCredentials] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<HubFilterId>("all");
   const [sort, setSort] = useState<HubSortId>("name");
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Map<string, string>>(new Map());
+  const [emailTarget, setEmailTarget] = useState<
+    NonNullable<HubRow["rep"]> | null
+  >(null);
+  const [bulkCreateOpen, setBulkCreateOpen] = useState(false);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [exportingReps, setExportingReps] = useState(false);
 
   const summary = useMemo(
     () => hubRosterSummary(roster ?? []),
@@ -291,6 +741,55 @@ export function HubsRepsManager() {
     );
     return sortHubRows(sort, list);
   }, [roster, filter, search, sort]);
+
+  const withoutRep = useMemo(
+    () => (roster ?? []).filter((hub) => hub.rep === null && hub.active).length,
+    [roster],
+  );
+
+  const exportRepsSheet = async () => {
+    if (!sessionToken || exportingReps) return;
+    setExportingReps(true);
+    try {
+      const result = await exportReps({ sessionToken });
+      const binary = atob(result.contentBase64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i += 1) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      const blob = new Blob([bytes], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = result.filename;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      toast.success("Representatives exported");
+    } catch (err) {
+      toast.error(...toastFriendlyErrorParts(err, "Export failed"));
+    } finally {
+      setExportingReps(false);
+    }
+  };
+
+  const toggleRepSelected = (
+    repId: string,
+    username: string,
+    checked: boolean,
+  ) => {
+    setSelected((prev) => {
+      const next = new Map(prev);
+      if (checked) next.set(repId, username);
+      else next.delete(repId);
+      return next;
+    });
+  };
+
+  const handleDeleted = (username: string, undo: () => Promise<void>) => {
+    deleteToast(`Deleted ${username} — restorable for 7 days`, undo);
+  };
 
   if (!sessionToken) {
     return <p className="text-sm text-muted-foreground">Loading…</p>;
@@ -328,12 +827,12 @@ export function HubsRepsManager() {
             hint="can sign in and book"
           />
         </button>
-        <button type="button" className="text-left" onClick={() => setFilter("all")}>
+        <button type="button" className="text-left" onClick={() => setFilter("no_rep")}>
           <StatTile
-            label="Delegates registered"
-            value={summary.delegates}
-            tone="info"
-            hint={summary.confirmedDelegates + " confirmed"}
+            label="Hubs without rep"
+            value={withoutRep}
+            tone={withoutRep > 0 ? "warning" : "positive"}
+            hint="create reps to unlock portals"
           />
         </button>
         <button type="button" className="text-left" onClick={() => setFilter("attention")}>
@@ -343,7 +842,8 @@ export function HubsRepsManager() {
             tone={summary.attention > 0 ? "warning" : "positive"}
             hint="receipts or holds waiting"
           />
-        </button>      </div>
+        </button>
+      </div>
 
       {credentials && (
         <p className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 font-mono text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300">
@@ -378,6 +878,44 @@ export function HubsRepsManager() {
                   ))}
                 </SelectContent>
               </Select>
+              {isAdmin && (
+                <DropdownMenu>                    <DropdownMenuTrigger
+                      render={
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-9"
+                        />
+                      }
+                    >
+                      <UsersRound className="size-4" />
+                      Rep accounts
+                    </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onSelect={() => setBulkCreateOpen(true)}>
+                      <UserPlus className="size-4" />
+                      Create reps in bulk…
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      disabled={exportingReps}
+                      onSelect={() => void exportRepsSheet()}
+                    >
+                      <Download className="size-4" />
+                      Export (.xlsx)
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      disabled={selected.size === 0}
+                      onSelect={() => setBulkDeleteOpen(true)}
+                      className="text-destructive focus:text-destructive"
+                    >
+                      <Trash2 className="size-4" />
+                      Delete selected ({selected.size})
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
             </div>
           </div>
         </CardHeader>
@@ -410,7 +948,7 @@ export function HubsRepsManager() {
               <p className="max-w-xs text-xs text-muted-foreground">
                 {search || filter !== "all"
                   ? "Try a different search or filter chip."
-                  : "Hubs appear here once imported in the AGC console."}
+                  : "Hubs appear here once seeded or imported."}
               </p>
             </div>
           ) : (
@@ -419,37 +957,59 @@ export function HubsRepsManager() {
               <ul className="space-y-2 xl:hidden">
                 {rows.map((hub) => (
                   <li key={hub._id}>
-                    <button
-                      type="button"
-                      onClick={() => setExpanded(expanded === hub._id ? null : hub._id)}
+                    <div
                       className={cn(
-                        "w-full rounded-xl border p-3 text-left transition-colors hover:border-gold/40",
+                        "rounded-xl border p-3 transition-colors",
                         hub.needsAttention && "border-l-4 border-l-amber-400",
                       )}
                     >
                       <div className="flex items-center gap-3">
-                        <HubAvatar hubName={hub.hubName} />
-                        <div className="min-w-0 flex-1">
-                          <p className="flex items-center gap-1.5 truncate text-sm font-medium">
-                            {hub.needsAttention && (
-                              <AlertTriangle className="size-3.5 shrink-0 text-amber-600" />
-                            )}
-                            {hub.hubName}
-                          </p>
-                          <p className="truncate text-xs text-muted-foreground">
-                            {hub.rep ? hub.rep.username + " · " + (hub.rep.email ?? "no email") : "no rep account"}
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-sm font-semibold tabular-nums">{hub.registrations.delegates}</p>
-                          <p className="text-[10px] text-muted-foreground">delegates</p>
-                        </div>
+                        {isAdmin && hub.rep && (
+                          <Checkbox
+                            checked={selected.has(hub.rep._id)}
+                            onCheckedChange={(v) =>
+                              toggleRepSelected(
+                                hub.rep!._id,
+                                hub.rep!.username,
+                                v === true,
+                              )
+                            }
+                            aria-label={`Select ${hub.rep.username} for bulk delete`}
+                            className="mt-0.5"
+                          />
+                        )}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setExpanded(expanded === hub._id ? null : hub._id)
+                          }
+                          className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                        >
+                          <HubAvatar hubName={hub.hubName} />
+                          <div className="min-w-0 flex-1">
+                            <p className="flex items-center gap-1.5 truncate text-sm font-medium">
+                              {hub.needsAttention && (
+                                <AlertTriangle className="size-3.5 shrink-0 text-amber-600" />
+                              )}
+                              {hub.hubName}
+                            </p>
+                            <p className="truncate text-xs text-muted-foreground">
+                              {hub.rep
+                                ? hub.rep.username + " · " + (hub.rep.email ?? "no email")
+                                : "no rep account"}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-sm font-semibold tabular-nums">{hub.registrations.delegates}</p>
+                            <p className="text-[10px] text-muted-foreground">delegates</p>
+                          </div>
+                        </button>
                       </div>
                       <div className="mt-2 flex flex-wrap items-center gap-1.5">
                         {hub.rep && <RepStatusBadge status={hub.rep.status} />}
                         <QuietBadge hub={hub} />
                       </div>
-                    </button>
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -459,6 +1019,7 @@ export function HubsRepsManager() {
                 <Table>
                   <TableHeader>
                     <TableRow className="hover:bg-transparent">
+                      {isAdmin && <TableHead className="w-8" />}
                       <TableHead className="w-8" />
                       <TableHead>Hub</TableHead>
                       <TableHead>Region</TableHead>
@@ -481,6 +1042,24 @@ export function HubsRepsManager() {
                             setExpanded(expanded === hub._id ? null : hub._id)
                           }
                         >
+                          {isAdmin && (
+                            <TableCell>
+                              {hub.rep && (
+                                <Checkbox
+                                  checked={selected.has(hub.rep._id)}
+                                  onCheckedChange={(v) =>
+                                    toggleRepSelected(
+                                      hub.rep!._id,
+                                      hub.rep!.username,
+                                      v === true,
+                                    )
+                                  }
+                                  onClick={(e) => e.stopPropagation()}
+                                  aria-label={`Select ${hub.rep.username} for bulk delete`}
+                                />
+                              )}
+                            </TableCell>
+                          )}
                           <TableCell>
                             {expanded === hub._id ? (
                               <ChevronDown className="size-4 text-muted-foreground" />
@@ -548,8 +1127,14 @@ export function HubsRepsManager() {
                         </TableRow>
                         {expanded === hub._id && (
                           <TableRow>
-                            <TableCell colSpan={8} className="p-2">
-                              <HubDetail hub={hub} onCredentials={setCredentials} />
+                            <TableCell colSpan={isAdmin ? 9 : 8} className="p-2">
+                              <HubDetail
+                                hub={hub}
+                                isAdmin={isAdmin}
+                                onCredentials={setCredentials}
+                                onEditEmail={setEmailTarget}
+                                onDeleted={handleDeleted}
+                              />
                             </TableCell>
                           </TableRow>
                         )}
@@ -562,6 +1147,33 @@ export function HubsRepsManager() {
           )}
         </CardContent>
       </Card>
+
+      {emailTarget && (
+        <EditEmailDialog
+          key={emailTarget._id}
+          rep={emailTarget}
+          onClose={() => setEmailTarget(null)}
+        />
+      )}
+      {bulkCreateOpen && (
+        <BulkCreateDialog
+          hubs={roster}
+          onClose={() => setBulkCreateOpen(false)}
+          onResult={(result) => {
+            const first = result.created[0];
+            if (first) {
+              setCredentials(`${first.username}: ${first.tempPassword}`);
+            }
+          }}
+        />
+      )}
+      {bulkDeleteOpen && (
+        <BulkDeleteDialog
+          selected={selected}
+          onClose={() => setBulkDeleteOpen(false)}
+          onCleared={() => setSelected(new Map())}
+        />
+      )}
     </div>
   );
 }
