@@ -893,13 +893,13 @@ export function HubsRepsManager() {
                       Rep accounts
                     </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
-                    <DropdownMenuItem onSelect={() => setBulkCreateOpen(true)}>
+                    <DropdownMenuItem onClick={() => setBulkCreateOpen(true)}>
                       <UserPlus className="size-4" />
                       Create reps in bulk…
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       disabled={exportingReps}
-                      onSelect={() => void exportRepsSheet()}
+                      onClick={() => void exportRepsSheet()}
                     >
                       <Download className="size-4" />
                       Export (.xlsx)
@@ -907,7 +907,7 @@ export function HubsRepsManager() {
                     <DropdownMenuSeparator />
                     <DropdownMenuItem
                       disabled={selected.size === 0}
-                      onSelect={() => setBulkDeleteOpen(true)}
+                      onClick={() => setBulkDeleteOpen(true)}
                       className="text-destructive focus:text-destructive"
                     >
                       <Trash2 className="size-4" />

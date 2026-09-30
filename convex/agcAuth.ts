@@ -15,7 +15,9 @@ const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
 const RESET_TTL_MS = 1000 * 60 * 60 * 3; // 3 hours (SRS §7)
 
 function normalizeUsername(username: string) {
-  return username.trim().toLowerCase();
+  // Reps commonly type the hub name with spaces — normalize to the
+  // underscore form used by deriveUsername (usernames never contain spaces).
+  return username.trim().toLowerCase().replace(/\s+/g, "_");
 }
 
 /** Structured error payload so the UI can show remaining attempts / lock time. */
