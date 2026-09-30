@@ -1,0 +1,46 @@
+name: Convex deploy
+
+# Pushes backend changes to the production Convex deployment after CI is
+# green on master. Requires a repo secret CONVEX_DEPLOY_KEY — a deploy key
+# for the production deployment (created in the Convex dashboard under
+# Settings → Deploy keys). With that key set, `npx convex deploy` targets
+# prod non-interactively, replacing the manual confirmed CLI run.
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: convex-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # Manual runs always deploy; automatic runs only after a successful CI.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # For automatic runs, check out the exact commit CI verified.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # Dev tooling peer ranges require --legacy-peer-deps (mirrors ci.yml).
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Deploy Convex functions to production
+        run: npx convex deploy
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
