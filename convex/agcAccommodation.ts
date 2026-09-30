@@ -317,6 +317,15 @@ export function bookingCurrency(region: Doc<"agcHubs">["region"]): string {
   return region === "ghana" || region === "west_africa" ? "GHS" : "USD";
 }
 
+/**
+ * Exact-amount rule: offline payments must equal the system total — nothing
+ * less, nothing more. Tolerance only covers float rounding (half a cent).
+ * Mirrored in src/lib/bookingMath.ts for the client-side rejection alert.
+ */
+export function amountsMatch(entered: number, expected: number): boolean {
+  return Math.abs(entered - expected) < 0.005;
+}
+
 export function validateGuestInput(
   guest: BookingGuestInput,
   rowIndex: number,

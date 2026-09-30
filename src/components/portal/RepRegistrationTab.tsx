@@ -5,6 +5,7 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import {
   BanknoteIcon,
   CalendarClockIcon,
+  CircleAlertIcon,
   CheckIcon,
   CircleCheckIcon,
   DownloadIcon,
@@ -51,6 +52,7 @@ import {
   isGhsRegion,
   paymentStatusMeta,
 } from "@/lib/agcPortal";
+import { amountsMatch } from "@/lib/bookingMath";
 import {
   REGISTRATION_FILTERS,
   REGISTRATION_QUICK_PICKS,
@@ -270,6 +272,12 @@ export function RepRegistrationTab() {
   const unitPrice = regionPricing?.price ?? 0;
   const currency = regionPricing?.currency ?? (isOffline ? "GHS" : "USD");
   const qty = Math.max(1, Math.floor(Number(quantity) || 0));
+
+  // Exact-amount rule: the entered amount must equal the system total —
+  // the submit button stays disabled and a rejection shows while it does not.
+  const expectedTotal = unitPrice * qty;
+  const amountEntered = amountPaid.trim() !== "";
+  const amountMatches = amountsMatch(Number(amountPaid) || 0, expectedTotal);
 
   const history = useMemo(() => registrations ?? [], [registrations]);
 
@@ -642,14 +650,25 @@ export function RepRegistrationTab() {
                       min={0}
                       step="0.01"
                       required
+                      aria-invalid={
+                        amountEntered && !amountMatches ? true : undefined
+                      }
                       value={amountPaid || String(unitPrice * qty)}
                       onChange={(e) => setAmountPaid(e.target.value)}
                     />
-                    <p className="text-xs text-muted-foreground">
-                      Defaults to {currency} {unitPrice * qty} — the exact total
-                      for {qty} delegate{qty === 1 ? "" : "s"}. Payments must
-                      match the reservation.
-                    </p>
+                    {amountEntered && !amountMatches ? (
+                      <p className="flex items-start gap-1.5 text-xs font-medium text-destructive">
+                        <CircleAlertIcon className="mt-0.5 size-3.5 shrink-0" />
+                        Rejected: you entered {currency} {amountEntered} but
+                        registration costs exactly {currency} {unitPrice * qty}.
+                        Nothing less, nothing more.
+                      </p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        Defaults to {currency} {unitPrice * qty} — the exact
+                        total for {qty} delegate{qty === 1 ? "" : "s"}.
+                      </p>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="off-date">Payment date</Label>
@@ -697,7 +716,11 @@ export function RepRegistrationTab() {
                     onClear={() => handleReceipt(null)}
                   />
                 </section>
-                <Button type="submit" className="w-full" disabled={loading || !receipt}>
+                <Button
+                  type="submit"
+                  className="w-full"
+                  disabled={loading || !receipt || (amountEntered && !amountMatches)}
+                >
                   {loading && <Loader2Icon className="size-4 animate-spin" />}
                   {loading ? "Submitting…" : "Submit for review"}
                 </Button>

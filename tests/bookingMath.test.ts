@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   AGC_ACCOMMODATION_TYPES,
+  amountsMatch,
   bookingCurrency,
   capacityProblem,
   computeBookingSummary,
@@ -178,6 +179,26 @@ describe("describeUnits", () => {
       "ghana",
     );
     expect(describeUnits(summary)).toBe("2 beds · 1 room");
+  });
+});
+
+describe("amountsMatch (exact-amount rule)", () => {
+  test("exact totals pass", () => {
+    expect(amountsMatch(450, 450)).toBe(true);
+    expect(amountsMatch(0, 0)).toBe(true);
+  });
+
+  test("anything less or more is rejected", () => {
+    expect(amountsMatch(449.99, 450)).toBe(false);
+    expect(amountsMatch(450.01, 450)).toBe(false);
+    expect(amountsMatch(449, 450)).toBe(false);
+    expect(amountsMatch(451, 450)).toBe(false);
+    expect(amountsMatch(0, 450)).toBe(false);
+  });
+
+  test("float rounding within half a cent still matches", () => {
+    expect(amountsMatch(450.004, 450)).toBe(true);
+    expect(amountsMatch(449.996, 450)).toBe(true);
   });
 });
 

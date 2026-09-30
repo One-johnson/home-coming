@@ -31,6 +31,7 @@ import {
   computeBookingLines,
   bookingTotal,
   bookingCurrency,
+  amountsMatch,
   type BookingGuestInput,
 } from "./agcAccommodation";
 import { requireRep } from "./agcPortal";
@@ -460,6 +461,13 @@ export const submitOfflineBookingPayment = mutation({
     if (booking.expiresAt && booking.expiresAt < Date.now()) {
       throw new Error(
         "The hold window for this reservation has expired. Create a new booking.",
+      );
+    }
+
+    // Exact-amount rule: offline payments must equal the system total.
+    if (!amountsMatch(args.offline.amountPaid, booking.totalAmount)) {
+      throw new Error(
+        `Amount mismatch: you paid ${booking.currency} ${args.offline.amountPaid} but this reservation requires exactly ${booking.currency} ${booking.totalAmount}. Nothing less, nothing more — pay the difference or book the correct number of guests.`,
       );
     }
 

@@ -5,6 +5,14 @@
  * what the server will compute and charge.
  */
 
+/**
+ * Exact-amount rule: offline payments must equal the system total — nothing
+ * less, nothing more. Tolerance only covers float rounding (half a cent).
+ */
+export function amountsMatch(entered: number, expected: number): boolean {
+  return Math.abs(entered - expected) < 0.005;
+}
+
 export type AgcAccommodationType =
   | "dormitory"
   | "hostel"

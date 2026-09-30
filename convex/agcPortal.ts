@@ -14,6 +14,7 @@ import {
   regionPricing,
 } from "./lib/agcConfig";
 import { agcOfflinePayment } from "./schemaTypes";
+import { amountsMatch } from "./agcAccommodation";
 import { isSmtpConfigured } from "./lib/smtpConfig";
 import { writeAuditLog } from "./lib/audit";
 import { createUniqueReferenceNumber } from "./lib/referenceNumbers";
@@ -236,6 +237,15 @@ export const submitOfflineRegistration = mutation({
     if (pricing.online) {
       throw new Error(
         "Your hub pays online with Stripe — no receipt upload needed.",
+      );
+    }
+
+    // Exact-amount rule: offline payments must equal the system total —
+    // nothing less, nothing more. Quantity is the only pricing variable.
+    const expectedTotal = pricing.price * args.quantity;
+    if (!amountsMatch(args.offline.amountPaid, expectedTotal)) {
+      throw new Error(
+        `Amount mismatch: you paid ${pricing.currency} ${args.offline.amountPaid} but ${args.quantity} delegate(s) cost exactly ${pricing.currency} ${expectedTotal}. Nothing less, nothing more — pay the exact total and submit again.`,
       );
     }
 

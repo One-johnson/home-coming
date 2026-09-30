@@ -81,6 +81,7 @@ import type {
 } from "@/lib/agcBookingTypes";
 import type { AgcAccommodationType, AgcRegion } from "@/lib/agcPortal";
 import {
+  amountsMatch,
   capacityProblem,
   computeBookingSummary,
   describeUnits,
@@ -190,8 +191,8 @@ function PaymentDialog({
   onSubmitOnline: (booking: RepBooking) => void;
   submitting: boolean;
 }) {
-  const [amountPaid, setAmountPaid] = useState(
-    booking.offline?.amountPaid ? String(booking.offline.amountPaid) : "",
+  const [amountPaid, setAmountPaid] = useState(() =>
+    String(booking.offline?.amountPaid ?? booking.totalAmount),
   );
   const [paymentRef, setPaymentRef] = useState(
     booking.offline?.referenceNumber ?? "",
@@ -201,6 +202,12 @@ function PaymentDialog({
   );
   const [method] = useState<"bank_transfer" | "momo">("momo");
   const [receipt, setReceipt] = useState<File | null>(null);
+
+  // Exact-amount rule: the entered amount must equal the system total.
+  const amountMatches = amountsMatch(
+    Number(amountPaid) || 0,
+    booking.totalAmount,
+  );
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -228,9 +235,18 @@ function PaymentDialog({
                 <Label>Amount paid ({booking.currency})</Label>
                 <Input
                   type="number"
+                  aria-invalid={!amountMatches ? true : undefined}
                   value={amountPaid}
                   onChange={(e) => setAmountPaid(e.target.value)}
                 />
+                {!amountMatches && (
+                  <p className="flex items-start gap-1.5 text-xs font-medium text-destructive">
+                    <AlertTriangleIcon className="mt-0.5 size-3.5 shrink-0" />
+                    Rejected: you entered {booking.currency} {amountPaid || 0} but
+                    this reservation costs exactly {booking.currency}{" "}
+                    {booking.totalAmount}. Nothing less, nothing more.
+                  </p>
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label>Transaction reference</Label>
@@ -283,7 +299,11 @@ function PaymentDialog({
           </Button>
           <Button
             type="button"
-            disabled={submitting || (isOffline && !receipt)}
+            disabled={
+              submitting ||
+              (isOffline && !receipt) ||
+              (isOffline && !amountMatches)
+            }
             onClick={() =>
               isOffline
                 ? onSubmitOffline(booking, {
