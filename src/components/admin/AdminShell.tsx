@@ -5,13 +5,15 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
 import {
+  BedDouble,
   Building2,
   CalendarDays,
   ChevronsUpDown,
-  ClipboardList,
   ExternalLink,
+  FileSpreadsheet,
   GalleryHorizontalEnd,
   Hotel,
+  Inbox,
   LayoutDashboard,
   LogOut,
   Mail,
@@ -79,7 +81,9 @@ const NAV_ICONS: Record<
   React.ComponentType<{ className?: string }>
 > = {
   "/admin": LayoutDashboard,
-  "/admin/agc": ClipboardList,
+  "/admin/registrations": FileSpreadsheet,
+  "/admin/accommodation": BedDouble,
+  "/admin/hubs-reps": Inbox,
   "/admin/groups": CalendarDays,
   "/admin/housing": Building2,
   "/admin/hotels": Hotel,

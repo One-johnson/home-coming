@@ -1,7 +1,5 @@
 "use client";
 
-import { toastFriendlyErrorParts } from "@/lib/friendlyError";
-
 import { useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { DownloadIcon, Loader2Icon } from "lucide-react";
@@ -9,7 +7,6 @@ import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import { useAdminSession } from "@/components/admin/AdminSessionProvider";
-import { AgcAccommodationTab } from "@/components/admin/agc/AgcAccommodationTab";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,8 +16,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { toastFriendlyErrorParts } from "@/lib/friendlyError";
 import { paymentStatusMeta } from "@/lib/agcPortal";
 
 type AdminRegistrationRow = {
@@ -96,7 +93,8 @@ export function ReviewActions({
   );
 }
 
-function RegistrationsTab() {
+/** Registration review queue for the Registrations admin page. */
+export default function RegistrationsTab() {
   const { sessionToken } = useAdminSession();
   const rows = useQuery(
     api.agcAdminData.listAgcRegistrationsAdmin,
@@ -201,7 +199,11 @@ function RegistrationsTab() {
   );
 }
 
-function downloadBase64(filename: string, contentBase64: string) {
+/** Trigger a browser download from a Convex action's base64 payload. */
+export function downloadBase64(
+  filename: string,
+  contentBase64: string,
+): void {
   const binary = atob(contentBase64);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i += 1) {
@@ -218,21 +220,26 @@ function downloadBase64(filename: string, contentBase64: string) {
   URL.revokeObjectURL(url);
 }
 
-export function AgcAdminClient() {
+type AgcExportKind = "bookings" | "registrations";
+
+/** Shared export-button wiring for the Registrations and Accommodation pages. */
+export function AgcExcelExportButton({
+  which,
+  label,
+}: {
+  which: AgcExportKind;
+  label: string;
+}) {
   const { sessionToken } = useAdminSession();
-  const metrics = useQuery(
-    api.agcAdminData.getAgcMetrics,
-    sessionToken ? { sessionToken } : "skip",
-  );
   const exportBookingsAction = useAction(api.agcExcel.exportBookingsExcel);
   const exportRegistrationsAction = useAction(
     api.agcExcel.exportRegistrationsExcel,
   );
-  const [exporting, setExporting] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
 
-  const runExport = async (which: "bookings" | "registrations") => {
+  const runExport = async () => {
     if (!sessionToken) return;
-    setExporting(which);
+    setExporting(true);
     try {
       const result =
         which === "bookings"
@@ -242,91 +249,24 @@ export function AgcAdminClient() {
     } catch (err) {
       toast.error(...toastFriendlyErrorParts(err, "Export failed"));
     } finally {
-      setExporting(null);
+      setExporting(false);
     }
   };
 
-  const pendingCount =
-    (metrics?.registrations.byStatus.pending_verification ?? 0) +
-    (metrics?.bookings.byStatus.pending_verification ?? 0);
-
   return (
-    <Tabs defaultValue="registrations" className="w-full space-y-6">
-      <TabsList className="grid h-auto w-full grid-cols-2 gap-1 p-1">
-        <TabsTrigger value="registrations" className="min-h-11">
-          Registration
-        </TabsTrigger>
-        <TabsTrigger value="accommodation" className="min-h-11">
-          Accommodation
-        </TabsTrigger>
-      </TabsList>
-
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Delegates registered</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-semibold">
-              {metrics?.registrations.delegates ?? "—"}
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Active accommodation guests</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-semibold">
-              {metrics?.bookings.activeGuests ?? "—"}
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Awaiting review</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-semibold">{pendingCount}</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          disabled={exporting !== null}
-          onClick={() => void runExport("registrations")}
-        >
-          {exporting === "registrations" ? (
-            <Loader2Icon className="size-4 animate-spin" />
-          ) : (
-            <DownloadIcon className="size-4" />
-          )}
-          Export registrations (.xlsx)
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          disabled={exporting !== null}
-          onClick={() => void runExport("bookings")}
-        >
-          {exporting === "bookings" ? (
-            <Loader2Icon className="size-4 animate-spin" />
-          ) : (
-            <DownloadIcon className="size-4" />
-          )}
-          Export bookings (.xlsx)
-        </Button>
-      </div>
-
-      <TabsContent value="registrations">
-        <RegistrationsTab />
-      </TabsContent>
-      <TabsContent value="accommodation">
-        <AgcAccommodationTab />
-      </TabsContent>
-    </Tabs>
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      disabled={exporting}
+      onClick={() => void runExport()}
+    >
+      {exporting ? (
+        <Loader2Icon className="size-4 animate-spin" />
+      ) : (
+        <DownloadIcon className="size-4" />
+      )}
+      {label}
+    </Button>
   );
 }

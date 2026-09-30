@@ -217,9 +217,9 @@ export default function AdminOverviewPage() {
               <Button
                 size="sm"
                 nativeButton={false}
-                render={<Link href="/admin/agc" />}
+                render={<Link href="/admin/registrations" />}
               >
-                AGC console
+                Registrations console
                 <ArrowUpRight className="size-4" />
               </Button>
             )}
@@ -244,7 +244,7 @@ export default function AdminOverviewPage() {
         <>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             {canRegistration && (
-              <Link href="/admin/agc" className="group">
+              <Link href="/admin/registrations" className="group">
                 <Card
                   className={cn(
                     "h-full overflow-hidden bg-gradient-to-br transition-all group-hover:shadow-sm",
@@ -301,7 +301,7 @@ export default function AdminOverviewPage() {
               </Link>
             )}
             {canAccommodation && (
-              <Link href="/admin/agc" className="group">
+              <Link href="/admin/accommodation" className="group">
                 <Card
                   className={cn(
                     "h-full overflow-hidden bg-gradient-to-br transition-all group-hover:shadow-sm",
@@ -624,7 +624,7 @@ export default function AdminOverviewPage() {
                   size="sm"
                   variant="outline"
                   nativeButton={false}
-                  render={<Link href="/admin/agc" />}
+                  render={<Link href="/admin/accommodation" />}
                 >
                   Manage
                 </Button>

@@ -85,7 +85,7 @@ function CommandBody({
               <Command.Item
                 key={r._id}
                 value={r.label}
-                onSelect={() => go(`/admin/agc?tab=registrations&id=${r._id}`)}
+                onSelect={() => go(`/admin/registrations?id=${r._id}`)}
                 className="flex min-h-11 cursor-pointer flex-col rounded-md px-2 py-2.5 text-sm aria-selected:bg-muted"
               >
                 <span>{r.label}</span>
@@ -104,7 +104,7 @@ function CommandBody({
               <Command.Item
                 key={b._id}
                 value={b.label}
-                onSelect={() => go(`/admin/agc?tab=bookings&id=${b._id}`)}
+                onSelect={() => go(`/admin/accommodation?id=${b._id}`)}
                 className="flex min-h-11 cursor-pointer flex-col rounded-md px-2 py-2.5 text-sm aria-selected:bg-muted"
               >
                 <span>{b.label}</span>

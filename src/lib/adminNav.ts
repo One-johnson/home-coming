@@ -28,10 +28,18 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
     label: "Operations",
     items: [
       {
-        href: "/admin/agc",
-        label: "AGC 2026",
-        description: "Rep portal: registrations, bookings, pools, hubs, reps",
+        href: "/admin/registrations",
+        label: "Registrations",
+        description: "Review hub registrations and offline payments",
         area: "registration",
+        badgeKey: "registrationsPending",
+      },
+      {
+        href: "/admin/accommodation",
+        label: "Accommodation",
+        description: "Bookings review and capacity pools",
+        area: "accommodation",
+        badgeKey: "bookingsPending",
       },
       {
         href: "/admin/hubs-reps",
