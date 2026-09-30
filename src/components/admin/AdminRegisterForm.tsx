@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import {
   Eye,
   EyeOff,
+  KeyRound,
   Loader2,
   Lock,
   Mail,
@@ -142,17 +143,25 @@ function AdminRegisterInner() {
   const router = useRouter();
   const canRegister = useQuery(api.users.canRegisterAdmin);
   const register = useAction(api.authActions.registerInitialAdmin);
+  const registerWithInvite = useAction(api.authActions.registerWithInvite);
   const { setSession, user, isReady } = useAdminSession();
+
+  // Default to bootstrap setup while the first admin is missing, otherwise
+  // to invite redemption once the console is set up.
+  const [modeChoice, setModeChoice] = useState<"setup" | "invite" | null>(null);
+  const mode = modeChoice ?? (canRegister ? "setup" : "invite");
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   const passwordsMatch = confirm.length === 0 || password === confirm;
   const passwordStrongEnough = password.length === 0 || password.length >= 8;
+  const inviteFormValid = inviteCode.trim().length >= 8;
 
   if (!isReady || canRegister === undefined) {
     return (
@@ -181,26 +190,6 @@ function AdminRegisterInner() {
     );
   }
 
-  if (!canRegister) {
-    return (
-      <AuthShell>
-        <div className="mb-6 flex size-12 items-center justify-center rounded-full bg-gold/15 text-gold">
-          <ShieldCheck className="size-6" aria-hidden />
-        </div>
-        <h1 className="font-display text-3xl font-normal tracking-tight">
-          Setup complete
-        </h1>
-        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-          An admin already exists. Ask an administrator to create your account
-          from the Team tab, then sign in.
-        </p>
-        <Button href="/admin" className="mt-8 w-full">
-          Back to sign in
-        </Button>
-      </AuthShell>
-    );
-  }
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -213,10 +202,22 @@ function AdminRegisterInner() {
       setError("Password must be at least 8 characters");
       return;
     }
+    if (mode === "invite" && !inviteFormValid) {
+      setError("Enter the registration code from your administrator");
+      return;
+    }
 
     setSubmitting(true);
     try {
-      const result = await register({ name, email, password });
+      const result =
+        mode === "setup"
+          ? await register({ name, email, password })
+          : await registerWithInvite({
+              name,
+              email,
+              password,
+              inviteCode,
+            });
       setSession(result.sessionToken);
       toast.success("Admin account created");
       router.replace("/admin");
@@ -247,10 +248,12 @@ function AdminRegisterInner() {
         <ShieldCheck className="size-6" aria-hidden />
       </div>
       <h1 className="font-display text-3xl font-normal tracking-tight">
-        Create admin account
+        {mode === "setup" ? "Create admin account" : "Redeem invite"}
       </h1>
       <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-        First-time setup only. After this, invite staff from the Team dashboard.
+        {mode === "setup"
+          ? "First-time setup. After this, invite staff with registration codes from the Team dashboard."
+          : "Enter the registration code issued by an administrator to create your account."}
       </p>
 
       <form onSubmit={handleSubmit} className="mt-8 space-y-4">
@@ -284,6 +287,23 @@ function AdminRegisterInner() {
             />
           </FieldIconWrap>
         </div>
+
+        {mode === "invite" && (
+          <div className="space-y-2">
+            <Label htmlFor="reg-invite">Registration code</Label>
+            <FieldIconWrap icon={KeyRound}>
+              <Input
+                id="reg-invite"
+                required
+                autoComplete="off"
+                value={inviteCode}
+                onChange={(e) => setInviteCode(e.target.value)}
+                className="h-11 pl-10 font-mono"
+                placeholder="Paste the code from your administrator"
+              />
+            </FieldIconWrap>
+          </div>
+        )}
 
         <PasswordField
           id="reg-password"
@@ -328,10 +348,26 @@ function AdminRegisterInner() {
               <Loader2 className="size-4 animate-spin" />
               Creating account…
             </>
-          ) : (
+          ) : mode === "setup" ? (
             "Create admin account"
+          ) : (
+            "Create account"
           )}
         </Button>
+
+        {canRegister && (
+          <button
+            type="button"
+            onClick={() =>
+              setModeChoice(mode === "setup" ? "invite" : "setup")
+            }
+            className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+          >
+            {mode === "setup"
+              ? "Have a registration code instead?"
+              : "Setting up for the first time?"}
+          </button>
+        )}
       </form>
     </AuthShell>
   );

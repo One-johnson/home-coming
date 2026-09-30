@@ -120,6 +120,92 @@ export const registerInitialAdmin = action({
   },
 });
 
+/**
+ * Register an admin/staff account by redeeming an invite code issued from
+ * the Team page. Keeps /admin/register open for new accounts without ever
+ * allowing anonymous self-registration: every code is single-use, expiring,
+ * revocable, and optionally locked to one email address.
+ */
+export const registerWithInvite = action({
+  args: {
+    name: v.string(),
+    email: v.string(),
+    password: v.string(),
+    inviteCode: v.string(),
+  },
+  handler: async (ctx, args): Promise<AuthResult> => {
+    if (args.password.length < 8) {
+      throw new ConvexError("Password must be at least 8 characters");
+    }
+
+    const email = normalizeEmail(args.email);
+    const name = args.name.trim();
+    const code = args.inviteCode.trim().toLowerCase();
+    if (!name || !email || !code) {
+      throw new ConvexError("Name, email and registration code are required");
+    }
+
+    const invite = await ctx.runQuery(
+      internal.adminInvites.validateInviteInternal,
+      { code },
+    );
+    if (!invite.valid) {
+      throw new ConvexError(invite.reason);
+    }
+
+    // Email lock: the code may be restricted to a single address.
+    if (invite.email && invite.email !== email) {
+      throw new ConvexError(
+        "This registration code is locked to a different email address",
+      );
+    }
+
+    // Fail fast on duplicate accounts before consuming the invite.
+    const existingUser: Doc<"users"> | null = await ctx.runQuery(
+      internal.users.getAuthUserByEmail,
+      { email },
+    );
+    if (existingUser) {
+      throw new ConvexError("Email already registered");
+    }
+
+    const passwordHash = await bcrypt.hash(args.password, BCRYPT_ROUNDS);
+    const userId: Id<"users"> = await ctx.runMutation(
+      internal.users.createUserRecord,
+      {
+        name,
+        email,
+        passwordHash,
+        role: invite.role,
+      },
+    );
+
+    await ctx.runMutation(internal.adminInvites.consumeInviteInternal, {
+      inviteId: invite.inviteId,
+      userId,
+    });
+
+    const token = createSessionToken();
+    const expiresAt = Date.now() + SESSION_TTL_MS;
+    await ctx.runMutation(internal.users.createSessionRecord, {
+      userId,
+      token,
+      expiresAt,
+    });
+
+    return {
+      sessionToken: token,
+      expiresAt,
+      user: {
+        _id: userId,
+        name,
+        email,
+        role: invite.role,
+      },
+    };
+  },
+});
+
 export const login = action({
   args: {
     email: v.string(),
