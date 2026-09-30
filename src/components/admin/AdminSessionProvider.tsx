@@ -12,6 +12,7 @@ import { api } from "@convex/_generated/api";
 import {
   adminSessionStore,
   sessionExpiresAt,
+  unwrapSessionToken,
   useSessionToken,
 } from "@/lib/sessionStore";
 import type { AdminRole } from "@/lib/adminRoles";
@@ -62,7 +63,10 @@ export function AdminSessionFallbackProvider({
 }
 
 export function AdminSessionProvider({ children }: { children: ReactNode }) {
-  const sessionToken = useSessionToken(adminSessionStore);
+  // The store may hold JSON ("{t,e}") when an expiry was recorded; the
+  // server needs the unwrapped token, not the raw stored string.
+  const stored = useSessionToken(adminSessionStore);
+  const sessionToken = unwrapSessionToken(stored);
   const logout = useMutation(api.users.logout);
 
   // "Ready" once mounted: after hydration the store snapshot is authoritative
@@ -92,7 +96,7 @@ export function AdminSessionProvider({ children }: { children: ReactNode }) {
 
   // A stored token whose session no longer resolves (expired/revoked) clears
   // itself. useSyncExternalStore keeps this in sync without setState-in-effect.
-  const expiresAt = sessionExpiresAt(sessionToken);
+  const expiresAt = sessionExpiresAt(stored);
   const value = useMemo(
     () => ({
       sessionToken,

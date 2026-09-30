@@ -98,6 +98,22 @@ export function sessionExpiresAt(raw: string | null): number | null {
 }
 
 /**
+ * Extract the actual session token from a stored value. Expiry-aware
+ * entries hold JSON ("{\"t\":…,\"e\":…}") — callers must unwrap before
+ * sending the token to the server, or every lookup misses and the user
+ * is bounced to sign-in despite a perfectly valid session.
+ */
+export function unwrapSessionToken(raw: string | null): string | null {
+  if (!raw || !raw.startsWith("{")) return raw;
+  try {
+    const parsed = JSON.parse(raw) as { t?: string };
+    return typeof parsed.t === "string" ? parsed.t : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Hook that tracks one of the stores above. Returns the token (or null) and
  * is hydration-safe: the server snapshot is always null, so the first client
  * render matches SSR and re-renders once the real value is known.

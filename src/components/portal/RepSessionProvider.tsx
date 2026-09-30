@@ -13,6 +13,7 @@ import { api } from "@convex/_generated/api";
 import {
   repSessionStore,
   sessionExpiresAt,
+  unwrapSessionToken,
   useSessionToken,
 } from "@/lib/sessionStore";
 import { isSessionExpired } from "@/lib/friendlyError";
@@ -75,7 +76,10 @@ export function RepSessionFallbackProvider({
 }
 
 export function RepSessionProvider({ children }: { children: ReactNode }) {
-  const sessionToken = useSessionToken(repSessionStore);
+  // The store may hold JSON ("{t,e}") when an expiry was recorded; the
+  // server needs the unwrapped token, not the raw stored string.
+  const stored = useSessionToken(repSessionStore);
+  const sessionToken = unwrapSessionToken(stored);
   const logout = useMutation(api.agcPortal.logoutRep);
 
   // "Ready" once mounted: after hydration the store snapshot is authoritative
@@ -95,6 +99,7 @@ export function RepSessionProvider({ children }: { children: ReactNode }) {
     const token = sessionToken;
     repSessionStore.clear();
     if (token) {
+      // token here is the unwrapped value — exactly what the server knows.
       try {
         await logout({ sessionToken: token });
       } catch {
@@ -117,7 +122,7 @@ export function RepSessionProvider({ children }: { children: ReactNode }) {
     [clearSession],
   );
 
-  const expiresAt = sessionExpiresAt(sessionToken);
+  const expiresAt = sessionExpiresAt(stored);
   const value = useMemo(
     () => ({
       sessionToken,
