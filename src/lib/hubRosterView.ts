@@ -10,6 +10,7 @@ export type HubRosterRow = {
   region: string;
   active: boolean;
   rep: {
+    _id: string;
     username: string;
     email: string | null;
     status: string;

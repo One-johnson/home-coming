@@ -2,7 +2,7 @@
 
 import { toastFriendlyErrorParts } from "@/lib/friendlyError";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useAction } from "convex/react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
@@ -26,7 +26,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Copy, CopyCheck, Download, Mail as MailIcon, Trash2 } from "lucide-react";
+import { Copy, CopyCheck, Download, InboxIcon, Mail as MailIcon, SearchIcon, Trash2 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -39,7 +39,10 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { bookingStatusMeta, paymentStatusMeta } from "@/lib/agcPortal";
+import { bookingStatusMeta, paymentStatusMeta, AGC_ACCOMMODATION_LABELS } from "@/lib/agcPortal";
+import { hubAvatarClass, hubInitials } from "@/lib/hubRosterView";
+import { StatTile } from "@/components/portal/StatTile";
+import { cn } from "@/lib/utils";
 
 type AdminBookingRow = {
   _id: string;
@@ -86,6 +89,21 @@ type DeletedRepRow = {
   purgeAt: number;
   expired: boolean;
 };
+
+/** Compact hub avatar chip reused across the bookings list. */
+function HubAvatarSmall({ name }: { name: string }) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "flex size-7 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold",
+        hubAvatarClass(name),
+      )}
+    >
+      {hubInitials(name)}
+    </span>
+  );
+}
 
 type RepRow = {
   _id: string;
@@ -170,6 +188,13 @@ export function AgcAccommodationTab() {
   const [hubForm, setHubForm] = useState({ name: "", region: "ghana", country: "Ghana" });
   const [importText, setImportText] = useState("");
 
+  // ---- Bookings tab: search + filter chips + expandable rows ----
+  const [bookingSearch, setBookingSearch] = useState("");
+  const [bookingFilter, setBookingFilter] = useState<
+    "all" | "awaiting_review" | "reserved" | "confirmed" | "closed"
+  >("all");
+  const [expandedBooking, setExpandedBooking] = useState<string | null>(null);
+
   const decide = async (
     row: AdminBookingRow,
     decision: ReviewDecision,
@@ -217,6 +242,51 @@ export function AgcAccommodationTab() {
     (hub: { _id: string; name: string }) =>
       !(reps ?? []).some((rep: { hubId: string }) => rep.hubId === hub._id),
   ).length;
+
+  // ---- Bookings: filtered list + summary counts ----
+  const bookingList = useMemo(() => bookings ?? [], [bookings]);
+  const filteredBookings = useMemo(() => {
+    const q = bookingSearch.trim().toLowerCase();
+    return bookingList.filter((row: AdminBookingRow) => {
+      const matchesFilter = (() => {
+        switch (bookingFilter) {
+          case "awaiting_review":
+            return row.paymentStatus === "pending_verification" || row.paymentStatus === "correction_requested";
+          case "reserved":
+            return row.bookingStatus === "reserved";
+          case "confirmed":
+            return row.bookingStatus === "confirmed";
+          case "closed":
+            return row.bookingStatus === "cancelled" || row.bookingStatus === "expired";
+          default:
+            return true;
+        }
+      })();
+      if (!matchesFilter) return false;
+      if (!q) return true;
+      return (
+        row.referenceNumber.toLowerCase().includes(q) ||
+        row.hubName.toLowerCase().includes(q) ||
+        row.guests.some((g) =>
+          (g.firstName + " " + g.lastName).toLowerCase().includes(q),
+        )
+      );
+    });
+  }, [bookingList, bookingFilter, bookingSearch]);
+
+  const bookingSummary = useMemo(
+    () => ({
+      total: bookingList.length,
+      awaiting: bookingList.filter(
+        (b: AdminBookingRow) =>
+          b.paymentStatus === "pending_verification" ||
+          b.paymentStatus === "correction_requested",
+      ).length,
+      reserved: bookingList.filter((b: AdminBookingRow) => b.bookingStatus === "reserved").length,
+      confirmed: bookingList.filter((b: AdminBookingRow) => b.bookingStatus === "confirmed").length,
+    }),
+    [bookingList],
+  );
 
   const copyRepCredentials = async (rep: RepRow) => {
     const password =
@@ -438,88 +508,152 @@ export function AgcAccommodationTab() {
         </TabsTrigger>
       </TabsList>
 
-      <TabsContent value="bookings" className="grid items-start gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {(bookings ?? []).length === 0 && (
-          <p className="text-sm text-muted-foreground sm:col-span-2 lg:col-span-3">
-            No bookings yet.
-          </p>
+      <TabsContent value="bookings" className="space-y-4">
+        {/* Summary tiles */}
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <StatTile label="Total bookings" value={bookingSummary.total} />
+          <StatTile
+            label="Awaiting review"
+            value={bookingSummary.awaiting}
+            tone={bookingSummary.awaiting > 0 ? "warning" : "positive"}
+            hint="receipts to approve or correct"
+          />
+          <StatTile label="On hold (reserved)" value={bookingSummary.reserved} tone="info" />
+          <StatTile label="Confirmed" value={bookingSummary.confirmed} tone="positive" />
+        </div>
+
+        {/* Toolbar */}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative">
+            <SearchIcon className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              type="search"
+              placeholder="Reference, hub or guest…"
+              className="h-9 w-64 pl-8"
+              value={bookingSearch}
+              onChange={(e) => setBookingSearch(e.target.value)}
+            />
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {(["all", "awaiting_review", "reserved", "confirmed", "closed"] as const).map((id) => {
+              const labels = { all: "All", awaiting_review: "Awaiting review", reserved: "On hold", confirmed: "Confirmed", closed: "Closed" } as const;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setBookingFilter(id)}
+                  className={cn(
+                    "rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+                    bookingFilter === id
+                      ? "border-gold bg-gold/15 text-ink"
+                      : "text-muted-foreground hover:border-gold/40 hover:text-foreground",
+                  )}
+                >
+                  {labels[id]}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {filteredBookings.length === 0 ? (
+          <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed p-10 text-center">
+            <span className="flex size-10 items-center justify-center rounded-full bg-gold/15">
+              <InboxIcon className="size-5 text-gold-dark" />
+            </span>
+            <p className="text-sm font-medium">No bookings match</p>
+            <p className="max-w-xs text-xs text-muted-foreground">
+              {bookingSearch || bookingFilter !== "all"
+                ? "Try a different search or filter chip."
+                : "Rep bookings will appear here as they are made."}
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {filteredBookings.map((row: AdminBookingRow) => {
+              const status = bookingStatusMeta(row.bookingStatus);
+              const payStatus = paymentStatusMeta(row.paymentStatus);
+              const expanded = expandedBooking === row._id;
+              const activeGuests = row.guests.filter((g) => g.status === "active");
+              return (
+                <div
+                  key={row._id}
+                  className={cn(
+                    "rounded-xl border p-3 transition-colors",
+                    row.paymentStatus === "pending_verification" && "border-l-4 border-l-amber-400",
+                  )}
+                >
+                  <button
+                    type="button"
+                    className="flex w-full flex-wrap items-center gap-x-3 gap-y-2 text-left"
+                    onClick={() => setExpandedBooking(expanded ? null : row._id)}
+                  >
+                    <HubAvatarSmall name={row.hubName} />
+                    <span className="font-mono text-xs">{row.referenceNumber || "(pending)"}</span>
+                    <Badge variant="outline" className={status.className}>{status.label}</Badge>
+                    <Badge variant="outline" className={payStatus.className}>{payStatus.label}</Badge>
+                    <span className="text-sm font-medium">{row.hubName}</span>
+                    <span className="text-sm text-muted-foreground">
+                      {row.currency} {row.totalAmount} · {activeGuests.length} guest(s) · {row.paymentMode}
+                    </span>
+                  </button>
+                  {expanded && (
+                    <div className="mt-3 space-y-3 border-t pt-3">
+                      <div className="space-y-1 text-xs">
+                        {row.guests.map((guest) => (
+                          <p key={guest._id}>
+                            {guest.title} {guest.firstName} {guest.lastName} ·{" "}
+                            {guest.gender} ·{" "}
+                            {AGC_ACCOMMODATION_LABELS[guest.accommodationType as keyof typeof AGC_ACCOMMODATION_LABELS] ?? guest.accommodationType}
+                            {guest.isBishopRate ? " · Bishop rate" : ""}
+                            {guest.status !== "active" ? ` · ${guest.status}` : ""}
+                          </p>
+                        ))}
+                      </div>
+                      {row.offline && (
+                        <div className="rounded-lg bg-muted/50 p-3 text-sm">
+                          <p>
+                            Amount paid: <strong>{row.currency} {row.offline.amountPaid}</strong>{" "}
+                            · {row.offline.method.replace(/_/g, " ")} · {row.offline.paymentDate}{" "}
+                            · ref {row.offline.referenceNumber}
+                          </p>
+                          {row.receiptUrl && (
+                            <a
+                              href={row.receiptUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="mt-1 inline-block text-primary hover:underline"
+                            >
+                              View receipt ({row.offline.receiptFileName})
+                            </a>
+                          )}
+                        </div>
+                      )}
+                      {row.adminMessage && (
+                        <p className="rounded bg-orange-50 p-2 text-xs text-orange-900 dark:bg-orange-950 dark:text-orange-300">
+                          Last message: {row.adminMessage}
+                        </p>
+                      )}
+                      {row.expiresAt && row.bookingStatus === "reserved" && (
+                        <p className="text-xs text-muted-foreground">
+                          Hold expires {new Date(row.expiresAt).toLocaleString()}
+                        </p>
+                      )}
+                      {row.paymentStatus === "pending_verification" && (
+                        <ReviewActions
+                          disabled={busyId === row._id}
+                          onDecision={(decision, message) =>
+                            void decide(row, decision, message)
+                          }
+                        />
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         )}
-        {(bookings ?? []).map((row: AdminBookingRow) => {
-          const status = bookingStatusMeta(row.bookingStatus);
-          const payStatus = paymentStatusMeta(row.paymentStatus);
-          return (
-            <Card key={row._id}>
-              <CardHeader className="pb-2">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <CardTitle className="font-mono text-sm">
-                    {row.referenceNumber || "(pending)"}
-                  </CardTitle>
-                  <div className="flex gap-2">
-                    <Badge variant="outline" className={status.className}>
-                      {status.label}
-                    </Badge>
-                    <Badge variant="outline" className={payStatus.className}>
-                      {payStatus.label}
-                    </Badge>
-                  </div>
-                </div>
-                <CardDescription>
-                  {row.hubName} · {row.currency} {row.totalAmount} ·{" "}
-                  {row.paymentMode}
-                  {row.expiresAt && row.bookingStatus === "reserved"
-                    ? ` · hold expires ${new Date(row.expiresAt).toLocaleString()}`
-                    : ""}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-1 text-xs">
-                  {row.guests.map((guest) => (
-                    <p key={guest._id}>
-                      {guest.title} {guest.firstName} {guest.lastName} ·{" "}
-                      {guest.gender} · {guest.accommodationType}
-                      {guest.isBishopRate ? " · Bishop rate" : ""}
-                      {guest.status !== "active" ? ` · ${guest.status}` : ""}
-                    </p>
-                  ))}
-                </div>
-                {row.offline && (
-                  <div className="mt-2 rounded-lg bg-muted/50 p-3 text-sm">
-                    <p>
-                      Amount paid: <strong>{row.currency} {row.offline.amountPaid}</strong>{" "}
-                      · {row.offline.method.replace(/_/g, " ")} · {row.offline.paymentDate}{" "}
-                      · ref {row.offline.referenceNumber}
-                    </p>
-                    {row.receiptUrl && (
-                      <a
-                        href={row.receiptUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="mt-1 inline-block text-primary hover:underline"
-                      >
-                        View receipt ({row.offline.receiptFileName})
-                      </a>
-                    )}
-                  </div>
-                )}
-                {row.adminMessage && (
-                  <p className="mt-2 rounded bg-orange-50 p-2 text-xs text-orange-900 dark:bg-orange-950 dark:text-orange-300">
-                    Last message: {row.adminMessage}
-                  </p>
-                )}
-                {/* Decided bookings show as confirmed cards — actions only
-                    while a payment is awaiting review. */}
-                {row.paymentStatus === "pending_verification" && (
-                  <ReviewActions
-                    disabled={busyId === row._id}
-                    onDecision={(decision, message) =>
-                      void decide(row, decision, message)
-                    }
-                  />
-                )}
-              </CardContent>
-            </Card>
-          );
-        })}
       </TabsContent>
 
       <TabsContent value="pools" className="space-y-4">
@@ -532,31 +666,51 @@ export function AgcAccommodationTab() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-left text-xs text-muted-foreground">
-                    <th className="py-2">Type</th>
-                    <th className="py-2">Scope</th>
-                    <th className="py-2">Total</th>
-                    <th className="py-2">Reserved</th>
-                    <th className="py-2">Confirmed</th>
-                    <th className="py-2">Available</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(pools ?? []).map((pool: PoolRow) => (
-                    <tr key={pool._id} className="border-b last:border-0">
-                      <td className="py-2">{pool.accommodationType}</td>
-                      <td className="py-2">{pool.scope.replace(/_/g, " ")}</td>
-                      <td className="py-2">{pool.total}</td>
-                      <td className="py-2">{pool.reserved}</td>
-                      <td className="py-2">{pool.confirmed}</td>
-                      <td className="py-2 font-medium">{pool.available}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            {/* Pool capacity cards — bar shows taken vs available. */}
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {(pools ?? []).map((pool: PoolRow) => {
+                const taken = pool.reserved + pool.confirmed;
+                const pct = pool.total > 0 ? Math.round((taken / pool.total) * 100) : 0;
+                const barTone =
+                  pool.available <= 0
+                    ? "bg-rose-500"
+                    : pct >= 80
+                      ? "bg-amber-500"
+                      : "bg-emerald-500";
+                return (
+                  <div key={pool._id} className="rounded-xl border p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="truncate text-sm font-medium">
+                        {AGC_ACCOMMODATION_LABELS[pool.accommodationType as keyof typeof AGC_ACCOMMODATION_LABELS] ?? pool.accommodationType}
+                      </p>
+                      <Badge variant="outline" className="text-[10px] capitalize">
+                        {pool.scope.replace(/_/g, " ")}
+                      </Badge>
+                    </div>
+                    <div className="mt-2 h-2 overflow-hidden rounded-full bg-muted">
+                      <div className={cn("h-full rounded-full", barTone)} style={{ width: pct + "%" }} />
+                    </div>
+                    <div className="mt-2 grid grid-cols-4 gap-1 text-center">
+                      <div>
+                        <p className="text-sm font-semibold tabular-nums">{pool.available}</p>
+                        <p className="text-[10px] text-muted-foreground">left</p>
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold tabular-nums text-amber-700 dark:text-amber-400">{pool.reserved}</p>
+                        <p className="text-[10px] text-muted-foreground">held</p>
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold tabular-nums text-emerald-700 dark:text-emerald-400">{pool.confirmed}</p>
+                        <p className="text-[10px] text-muted-foreground">confirmed</p>
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold tabular-nums">{pool.total}</p>
+                        <p className="text-[10px] text-muted-foreground">total</p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
 
             <div className="grid gap-3 rounded-lg border border-dashed p-4 sm:grid-cols-5">
@@ -695,10 +849,21 @@ export function AgcAccommodationTab() {
                 <tbody>
                   {(hubs ?? []).map((hub: { _id: string; name: string; region: string; country: string; active?: boolean }) => (
                     <tr key={hub._id} className="border-b last:border-0">
-                      <td className="py-2 font-medium">{hub.name}</td>
-                      <td className="py-2">{hub.region.replace(/_/g, " ")}</td>
+                      <td className="py-2">
+                        <span className="flex items-center gap-2.5 font-medium">
+                          <HubAvatarSmall name={hub.name} />
+                          {hub.name}
+                        </span>
+                      </td>
+                      <td className="py-2 capitalize">{hub.region.replace(/_/g, " ")}</td>
                       <td className="py-2">{hub.country}</td>
-                      <td className="py-2">{hub.active === false ? "no" : "yes"}</td>
+                      <td className="py-2">
+                        {hub.active === false ? (
+                          <Badge variant="outline" className="text-[10px]">inactive</Badge>
+                        ) : (
+                          <Badge variant="outline" className="border-emerald-300 bg-emerald-50 text-emerald-800 text-[10px] dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">active</Badge>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -883,6 +1048,7 @@ export function AgcAccommodationTab() {
                             }
                             aria-label={`Select ${rep.username} for bulk delete`}
                           />
+                          <HubAvatarSmall name={rep.hubName} />
                           <p className="truncate font-medium">{rep.hubName}</p>
                         </div>
                         <Button

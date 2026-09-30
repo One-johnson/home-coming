@@ -18,8 +18,7 @@ const row = (overrides: Partial<HubRosterRow>): HubRosterRow => ({
   hubName: "Ashanti Mampong",
   region: "ghana",
   active: true,
-  rep: {
-    username: "ashanti_mampong",
+  rep: { _id: "r1", username: "ashanti_mampong",
     email: "rep@example.com",
     status: "active",
     profileComplete: true,
@@ -65,9 +64,9 @@ describe("matchesHubFilter", () => {
   test("each chip matches its group", () => {
     expect(matchesHubFilter("attention", row({ needsAttention: true }))).toBe(true);
     expect(matchesHubFilter("attention", row({}))).toBe(false);
-    expect(matchesHubFilter("pending_setup", row({ rep: { username: "u", email: null, status: "pending_setup", profileComplete: false } }))).toBe(true);
+    expect(matchesHubFilter("pending_setup", row({ rep: { _id: "r", username: "u", email: null, status: "pending_setup", profileComplete: false } }))).toBe(true);
     expect(matchesHubFilter("active", row({}))).toBe(true);
-    expect(matchesHubFilter("disabled", row({ rep: { username: "u", email: null, status: "disabled", profileComplete: true } }))).toBe(true);
+    expect(matchesHubFilter("disabled", row({ rep: { _id: "r", username: "u", email: null, status: "disabled", profileComplete: true } }))).toBe(true);
     expect(matchesHubFilter("no_rep", row({ rep: null }))).toBe(true);
     expect(matchesHubFilter("no_rep", row({}))).toBe(false);
     expect(matchesHubFilter("all", row({}))).toBe(true);

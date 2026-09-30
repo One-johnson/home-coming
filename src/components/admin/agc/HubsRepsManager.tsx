@@ -1,23 +1,29 @@
 "use client";
 
-import { useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { Fragment, useMemo, useState } from "react";
 import {
   AlertTriangle,
   ChevronDown,
   ChevronRight,
   InboxIcon,
+  KeyRound,
   Mail,
   SearchIcon,
+  PowerOff,
   UserX,
 } from "lucide-react";
 import { api } from "@convex/_generated/api";
+import type { Id } from "@convex/_generated/dataModel";
 import { useAdminSession } from "@/components/admin/AdminSessionProvider";
+import { toastFriendlyErrorParts } from "@/lib/friendlyError";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatTile } from "@/components/portal/StatTile";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
   Select,
@@ -118,8 +124,99 @@ function StatCell({
   );
 }
 
+/**
+ * Inline rep actions for the detail panel: enable/disable the account and
+ * issue fresh credentials (new temp password, invalidates the old one).
+ */
+function RepActions({
+  rep,
+  onCredentials,
+}: {
+  rep: NonNullable<HubRow["rep"]>;
+  onCredentials: (text: string) => void;
+}) {
+  const { sessionToken } = useAdminSession();
+  const setRepStatus = useMutation(api.agcAdminData.setRepStatus);
+  const issueTempPassword = useAction(api.agcAdmin.issueTempPassword);
+  const [busy, setBusy] = useState(false);
+
+  const toggleStatus = async () => {
+    if (!sessionToken || busy) return;
+    setBusy(true);
+    try {
+      await setRepStatus({
+        sessionToken,
+        repId: rep._id as Id<"agcRepresentatives">,
+        status: rep.status === "disabled" ? "active" : "disabled",
+      });
+      toast.success(
+        rep.status === "disabled"
+          ? `Enabled ${rep.username}`
+          : `Disabled ${rep.username} — sign-ins are blocked`,
+      );
+    } catch (err) {
+      toast.error(...toastFriendlyErrorParts(err, "Failed to update rep"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const resetPassword = async () => {
+    if (!sessionToken || busy) return;
+    setBusy(true);
+    try {
+      const result = await issueTempPassword({
+        sessionToken,
+        repId: rep._id as Id<"agcRepresentatives">,
+        clientOrigin: window.location.origin,
+      });
+      onCredentials(`${result.username}: ${result.tempPassword}`);
+      toast.success(
+        result.tempPassword
+          ? `New temporary password issued for ${result.username}`
+          : `Credentials resent for ${result.username}`,
+      );
+    } catch (err) {
+      toast.error(...toastFriendlyErrorParts(err, "Failed to reset password"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2">
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        disabled={busy}
+        onClick={() => void toggleStatus()}
+      >
+        <PowerOff className="size-3.5" />
+        {rep.status === "disabled" ? "Enable account" : "Disable account"}
+      </Button>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        disabled={busy}
+        onClick={() => void resetPassword()}
+      >
+        <KeyRound className="size-3.5" />
+        Reset password
+      </Button>
+    </div>
+  );
+}
+
 /** Expanded detail: mini stat tiles + rep contact card. */
-function HubDetail({ hub }: { hub: HubRow }) {
+function HubDetail({
+  hub,
+  onCredentials,
+}: {
+  hub: HubRow;
+  onCredentials: (v: string) => void;
+}) {
   return (
     <div className="space-y-3 rounded-xl bg-muted/40 p-3">
       <div>
@@ -157,6 +254,7 @@ function HubDetail({ hub }: { hub: HubRow }) {
               <Mail className="size-3" />
               {hub.rep.email ?? "no email on file"}
             </p>
+            <RepActions rep={hub.rep} onCredentials={onCredentials} />
           </div>
         ) : (
           <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
@@ -170,6 +268,8 @@ function HubDetail({ hub }: { hub: HubRow }) {
 }
 export function HubsRepsManager() {
   const { sessionToken } = useAdminSession();
+  // Credential banner (shown after RepActions issues a temp password).
+  const [credentials, setCredentials] = useState<string | null>(null);
   const roster = useQuery(
     api.agcAdminData.getHubRoster,
     sessionToken ? { sessionToken } : "skip",
@@ -243,8 +343,14 @@ export function HubsRepsManager() {
             tone={summary.attention > 0 ? "warning" : "positive"}
             hint="receipts or holds waiting"
           />
-        </button>
-      </div>
+        </button>      </div>
+
+      {credentials && (
+        <p className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 font-mono text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300">
+          New credentials: {credentials} — copy now, shown once.
+        </p>
+      )}
+
       <Card>
         <CardHeader className="pb-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -443,7 +549,7 @@ export function HubsRepsManager() {
                         {expanded === hub._id && (
                           <TableRow>
                             <TableCell colSpan={8} className="p-2">
-                              <HubDetail hub={hub} />
+                              <HubDetail hub={hub} onCredentials={setCredentials} />
                             </TableCell>
                           </TableRow>
                         )}
