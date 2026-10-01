@@ -51,12 +51,14 @@ async function seedHub(
   );
 }
 
-test("export workbook includes hubs, reps, passwords, and both pending-setup states", async () => {
+test("export workbook has one row per hub with derived usernames, real statuses, and pending-setup passwords", async () => {
   const t = createTestConvex();
   const token = await seedAdminSession(t);
 
   const pendingHubId = await seedHub(t, "Ashanti Mampong", "ghana");
   const activeHubId = await seedHub(t, "London Central", "england");
+  // A hub with no rep account must still appear, with its derived username.
+  await seedHub(t, "Kumasi Central", "ghana");
 
   const { default: bcrypt } = await import("bcryptjs");
   const tempPassword = "temp-pass-123";
@@ -99,37 +101,42 @@ test("export workbook includes hubs, reps, passwords, and both pending-setup sta
     >[0],
   );
 
-  // Hubs sheet: one row per hub with region + country.
-  const hubsSheet = workbook.getWorksheet("Hubs");
-  expect(hubsSheet).toBeDefined();
-  const hubNames = hubsSheet!.getColumn(1).values.slice(2);
-  expect(hubNames).toContain("Ashanti Mampong");
-  expect(hubNames).toContain("London Central");
-
-  // Representatives sheet: every hub with a rep, password only while
-  // the account is still pending setup.
-  const repsSheet = workbook.getWorksheet("Representatives");
-  expect(repsSheet).toBeDefined();
+  // Single sheet with one row per hub — including hub-less reps.
+  const sheet = workbook.getWorksheet("Hubs & Reps");
+  expect(sheet).toBeDefined();
   const rows: Array<Record<string, string>> = [];
-  repsSheet!.eachRow((row, rowNumber) => {
+  sheet!.eachRow((row, rowNumber) => {
     if (rowNumber === 1) return;
     const values = row.values as unknown[];
     rows.push({
       username: String(values[1] ?? ""),
       hub: String(values[2] ?? ""),
-      password: String(values[3] ?? ""),
+      password: String(values[5] ?? ""),
+      status: String(values[6] ?? ""),
     });
   });
   expect(rows.map((r) => r.username)).toEqual(
-    expect.arrayContaining(["ashanti_mampong", "london_central"]),
+    expect.arrayContaining([
+      "ashanti_mampong",
+      "london_central",
+      "kumasi_central",
+    ]),
   );
 
   const pendingRow = rows.find((r) => r.username === "ashanti_mampong");
   expect(pendingRow!.password).toBe(tempPassword);
+  expect(pendingRow!.status).toBe("pending_setup");
 
   // Activated reps keep their own private password — the cell is blank.
   const activeRow = rows.find((r) => r.username === "london_central");
   expect(activeRow!.password).toBe("");
+  expect(activeRow!.status).toBe("active");
+
+  // Hub without a rep: derived underscore username, honest no_rep status.
+  const noRepRow = rows.find((r) => r.username === "kumasi_central");
+  expect(noRepRow!.hub).toBe("Kumasi Central");
+  expect(noRepRow!.password).toBe("");
+  expect(noRepRow!.status).toBe("no_rep");
 });
 
 test("export data query rejects non-admin roles", async () => {

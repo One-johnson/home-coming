@@ -506,50 +506,37 @@ export const exportHubsRepsExcel = action({
 
     const workbook = new ExcelJS.Workbook();
 
-    const hubsSheet = workbook.addWorksheet("Hubs");
-    hubsSheet.columns = [
+    // One row per hub — no rep account yet still gets its row, with the
+    // underscore username and an honest status instead of being skipped.
+    const sheet = workbook.addWorksheet("Hubs & Reps");
+    sheet.columns = [
+      { header: "Username", key: "username", width: 26 },
       { header: "Hub", key: "hub", width: 32 },
       { header: "Region", key: "region", width: 20 },
       { header: "Country", key: "country", width: 18 },
-      { header: "Status", key: "status", width: 12 },
-    ];
-    hubsSheet.getRow(1).font = { bold: true };
-    for (const row of rows) {
-      hubsSheet.addRow({
-        hub: row.hubName,
-        region: row.region,
-        country: row.country,
-        status: row.active ? "active" : "inactive",
-      });
-    }
-    hubsSheet.autoFilter = { from: "A1", to: "D1" };
-
-    const repsSheet = workbook.addWorksheet("Representatives");
-    repsSheet.columns = [
-      { header: "Username", key: "username", width: 26 },
-      { header: "Hub", key: "hub", width: 32 },
       { header: "Password", key: "password", width: 20 },
-      { header: "Email", key: "email", width: 28 },
       { header: "Status", key: "status", width: 16 },
+      { header: "Email", key: "email", width: 28 },
       { header: "Profile Complete", key: "profileComplete", width: 16 },
       { header: "Created At", key: "createdAt", width: 24 },
     ];
-    repsSheet.getRow(1).font = { bold: true };
+    sheet.getRow(1).font = { bold: true };
     for (const row of rows) {
-      if (!row.username) continue;
-      repsSheet.addRow({
+      sheet.addRow({
         username: row.username,
         hub: row.hubName,
+        region: row.region,
+        country: row.country,
         // The temp password is only available while the account is still
         // pending setup; activated reps keep their own private password.
         password: row.password,
-        email: row.email,
         status: row.repStatus,
+        email: row.email,
         profileComplete: row.profileComplete ? "yes" : "no",
         createdAt: new Date(row.createdAt).toISOString(),
       });
     }
-    repsSheet.autoFilter = { from: "A1", to: "G1" };
+    sheet.autoFilter = { from: "A1", to: "I1" };
 
     const instructions = workbook.addWorksheet("How to use");
     instructions.getColumn("A").width = 100;
@@ -558,13 +545,13 @@ export const exportHubsRepsExcel = action({
     ]).font = { bold: true };
     instructions.addRow([""]);
     instructions.addRow([
-      "The Hubs sheet lists every hub with its region and country; the Representatives sheet lists each hub's rep account.",
+      "Every hub has one row. The username is the hub name in lowercase with spaces replaced by underscores (e.g. Ashanti Mampong → ashanti_mampong) — hubs without a rep account show the username they will get once one is created.",
     ]);
     instructions.addRow([
-      "The username is the hub name in lowercase with spaces replaced by underscores (e.g. Ashanti Mampong → ashanti_mampong).",
+      "Status shows the real account state: pending_setup (temp password below still works), active (rep completed setup), disabled, or no_rep (no account yet).",
     ]);
     instructions.addRow([
-      'The password column holds the temporary password for accounts still in "pending setup". It stops working once the rep completes first-time setup.',
+      'The password column holds the temporary password for accounts still in "pending_setup". It stops working once the rep completes first-time setup.',
     ]);
     instructions.addRow([
       "Reps sign in at /portal with their username and temporary password, complete first-time setup, then sign in with their new password.",

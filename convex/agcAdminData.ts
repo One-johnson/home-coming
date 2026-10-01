@@ -388,9 +388,11 @@ export const listRegistrationExportData = internalQuery({
 /**
  * Full hubs + representatives roster for the combined Excel export.
  * Only the super admin ("admin" role) may pull credential-bearing data.
- * The password column carries the current temporary password while the
- * account is still pending setup; once a rep activates, their password is
- * private and the cell is intentionally left blank.
+ * One row per hub: the username column carries the stored account username
+ * (or the derived underscore form when the hub has no rep yet), and the
+ * password column carries the current temporary password while the account
+ * is still pending setup; once a rep activates, their password is private
+ * and the cell is intentionally left blank.
  */
 export const listHubsRepsExportData = query({
   args: { sessionToken: sessionTokenValidator },
@@ -404,13 +406,16 @@ export const listHubsRepsExportData = query({
     }
     return hubs.map((hub) => {
       const rep = repByHub.get(hub._id);
+      // Mirrors agcAdmin.deriveUsername: hub name lowercased, whitespace →
+      // underscores. Used as the would-be username for hubs without a rep.
+      const derivedUsername = hub.name.toLowerCase().replace(/\s+/g, "_");
       return {
         hubName: hub.name,
         region: hub.region,
         country: hub.country,
         active: hub.active !== false,
-        username: rep?.username ?? "",
-        repStatus: rep?.status ?? "none",
+        username: rep?.username ?? derivedUsername,
+        repStatus: rep?.status ?? "no_rep",
         password: rep?.status === "pending_setup" ? (rep.tempPassword ?? "") : "",
         email: rep?.email ?? "",
         profileComplete: rep?.profileComplete ?? false,
