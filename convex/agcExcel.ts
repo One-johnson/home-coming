@@ -479,7 +479,7 @@ export const exportBookingsExcel = action({
   },
 });
 
-export const exportRepsExcel = action({
+export const exportHubsRepsExcel = action({
   args: { sessionToken: v.string() },
   handler: async (
     ctx,
@@ -489,49 +489,77 @@ export const exportRepsExcel = action({
       sessionToken: args.sessionToken,
     });
 
-    const reps: Array<{
-      username: string;
+    const rows: Array<{
       hubName: string;
-      email: string | null;
-      status: string;
-      tempPassword: string | null;
+      region: string;
+      country: string;
+      active: boolean;
+      username: string;
+      repStatus: string;
+      password: string;
+      email: string;
+      profileComplete: boolean;
       createdAt: number;
-    }> = await ctx.runQuery(api.agcAdminData.listReps, {
+    }> = await ctx.runQuery(api.agcAdminData.listHubsRepsExportData, {
       sessionToken: args.sessionToken,
     });
 
     const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet("Representatives");
-    sheet.columns = [
+
+    const hubsSheet = workbook.addWorksheet("Hubs");
+    hubsSheet.columns = [
+      { header: "Hub", key: "hub", width: 32 },
+      { header: "Region", key: "region", width: 20 },
+      { header: "Country", key: "country", width: 18 },
+      { header: "Status", key: "status", width: 12 },
+    ];
+    hubsSheet.getRow(1).font = { bold: true };
+    for (const row of rows) {
+      hubsSheet.addRow({
+        hub: row.hubName,
+        region: row.region,
+        country: row.country,
+        status: row.active ? "active" : "inactive",
+      });
+    }
+    hubsSheet.autoFilter = { from: "A1", to: "D1" };
+
+    const repsSheet = workbook.addWorksheet("Representatives");
+    repsSheet.columns = [
       { header: "Username", key: "username", width: 26 },
       { header: "Hub", key: "hub", width: 32 },
       { header: "Password", key: "password", width: 20 },
       { header: "Email", key: "email", width: 28 },
       { header: "Status", key: "status", width: 16 },
+      { header: "Profile Complete", key: "profileComplete", width: 16 },
       { header: "Created At", key: "createdAt", width: 24 },
     ];
-    sheet.getRow(1).font = { bold: true };
-    for (const rep of reps) {
-      sheet.addRow({
-        username: rep.username,
-        hub: rep.hubName,
+    repsSheet.getRow(1).font = { bold: true };
+    for (const row of rows) {
+      if (!row.username) continue;
+      repsSheet.addRow({
+        username: row.username,
+        hub: row.hubName,
         // The temp password is only available while the account is still
         // pending setup; activated reps keep their own private password.
-        password:
-          rep.status === "pending_setup" ? (rep.tempPassword ?? "") : "",
-        email: rep.email ?? "",
-        status: rep.status,
-        createdAt: new Date(rep.createdAt).toISOString(),
+        password: row.password,
+        email: row.email,
+        status: row.repStatus,
+        profileComplete: row.profileComplete ? "yes" : "no",
+        createdAt: new Date(row.createdAt).toISOString(),
       });
     }
-    sheet.autoFilter = { from: "A1", to: "F1" };
+    repsSheet.autoFilter = { from: "A1", to: "G1" };
 
     const instructions = workbook.addWorksheet("How to use");
     instructions.getColumn("A").width = 100;
     instructions.addRow([
-      "Homecoming 2026 — AGC representative accounts",
+      "Homecoming 2026 — AGC hubs and representative accounts",
     ]).font = { bold: true };
     instructions.addRow([""]);
+    instructions.addRow([
+      "The Hubs sheet lists every hub with its region and country; the Representatives sheet lists each hub's rep account.",
+    ]);
     instructions.addRow([
       "The username is the hub name in lowercase with spaces replaced by underscores (e.g. Ashanti Mampong → ashanti_mampong).",
     ]);
@@ -542,12 +570,15 @@ export const exportRepsExcel = action({
       "Reps sign in at /portal with their username and temporary password, complete first-time setup, then sign in with their new password.",
     ]);
     instructions.addRow([
+      "Use Reset password on the Hubs & reps page to issue a new temporary password for an activated account.",
+    ]);
+    instructions.addRow([
       "Keep this file secure — it grants access to the representative portal.",
     ]);
 
     const buffer = await workbook.xlsx.writeBuffer();
     return {
-      filename: `homecoming-2026-representatives-${new Date().toISOString().slice(0, 10)}.xlsx`,
+      filename: `homecoming-2026-hubs-reps-${new Date().toISOString().slice(0, 10)}.xlsx`,
       contentBase64: Buffer.from(buffer as ArrayBuffer).toString("base64"),
     };
   },

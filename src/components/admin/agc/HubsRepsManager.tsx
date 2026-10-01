@@ -4,8 +4,10 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import { Fragment, useMemo, useState } from "react";
 import {
   AlertTriangle,
+  Check,
   ChevronDown,
   ChevronRight,
+  Copy,
   Download,
   InboxIcon,
   KeyRound,
@@ -79,6 +81,9 @@ import {
 
 type HubRow = HubRosterRow;
 
+/** Credentials revealed once when a rep is created or their password is reset. */
+type RepCredentials = { hubName: string; username: string; password: string };
+
 /** Toast with a 10s undo window — used for soft-deletes (7-day restore). */
 function deleteToast(
   message: string,
@@ -91,6 +96,82 @@ function deleteToast(
     },
     duration: 10_000,
   });
+}
+
+/** Monospace credential value with a one-click copy button + feedback. */
+function CopyField({ label, value }: { label: string; value: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast.error("Copy failed — select the text and copy manually");
+    }
+  };
+  return (
+    <div className="space-y-1">
+      <Label className="text-xs text-muted-foreground">{label}</Label>
+      <div className="flex items-center gap-2">
+        <code className="min-w-0 flex-1 truncate rounded-md border bg-muted/50 px-2 py-1.5 font-mono text-sm">
+          {value}
+        </code>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => void copy()}
+          aria-label={`Copy ${label.toLowerCase()}`}
+        >
+          {copied ? (
+            <Check className="size-3.5 text-emerald-600" />
+          ) : (
+            <Copy className="size-3.5" />
+          )}
+          {copied ? "Copied" : "Copy"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Shown once after a rep account is created or a password is reset: the hub,
+ * username, and temporary password each with one-click copy. The temporary
+ * password is never displayed again after this dialog closes.
+ */
+function CredentialsDialog({
+  credentials,
+  onClose,
+}: {
+  credentials: RepCredentials;
+  onClose: () => void;
+}) {
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Representative credentials</DialogTitle>
+          <DialogDescription>
+            Sign-in details for {credentials.hubName}. Copy them now — the
+            password is shown only this once and must be changed at first
+            sign-in.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <CopyField label="Hub" value={credentials.hubName} />
+          <CopyField label="Username" value={credentials.username} />
+          <CopyField label="Temporary password" value={credentials.password} />
+        </div>
+        <DialogFooter>
+          <Button type="button" onClick={onClose}>
+            Done
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 function RepStatusBadge({ status }: { status: string }) {
@@ -166,14 +247,16 @@ function StatCell({
  */
 function RepActions({
   rep,
+  hubName,
   isAdmin,
   onCredentials,
   onEditEmail,
   onDeleted,
 }: {
   rep: NonNullable<HubRow["rep"]>;
+  hubName: string;
   isAdmin: boolean;
-  onCredentials: (text: string) => void;
+  onCredentials: (credentials: RepCredentials) => void;
   onEditEmail: (rep: NonNullable<HubRow["rep"]>) => void;
   onDeleted: (username: string, undo: () => Promise<void>) => void;
 }) {
@@ -214,7 +297,11 @@ function RepActions({
         repId: rep._id as Id<"agcRepresentatives">,
         clientOrigin: window.location.origin,
       });
-      onCredentials(`${result.username}: ${result.tempPassword}`);
+      onCredentials({
+        hubName,
+        username: result.username,
+        password: result.tempPassword,
+      });
       toast.success(
         result.tempPassword
           ? `New temporary password issued for ${result.username}`
@@ -314,7 +401,7 @@ function CreateRepForm({
 }: {
   hub: HubRow;
   isAdmin: boolean;
-  onCredentials: (text: string) => void;
+  onCredentials: (credentials: RepCredentials) => void;
 }) {
   const { sessionToken } = useAdminSession();
   const createRepAction = useAction(api.agcAdmin.createRep);
@@ -342,7 +429,11 @@ function CreateRepForm({
         tempPassword: tempPassword.trim() || undefined,
         clientOrigin: window.location.origin,
       });
-      onCredentials(`${result.username}: ${result.tempPassword}`);
+      onCredentials({
+        hubName: hub.hubName,
+        username: result.username,
+        password: result.tempPassword,
+      });
       toast.success(`Representative created for ${hub.hubName}`);
     } catch (err) {
       toast.error(...toastFriendlyErrorParts(err, "Failed to create representative"));
@@ -473,7 +564,7 @@ function BulkCreateDialog({
   hubs: HubRow[];
   onClose: () => void;
   onResult: (result: {
-    created: Array<{ username: string; tempPassword: string }>;
+    created: Array<{ hubName: string; username: string; tempPassword: string }>;
     skipped: Array<{ hubName: string; reason: string }>;
   }) => void;
 }) {
@@ -647,7 +738,7 @@ function HubDetail({
 }: {
   hub: HubRow;
   isAdmin: boolean;
-  onCredentials: (v: string) => void;
+  onCredentials: (credentials: RepCredentials) => void;
   onEditEmail: (rep: NonNullable<HubRow["rep"]>) => void;
   onDeleted: (username: string, undo: () => Promise<void>) => void;
 }) {
@@ -690,6 +781,7 @@ function HubDetail({
             </p>
             <RepActions
               rep={hub.rep}
+              hubName={hub.hubName}
               isAdmin={isAdmin}
               onCredentials={onCredentials}
               onEditEmail={onEditEmail}
@@ -713,10 +805,10 @@ export function HubsRepsManager() {
     api.agcAdminData.getHubRoster,
     sessionToken ? { sessionToken } : "skip",
   ) as HubRow[] | undefined;
-  const exportReps = useAction(api.agcExcel.exportRepsExcel);
+  const exportHubsReps = useAction(api.agcExcel.exportHubsRepsExcel);
 
-  // Credential banner (shown after create/reset issues a temp password).
-  const [credentials, setCredentials] = useState<string | null>(null);
+  // Credentials dialog (shown once after create/reset issues a temp password).
+  const [credentials, setCredentials] = useState<RepCredentials | null>(null);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<HubFilterId>("all");
   const [sort, setSort] = useState<HubSortId>("name");
@@ -751,7 +843,7 @@ export function HubsRepsManager() {
     if (!sessionToken || exportingReps) return;
     setExportingReps(true);
     try {
-      const result = await exportReps({ sessionToken });
+      const result = await exportHubsReps({ sessionToken });
       const binary = atob(result.contentBase64);
       const bytes = new Uint8Array(binary.length);
       for (let i = 0; i < binary.length; i += 1) {
@@ -766,7 +858,7 @@ export function HubsRepsManager() {
       anchor.download = result.filename;
       anchor.click();
       URL.revokeObjectURL(url);
-      toast.success("Representatives exported");
+      toast.success("Hubs & representatives exported");
     } catch (err) {
       toast.error(...toastFriendlyErrorParts(err, "Export failed"));
     } finally {
@@ -845,11 +937,6 @@ export function HubsRepsManager() {
         </button>
       </div>
 
-      {credentials && (
-        <p className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 font-mono text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300">
-          New credentials: {credentials} — copy now, shown once.
-        </p>
-      )}
 
       <Card>
         <CardHeader className="pb-3">
@@ -902,7 +989,7 @@ export function HubsRepsManager() {
                       onClick={() => void exportRepsSheet()}
                     >
                       <Download className="size-4" />
-                      Export (.xlsx)
+                      Export hubs &amp; reps (.xlsx)
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem
@@ -1162,7 +1249,11 @@ export function HubsRepsManager() {
           onResult={(result) => {
             const first = result.created[0];
             if (first) {
-              setCredentials(`${first.username}: ${first.tempPassword}`);
+              setCredentials({
+                hubName: first.hubName,
+                username: first.username,
+                password: first.tempPassword,
+              });
             }
           }}
         />
@@ -1172,6 +1263,12 @@ export function HubsRepsManager() {
           selected={selected}
           onClose={() => setBulkDeleteOpen(false)}
           onCleared={() => setSelected(new Map())}
+        />
+      )}
+      {credentials && (
+        <CredentialsDialog
+          credentials={credentials}
+          onClose={() => setCredentials(null)}
         />
       )}
     </div>

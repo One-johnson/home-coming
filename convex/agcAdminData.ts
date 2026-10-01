@@ -385,6 +385,41 @@ export const listRegistrationExportData = internalQuery({
   },
 });
 
+/**
+ * Full hubs + representatives roster for the combined Excel export.
+ * Only the super admin ("admin" role) may pull credential-bearing data.
+ * The password column carries the current temporary password while the
+ * account is still pending setup; once a rep activates, their password is
+ * private and the cell is intentionally left blank.
+ */
+export const listHubsRepsExportData = query({
+  args: { sessionToken: sessionTokenValidator },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx, args.sessionToken);
+    const hubs = await ctx.db.query("agcHubs").withIndex("by_name").collect();
+    const reps = await ctx.db.query("agcRepresentatives").collect();
+    const repByHub = new Map<string, Doc<"agcRepresentatives">>();
+    for (const rep of reps) {
+      if (rep.deletedAt === undefined) repByHub.set(rep.hubId, rep);
+    }
+    return hubs.map((hub) => {
+      const rep = repByHub.get(hub._id);
+      return {
+        hubName: hub.name,
+        region: hub.region,
+        country: hub.country,
+        active: hub.active !== false,
+        username: rep?.username ?? "",
+        repStatus: rep?.status ?? "none",
+        password: rep?.status === "pending_setup" ? (rep.tempPassword ?? "") : "",
+        email: rep?.email ?? "",
+        profileComplete: rep?.profileComplete ?? false,
+        createdAt: rep?.createdAt ?? hub.createdAt,
+      };
+    });
+  },
+});
+
 export const getHubByName = internalQuery({
   args: { name: v.string() },
   handler: async (ctx, args) => {

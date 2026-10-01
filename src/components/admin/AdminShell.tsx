@@ -19,6 +19,7 @@ import {
   Mail,
   Newspaper,
   ScrollText,
+  Settings,
   UserRound,
   Users,
   Video,
@@ -94,6 +95,7 @@ const NAV_ICONS: Record<
   "/admin/emails": Mail,
   "/admin/team": Users,
   "/admin/audit": ScrollText,
+  "/admin/settings": Settings,
 };
 
 type NavBadges = {

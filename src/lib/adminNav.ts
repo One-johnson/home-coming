@@ -118,6 +118,12 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         description: "Recent admin actions",
         area: "audit",
       },
+      {
+        href: "/admin/settings",
+        label: "Settings",
+        description: "Deadlines, payment details, and guest titles",
+        area: "settings",
+      },
     ],
   },
 ];

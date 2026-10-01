@@ -15,7 +15,8 @@ export type AdminArea =
   | "emails"
   | "team"
   | "seed"
-  | "audit";
+  | "audit"
+  | "settings";
 
 export const AREA_ROLES: Record<AdminArea, readonly AdminRole[]> = {
   registration: ["admin", "registration", "finance"],
@@ -25,6 +26,7 @@ export const AREA_ROLES: Record<AdminArea, readonly AdminRole[]> = {
   team: ["admin"],
   seed: ["admin"],
   audit: ["admin", "finance"],
+  settings: ["admin"],
 };
 
 export function isAdminRole(role: string | undefined | null): role is AdminRole {
