@@ -435,22 +435,6 @@ export default defineSchema({
     .index("by_token", ["token"])
     .index("by_user", ["userId"]),
 
-  /** Admin-issued invite codes for the public /admin/register page. */
-  adminInvites: defineTable({
-    code: v.string(),
-    role: adminRole,
-    /** Optional email lock: only this address may redeem the code. */
-    email: v.optional(v.string()),
-    expiresAt: v.number(),
-    usedBy: v.optional(v.id("users")),
-    usedAt: v.optional(v.number()),
-    revokedAt: v.optional(v.number()),
-    createdBy: v.id("users"),
-    createdAt: v.number(),
-  })
-    .index("by_code", ["code"])
-    .index("by_created_at", ["createdAt"]),
-
   /** Configurable system settings (SRS §55) — one row per key. */
   agcSettings: defineTable({
     key: v.string(),

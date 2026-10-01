@@ -5,13 +5,12 @@ import { toastFriendlyErrorParts } from "@/lib/friendlyError";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useAction, useQuery } from "convex/react";
+import { useAction } from "convex/react";
 import { useState } from "react";
 import { toast } from "sonner";
 import {
   Eye,
   EyeOff,
-  KeyRound,
   Loader2,
   Lock,
   Mail,
@@ -141,35 +140,18 @@ function AuthShell({
 
 function AdminRegisterInner() {
   const router = useRouter();
-  const canRegister = useQuery(api.users.canRegisterAdmin);
   const register = useAction(api.authActions.registerInitialAdmin);
-  const registerWithInvite = useAction(api.authActions.registerWithInvite);
-  const { setSession, user, isReady } = useAdminSession();
-
-  // Default to bootstrap setup while the first admin is missing, otherwise
-  // to invite redemption once the console is set up.
-  const [modeChoice, setModeChoice] = useState<"setup" | "invite" | null>(null);
-  const mode = modeChoice ?? (canRegister ? "setup" : "invite");
+  const { setSession, user } = useAdminSession();
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
-  const [inviteCode, setInviteCode] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   const passwordsMatch = confirm.length === 0 || password === confirm;
   const passwordStrongEnough = password.length === 0 || password.length >= 8;
-  const inviteFormValid = inviteCode.trim().length >= 8;
-
-  if (!isReady || canRegister === undefined) {
-    return (
-      <AuthShell>
-        <p className="text-muted-foreground">Loading...</p>
-      </AuthShell>
-    );
-  }
 
   if (user) {
     return (
@@ -202,24 +184,12 @@ function AdminRegisterInner() {
       setError("Password must be at least 8 characters");
       return;
     }
-    if (mode === "invite" && !inviteFormValid) {
-      setError("Enter the registration code from your administrator");
-      return;
-    }
 
     setSubmitting(true);
     try {
-      const result =
-        mode === "setup"
-          ? await register({ name, email, password })
-          : await registerWithInvite({
-              name,
-              email,
-              password,
-              inviteCode,
-            });
+      const result = await register({ name, email, password });
       setSession(result.sessionToken);
-      toast.success("Admin account created");
+      toast.success("Account created");
       router.replace("/admin");
     } catch (err) {
       const message = toastFriendlyErrorParts.toastMessage(err, "Registration failed");
@@ -248,12 +218,11 @@ function AdminRegisterInner() {
         <ShieldCheck className="size-6" aria-hidden />
       </div>
       <h1 className="font-display text-3xl font-normal tracking-tight">
-        {mode === "setup" ? "Create admin account" : "Redeem invite"}
+        Create your account
       </h1>
       <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-        {mode === "setup"
-          ? "First-time setup. After this, invite staff with registration codes from the Team dashboard."
-          : "Enter the registration code issued by an administrator to create your account."}
+        Register for the {EVENT.name} admin console. Ask an admin if you should
+        have a more limited role instead.
       </p>
 
       <form onSubmit={handleSubmit} className="mt-8 space-y-4">
@@ -287,23 +256,6 @@ function AdminRegisterInner() {
             />
           </FieldIconWrap>
         </div>
-
-        {mode === "invite" && (
-          <div className="space-y-2">
-            <Label htmlFor="reg-invite">Registration code</Label>
-            <FieldIconWrap icon={KeyRound}>
-              <Input
-                id="reg-invite"
-                required
-                autoComplete="off"
-                value={inviteCode}
-                onChange={(e) => setInviteCode(e.target.value)}
-                className="h-11 pl-10 font-mono"
-                placeholder="Paste the code from your administrator"
-              />
-            </FieldIconWrap>
-          </div>
-        )}
 
         <PasswordField
           id="reg-password"
@@ -348,26 +300,10 @@ function AdminRegisterInner() {
               <Loader2 className="size-4 animate-spin" />
               Creating account…
             </>
-          ) : mode === "setup" ? (
-            "Create admin account"
           ) : (
             "Create account"
           )}
         </Button>
-
-        {canRegister && (
-          <button
-            type="button"
-            onClick={() =>
-              setModeChoice(mode === "setup" ? "invite" : "setup")
-            }
-            className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-          >
-            {mode === "setup"
-              ? "Have a registration code instead?"
-              : "Setting up for the first time?"}
-          </button>
-        )}
       </form>
     </AuthShell>
   );

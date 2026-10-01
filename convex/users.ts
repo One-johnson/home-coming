@@ -131,14 +131,6 @@ async function assertNotRemovingLastAdmin(
   }
 }
 
-export const canRegisterAdmin = query({
-  args: {},
-  handler: async (ctx) => {
-    const users = await ctx.db.query("users").collect();
-    return users.length === 0;
-  },
-});
-
 export const currentUser = query({
   args: { sessionToken: sessionTokenValidator },
   handler: async (ctx, args) => {
@@ -301,14 +293,6 @@ export const getSessionUser = internalQuery({
   handler: async (ctx, args) => {
     const user = await getUserBySessionToken(ctx, args.sessionToken);
     return user ? publicUser(user) : null;
-  },
-});
-
-export const countUsers = internalQuery({
-  args: {},
-  handler: async (ctx) => {
-    const users = await ctx.db.query("users").collect();
-    return users.length;
   },
 });
 

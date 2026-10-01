@@ -10,7 +10,6 @@
 
 import type * as admin from "../admin.js";
 import type * as adminAuthData from "../adminAuthData.js";
-import type * as adminInvites from "../adminInvites.js";
 import type * as agcAccommodation from "../agcAccommodation.js";
 import type * as agcAdmin from "../agcAdmin.js";
 import type * as agcAdminData from "../agcAdminData.js";
@@ -65,7 +64,6 @@ import type {
 declare const fullApi: ApiFromModules<{
   admin: typeof admin;
   adminAuthData: typeof adminAuthData;
-  adminInvites: typeof adminInvites;
   agcAccommodation: typeof agcAccommodation;
   agcAdmin: typeof agcAdmin;
   agcAdminData: typeof agcAdminData;

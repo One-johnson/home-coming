@@ -4,7 +4,7 @@ import { toastFriendlyErrorParts } from "@/lib/friendlyError";
 
 
 import Link from "next/link";
-import { useAction, useQuery } from "convex/react";
+import { useAction } from "convex/react";
 import { useState } from "react";
 import { Eye, EyeOff, Loader2, Lock, Mail } from "lucide-react";
 import { toast } from "sonner";
@@ -20,7 +20,6 @@ import { loginErrorInfo } from "@/lib/friendlyError";
 
 export function AdminSignIn() {
   const login = useAction(api.authActions.login);
-  const canRegister = useQuery(api.users.canRegisterAdmin);
   const { setSession } = useAdminSession();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -154,17 +153,15 @@ export function AdminSignIn() {
           </Link>
         </p>
 
-        {canRegister && (
-          <p className="mt-6 text-center text-sm text-muted-foreground">
-            First admin?{" "}
-            <Link
-              href="/admin/register"
-              className="font-medium text-gold hover:text-gold-dark"
-            >
-              Create admin account
-            </Link>
-          </p>
-        )}
+        <p className="mt-6 text-center text-sm text-muted-foreground">
+          Need an account?{" "}
+          <Link
+            href="/admin/register"
+            className="font-medium text-gold hover:text-gold-dark"
+          >
+            Create one
+          </Link>
+        </p>
       </div>
     </div>
   );
