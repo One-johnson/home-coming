@@ -463,6 +463,18 @@ export function RepRegistrationTab() {
 
   return (
     <div className="space-y-8">
+      {portalConfig?.locked && (
+        <Alert variant="destructive">
+          <CircleAlertIcon className="size-4" />
+          <AlertTitle>Registrations are paused</AlertTitle>
+          <AlertDescription>
+            The convention administrators have temporarily locked new
+            registrations. You can still review your purchase history below —
+            please check back later.
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Registration summary — totals across every purchase. */}
       <div className="grid gap-4 sm:grid-cols-3">
         <StatTile
@@ -518,6 +530,17 @@ export function RepRegistrationTab() {
             {error && (
               <Alert variant="destructive">
                 <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+
+            {portalConfig?.locked && (
+              <Alert variant="destructive">
+                <CircleAlertIcon className="size-4" />
+                <AlertTitle>Registrations are paused</AlertTitle>
+                <AlertDescription>
+                  The convention administrators have temporarily locked new
+                  registrations. Your purchase history is unaffected.
+                </AlertDescription>
               </Alert>
             )}
 
@@ -719,7 +742,12 @@ export function RepRegistrationTab() {
                 <Button
                   type="submit"
                   className="w-full"
-                  disabled={loading || !receipt || (amountEntered && !amountMatches)}
+                  disabled={
+                    loading ||
+                    portalConfig?.locked === true ||
+                    !receipt ||
+                    (amountEntered && !amountMatches)
+                  }
                 >
                   {loading && <Loader2Icon className="size-4 animate-spin" />}
                   {loading ? "Submitting…" : "Submit for review"}
@@ -756,7 +784,7 @@ export function RepRegistrationTab() {
                     </span>
                   </div>
                 </section>
-                <Button type="submit" className="w-full" disabled={loading}>
+                <Button type="submit" className="w-full" disabled={loading || portalConfig?.locked === true}>
                   {loading && <Loader2Icon className="size-4 animate-spin" />}
                   {loading
                     ? "Redirecting…"

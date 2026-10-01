@@ -395,3 +395,84 @@ export const issueTempPassword = action({
     return { username: rep.username, tempPassword };
   },
 });
+
+/**
+ * One-click credential rotation: reset the temporary password of EVERY
+ * pending-setup rep account to one freshly generated shared password and
+ * hand the full hub/username/password list straight back to the admin
+ * (nothing is emailed — the admin distributes it via the exported sheet).
+ * Activated and disabled accounts are reported as skipped, never reset:
+ * activated reps keep their own private password.
+ */
+export const resetAllRepPasswords = action({
+  args: { sessionToken: v.string() },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    reset: Array<{
+      hubId: Id<"agcHubs">;
+      hubName: string;
+      username: string;
+      tempPassword: string;
+    }>;
+    skipped: Array<{ hubName: string; reason: string }>;
+    tempPassword: string;
+  }> => {
+    const actor = await requireAdminViaAction(ctx, args.sessionToken);
+
+    const reps: Doc<"agcRepresentatives">[] = await ctx.runQuery(
+      internal.agcAdminData.listAllRepsInternal,
+      {},
+    );
+    const hubs: Doc<"agcHubs">[] = await ctx.runQuery(
+      internal.agcAdminData.listAllHubsInternal,
+      {},
+    );
+    const hubById = new Map(hubs.map((hub) => [hub._id, hub]));
+
+    const tempPassword = generateTempPassword();
+    const passwordHash = await bcrypt.hash(tempPassword, BCRYPT_ROUNDS);
+
+    const reset: Array<{
+      hubId: Id<"agcHubs">;
+      hubName: string;
+      username: string;
+      tempPassword: string;
+    }> = [];
+    const skipped: Array<{ hubName: string; reason: string }> = [];
+
+    for (const rep of reps) {
+      const hubName = hubById.get(rep.hubId)?.name ?? rep.username;
+      if (rep.status === "disabled") {
+        skipped.push({ hubName, reason: "account is disabled" });
+        continue;
+      }
+      if (rep.status !== "pending_setup") {
+        skipped.push({
+          hubName,
+          reason: "active — the rep set their own password",
+        });
+        continue;
+      }
+      await ctx.runMutation(internal.agcAdminData.resetRepCredentials, {
+        repId: rep._id,
+        passwordHash,
+        tempPassword,
+      });
+      reset.push({
+        hubId: rep.hubId,
+        hubName,
+        username: rep.username,
+        tempPassword,
+      });
+    }
+
+    await ctx.runMutation(internal.agcAdminData.insertAuditEntry, {
+      actorEmail: actor.email,
+      summary: `Reset temporary passwords for ${reset.length} pending-setup representative account(s) with one shared password`,
+    });
+
+    return { reset, skipped, tempPassword };
+  },
+});

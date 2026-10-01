@@ -474,6 +474,8 @@ export function RepAccommodationTab() {
   const previewExcelAction = useAction(api.agcExcel.previewBookingExcel);
   const exportBookings = useAction(api.agcExcel.exportRepBookingsExcel);
 
+  const portalConfig = useQuery(api.agcPortal.getPortalConfig);
+
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -985,6 +987,18 @@ export function RepAccommodationTab() {
 
   return (
     <div className="space-y-8">
+      {portalConfig?.locked && (
+        <Alert variant="destructive">
+          <AlertTriangleIcon className="size-4" />
+          <AlertTitle>Accommodation booking is paused</AlertTitle>
+          <AlertDescription>
+            The convention administrators have temporarily locked new
+            bookings. Existing reservations and receipts are unaffected —
+            please check back later.
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Availability — skeletons while loading */}
       {overview === undefined && sessionToken ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -1240,7 +1254,12 @@ export function RepAccommodationTab() {
               <Button
                 type="button"
                 onClick={() => void handleCreateBooking()}
-                disabled={loading || !allDraftsValid || Boolean(capacityIssue)}
+                disabled={
+                  loading ||
+                  portalConfig?.locked === true ||
+                  !allDraftsValid ||
+                  Boolean(capacityIssue)
+                }
               >
                 {loading && <Loader2Icon className="size-4 animate-spin" />}
                 Reserve &amp; hold
@@ -1826,7 +1845,7 @@ export function RepAccommodationTab() {
           onClose={resetExcel}
           onReset={resetExcel}
           onConfirm={() => void handleExcelConfirm()}
-          submitting={loading}
+          submitting={loading || portalConfig?.locked === true}
         />
       )}
 

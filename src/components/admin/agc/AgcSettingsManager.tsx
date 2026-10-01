@@ -2,12 +2,20 @@
 
 import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
-import { Loader2Icon, Plus, Save, Trash2, TriangleAlert } from "lucide-react";
+import { Loader2Icon, Plus, Save, ShieldAlert, Trash2, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import { useAdminSession } from "@/components/admin/AdminSessionProvider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -64,6 +72,9 @@ function toDraft(settings: AgcSettings): SettingsDraft {
   };
 }
 
+/** The exact keyword required to arm the lockdown switch. */
+const LOCKDOWN_KEYWORD = "LOCKDOWN";
+
 export function AgcSettingsManager() {
   const { sessionToken } = useAdminSession();
   const settings = useQuery(
@@ -77,6 +88,21 @@ export function AgcSettingsManager() {
   const setSetting = useMutation(api.agcAdminData.setAgcSetting);
   const setLockdown = useMutation(api.agcAdminData.setRegistrationLockdown);
   const [lockdownBusy, setLockdownBusy] = useState(false);
+  // Typed-keyword guard: the destructive direction of the toggle opens a
+  // confirmation dialog that only arms once the keyword is typed exactly.
+  const [lockdownConfirmOpen, setLockdownConfirmOpen] = useState(false);
+  const [lockdownConfirmText, setLockdownConfirmText] = useState("");
+
+  const handleLockdownSwitch = () => {
+    if (!systemStatus || lockdownBusy) return;
+    if (!systemStatus.locked) {
+      // Enabling is destructive → require the typed keyword.
+      setLockdownConfirmText("");
+      setLockdownConfirmOpen(true);
+      return;
+    }
+    void toggleLockdown();
+  };
 
   const toggleLockdown = async () => {
     if (!sessionToken || !systemStatus || lockdownBusy) return;
@@ -379,7 +405,7 @@ export function AgcSettingsManager() {
                 aria-checked={systemStatus.locked}
                 aria-label="Registration lockdown"
                 disabled={lockdownBusy}
-                onClick={() => void toggleLockdown()}
+                onClick={handleLockdownSwitch}
                 className={cn(
                   "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50",
                   systemStatus.locked
@@ -422,6 +448,63 @@ export function AgcSettingsManager() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Typed-keyword guard for arming the lockdown — cannot be flipped accidentally. */}
+      <Dialog
+        open={lockdownConfirmOpen}
+        onOpenChange={(open) => {
+          if (!open) setLockdownConfirmOpen(false);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldAlert className="size-4 text-destructive" />
+              Enable registration lockdown?
+            </DialogTitle>
+            <DialogDescription>
+              Every new registration and accommodation booking across the
+              portal will be rejected immediately until the lockdown is
+              switched off. Type{" "}
+              <span className="font-mono font-semibold text-foreground">
+                {LOCKDOWN_KEYWORD}
+              </span>{" "}
+              to confirm.
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            value={lockdownConfirmText}
+            placeholder={`Type ${LOCKDOWN_KEYWORD} to confirm`}
+            aria-label={`Type ${LOCKDOWN_KEYWORD} to confirm`}
+            onChange={(e) => setLockdownConfirmText(e.target.value)}
+          />
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setLockdownConfirmOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={lockdownBusy || lockdownConfirmText.trim() !== LOCKDOWN_KEYWORD}
+              onClick={() => {
+                setLockdownConfirmOpen(false);
+                void toggleLockdown();
+              }}
+            >
+              {lockdownBusy ? (
+                <Loader2Icon className="size-4 animate-spin" />
+              ) : (
+                <TriangleAlert className="size-4" />
+              )}
+              Lock registrations
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

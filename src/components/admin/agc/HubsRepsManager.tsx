@@ -138,6 +138,79 @@ function CopyField({ label, value }: { label: string; value: string }) {
 }
 
 /**
+ * One-click "reset every pending-setup password" flow: typed-keyword guard
+ * (cannot be triggered accidentally), then a dialog with the shared temp
+ * password, the full hub/username list, and a fresh-sheet download.
+ */
+function BulkResetPasswordDialog({
+  result,
+  onDownloadSheet,
+  downloading,
+  onClose,
+}: {
+  result: {
+    reset: Array<{ hubName: string; username: string; tempPassword: string }>;
+    skipped: Array<{ hubName: string; reason: string }>;
+    tempPassword: string;
+  };
+  onDownloadSheet: () => void;
+  downloading: boolean;
+  onClose: () => void;
+}) {
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>
+            Passwords reset for {result.reset.length} account(s)
+          </DialogTitle>
+          <DialogDescription>
+            One shared temporary password now unlocks every listed account at
+            first sign-in. Copy it and download the fresh sheet — this password
+            is shown only once.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <CopyField label="Shared temporary password" value={result.tempPassword} />
+          <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border p-2">
+            {result.reset.map((row) => (
+              <p key={row.username} className="font-mono text-xs">
+                {row.username}
+                <span className="text-muted-foreground"> · {row.hubName}</span>
+              </p>
+            ))}
+          </div>
+          {result.skipped.length > 0 && (
+            <p className="text-xs text-muted-foreground">
+              Skipped {result.skipped.length} account(s):{" "}
+              {result.skipped
+                .slice(0, 3)
+                .map((s) => `${s.hubName} (${s.reason})`)
+                .join(", ")}
+              {result.skipped.length > 3 ? "…" : ""}
+            </p>
+          )}
+        </div>
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={downloading}
+            onClick={onDownloadSheet}
+          >
+            <Download className="size-4" />
+            Download updated sheet
+          </Button>
+          <Button type="button" onClick={onClose}>
+            Done
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
  * Shown once after a rep account is created or a password is reset: the hub,
  * username, and temporary password each with one-click copy. The temporary
  * password is never displayed again after this dialog closes.
@@ -807,9 +880,46 @@ export function HubsRepsManager() {
     sessionToken ? { sessionToken } : "skip",
   ) as HubRow[] | undefined;
   const exportHubsReps = useAction(api.agcExcel.exportHubsRepsExcel);
+  const resetAllPasswords = useAction(api.agcAdmin.resetAllRepPasswords);
 
   // Credentials dialog (shown once after create/reset issues a temp password).
   const [credentials, setCredentials] = useState<RepCredentials | null>(null);
+  // One-click reset-all-passwords flow.
+  const [bulkResetConfirmOpen, setBulkResetConfirmOpen] = useState(false);
+  const [bulkResetConfirmText, setBulkResetConfirmText] = useState("");
+  const [bulkResetting, setBulkResetting] = useState(false);
+  const [bulkResetResult, setBulkResetResult] = useState<{
+    reset: Array<{ hubName: string; username: string; tempPassword: string }>;
+    skipped: Array<{ hubName: string; reason: string }>;
+    tempPassword: string;
+  } | null>(null);
+
+  const pendingSetupCount = useMemo(
+    () => (roster ?? []).filter((hub) => hub.rep?.status === "pending_setup").length,
+    [roster],
+  );
+
+  const runBulkReset = async () => {
+    if (!sessionToken || bulkResetting) return;
+    setBulkResetting(true);
+    try {
+      const result = await resetAllPasswords({ sessionToken });
+      setBulkResetConfirmOpen(false);
+      setBulkResetConfirmText("");
+      if (result.reset.length === 0) {
+        toast.info("No pending-setup accounts to reset");
+      } else {
+        setBulkResetResult(result);
+        toast.success(
+          `Reset ${result.reset.length} account(s) to one shared password`,
+        );
+      }
+    } catch (err) {
+      toast.error(...toastFriendlyErrorParts(err, "Bulk password reset failed"));
+    } finally {
+      setBulkResetting(false);
+    }
+  };
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<HubFilterId>("all");
   const [sort, setSort] = useState<HubSortId>("name");
@@ -981,6 +1091,31 @@ export function HubsRepsManager() {
                     <Download className="size-4" />
                   )}
                   Export hubs &amp; reps
+                </Button>
+              )}
+              {isAdmin && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-9"
+                  disabled={bulkResetting || pendingSetupCount === 0}
+                  title={
+                    pendingSetupCount === 0
+                      ? "No pending-setup accounts to reset"
+                      : `Reset the temporary password of ${pendingSetupCount} pending-setup account(s)`
+                  }
+                  onClick={() => {
+                    setBulkResetConfirmText("");
+                    setBulkResetConfirmOpen(true);
+                  }}
+                >
+                  {bulkResetting ? (
+                    <Loader2Icon className="size-4 animate-spin" />
+                  ) : (
+                    <KeyRound className="size-4" />
+                  )}
+                  Reset all passwords
                 </Button>
               )}
               {isAdmin && (
@@ -1281,6 +1416,65 @@ export function HubsRepsManager() {
         <CredentialsDialog
           credentials={credentials}
           onClose={() => setCredentials(null)}
+        />
+      )}
+      {bulkResetConfirmOpen && (
+        <Dialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setBulkResetConfirmOpen(false);
+          }}
+        >
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <AlertTriangle className="size-4 text-destructive" />
+                Reset {pendingSetupCount} password(s)?
+              </DialogTitle>
+              <DialogDescription>
+                Every pending-setup rep account gets one new shared temporary
+                password; old credentials stop working immediately. Type{" "}
+                <span className="font-mono font-semibold text-foreground">RESET</span>{" "}
+                to confirm. Activated reps are not affected.
+              </DialogDescription>
+            </DialogHeader>
+            <Input
+              value={bulkResetConfirmText}
+              placeholder="Type RESET to confirm"
+              aria-label="Type RESET to confirm"
+              onChange={(e) => setBulkResetConfirmText(e.target.value)}
+            />
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setBulkResetConfirmOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={bulkResetting || bulkResetConfirmText.trim() !== "RESET"}
+                onClick={() => void runBulkReset()}
+              >
+                {bulkResetting ? (
+                  <Loader2Icon className="size-4 animate-spin" />
+                ) : (
+                  <KeyRound className="size-4" />
+                )}
+                Reset {pendingSetupCount} password(s)
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+      {bulkResetResult && (
+        <BulkResetPasswordDialog
+          result={bulkResetResult}
+          downloading={exportingReps}
+          onDownloadSheet={() => void exportRepsSheet()}
+          onClose={() => setBulkResetResult(null)}
         />
       )}
     </div>
