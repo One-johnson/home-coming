@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import { useAdminSession } from "@/components/admin/AdminSessionProvider";
+import { ConfirmDeleteDialog } from "@/components/admin/ConfirmDeleteDialog";
 import {
   ReviewActions,
   type ReviewDecision,
@@ -59,6 +60,10 @@ type AdminBookingRow = {
   }>;
 };
 
+type BookingDeleteTarget =
+  | { kind: "single"; row: AdminBookingRow }
+  | { kind: "bulk"; rows: AdminBookingRow[]; clearSelection: () => void };
+
 function formatDateTime(ts: number) {
   return new Date(ts).toLocaleString(undefined, {
     year: "numeric",
@@ -80,6 +85,8 @@ export function BookingsTab() {
   const deleteBulk = useMutation(api.agcAdminData.deleteAgcBookingsBulk);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<BookingDeleteTarget | null>(null);
 
   const list = useMemo(() => bookings ?? [], [bookings]);
 
@@ -119,50 +126,52 @@ export function BookingsTab() {
     }
   };
 
-  const handleDeleteOne = async (row: AdminBookingRow) => {
-    if (!sessionToken) return;
-    if (
-      !window.confirm(
-        `Permanently delete booking ${row.referenceNumber || "(pending)"} for ${row.hubName}? Its guests, pricing lines, and receipt are removed and any held rooms return to the pool. This cannot be undone.`,
-      )
-    ) {
-      return;
-    }
-    setBusyId(row._id);
-    try {
-      await deleteOne({
-        sessionToken,
-        bookingId: row._id as Id<"agcBookings">,
-      });
-      toast.success("Booking deleted");
-    } catch (err) {
-      toast.error(...toastFriendlyErrorParts(err, "Delete failed"));
-    } finally {
-      setBusyId(null);
-    }
+  const handleDeleteOne = (row: AdminBookingRow) => {
+    setDeleteTarget({ kind: "single", row });
   };
 
-  const handleBulkDelete = async (
+  const handleBulkDelete = (
     selectedRows: AdminBookingRow[],
     clearSelection: () => void,
   ) => {
-    if (!sessionToken || selectedRows.length === 0) return;
-    if (
-      !window.confirm(
-        `Permanently delete ${selectedRows.length} booking(s)? Their guests, pricing lines, and receipts are removed and any held rooms return to the pools. This cannot be undone.`,
-      )
-    ) {
-      return;
-    }
+    setDeleteTarget({ kind: "bulk", rows: selectedRows, clearSelection });
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!sessionToken || !deleteTarget) return;
+    const target = deleteTarget;
+    setDeleting(true);
     try {
-      const result = await deleteBulk({
-        sessionToken,
-        ids: selectedRows.map((r) => r._id as Id<"agcBookings">),
-      });
-      toast.success(`Deleted ${result.deleted} booking(s)`);
-      clearSelection();
-    } catch (err) {
-      toast.error(...toastFriendlyErrorParts(err, "Bulk delete failed"));
+      if (target.kind === "single") {
+        const row = target.row;
+        setBusyId(row._id);
+        try {
+          await deleteOne({
+            sessionToken,
+            bookingId: row._id as Id<"agcBookings">,
+          });
+          toast.success("Booking deleted");
+          setDeleteTarget(null);
+        } catch (err) {
+          toast.error(...toastFriendlyErrorParts(err, "Delete failed"));
+        } finally {
+          setBusyId(null);
+        }
+      } else {
+        try {
+          const result = await deleteBulk({
+            sessionToken,
+            ids: target.rows.map((r) => r._id as Id<"agcBookings">),
+          });
+          toast.success(`Deleted ${result.deleted} booking(s)`);
+          target.clearSelection();
+          setDeleteTarget(null);
+        } catch (err) {
+          toast.error(...toastFriendlyErrorParts(err, "Bulk delete failed"));
+        }
+      }
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -415,6 +424,26 @@ export function BookingsTab() {
           )}
         />
       </Card>
+
+      <ConfirmDeleteDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+        title={deleteTarget?.kind === "bulk" ? "Delete bookings?" : "Delete booking?"}
+        description={
+          deleteTarget === null
+            ? ""
+            : deleteTarget.kind === "single"
+              ? `Permanently delete booking ${deleteTarget.row.referenceNumber || "(pending)"} for ${deleteTarget.row.hubName}? Its guests, pricing lines, and receipt are removed and any held rooms return to the pool. This cannot be undone.`
+              : `Permanently delete ${deleteTarget.rows.length} booking(s)? Their guests, pricing lines, and receipts are removed and any held rooms return to the pools. This cannot be undone.`
+        }
+        confirmLabel={
+          deleteTarget?.kind === "bulk" ? `Delete ${deleteTarget.rows.length}` : "Delete"
+        }
+        loading={deleting}
+        onConfirm={handleConfirmDelete}
+      />
     </div>
   );
 }
