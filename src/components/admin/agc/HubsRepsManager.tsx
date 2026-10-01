@@ -11,6 +11,7 @@ import {
   Download,
   InboxIcon,
   KeyRound,
+  Loader2Icon,
   Mail,
   PowerOff,
   SearchIcon,
@@ -966,30 +967,41 @@ export function HubsRepsManager() {
                 </SelectContent>
               </Select>
               {isAdmin && (
-                <DropdownMenu>                    <DropdownMenuTrigger
-                      render={
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="h-9"
-                        />
-                      }
-                    >
-                      <UsersRound className="size-4" />
-                      Rep accounts
-                    </DropdownMenuTrigger>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-9"
+                  disabled={exportingReps}
+                  onClick={() => void exportRepsSheet()}
+                >
+                  {exportingReps ? (
+                    <Loader2Icon className="size-4 animate-spin" />
+                  ) : (
+                    <Download className="size-4" />
+                  )}
+                  Export hubs &amp; reps
+                </Button>
+              )}
+              {isAdmin && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    render={
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-9"
+                      />
+                    }
+                  >
+                    <UsersRound className="size-4" />
+                    Rep accounts
+                  </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem onClick={() => setBulkCreateOpen(true)}>
                       <UserPlus className="size-4" />
                       Create reps in bulk…
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      disabled={exportingReps}
-                      onClick={() => void exportRepsSheet()}
-                    >
-                      <Download className="size-4" />
-                      Export hubs &amp; reps (.xlsx)
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem
