@@ -6,6 +6,7 @@ import { SiteChrome } from "@/components/layout/SiteChrome";
 import { SeedInitializer } from "@/components/SeedInitializer";
 import { Analytics } from "@/components/Analytics";
 import { ConvexSetupBanner } from "@/components/ConvexSetupBanner";
+import { StagingBanner } from "@/components/StagingBanner";
 import { JsonLd } from "@/components/seo/JsonLd";
 import { EVENT } from "@/lib/eventConfig";
 import {
@@ -128,6 +129,7 @@ export default function RootLayout({
         <ConvexClientProvider>
           <Providers>
             <ConvexSetupBanner />
+            <StagingBanner />
             <SeedInitializer />
             <Analytics />
             <SiteChrome>{children}</SiteChrome>
