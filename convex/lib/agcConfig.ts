@@ -198,6 +198,8 @@ export const AGC_SETTING_KEYS = {
   registrationBank: "registration_bank_details",
   accommodationBank: "accommodation_bank_details",
   titles: "guest_titles",
+  /** "true" blocks all new registrations AND accommodation bookings. */
+  lockdown: "registration_lockdown",
 } as const;
 
 export const AGC_DEFAULT_TITLES = ["Bishop", "Member"] as const;

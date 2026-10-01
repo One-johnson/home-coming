@@ -24,7 +24,7 @@ import {
   AGC_SETTING_KEYS,
 } from "./lib/agcConfig";
 import { agcRegion } from "./schemaTypes";
-import { isSmtpConfigured } from "./lib/smtpConfig";
+import { getSmtpSettings, isSmtpConfigured } from "./lib/smtpConfig";
 import {
   confirmBookingInventory,
   releaseBookingInventory,
@@ -82,6 +82,76 @@ export const getAgcSettings = query({
   },
 });
 
+/**
+ * Super-admin system status for the Settings page: SMTP configuration
+ * (read-only display, no secrets) and the event-wide lockdown state.
+ */
+export const getAgcSystemStatus = query({
+  args: { sessionToken: sessionTokenValidator },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, args.sessionToken, ["admin"]);
+    const lockdown = await ctx.db
+      .query("agcSettings")
+      .withIndex("by_key", (q) => q.eq("key", AGC_SETTING_KEYS.lockdown))
+      .unique();
+    const smtp = isSmtpConfigured()
+      ? getSmtpSettings()
+      : null;
+    return {
+      locked: lockdown?.value === "true",
+      smtp: smtp
+        ? {
+            configured: true as const,
+            host: smtp.host,
+            port: smtp.port,
+            secure: smtp.secure,
+            from: smtp.from,
+          }
+        : { configured: false as const },
+    };
+  },
+});
+
+/**
+ * Toggle the event-wide registration lockdown (Settings danger zone). When
+ * locked, every new registration and accommodation booking mutation throws;
+ * existing rows are untouched. Takes effect immediately — audit-logged.
+ */
+export const setRegistrationLockdown = mutation({
+  args: {
+    sessionToken: sessionTokenValidator,
+    locked: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireAdmin(ctx, args.sessionToken);
+    const existing = await ctx.db
+      .query("agcSettings")
+      .withIndex("by_key", (q) => q.eq("key", AGC_SETTING_KEYS.lockdown))
+      .unique();
+    const value = args.locked ? "true" : "false";
+    if (existing) {
+      await ctx.db.patch(existing._id, { value, updatedAt: Date.now() });
+    } else {
+      await ctx.db.insert("agcSettings", {
+        key: AGC_SETTING_KEYS.lockdown,
+        value,
+        updatedAt: Date.now(),
+      });
+    }
+    await writeAuditLog(ctx, {
+      actorUserId: actor._id,
+      actorEmail: actor.email,
+      action: args.locked
+        ? "agc_settings.lockdown_enabled"
+        : "agc_settings.lockdown_disabled",
+      entityType: "agcSettings",
+      entityId: AGC_SETTING_KEYS.lockdown,
+      summary: `${args.locked ? "Enabled" : "Disabled"} event-wide registration lockdown`,
+    });
+    return { success: true as const };
+  },
+});
+
 export const setAgcSetting = mutation({
   args: {
     sessionToken: sessionTokenValidator,
@@ -91,6 +161,7 @@ export const setAgcSetting = mutation({
       v.literal("registration_bank_details"),
       v.literal("accommodation_bank_details"),
       v.literal("guest_titles"),
+      v.literal("registration_lockdown"),
     ),
     value: v.string(),
   },

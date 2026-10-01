@@ -507,6 +507,12 @@ export const exportHubsRepsExcel = action({
     const workbook = new ExcelJS.Workbook();
 
     // One row per hub — no rep account yet still gets its row, with the
+    // Header summary so a printed copy carries the per-status totals.
+    const pendingCount = rows.filter((r) => r.repStatus === "pending_setup").length;
+    const activeCount = rows.filter((r) => r.repStatus === "active").length;
+    const noRepCount = rows.filter((r) => r.repStatus === "no_rep").length;
+    const disabledCount = rows.filter((r) => r.repStatus === "disabled").length;
+
     // underscore username and an honest status instead of being skipped.
     const sheet = workbook.addWorksheet("Hubs & Reps");
     sheet.columns = [
@@ -521,6 +527,13 @@ export const exportHubsRepsExcel = action({
       { header: "Created At", key: "createdAt", width: 24 },
     ];
     sheet.getRow(1).font = { bold: true };
+    sheet.addRow({
+      username: `Summary: ${rows.length} hub(s)`,
+      region: `active: ${activeCount}`,
+      country: `pending setup: ${pendingCount}`,
+      password: `no rep: ${noRepCount}`,
+      status: disabledCount > 0 ? `disabled: ${disabledCount}` : "",
+    }).font = { bold: true, italic: true };
     for (const row of rows) {
       sheet.addRow({
         username: row.username,
@@ -544,6 +557,9 @@ export const exportHubsRepsExcel = action({
       "Homecoming 2026 — AGC hubs and representative accounts",
     ]).font = { bold: true };
     instructions.addRow([""]);
+    instructions.addRow([
+      "Every hub has one row. Row 2 under the header is a summary line with the per-status totals (active, pending setup, no rep, disabled).",
+    ]);
     instructions.addRow([
       "Every hub has one row. The username is the hub name in lowercase with spaces replaced by underscores (e.g. Ashanti Mampong → ashanti_mampong) — hubs without a rep account show the username they will get once one is created.",
     ]);

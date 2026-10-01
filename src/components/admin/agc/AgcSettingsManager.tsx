@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
-import { Loader2Icon, Plus, Save, Trash2 } from "lucide-react";
+import { Loader2Icon, Plus, Save, Trash2, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import { useAdminSession } from "@/components/admin/AdminSessionProvider";
@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { toastFriendlyErrorParts } from "@/lib/friendlyError";
+import { cn } from "@/lib/utils";
 
 type AgcSettings = {
   deadline: string;
@@ -20,6 +21,13 @@ type AgcSettings = {
   registrationBankDetails: string;
   accommodationBankDetails: string;
   titles: string[];
+};
+
+type AgcSystemStatus = {
+  locked: boolean;
+  smtp:
+    | { configured: true; host: string; port: number; secure: boolean; from: string }
+    | { configured: false };
 };
 
 type SettingsDraft = {
@@ -62,7 +70,33 @@ export function AgcSettingsManager() {
     api.agcAdminData.getAgcSettings,
     {},
   ) as AgcSettings | undefined;
+  const systemStatus = useQuery(
+    api.agcAdminData.getAgcSystemStatus,
+    sessionToken ? { sessionToken } : "skip",
+  ) as AgcSystemStatus | undefined;
   const setSetting = useMutation(api.agcAdminData.setAgcSetting);
+  const setLockdown = useMutation(api.agcAdminData.setRegistrationLockdown);
+  const [lockdownBusy, setLockdownBusy] = useState(false);
+
+  const toggleLockdown = async () => {
+    if (!sessionToken || !systemStatus || lockdownBusy) return;
+    const next = !systemStatus.locked;
+    setLockdownBusy(true);
+    try {
+      await setLockdown({ sessionToken, locked: next });
+      toast.success(
+        next
+          ? "Registration lockdown enabled — new registrations and bookings are blocked"
+          : "Registration lockdown disabled",
+      );
+    } catch (err) {
+      toast.error(
+        ...toastFriendlyErrorParts(err, "Failed to update lockdown"),
+      );
+    } finally {
+      setLockdownBusy(false);
+    }
+  };
   const [saving, setSaving] = useState(false);
   // Local edits keyed to the server snapshot they started from. With no
   // edits yet (or fresh data after a save) the draft derives directly from
@@ -312,6 +346,82 @@ export function AgcSettingsManager() {
           <p className="text-xs text-destructive">Pick a valid deadline.</p>
         )}
       </div>
+
+      <Card className="border-destructive/40">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base text-destructive">
+            <TriangleAlert className="size-4" />
+            Danger zone
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap items-start justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3">
+            <div className="max-w-lg space-y-1">
+              <Label className="text-sm">Registration lockdown</Label>
+              <p className="text-xs text-muted-foreground">
+                Immediately blocks all new registrations and accommodation
+                bookings across the portal — independent of the deadline.
+                Existing entries are untouched. Takes effect instantly; no
+                save needed.
+              </p>
+              {systemStatus?.locked && (
+                <p className="text-xs font-semibold text-destructive">
+                  LOCKED — new registrations and bookings are being rejected.
+                </p>
+              )}
+            </div>
+            {systemStatus === undefined ? (
+              <Skeleton className="h-6 w-11 rounded-full" />
+            ) : (
+              <button
+                type="button"
+                role="switch"
+                aria-checked={systemStatus.locked}
+                aria-label="Registration lockdown"
+                disabled={lockdownBusy}
+                onClick={() => void toggleLockdown()}
+                className={cn(
+                  "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50",
+                  systemStatus.locked
+                    ? "bg-destructive"
+                    : "border border-border bg-muted",
+                )}
+              >
+                <span
+                  className={cn(
+                    "pointer-events-none block size-4 rounded-full bg-white shadow transition-transform",
+                    systemStatus.locked ? "translate-x-6" : "translate-x-1",
+                  )}
+                />
+              </button>
+            )}
+          </div>
+          <div className="space-y-1 rounded-lg border p-3">
+            <Label className="text-sm">Email delivery (SMTP)</Label>
+            {systemStatus === undefined ? (
+              <Skeleton className="h-5 w-56" />
+            ) : systemStatus.smtp.configured ? (
+              <p className="text-xs text-muted-foreground">
+                Configured —{" "}
+                <span className="font-mono">
+                  {systemStatus.smtp.host}:{systemStatus.smtp.port}
+                  {systemStatus.smtp.secure ? " (TLS)" : ""}
+                </span>{" "}
+                · from <span className="font-mono">{systemStatus.smtp.from}</span>
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Not configured — credential and review emails are logged on the
+                Emails page but not delivered.
+              </p>
+            )}
+            <p className="text-[11px] text-muted-foreground">
+              SMTP is set via environment variables (SMTP_HOST, SMTP_PORT,
+              SMTP_USER, SMTP_FROM) and cannot be changed here.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

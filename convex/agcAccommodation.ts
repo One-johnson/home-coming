@@ -59,6 +59,17 @@ export async function computeHoldExpiry(ctx: QueryCtx): Promise<number> {
 }
 
 export async function assertBeforeDeadline(ctx: MutationCtx) {
+  // Registrations and bookings share one event-wide lockdown toggle.
+  if (
+    (await ctx.db
+      .query("agcSettings")
+      .withIndex("by_key", (q) => q.eq("key", AGC_SETTING_KEYS.lockdown))
+      .unique())?.value === "true"
+  ) {
+    throw new Error(
+      "Registrations are temporarily locked by the convention administrators.",
+    );
+  }
   const deadline = await getDeadlineMs(ctx);
   if (Date.now() > deadline) {
     throw new Error(

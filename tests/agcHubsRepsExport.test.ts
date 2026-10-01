@@ -101,19 +101,36 @@ test("export workbook has one row per hub with derived usernames, real statuses,
     >[0],
   );
 
-  // Single sheet with one row per hub — including hub-less reps.
+  // Single sheet with one row per hub — including hub-less reps —
+  // preceded by a bold summary line carrying the per-status totals.
   const sheet = workbook.getWorksheet("Hubs & Reps");
   expect(sheet).toBeDefined();
   const rows: Array<Record<string, string>> = [];
+  let summaryRow: Record<string, string> | null = null;
   sheet!.eachRow((row, rowNumber) => {
-    if (rowNumber === 1) return;
     const values = row.values as unknown[];
-    rows.push({
+    const read = () => ({
       username: String(values[1] ?? ""),
       hub: String(values[2] ?? ""),
+      region: String(values[3] ?? ""),
+      country: String(values[4] ?? ""),
       password: String(values[5] ?? ""),
       status: String(values[6] ?? ""),
     });
+    if (rowNumber === 2) {
+      summaryRow = read();
+      return;
+    }
+    if (rowNumber <= 2) return;
+    rows.push(read());
+  });
+  expect(summaryRow).toEqual({
+    username: "Summary: 3 hub(s)",
+    hub: "",
+    region: "active: 1",
+    country: "pending setup: 1",
+    password: "no rep: 1",
+    status: "",
   });
   expect(rows.map((r) => r.username)).toEqual(
     expect.arrayContaining([

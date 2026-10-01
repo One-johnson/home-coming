@@ -71,7 +71,25 @@ export async function getRegistrationDeadline(ctx: QueryCtx): Promise<number> {
     : parsed;
 }
 
+/**
+ * Event-wide lockdown toggle (agcSettings.registration_lockdown = "true").
+ * Blocks every new registration and accommodation booking immediately,
+ * regardless of the deadline.
+ */
+export async function isRegistrationLocked(ctx: QueryCtx): Promise<boolean> {
+  const setting = await ctx.db
+    .query("agcSettings")
+    .withIndex("by_key", (q) => q.eq("key", AGC_SETTING_KEYS.lockdown))
+    .unique();
+  return setting?.value === "true";
+}
+
 export async function assertBeforeDeadline(ctx: MutationCtx) {
+  if (await isRegistrationLocked(ctx)) {
+    throw new Error(
+      "Registrations are temporarily locked by the convention administrators.",
+    );
+  }
   const deadline = await getRegistrationDeadline(ctx);
   if (Date.now() > deadline) {
     throw new Error(
@@ -156,6 +174,7 @@ export const getPortalConfig = query({
     const map = new Map(settings.map((row) => [row.key, row.value]));
     return {
       deadline: map.get(AGC_SETTING_KEYS.deadline) ?? AGC_DEFAULTS.deadline,
+      locked: map.get(AGC_SETTING_KEYS.lockdown) === "true",
       registrationBankDetails:
         map.get(AGC_SETTING_KEYS.registrationBank) ?? "",
       accommodationBankDetails:
