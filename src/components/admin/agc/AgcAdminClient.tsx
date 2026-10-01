@@ -1,22 +1,19 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
-import { DownloadIcon, Loader2Icon } from "lucide-react";
+import { ColumnDef } from "@tanstack/react-table";
+import { DownloadIcon, Loader2Icon, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import { useAdminSession } from "@/components/admin/AdminSessionProvider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
+import { DataTable } from "@/components/ui/data-table";
 import { Textarea } from "@/components/ui/textarea";
+import { createActionsColumn, multiSelectFilter } from "@/components/admin/columns";
 import { toastFriendlyErrorParts } from "@/lib/friendlyError";
 import { paymentStatusMeta } from "@/lib/agcPortal";
 
@@ -26,6 +23,7 @@ type AdminRegistrationRow = {
   hubName: string;
   region: string;
   quantity: number;
+  unitPrice: number;
   currency: string;
   totalAmount: number;
   paymentMode: string;
@@ -39,6 +37,8 @@ type AdminRegistrationRow = {
     receiptFileName?: string;
   } | null;
   receiptUrl: string | null;
+  createdAt: number;
+  paidAt: number | null;
 };
 
 export type ReviewDecision =
@@ -93,7 +93,17 @@ export function ReviewActions({
   );
 }
 
-/** Registration review queue for the Registrations admin page. */
+function formatDateTime(ts: number) {
+  return new Date(ts).toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+/** Registrations review table for the Registrations admin page. */
 export default function RegistrationsTab() {
   const { sessionToken } = useAdminSession();
   const rows = useQuery(
@@ -101,7 +111,10 @@ export default function RegistrationsTab() {
     sessionToken ? { sessionToken } : "skip",
   );
   const review = useMutation(api.agcAdminData.reviewAgcRegistration);
+  const deleteOne = useMutation(api.agcAdminData.deleteAgcRegistration);
+  const deleteBulk = useMutation(api.agcAdminData.deleteAgcRegistrationsBulk);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const decide = async (
     row: AdminRegistrationRow,
@@ -125,77 +138,260 @@ export default function RegistrationsTab() {
     }
   };
 
-  return (
-    <div className="grid items-start gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {(rows ?? []).length === 0 && (
-        <p className="text-sm text-muted-foreground sm:col-span-2 lg:col-span-3">
-          No registrations yet.
+  const handleDeleteOne = async (row: AdminRegistrationRow) => {
+    if (!sessionToken) return;
+    if (
+      !window.confirm(
+        `Permanently delete registration ${row.referenceNumber || "(pending)"} for ${row.hubName}? This cannot be undone.`,
+      )
+    ) {
+      return;
+    }
+    setBusyId(row._id);
+    try {
+      await deleteOne({
+        sessionToken,
+        registrationId: row._id as Id<"agcRegistrations">,
+      });
+      toast.success("Registration deleted");
+    } catch (err) {
+      toast.error(...toastFriendlyErrorParts(err, "Delete failed"));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleBulkDelete = async (
+    selectedRows: AdminRegistrationRow[],
+    clearSelection: () => void,
+  ) => {
+    if (!sessionToken || selectedRows.length === 0) return;
+    if (
+      !window.confirm(
+        `Permanently delete ${selectedRows.length} registration(s)? This cannot be undone.`,
+      )
+    ) {
+      return;
+    }
+    try {
+      const result = await deleteBulk({
+        sessionToken,
+        ids: selectedRows.map((r) => r._id as Id<"agcRegistrations">),
+      });
+      toast.success(`Deleted ${result.deleted} registration(s)`);
+      clearSelection();
+    } catch (err) {
+      toast.error(...toastFriendlyErrorParts(err, "Bulk delete failed"));
+    }
+  };
+
+  const columns = useMemo<ColumnDef<AdminRegistrationRow>[]>(
+    () => [
+      {
+        accessorKey: "referenceNumber",
+        header: "Reference",
+        cell: ({ row }) => (
+          <span className="font-mono text-xs">
+            {row.original.referenceNumber || "(pending)"}
+          </span>
+        ),
+      },
+      { accessorKey: "hubName", header: "Hub" },
+      {
+        accessorKey: "region",
+        header: "Region",
+        filterFn: multiSelectFilter,
+        cell: ({ row }) => (
+          <span className="capitalize">
+            {row.original.region.replace(/_/g, " ")}
+          </span>
+        ),
+      },
+      { accessorKey: "quantity", header: "Delegates" },
+      {
+        id: "total",
+        accessorFn: (row) => row.totalAmount,
+        header: "Total",
+        cell: ({ row }) => (
+          <span className="tabular-nums">
+            {row.original.currency} {row.original.totalAmount}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "paymentMode",
+        header: "Mode",
+        filterFn: multiSelectFilter,
+        cell: ({ row }) => (
+          <span className="capitalize">
+            {row.original.paymentMode.replace(/_/g, " ")}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "paymentStatus",
+        header: "Status",
+        filterFn: multiSelectFilter,
+        cell: ({ row }) => {
+          const status = paymentStatusMeta(row.original.paymentStatus);
+          return (
+            <Badge variant="outline" className={status.className}>
+              {status.label}
+            </Badge>
+          );
+        },
+      },
+      {
+        accessorKey: "createdAt",
+        header: "Created",
+        cell: ({ row }) => (
+          <span className="text-muted-foreground">
+            {formatDateTime(row.original.createdAt)}
+          </span>
+        ),
+      },
+      createActionsColumn<AdminRegistrationRow>((row) => (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+          disabled={busyId === row._id}
+          aria-label={`Delete registration ${row.referenceNumber || row.hubName}`}
+          onClick={() => void handleDeleteOne(row)}
+        >
+          <Trash2 className="size-4" />
+        </Button>
+      )),
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- handlers close over stable session/mutations
+    [busyId, sessionToken],
+  );
+
+  const renderSubRow = (row: AdminRegistrationRow) => (
+    <div className="space-y-2">
+      {row.offline && (
+        <div className="rounded-lg bg-muted/50 p-3 text-sm">
+          <p>
+            Amount paid:{" "}
+            <strong>
+              {row.currency} {row.offline.amountPaid}
+            </strong>{" "}
+            · {row.offline.method.replace(/_/g, " ")} · {row.offline.paymentDate}
+          </p>
+          <p className="text-muted-foreground">
+            Txn ref: {row.offline.referenceNumber}
+          </p>
+          {row.receiptUrl && (
+            <a
+              href={row.receiptUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-1 inline-block text-primary hover:underline"
+            >
+              View receipt ({row.offline.receiptFileName})
+            </a>
+          )}
+        </div>
+      )}
+      {row.adminMessage && (
+        <p className="rounded bg-orange-50 p-2 text-xs text-orange-900 dark:bg-orange-950 dark:text-orange-300">
+          Last message: {row.adminMessage}
         </p>
       )}
-      {(rows ?? []).map((row: AdminRegistrationRow) => {
-        const status = paymentStatusMeta(row.paymentStatus);
-        return (
-          <Card key={row._id}>
-            <CardHeader className="pb-2">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <CardTitle className="font-mono text-sm">
-                  {row.referenceNumber || "(pending)"}
-                </CardTitle>
-                <Badge variant="outline" className={status.className}>
-                  {status.label}
-                </Badge>
-              </div>
-              <CardDescription>
-                {row.hubName} · {row.quantity} delegate(s) · {row.currency}{" "}
-                {row.totalAmount} · {row.paymentMode}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {row.offline && (
-                <div className="rounded-lg bg-muted/50 p-3 text-sm">
-                  <p>
-                    Amount paid:{" "}
-                    <strong>
-                      {row.currency} {row.offline.amountPaid}
-                    </strong>{" "}
-                    · {row.offline.method.replace(/_/g, " ")} ·{" "}
-                    {row.offline.paymentDate}
-                  </p>
-                  <p className="text-muted-foreground">
-                    Txn ref: {row.offline.referenceNumber}
-                  </p>
-                  {row.receiptUrl && (
-                    <a
-                      href={row.receiptUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="mt-1 inline-block text-primary hover:underline"
-                    >
-                      View receipt ({row.offline.receiptFileName})
-                    </a>
-                  )}
-                </div>
-              )}
-              {row.adminMessage && (
-                <p className="mt-2 rounded bg-orange-50 p-2 text-xs text-orange-900 dark:bg-orange-950 dark:text-orange-300">
-                  Last message: {row.adminMessage}
-                </p>
-              )}
-              {/* Decided rows show as confirmed cards — actions only while
-                  a payment is awaiting review. */}
-              {row.paymentStatus === "pending_verification" && (
-                <ReviewActions
-                  disabled={busyId === row._id}
-                  onDecision={(decision, message) =>
-                    void decide(row, decision, message)
-                  }
-                />
-              )}
-            </CardContent>
-          </Card>
-        );
-      })}
+      {/* Decided rows show as confirmed rows — actions only while a payment
+          is awaiting review. */}
+      {row.paymentStatus === "pending_verification" && (
+        <ReviewActions
+          disabled={busyId === row._id}
+          onDecision={(decision, message) => void decide(row, decision, message)}
+        />
+      )}
     </div>
+  );
+
+  return (
+    <Card className="p-4">
+      <DataTable
+        columns={columns}
+        data={rows ?? []}
+        isLoading={rows === undefined}
+        emptyMessage="No registrations yet."
+        searchPlaceholder="Search reference, hub…"
+        getRowId={(row) => row._id}
+        onRowClick={(row) =>
+          setExpandedId((prev) => (prev === row._id ? null : row._id))
+        }
+        renderSubRow={renderSubRow}
+        expandedId={expandedId}
+        exportFilename="agc-registrations.csv"
+        exportRow={(row) => ({
+          reference: row.referenceNumber,
+          hub: row.hubName,
+          region: row.region,
+          delegates: row.quantity,
+          unitPrice: row.unitPrice,
+          total: row.totalAmount,
+          currency: row.currency,
+          mode: row.paymentMode,
+          status: row.paymentStatus,
+          createdAt: new Date(row.createdAt).toISOString(),
+        })}
+        facetFilters={[
+          {
+            columnId: "region",
+            title: "Region",
+            options: [
+              "ghana",
+              "west_africa",
+              "rest_of_africa",
+              "north_america",
+              "england",
+              "switzerland",
+              "rest_of_europe",
+              "rest_of_world",
+            ].map((value) => ({
+              value,
+              label: value.replace(/_/g, " "),
+            })),
+          },
+          {
+            columnId: "paymentMode",
+            title: "Mode",
+            options: [
+              { value: "offline", label: "offline" },
+              { value: "stripe", label: "stripe" },
+              { value: "paypal", label: "paypal" },
+            ],
+          },
+          {
+            columnId: "paymentStatus",
+            title: "Status",
+            options: [
+              "awaiting_payment",
+              "pending_verification",
+              "correction_requested",
+              "rejected",
+              "confirmed",
+            ].map((value) => ({
+              value,
+              label: paymentStatusMeta(value).label,
+            })),
+          },
+        ]}
+        bulkActions={({ selectedRows, clearSelection }) => (
+          <Button
+            type="button"
+            variant="destructive"
+            size="sm"
+            onClick={() => void handleBulkDelete(selectedRows, clearSelection)}
+          >
+            <Trash2 className="size-4" />
+            Delete selected
+          </Button>
+        )}
+      />
+    </Card>
   );
 }
 

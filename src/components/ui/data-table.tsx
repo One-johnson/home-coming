@@ -15,7 +15,7 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import {
   ArrowDown,
   ArrowUp,
@@ -81,6 +81,9 @@ type DataTableProps<TData, TValue> = {
   isLoading?: boolean;
   emptyMessage?: string;
   onRowClick?: (row: TData) => void;
+  /** Rendered as a full-width row directly under a row whose id matches expandedId. */
+  renderSubRow?: (row: TData) => React.ReactNode;
+  expandedId?: string | null;
 };
 
 function SortHeader({
@@ -122,6 +125,8 @@ export function DataTable<TData, TValue>({
   isLoading = false,
   emptyMessage = "No results.",
   onRowClick,
+  renderSubRow,
+  expandedId,
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
@@ -418,8 +423,8 @@ export function DataTable<TData, TValue>({
                 ))
               ) : table.getRowModel().rows.length ? (
                 table.getRowModel().rows.map((row) => (
+                  <Fragment key={row.id}>
                   <TableRow
-                    key={row.id}
                     data-state={row.getIsSelected() && "selected"}
                     className={cn(
                       row.getIsSelected() && "bg-muted/50",
@@ -436,6 +441,16 @@ export function DataTable<TData, TValue>({
                       </TableCell>
                     ))}
                   </TableRow>
+                  {renderSubRow && expandedId === row.id && (
+                    <TableRow key={`${row.id}-sub`}>
+                      <TableCell colSpan={row.getVisibleCells().length} className="bg-muted/30 p-0">
+                        <div className="whitespace-normal px-4 py-3">
+                          {renderSubRow(row.original)}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  </Fragment>
                 ))
               ) : (
                 <TableRow>

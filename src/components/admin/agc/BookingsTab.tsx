@@ -2,7 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
-import { InboxIcon, SearchIcon } from "lucide-react";
+import { ColumnDef } from "@tanstack/react-table";
+import { Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
@@ -12,21 +13,24 @@ import {
   type ReviewDecision,
 } from "@/components/admin/agc/AgcAdminClient";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { DataTable } from "@/components/ui/data-table";
 import { StatTile } from "@/components/portal/StatTile";
-import { cn } from "@/lib/utils";
+import { createActionsColumn, multiSelectFilter } from "@/components/admin/columns";
 import { toastFriendlyErrorParts } from "@/lib/friendlyError";
 import {
   AGC_ACCOMMODATION_LABELS,
   bookingStatusMeta,
   paymentStatusMeta,
 } from "@/lib/agcPortal";
-import { hubAvatarClass, hubInitials } from "@/lib/hubRosterView";
+import { cn } from "@/lib/utils";
 
 type AdminBookingRow = {
   _id: string;
   referenceNumber: string;
   hubName: string;
+  region: string;
   currency: string;
   totalAmount: number;
   paymentMode: string;
@@ -42,6 +46,7 @@ type AdminBookingRow = {
   } | null;
   receiptUrl: string | null;
   expiresAt: number | null;
+  createdAt: number;
   guests: Array<{
     _id: string;
     firstName: string;
@@ -54,20 +59,16 @@ type AdminBookingRow = {
   }>;
 };
 
-/** Compact hub avatar chip for the bookings list. */
-function HubAvatarSmall({ name }: { name: string }) {
-  return (
-    <span
-      aria-hidden
-      className={cn(
-        "flex size-7 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold",
-        hubAvatarClass(name),
-      )}
-    >
-      {hubInitials(name)}
-    </span>
-  );
+function formatDateTime(ts: number) {
+  return new Date(ts).toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
+
 export function BookingsTab() {
   const { sessionToken } = useAdminSession();
   const bookings = useQuery(
@@ -75,14 +76,26 @@ export function BookingsTab() {
     sessionToken ? { sessionToken } : "skip",
   );
   const review = useMutation(api.agcAdminData.reviewAgcBooking);
+  const deleteOne = useMutation(api.agcAdminData.deleteAgcBooking);
+  const deleteBulk = useMutation(api.agcAdminData.deleteAgcBookingsBulk);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<
-    "all" | "awaiting_review" | "reserved" | "confirmed" | "closed"
-  >("all");
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const list = useMemo(() => bookings ?? [], [bookings]);
+
+  const summary = useMemo(
+    () => ({
+      total: list.length,
+      awaiting: list.filter(
+        (b: AdminBookingRow) =>
+          b.paymentStatus === "pending_verification" ||
+          b.paymentStatus === "correction_requested",
+      ).length,
+      reserved: list.filter((b: AdminBookingRow) => b.bookingStatus === "reserved").length,
+      confirmed: list.filter((b: AdminBookingRow) => b.bookingStatus === "confirmed").length,
+    }),
+    [list],
+  );
 
   const decide = async (
     row: AdminBookingRow,
@@ -106,54 +119,203 @@ export function BookingsTab() {
     }
   };
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return list.filter((row: AdminBookingRow) => {
-      const ok = (() => {
-        switch (filter) {
-          case "awaiting_review":
-            return (
-              row.paymentStatus === "pending_verification" ||
-              row.paymentStatus === "correction_requested"
-            );
-          case "reserved":
-            return row.bookingStatus === "reserved";
-          case "confirmed":
-            return row.bookingStatus === "confirmed";
-          case "closed":
-            return (
-              row.bookingStatus === "cancelled" ||
-              row.bookingStatus === "expired"
-            );
-          default:
-            return true;
-        }
-      })();
-      if (!ok) return false;
-      if (!q) return true;
-      return (
-        row.referenceNumber.toLowerCase().includes(q) ||
-        row.hubName.toLowerCase().includes(q) ||
-        row.guests.some((g) =>
-          (g.firstName + " " + g.lastName).toLowerCase().includes(q),
-        )
-      );
-    });
-  }, [list, filter, search]);
+  const handleDeleteOne = async (row: AdminBookingRow) => {
+    if (!sessionToken) return;
+    if (
+      !window.confirm(
+        `Permanently delete booking ${row.referenceNumber || "(pending)"} for ${row.hubName}? Its guests, pricing lines, and receipt are removed and any held rooms return to the pool. This cannot be undone.`,
+      )
+    ) {
+      return;
+    }
+    setBusyId(row._id);
+    try {
+      await deleteOne({
+        sessionToken,
+        bookingId: row._id as Id<"agcBookings">,
+      });
+      toast.success("Booking deleted");
+    } catch (err) {
+      toast.error(...toastFriendlyErrorParts(err, "Delete failed"));
+    } finally {
+      setBusyId(null);
+    }
+  };
 
-  const summary = useMemo(
-    () => ({
-      total: list.length,
-      awaiting: list.filter(
-        (b: AdminBookingRow) =>
-          b.paymentStatus === "pending_verification" ||
-          b.paymentStatus === "correction_requested",
-      ).length,
-      reserved: list.filter((b: AdminBookingRow) => b.bookingStatus === "reserved").length,
-      confirmed: list.filter((b: AdminBookingRow) => b.bookingStatus === "confirmed").length,
-    }),
-    [list],
+  const handleBulkDelete = async (
+    selectedRows: AdminBookingRow[],
+    clearSelection: () => void,
+  ) => {
+    if (!sessionToken || selectedRows.length === 0) return;
+    if (
+      !window.confirm(
+        `Permanently delete ${selectedRows.length} booking(s)? Their guests, pricing lines, and receipts are removed and any held rooms return to the pools. This cannot be undone.`,
+      )
+    ) {
+      return;
+    }
+    try {
+      const result = await deleteBulk({
+        sessionToken,
+        ids: selectedRows.map((r) => r._id as Id<"agcBookings">),
+      });
+      toast.success(`Deleted ${result.deleted} booking(s)`);
+      clearSelection();
+    } catch (err) {
+      toast.error(...toastFriendlyErrorParts(err, "Bulk delete failed"));
+    }
+  };
+
+  const columns = useMemo<ColumnDef<AdminBookingRow>[]>(
+    () => [
+      {
+        accessorKey: "referenceNumber",
+        header: "Reference",
+        cell: ({ row }) => (
+          <span className="font-mono text-xs">
+            {row.original.referenceNumber || "(pending)"}
+          </span>
+        ),
+      },
+      { accessorKey: "hubName", header: "Hub" },
+      {
+        accessorKey: "region",
+        header: "Region",
+        filterFn: multiSelectFilter,
+        cell: ({ row }) => (
+          <span className="capitalize">
+            {row.original.region.replace(/_/g, " ")}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "bookingStatus",
+        header: "Booking",
+        filterFn: multiSelectFilter,
+        cell: ({ row }) => {
+          const status = bookingStatusMeta(row.original.bookingStatus);
+          return (
+            <Badge variant="outline" className={status.className}>
+              {status.label}
+            </Badge>
+          );
+        },
+      },
+      {
+        accessorKey: "paymentStatus",
+        header: "Payment",
+        filterFn: multiSelectFilter,
+        cell: ({ row }) => {
+          const status = paymentStatusMeta(row.original.paymentStatus);
+          return (
+            <Badge variant="outline" className={status.className}>
+              {status.label}
+            </Badge>
+          );
+        },
+      },
+      {
+        id: "guests",
+        accessorFn: (row) =>
+          row.guests.filter((g) => g.status === "active").length,
+        header: "Guests",
+      },
+      {
+        id: "total",
+        accessorFn: (row) => row.totalAmount,
+        header: "Total",
+        cell: ({ row }) => (
+          <span className="tabular-nums">
+            {row.original.currency} {row.original.totalAmount}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "createdAt",
+        header: "Created",
+        cell: ({ row }) => (
+          <span className="text-muted-foreground">
+            {formatDateTime(row.original.createdAt)}
+          </span>
+        ),
+      },
+      createActionsColumn<AdminBookingRow>((row) => (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+          disabled={busyId === row._id}
+          aria-label={`Delete booking ${row.referenceNumber || row.hubName}`}
+          onClick={() => void handleDeleteOne(row)}
+        >
+          <Trash2 className="size-4" />
+        </Button>
+      )),
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- handlers close over stable session/mutations
+    [busyId, sessionToken],
   );
+
+  const renderSubRow = (row: AdminBookingRow) => {
+    return (
+      <div className="space-y-2">
+        <div className="space-y-1 text-xs">
+          {row.guests.map((guest) => (
+            <p key={guest._id}>
+              {guest.title} {guest.firstName} {guest.lastName} · {guest.gender} ·{" "}
+              {AGC_ACCOMMODATION_LABELS[
+                guest.accommodationType as keyof typeof AGC_ACCOMMODATION_LABELS
+              ] ?? guest.accommodationType}
+              {guest.isBishopRate ? " · Bishop rate" : ""}
+              {guest.status !== "active" ? ` · ${guest.status}` : ""}
+            </p>
+          ))}
+          {row.guests.length === 0 && (
+            <p className="text-muted-foreground">No guests recorded.</p>
+          )}
+        </div>
+        {row.offline && (
+          <div className="rounded-lg bg-muted/50 p-3 text-sm">
+            <p>
+              Amount paid:{" "}
+              <strong>
+                {row.currency} {row.offline.amountPaid}
+              </strong>{" "}
+              · {row.offline.method.replace(/_/g, " ")} ·{" "}
+              {row.offline.paymentDate} · ref {row.offline.referenceNumber}
+            </p>
+            {row.receiptUrl && (
+              <a
+                href={row.receiptUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-1 inline-block text-primary hover:underline"
+              >
+                View receipt ({row.offline.receiptFileName})
+              </a>
+            )}
+          </div>
+        )}
+        {row.adminMessage && (
+          <p className="rounded bg-orange-50 p-2 text-xs text-orange-900 dark:bg-orange-950 dark:text-orange-300">
+            Last message: {row.adminMessage}
+          </p>
+        )}
+        {row.expiresAt && row.bookingStatus === "reserved" && (
+          <p className="text-xs text-muted-foreground">
+            Hold expires {new Date(row.expiresAt).toLocaleString()}
+          </p>
+        )}
+        {row.paymentStatus === "pending_verification" && (
+          <ReviewActions
+            disabled={busyId === row._id}
+            onDecision={(decision, message) => void decide(row, decision, message)}
+          />
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-4">
@@ -169,137 +331,90 @@ export function BookingsTab() {
         <StatTile label="Confirmed" value={summary.confirmed} tone="positive" />
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative">
-          <SearchIcon className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            type="search"
-            placeholder="Reference, hub or guest…"
-            className="h-9 w-64 pl-8"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
-        <div className="flex flex-wrap items-center gap-1.5">
-          {(["all", "awaiting_review", "reserved", "confirmed", "closed"] as const).map((id) => {
-            const labels = { all: "All", awaiting_review: "Awaiting review", reserved: "On hold", confirmed: "Confirmed", closed: "Closed" } as const;
-            return (
-              <button
-                key={id}
-                type="button"
-                onClick={() => setFilter(id)}
-                className={cn(
-                  "rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
-                  filter === id
-                    ? "border-gold bg-gold/15 text-ink"
-                    : "text-muted-foreground hover:border-gold/40 hover:text-foreground",
-                )}
-              >
-                {labels[id]}
-              </button>
-            );
+      <Card className={cn("p-4")}>
+        <DataTable
+          columns={columns}
+          data={list}
+          isLoading={bookings === undefined}
+          emptyMessage="No bookings yet."
+          searchPlaceholder="Search reference, hub, guest…"
+          getRowId={(row) => row._id}
+          onRowClick={(row) =>
+            setExpandedId((prev) => (prev === row._id ? null : row._id))
+          }
+          renderSubRow={renderSubRow}
+          expandedId={expandedId}
+          exportFilename="agc-bookings.csv"
+          exportRow={(row) => ({
+            reference: row.referenceNumber,
+            hub: row.hubName,
+            region: row.region,
+            bookingStatus: row.bookingStatus,
+            paymentStatus: row.paymentStatus,
+            guests: row.guests.filter((g) => g.status === "active").length,
+            total: row.totalAmount,
+            currency: row.currency,
+            mode: row.paymentMode,
+            createdAt: new Date(row.createdAt).toISOString(),
           })}
-        </div>
-      </div>
-
-      {filtered.length === 0 ? (
-        <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed p-10 text-center">
-          <span className="flex size-10 items-center justify-center rounded-full bg-gold/15">
-            <InboxIcon className="size-5 text-gold-dark" />
-          </span>
-          <p className="text-sm font-medium">No bookings match</p>
-          <p className="max-w-xs text-xs text-muted-foreground">
-            {search || filter !== "all"
-              ? "Try a different search or filter chip."
-              : "Rep bookings will appear here as they are made."}
-          </p>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {filtered.map((row: AdminBookingRow) => {
-            const status = bookingStatusMeta(row.bookingStatus);
-            const payStatus = paymentStatusMeta(row.paymentStatus);
-            const expanded = expandedId === row._id;
-            const activeGuests = row.guests.filter((g) => g.status === "active");
-            return (
-              <div
-                key={row._id}
-                className={cn(
-                  "rounded-xl border p-3 transition-colors",
-                  row.paymentStatus === "pending_verification" && "border-l-4 border-l-amber-400",
-                )}
-              >
-                <button
-                  type="button"
-                  className="flex w-full flex-wrap items-center gap-x-3 gap-y-2 text-left"
-                  onClick={() => setExpandedId(expanded ? null : row._id)}
-                >
-                  <HubAvatarSmall name={row.hubName} />
-                  <span className="font-mono text-xs">{row.referenceNumber || "(pending)"}</span>
-                  <Badge variant="outline" className={status.className}>{status.label}</Badge>
-                  <Badge variant="outline" className={payStatus.className}>{payStatus.label}</Badge>
-                  <span className="text-sm font-medium">{row.hubName}</span>
-                  <span className="text-sm text-muted-foreground">
-                    {row.currency} {row.totalAmount} · {activeGuests.length} guest(s) · {row.paymentMode}
-                  </span>
-                </button>
-                {expanded && (
-                  <div className="mt-3 space-y-3 border-t pt-3">
-                    <div className="space-y-1 text-xs">
-                      {row.guests.map((guest) => (
-                        <p key={guest._id}>
-                          {guest.title} {guest.firstName} {guest.lastName} ·{" "}
-                          {guest.gender} ·{" "}
-                          {AGC_ACCOMMODATION_LABELS[guest.accommodationType as keyof typeof AGC_ACCOMMODATION_LABELS] ?? guest.accommodationType}
-                          {guest.isBishopRate ? " · Bishop rate" : ""}
-                          {guest.status !== "active" ? ` · ${guest.status}` : ""}
-                        </p>
-                      ))}
-                    </div>
-                    {row.offline && (
-                      <div className="rounded-lg bg-muted/50 p-3 text-sm">
-                        <p>
-                          Amount paid: <strong>{row.currency} {row.offline.amountPaid}</strong>{" "}
-                          · {row.offline.method.replace(/_/g, " ")} · {row.offline.paymentDate}{" "}
-                          · ref {row.offline.referenceNumber}
-                        </p>
-                        {row.receiptUrl && (
-                          <a
-                            href={row.receiptUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="mt-1 inline-block text-primary hover:underline"
-                          >
-                            View receipt ({row.offline.receiptFileName})
-                          </a>
-                        )}
-                      </div>
-                    )}
-                    {row.adminMessage && (
-                      <p className="rounded bg-orange-50 p-2 text-xs text-orange-900 dark:bg-orange-950 dark:text-orange-300">
-                        Last message: {row.adminMessage}
-                      </p>
-                    )}
-                    {row.expiresAt && row.bookingStatus === "reserved" && (
-                      <p className="text-xs text-muted-foreground">
-                        Hold expires {new Date(row.expiresAt).toLocaleString()}
-                      </p>
-                    )}
-                    {row.paymentStatus === "pending_verification" && (
-                      <ReviewActions
-                        disabled={busyId === row._id}
-                        onDecision={(decision, message) =>
-                          void decide(row, decision, message)
-                        }
-                      />
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
+          facetFilters={[
+            {
+              columnId: "region",
+              title: "Region",
+              options: [
+                "ghana",
+                "west_africa",
+                "rest_of_africa",
+                "north_america",
+                "england",
+                "switzerland",
+                "rest_of_europe",
+                "rest_of_world",
+              ].map((value) => ({ value, label: value.replace(/_/g, " ") })),
+            },
+            {
+              columnId: "bookingStatus",
+              title: "Booking",
+              options: [
+                "reserved",
+                "pending_verification",
+                "correction_requested",
+                "confirmed",
+                "expired",
+                "cancelled",
+              ].map((value) => ({
+                value,
+                label: bookingStatusMeta(value).label,
+              })),
+            },
+            {
+              columnId: "paymentStatus",
+              title: "Payment",
+              options: [
+                "awaiting_payment",
+                "pending_verification",
+                "correction_requested",
+                "rejected",
+                "confirmed",
+              ].map((value) => ({
+                value,
+                label: paymentStatusMeta(value).label,
+              })),
+            },
+          ]}
+          bulkActions={({ selectedRows, clearSelection }) => (
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              onClick={() => void handleBulkDelete(selectedRows, clearSelection)}
+            >
+              <Trash2 className="size-4" />
+              Delete selected
+            </Button>
+          )}
+        />
+      </Card>
     </div>
   );
 }

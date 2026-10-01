@@ -574,6 +574,46 @@ export const setGalleryImageStaticPath = mutation({
 });
 
 /**
+ * One-off cleanup helper (IMPORT_SECRET guarded): switches a gallery album
+ * that still stores its cover in Convex storage over to a repo-hosted static
+ * path and deletes the blob. Used after migrating album images to static
+ * files so no gallery bytes remain in Convex storage.
+ */
+export const clearGalleryCoverStorage = mutation({
+  args: {
+    secret: v.string(),
+    year: v.number(),
+    coverPath: v.string(),
+  },
+  handler: async (ctx, args) => {
+    assertImportSecret(args.secret);
+
+    const gallery = await ctx.db
+      .query("galleries")
+      .withIndex("by_year", (q) => q.eq("year", args.year))
+      .first();
+    if (!gallery) {
+      throw new Error(`No gallery found for year ${args.year}`);
+    }
+    if (!gallery.coverStorageId) {
+      return { cleared: false, reason: "cover already static" };
+    }
+
+    const coverImageUrl = sanitizeStaticGalleryPath(
+      args.coverPath,
+      gallery.year,
+    );
+    const blobId = gallery.coverStorageId;
+    await ctx.db.patch(gallery._id, {
+      coverImageUrl,
+      coverStorageId: undefined,
+    });
+    await ctx.storage.delete(blobId);
+    return { cleared: true, deletedBlob: blobId, coverImageUrl };
+  },
+});
+
+/**
  * Import-secret variant of createGallery for tooling: the register-static
  * script auto-creates a missing year album instead of aborting.
  */

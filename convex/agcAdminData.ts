@@ -1259,6 +1259,188 @@ export const reviewAgcBooking = mutation({
 });
 
 // ------------------------------------------------------------------
+// Admin delete operations (single + bulk) — hard deletes, audit-logged.
+// Registrations: erases the row and its offline receipt blob. Bookings:
+// mirrors the rep-side delete (agcBookings.deleteBooking) — returns held
+// units to their pools, then removes lines, guests, ledger entries, the
+// receipt blob, and the booking row itself.
+// ------------------------------------------------------------------
+
+const MAX_BULK_DELETE = 200;
+
+async function deleteRegistrationRecord(
+  ctx: MutationCtx,
+  record: Doc<"agcRegistrations">,
+) {
+  if (record.offline?.receiptStorageId) {
+    await ctx.storage.delete(record.offline.receiptStorageId);
+  }
+  await ctx.db.delete(record._id);
+}
+
+async function deleteBookingRecord(
+  ctx: MutationCtx,
+  booking: Doc<"agcBookings">,
+) {
+  // Reserved holds return their units before the lines disappear.
+  if (booking.bookingStatus === "reserved") {
+    await releaseBookingInventory(ctx, booking, "cancel");
+  }
+  for (const line of await ctx.db
+    .query("agcBookingLines")
+    .withIndex("by_booking", (q) => q.eq("bookingId", booking._id))
+    .collect()) {
+    await ctx.db.delete(line._id);
+  }
+  for (const guest of await ctx.db
+    .query("agcGuests")
+    .withIndex("by_booking", (q) => q.eq("bookingId", booking._id))
+    .collect()) {
+    await ctx.db.delete(guest._id);
+  }
+  // Ledger has no booking index; sweep by bookingId.
+  for (const entry of await ctx.db.query("agcInventoryLedger").collect()) {
+    if (entry.bookingId === booking._id) await ctx.db.delete(entry._id);
+  }
+  if (booking.offline?.receiptStorageId) {
+    await ctx.storage.delete(booking.offline.receiptStorageId);
+  }
+  await ctx.db.delete(booking._id);
+}
+
+export const deleteAgcRegistration = mutation({
+  args: {
+    sessionToken: sessionTokenValidator,
+    registrationId: v.id("agcRegistrations"),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireRole(ctx, args.sessionToken, [
+      "admin",
+      "registration",
+      "finance",
+    ]);
+    const record = await ctx.db.get(args.registrationId);
+    if (!record) throw new Error("Registration not found");
+
+    await deleteRegistrationRecord(ctx, record);
+
+    await writeAuditLog(ctx, {
+      actorUserId: actor._id,
+      actorEmail: actor.email,
+      action: "agc_registration.deleted",
+      entityType: "agcRegistrations",
+      entityId: args.registrationId,
+      summary: `Deleted registration ${record.referenceNumber ?? ""} by ${actor.email}`,
+    });
+    return { success: true as const };
+  },
+});
+
+export const deleteAgcRegistrationsBulk = mutation({
+  args: {
+    sessionToken: sessionTokenValidator,
+    ids: v.array(v.id("agcRegistrations")),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireRole(ctx, args.sessionToken, [
+      "admin",
+      "registration",
+      "finance",
+    ]);
+    if (args.ids.length === 0) {
+      throw new Error("Select at least one registration");
+    }
+    if (args.ids.length > MAX_BULK_DELETE) {
+      throw new Error(`Delete at most ${MAX_BULK_DELETE} registrations at a time`);
+    }
+
+    let deleted = 0;
+    for (const id of args.ids) {
+      const record = await ctx.db.get(id);
+      if (!record) continue;
+      await deleteRegistrationRecord(ctx, record);
+      deleted += 1;
+    }
+
+    await writeAuditLog(ctx, {
+      actorUserId: actor._id,
+      actorEmail: actor.email,
+      action: "agc_registration.bulk_deleted",
+      entityType: "agcRegistrations",
+      summary: `Bulk deleted ${deleted} registration(s) by ${actor.email}`,
+      metadata: { count: deleted },
+    });
+    return { deleted };
+  },
+});
+
+export const deleteAgcBooking = mutation({
+  args: {
+    sessionToken: sessionTokenValidator,
+    bookingId: v.id("agcBookings"),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireRole(ctx, args.sessionToken, [
+      "admin",
+      "accommodation",
+      "finance",
+    ]);
+    const booking = await ctx.db.get(args.bookingId);
+    if (!booking) throw new Error("Booking not found");
+
+    await deleteBookingRecord(ctx, booking);
+
+    await writeAuditLog(ctx, {
+      actorUserId: actor._id,
+      actorEmail: actor.email,
+      action: "agc_booking.deleted",
+      entityType: "agcBookings",
+      entityId: args.bookingId,
+      summary: `Deleted booking ${booking.referenceNumber ?? ""} by ${actor.email}`,
+    });
+    return { success: true as const };
+  },
+});
+
+export const deleteAgcBookingsBulk = mutation({
+  args: {
+    sessionToken: sessionTokenValidator,
+    ids: v.array(v.id("agcBookings")),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireRole(ctx, args.sessionToken, [
+      "admin",
+      "accommodation",
+      "finance",
+    ]);
+    if (args.ids.length === 0) {
+      throw new Error("Select at least one booking");
+    }
+    if (args.ids.length > MAX_BULK_DELETE) {
+      throw new Error(`Delete at most ${MAX_BULK_DELETE} bookings at a time`);
+    }
+
+    let deleted = 0;
+    for (const id of args.ids) {
+      const booking = await ctx.db.get(id);
+      if (!booking) continue;
+      await deleteBookingRecord(ctx, booking);
+      deleted += 1;
+    }
+
+    await writeAuditLog(ctx, {
+      actorUserId: actor._id,
+      actorEmail: actor.email,
+      action: "agc_booking.bulk_deleted",
+      entityType: "agcBookings",
+      summary: `Bulk deleted ${deleted} booking(s) by ${actor.email}`,
+      metadata: { count: deleted },
+    });
+    return { deleted };
+  },
+});
+
+// ------------------------------------------------------------------
 // Dashboard overview — AGC data only (the legacy public-registration
 // tables are no longer the source of truth).
 // ------------------------------------------------------------------
