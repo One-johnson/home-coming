@@ -1001,7 +1001,7 @@ export function RepAccommodationTab() {
 
       {/* Availability — skeletons while loading */}
       {overview === undefined && sessionToken ? (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {[0, 1, 2].map((i) => (
             <Card key={i}>
               <CardHeader className="pb-2">
@@ -1016,7 +1016,7 @@ export function RepAccommodationTab() {
         </div>
       ) : (
         overview && (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {overview.availability.map((row) => {
               const soldOut = row.available <= 0;
               // Remaining rooms are the headline; price moves to a caption.
@@ -1079,7 +1079,7 @@ export function RepAccommodationTab() {
             const row = availabilityFor(draft.accommodationType);
             const soldOut = row ? row.available <= 0 : false;
             return (
-              <div key={index} className="rounded-lg border p-4">
+              <div key={index} className="rounded-lg border p-3 sm:p-4">
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                   <div className="space-y-1.5">
                     <Label>Title</Label>
@@ -1207,9 +1207,11 @@ export function RepAccommodationTab() {
             );
           })}
 
-          {/* Sticky live summary (mobile: compact, sticks to the bottom) */}
+          {/* Sticky live summary. On mobile it sits ABOVE the fixed bottom
+              nav (h-14 + safe area) so the total and the Reserve button are
+              always reachable while adding guests. */}
           {drafts.length > 0 && (
-            <div className="sticky bottom-2 z-10 rounded-lg border bg-card p-3 shadow-sm sm:p-4">
+            <div className="sticky bottom-[calc(env(safe-area-inset-bottom)+3.75rem)] z-10 rounded-lg border bg-card p-3 shadow-sm md:bottom-2 sm:p-4">
               <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
                 <div className="min-w-0 text-sm">
                   <p className="font-medium">
@@ -1243,6 +1245,22 @@ export function RepAccommodationTab() {
                   <AlertTriangleIcon className="mt-0.5 size-3.5 shrink-0" /> {capacityIssue}
                 </p>
               )}
+              {/* Mobile: the primary action lives in the sticky bar so reps
+                  never scroll back up to reserve. */}
+              <Button
+                type="button"
+                className="mt-3 w-full md:hidden"
+                onClick={() => void handleCreateBooking()}
+                disabled={
+                  loading ||
+                  portalConfig?.locked === true ||
+                  !allDraftsValid ||
+                  Boolean(capacityIssue)
+                }
+              >
+                {loading && <Loader2Icon className="size-4 animate-spin" />}
+                Reserve &amp; hold
+              </Button>
             </div>
           )}
 
@@ -1253,6 +1271,7 @@ export function RepAccommodationTab() {
             {drafts.length > 0 && (
               <Button
                 type="button"
+                className="hidden md:inline-flex"
                 onClick={() => void handleCreateBooking()}
                 disabled={
                   loading ||
@@ -1291,7 +1310,7 @@ export function RepAccommodationTab() {
                 ref={excelInputRef}
                 type="file"
                 accept=".xlsx,.xlsm"
-                className="max-w-xs"
+                className="w-full sm:max-w-xs"
                 onChange={(e) => void handleExcelSelect(e.target.files?.[0] ?? null)}
               />
               {excelPreview && (

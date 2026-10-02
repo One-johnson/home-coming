@@ -326,7 +326,7 @@ function PortalFrame({
     // replaces the permanent rail, and the header stays fixed on top.
     return (
       <SidebarInset className="min-w-0 overflow-x-hidden bg-neutral-100">
-        <header className="fixed top-0 right-0 z-30 border-b border-border/80 bg-white/95 shadow-[0_1px_0_0_rgba(212,175,55,0.35)] backdrop-blur-md supports-backdrop-filter:bg-white/85">
+        <header className="fixed top-0 right-0 z-30 border-b border-border/80 bg-white/95 pt-[env(safe-area-inset-top)] shadow-[0_1px_0_0_rgba(212,175,55,0.35)] backdrop-blur-md supports-backdrop-filter:bg-white/85">
           <div className="flex h-14 w-full min-w-0 items-center gap-3 px-4">
             <div className="min-w-0 flex-1">
               <h1 className="truncate text-base font-semibold tracking-tight text-ink">
@@ -338,7 +338,7 @@ function PortalFrame({
             </div>
           </div>
         </header>
-        <div className="min-w-0 flex-1 px-3 pt-[72px] pb-4">{children}</div>
+        <div className="min-w-0 flex-1 px-3 pt-[calc(env(safe-area-inset-top)+72px)] pb-4">{children}</div>
         <PortalBottomNav tab={tab} onSelect={onSelect} />
       </SidebarInset>
     );

@@ -209,7 +209,7 @@ function ReceiptDropzone({
           <span className="flex size-9 items-center justify-center rounded-full bg-gold/15">
             <UploadIcon className="size-4 text-gold-dark" />
           </span>
-          <span className="text-sm font-medium">Drop receipt or click to browse</span>
+          <span className="text-sm font-medium">Drop receipt here or tap to browse</span>
           <span className="text-xs text-muted-foreground">
             PDF, JPG or PNG — finance reviews it manually
           </span>
@@ -476,7 +476,7 @@ export function RepRegistrationTab() {
       )}
 
       {/* Registration summary — totals across every purchase. */}
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
         <StatTile
           icon={ClipboardListIcon}
           label="Total registrations"
@@ -614,7 +614,7 @@ export function RepRegistrationTab() {
                       type="button"
                       onClick={() => setQuantity(String(n))}
                       className={cn(
-                        "rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors",
+                        "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
                         qty === n
                           ? "border-gold bg-gold/15 text-ink"
                           : "text-muted-foreground hover:border-gold/40 hover:text-foreground",
@@ -848,10 +848,9 @@ export function RepRegistrationTab() {
                   <button
                     key={f.id}
                     type="button"
-                    onClick={() => setFilter(f.id)}
-                    className={cn(
-                      "rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
-                      filter === f.id
+                    onClick={() => setFilter(f.id)}                      className={cn(
+                        "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                        filter === f.id
                         ? "border-gold bg-gold/15 text-ink"
                         : "text-muted-foreground hover:border-gold/40 hover:text-foreground",
                     )}

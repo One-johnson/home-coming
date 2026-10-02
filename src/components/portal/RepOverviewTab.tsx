@@ -148,7 +148,7 @@ function RoomTypeBookings({
   const visible = rows.filter((row) => row.booked > 0);
   if (visible.length === 0) return null;
   return (
-    <div className="grid gap-2 sm:grid-cols-2">
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-2">
       {visible.map((row) => (
         <StatTile
           key={row.type}
@@ -219,7 +219,7 @@ export function RepOverviewTab() {
 
   if (overview === undefined) {
     return (
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         {[0, 1, 2, 3].map((i) => (
           <Card key={i}>
             <CardHeader className="pb-1">
@@ -283,7 +283,7 @@ export function RepOverviewTab() {
         )}
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard
           icon={UserCheckIcon}
           label="Paid delegates"
