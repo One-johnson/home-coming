@@ -5,7 +5,6 @@ import nodemailer from "nodemailer";
 import { internal } from "./_generated/api";
 import { internalAction } from "./_generated/server";
 import {
-  renderAccommodationEmail,
   renderRegistrationEmail,
   renderRepCredentialsEmail,
   renderTourEmail,
@@ -63,7 +62,6 @@ export const sendEmail = internalAction({
       } else if (
         log.referenceId &&
         (log.type === "registration_confirmation" ||
-          log.type === "accommodation_confirmation" ||
           log.type === "tour_confirmation")
       ) {
         const payload = await ctx.runQuery(
@@ -80,10 +78,6 @@ export const sendEmail = internalAction({
           const withBanner = { ...payload, bannerUrl: BANNER_SRC };
           if (withBanner.kind === "registration_confirmation") {
             const rendered = await renderRegistrationEmail(withBanner);
-            text = rendered.text;
-            html = rendered.html;
-          } else if (withBanner.kind === "accommodation_confirmation") {
-            const rendered = await renderAccommodationEmail(withBanner);
             text = rendered.text;
             html = rendered.html;
           } else {

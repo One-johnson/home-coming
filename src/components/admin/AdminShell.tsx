@@ -6,7 +6,6 @@ import { usePathname, useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
 import {
   BedDouble,
-  Building2,
   CalendarDays,
   ChevronsUpDown,
   ExternalLink,
@@ -86,7 +85,6 @@ const NAV_ICONS: Record<
   "/admin/accommodation": BedDouble,
   "/admin/hubs-reps": Inbox,
   "/admin/groups": CalendarDays,
-  "/admin/housing": Building2,
   "/admin/hotels": Hotel,
   "/admin/tours": CalendarDays,
   "/admin/content": Newspaper,

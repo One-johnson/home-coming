@@ -32,12 +32,18 @@ export type AgcRegion =
 
 export type AccommodationTypeConfig = {
   label: string;
-  unit: "bed" | "room";
+  unit: "bed";
   maxOccupancy: number;
   pricing: { ghs: number; usd: number };
 };
 
-/** Must mirror convex/lib/agcConfig.ts AGC_ACCOMMODATION_TYPES. */
+/**
+ * Mirror of convex/lib/agcConfig.ts AGC_ACCOMMODATION_TYPES defaults.
+ * Every type is priced per bed (1 guest = 1 unit). Admins can override
+ * prices/labels at runtime (agcSettings); the portal then renders the live
+ * values from getAccommodationOverview, and the server always re-prices
+ * bookings authoritatively at submit time.
+ */
 export const AGC_ACCOMMODATION_TYPES: Record<
   AgcAccommodationType,
   AccommodationTypeConfig
@@ -56,20 +62,20 @@ export const AGC_ACCOMMODATION_TYPES: Record<
   },
   wise_serpents: {
     label: "Wise as Serpents Lodge",
-    unit: "room",
-    maxOccupancy: 2,
+    unit: "bed",
+    maxOccupancy: 1,
     pricing: { ghs: 2500, usd: 210 },
   },
   good_general: {
     label: "Good General Lodge",
-    unit: "room",
-    maxOccupancy: 2,
+    unit: "bed",
+    maxOccupancy: 1,
     pricing: { ghs: 5000, usd: 420 },
   },
   ebpv: {
     label: "EBPV Apartment",
-    unit: "room",
-    maxOccupancy: 2,
+    unit: "bed",
+    maxOccupancy: 1,
     pricing: { ghs: 6200, usd: 520 },
   },
 };
@@ -113,16 +119,24 @@ export function bookingCurrency(region: AgcRegion): "GHS" | "USD" {
   return isGhsRegion(region) ? "GHS" : "USD";
 }
 
-/** Unit price for one bed/room, mirroring `accommodationPrice`. */
+/**
+ * Unit price for one bed, mirroring the server's per-bed pricing rule.
+ * `types`/`bishop` accept live overview config; defaults are the catalog.
+ */
 export function unitPrice(
   type: AgcAccommodationType,
   region: AgcRegion,
   isBishopRate = false,
+  types: Record<
+    AgcAccommodationType,
+    AccommodationTypeConfig
+  > = AGC_ACCOMMODATION_TYPES,
+  bishop: { ghs: number; usd: number } = AGC_BISHOP_RATE,
 ): number {
   const ghs = isGhsRegion(region);
-  const config = AGC_ACCOMMODATION_TYPES[type];
+  const config = types[type];
   if (isBishopRate && type === "ebpv") {
-    return ghs ? AGC_BISHOP_RATE.ghs : AGC_BISHOP_RATE.usd;
+    return ghs ? bishop.ghs : bishop.usd;
   }
   return ghs ? config.pricing.ghs : config.pricing.usd;
 }
@@ -134,6 +148,11 @@ export function unitPrice(
 export function computeBookingSummary(
   guests: Array<Pick<GuestDraft, "accommodationType" | "isBishopRate">>,
   region: AgcRegion,
+  types: Record<
+    AgcAccommodationType,
+    AccommodationTypeConfig
+  > = AGC_ACCOMMODATION_TYPES,
+  bishop: { ghs: number; usd: number } = AGC_BISHOP_RATE,
 ): BookingSummary {
   const groups = new Map<string, number>();
   for (const guest of guests) {
@@ -146,12 +165,10 @@ export function computeBookingSummary(
     const [type, rate] = key.split("|");
     const accommodationType = type as AgcAccommodationType;
     const isBishopRate = rate === "bishop";
-    const config = AGC_ACCOMMODATION_TYPES[accommodationType];
-    const units =
-      config.unit === "bed"
-        ? guestsInGroup
-        : Math.ceil(guestsInGroup / config.maxOccupancy);
-    const price = unitPrice(accommodationType, region, isBishopRate);
+    const config = types[accommodationType];
+    // Every type is per-bed — one unit per guest (server parity).
+    const units = guestsInGroup;
+    const price = unitPrice(accommodationType, region, isBishopRate, types, bishop);
     lines.push({
       accommodationType,
       isBishopRate,
@@ -186,7 +203,7 @@ export function capacityProblem(
   return null;
 }
 
-/** Human summary like "2 dorm beds · 1 EBPV room". */
+/** Human summary like "2 dorm beds · 1 EBPV bed". */
 export function describeUnits(summary: BookingSummary): string {
   return summary.lines
     .map(

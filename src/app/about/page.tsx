@@ -6,7 +6,6 @@ import { ChurchAbout } from "@/components/about/ChurchAbout";
 import { ConventionAbout } from "@/components/about/ConventionAbout";
 import { Section } from "@/components/ui/Section";
 import { LinkButton as Button } from "@/components/ui/app-button";
-import { SITE_FEATURES } from "@/lib/eventConfig";
 import { aboutContent } from "@/lib/siteContent";
 
 export default function AboutPage() {
@@ -30,9 +29,9 @@ export default function AboutPage() {
           >
             Explore Tours
           </Button>
-          {SITE_FEATURES.accommodationEnabled ? (
+          {cta.secondaryLabel ? (
             <Button
-              href="/accommodation"
+              href="/tours"
               variant="outline"
               className="min-h-12 border-2 border-gold bg-transparent px-9 py-4 text-base text-paper hover:border-gold-light hover:bg-gold/10 hover:text-paper sm:min-h-[3.25rem] sm:px-10 sm:text-lg"
             >

@@ -30,7 +30,8 @@ const modules = {
   "convex/emails.ts": () => import("../convex/emails"),
   "convex/galleryStorage.ts": () => import("../convex/galleryStorage"),
   "convex/heroSlides.ts": () => import("../convex/heroSlides"),
-  "convex/housing.ts": () => import("../convex/housing"),
+  "convex/lib/agcSettingsRuntime.ts": () =>
+    import("../convex/lib/agcSettingsRuntime"),
   "convex/registrationCatalog.ts": () => import("../convex/registrationCatalog"),
   "convex/registrations.ts": () => import("../convex/registrations"),
   "convex/seed.ts": () => import("../convex/seed"),

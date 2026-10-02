@@ -105,12 +105,6 @@ export const PAGE_SEO = {
     image: "/campus/campus1.jpg",
   },
 
-  accommodation: {
-    title: "Accommodation",
-    description: `Book campus housing at ${EVENT.venue} or nearby hotels in ${EVENT.location} for ${EVENT.dates}.`,
-    path: "/accommodation",
-    image: "/campus/campus.jpg",
-  },
   tours: {
     title: "Homecoming Tour Packages",
     description: `Book guided Homecoming tour packages for ${EVENT.fullTitle}. Choose packages by day and purchase tickets separately from registration.`,

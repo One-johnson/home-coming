@@ -219,58 +219,6 @@ export default defineSchema({
     updatedAt: v.number(),
   }).index("by_slug", ["slug"]),
 
-  housing: defineTable({
-    type: v.union(
-      v.literal("condo"),
-      v.literal("hostel"),
-      v.literal("apartment"),
-    ),
-    pricePerStay: v.number(),
-    capacityLimit: v.number(),
-    booked: v.number(),
-    notes: v.string(),
-  }).index("by_type", ["type"]),
-
-  housingBookings: defineTable({
-    housingId: v.id("housing"),
-    housingType: v.union(
-      v.literal("condo"),
-      v.literal("hostel"),
-      v.literal("apartment"),
-    ),
-    guestName: v.string(),
-    guestEmail: v.string(),
-    guestPhone: v.string(),
-    checkIn: v.string(),
-    checkOut: v.string(),
-    guests: v.number(),
-    pricePerStay: v.number(),
-    totalAmount: v.number(),
-    currency: v.literal("USD"),
-    gateway: v.optional(
-      v.union(
-        v.literal("stripe"),
-        v.literal("paypal"),
-        v.literal("offline"),
-      ),
-    ),
-    paymentStatus: v.union(
-      v.literal("pending_payment"),
-      v.literal("paid"),
-      v.literal("failed"),
-      v.literal("mock_paid"),
-    ),
-    paymentReference: v.optional(v.string()),
-    referenceNumber: v.optional(v.string()),
-    notes: v.optional(v.string()),
-    createdAt: v.number(),
-  })
-    .index("by_housing", ["housingId"])
-    .index("by_email", ["guestEmail"])
-    .index("by_payment_status", ["paymentStatus"])
-    .index("by_created_at", ["createdAt"])
-    .index("by_reference_number", ["referenceNumber"]),
-
   tourPackages: defineTable({
     slug: v.string(),
     label: v.string(),

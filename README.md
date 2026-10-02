@@ -60,7 +60,8 @@ npm run seed
 | `/` | Landing page with hero, countdown, CTAs, previews |
 | `/about` | Convention story and First Lady welcome |
 | `/registration` | Retired public form — redirects to `/portal` (registration is rep-only) |
-| `/accommodation` | Campus housing portal + preferred hotels |
+| `/accommodation` | Removed — 308 redirect to `/` (accommodation is rep-portal only) |
+| `/tours` | Tour packages + preferred hotels list |
 | `/gallery` | Past convention photo galleries |
 | `/messages` | Past convention message links |
 | `/faqs` | Frequently asked questions |
@@ -96,9 +97,12 @@ and bookings (with a per-guest sheet) are on the AGC admin page.
    Seed defaults**.
 2. Import hubs (paste `Name, Region, Country` lines or add individually).
 3. Create a rep per hub and hand over the temporary password.
-4. Configure bank details + deadline under AGC settings (keys:
-   `registration_bank_details`, `accommodation_bank_details`, `deadline`,
-   `hold_hours`, `guest_titles` in the `agcSettings` table).
+4. Configure bank details, deadline, and accommodation pricing under AGC
+   settings (**Admin → Settings**, keys: `registration_bank_details`,
+   `accommodation_bank_details`, `deadline`, `hold_hours`, `guest_titles`,
+   `accommodation_prices`, `accommodation_labels`, `bishop_rate`,
+   `pool_totals` in the `agcSettings` table). Accommodation prices and
+   capacity are fully admin-editable; every type is priced per bed.
 
 ## Admin Setup
 
@@ -133,7 +137,7 @@ Ghana / West Africa registrations are paid by bank transfer or mobile money to t
 
 ## Email (Bluehost SMTP)
 
-Confirmation emails for registration, accommodation, and tours are sent **after payment succeeds** (webhook, mock payment, or admin marks paid). Without SMTP configured, emails are logged in stub mode for the admin **Emails** tab.
+Confirmation emails for registration and tours are sent **after payment succeeds** (admin verification or mock payment). AGC booking reviews notify reps via the review-email queue. Without SMTP configured, emails are logged in stub mode for the admin **Emails** tab.
 
 ### Bluehost setup
 

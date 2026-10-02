@@ -20,7 +20,6 @@ export const EVENT = {
 
 /** Public site feature switches — flip when a flow is ready to show. */
 export const SITE_FEATURES = {
-  accommodationEnabled: false,
   /** Optional registration extras (VIP meals, etc.). Off for now. */
   addOnsEnabled: false,
 } as const;
@@ -49,9 +48,6 @@ export const NAV_LINKS: {
   { href: "/about", label: "About" },
   { href: "https://daghewardmills.org", label: "Dag Heward-Mills", external: true },
   { href: "/tours", label: "Tours" },
-  ...(SITE_FEATURES.accommodationEnabled
-    ? [{ href: "/accommodation", label: "Accommodation" }]
-    : []),
   { href: "/gallery", label: "Gallery" },
   { href: "/messages", label: "Messages" },
   { href: "/faqs", label: "FAQs" },

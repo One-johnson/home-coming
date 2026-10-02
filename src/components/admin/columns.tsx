@@ -105,69 +105,6 @@ export function registrationExportRow(r: Doc<"registrations">) {
   };
 }
 
-export const bookingColumns: ColumnDef<Doc<"housingBookings">>[] = [
-  {
-    accessorKey: "referenceNumber",
-    header: "Reference",
-    cell: ({ row }) => (
-      <span className="font-mono text-xs">
-        {row.original.referenceNumber ?? "—"}
-      </span>
-    ),
-  },
-  { accessorKey: "guestName", header: "Guest" },
-  { accessorKey: "guestEmail", header: "Email" },
-  {
-    accessorKey: "housingType",
-    header: "Type",
-    filterFn: multiSelectFilter,
-    cell: ({ row }) => (
-      <span className="capitalize">{row.original.housingType}</span>
-    ),
-  },
-  { accessorKey: "checkIn", header: "Check-in" },
-  { accessorKey: "checkOut", header: "Check-out" },
-  { accessorKey: "guests", header: "Guests" },
-  {
-    id: "total",
-    accessorFn: (row) => row.totalAmount,
-    header: "Total",
-    cell: ({ row }) => `$${row.original.totalAmount}`,
-  },
-  {
-    accessorKey: "paymentStatus",
-    header: "Status",
-    filterFn: multiSelectFilter,
-    cell: ({ row }) => (
-      <PaymentStatusBadge status={row.original.paymentStatus} />
-    ),
-  },
-  {
-    accessorKey: "createdAt",
-    header: "Created",
-    cell: ({ row }) => (
-      <span className="text-muted-foreground">
-        {formatDate(row.original.createdAt)}
-      </span>
-    ),
-  },
-];
-
-export function bookingExportRow(b: Doc<"housingBookings">) {
-  return {
-    reference: b.referenceNumber ?? "",
-    guest: b.guestName,
-    email: b.guestEmail,
-    type: b.housingType,
-    checkIn: b.checkIn,
-    checkOut: b.checkOut,
-    guests: b.guests,
-    total: b.totalAmount,
-    status: b.paymentStatus,
-    createdAt: new Date(b.createdAt).toISOString(),
-  };
-}
-
 export const tourOrderColumns: ColumnDef<Doc<"tourOrders">>[] = [
   {
     accessorKey: "referenceNumber",

@@ -7,12 +7,6 @@ const ADD_ON_LABELS: Record<string, string> = {
   ministers_grill: "Ministers Grill",
 };
 
-const HOUSING_TYPE_LABELS: Record<string, string> = {
-  condo: "Condo",
-  hostel: "Hostel",
-  apartment: "Apartment",
-};
-
 function formatMoney(amount: number, currency: string) {
   return `${currency} ${amount.toFixed(2)}`;
 }
@@ -39,20 +33,6 @@ export type RegistrationPayload = {
   accommodationInterest: boolean;
 };
 
-export type AccommodationPayload = {
-  kind: "accommodation_confirmation";
-  to: string;
-  subject: string;
-  bannerUrl: string;
-  guestName: string;
-  housingLabel: string;
-  referenceNumber: string;
-  checkIn: string;
-  checkOut: string;
-  guests: number;
-  totalAmount: string;
-};
-
 export type TourPayload = {
   kind: "tour_confirmation";
   to: string;
@@ -66,7 +46,6 @@ export type TourPayload = {
 
 export type ConfirmationEmailPayload =
   | RegistrationPayload
-  | AccommodationPayload
   | TourPayload;
 
 /** Build plain-text fallback used when storing the log before Node rendering. */
@@ -82,18 +61,6 @@ export function plainTextFromPayload(payload: ConfirmationEmailPayload): string 
         ...(payload.addOnLines.length
           ? ["Add-ons:", ...payload.addOnLines.map((l) => `- ${l}`)]
           : []),
-        `Total: ${payload.totalAmount}`,
-      ].join("\n");
-    case "accommodation_confirmation":
-      return [
-        `Dear ${payload.guestName},`,
-        "",
-        "Thank you for booking campus accommodation. Payment confirmed.",
-        `Reference: ${payload.referenceNumber}`,
-        `Housing: ${payload.housingLabel}`,
-        `Check-in: ${payload.checkIn}`,
-        `Check-out: ${payload.checkOut}`,
-        `Guests: ${payload.guests}`,
         `Total: ${payload.totalAmount}`,
       ].join("\n");
     case "tour_confirmation":
@@ -147,26 +114,6 @@ export async function buildConfirmationEmailPayload(
         addOnLines,
         totalAmount: formatMoney(record.totalAmount, record.currency),
         accommodationInterest: record.accommodationInterest,
-      };
-    }
-
-    case "accommodation_confirmation": {
-      const record = await ctx.db.get(recordId as Id<"housingBookings">);
-      if (!record) return null;
-
-      return {
-        kind: "accommodation_confirmation",
-        to: record.guestEmail,
-        subject: "Homecoming Accommodation Confirmation",
-        bannerUrl,
-        guestName: record.guestName,
-        housingLabel:
-          HOUSING_TYPE_LABELS[record.housingType] ?? record.housingType,
-        referenceNumber: record.referenceNumber ?? recordId,
-        checkIn: record.checkIn,
-        checkOut: record.checkOut,
-        guests: record.guests,
-        totalAmount: formatMoney(record.totalAmount, record.currency),
       };
     }
 

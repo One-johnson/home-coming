@@ -110,7 +110,7 @@ const FAQS = [
     category: "Accommodation, Weather & Packing",
     question: "How do I book accommodation, and what options are available?",
     answer:
-      "Accommodation is booked separately after registration and is confirmed on a first-come, first-served basis. Options include on-campus housing — hostels, condominiums, and apartments — as well as preferred commercial hotels near the ABMTC campus. The on-campus hostel rate is USD 30. Delegates choosing commercial hotels should consult their denomination leaders for the applicable external hotel booking arrangements.",
+      "Accommodation is arranged through your hub representative (not this website). Contact your denomination or hub leader, who books beds for delegates on the rep portal — options include on-campus dormitories and hostels, plus lodge rooms and apartments, all priced per bed. Delegates choosing commercial hotels should consult their denomination leaders for the applicable external hotel booking arrangements.",
     order: 15,
   },
   {
@@ -299,30 +299,6 @@ const MESSAGES = [
   },
 ];
 
-const HOUSING = [
-  {
-    type: "condo" as const,
-    pricePerStay: 10,
-    capacityLimit: 2000,
-    booked: 0,
-    notes: "Confirm availability and allocation rules.",
-  },
-  {
-    type: "hostel" as const,
-    pricePerStay: 25,
-    capacityLimit: 600,
-    booked: 0,
-    notes: "Confirm room capacity and gender-specific allocation rules.",
-  },
-  {
-    type: "apartment" as const,
-    pricePerStay: 150,
-    capacityLimit: 30,
-    booked: 0,
-    notes: "Confirm availability and allocation rules.",
-  },
-];
-
 export const seed = mutation({
   args: { sessionToken: sessionTokenValidator },
   handler: async (ctx, args) => {
@@ -377,13 +353,6 @@ export const seed = mutation({
       }
     }
 
-    const existingHousing = await ctx.db.query("housing").first();
-    if (!existingHousing) {
-      for (const unit of HOUSING) {
-        await ctx.db.insert("housing", unit);
-      }
-    }
-
     await syncDefaultTourPackages(ctx);
 
     const existingAnnouncement = await ctx.db.query("announcements").first();
@@ -425,9 +394,6 @@ export const seedPublic = mutation({
     }
     for (const message of MESSAGES) {
       await ctx.db.insert("messages", message);
-    }
-    for (const unit of HOUSING) {
-      await ctx.db.insert("housing", unit);
     }
     await syncDefaultTourPackages(ctx);
     await ctx.db.insert("announcements", {

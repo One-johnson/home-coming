@@ -7,7 +7,7 @@ import { LinkButton as Button } from "@/components/ui/app-button";
 import { CountdownTimer } from "@/components/landing/CountdownTimer";
 import { HeroCarousel } from "@/components/landing/HeroCarousel";
 import { isConvexConfigured } from "@/lib/convex-config";
-import { EVENT, SITE_FEATURES } from "@/lib/eventConfig";
+import { EVENT } from "@/lib/eventConfig";
 import { homeContent } from "@/lib/siteContent";
 import {
   fadeUp,
@@ -94,23 +94,13 @@ function HeroContent({
             >
               Explore Tours
             </Button>
-            {SITE_FEATURES.accommodationEnabled ? (
-              <Button
-                href="/accommodation"
-                variant="outline"
-                className="min-h-12 shrink-0 border-2 border-paper/80 bg-white/10 px-5 py-3.5 text-sm font-bold text-paper backdrop-blur-md hover:border-gold-light hover:bg-paper hover:text-ink sm:px-8 sm:text-base"
-              >
-                {hero.accommodationLabel}
-              </Button>
-            ) : (
-              <Button
-                href="/tours"
-                variant="outline"
-                className="min-h-12 shrink-0 border-2 border-paper/80 bg-white/10 px-5 py-3.5 text-sm font-bold text-paper backdrop-blur-md hover:border-gold-light hover:bg-paper hover:text-ink sm:px-8 sm:text-base"
-              >
-                View Tours
-              </Button>
-            )}
+            <Button
+              href="/tours"
+              variant="outline"
+              className="min-h-12 shrink-0 border-2 border-paper/80 bg-white/10 px-5 py-3.5 text-sm font-bold text-paper backdrop-blur-md hover:border-gold-light hover:bg-paper hover:text-ink sm:px-8 sm:text-base"
+            >
+              View Tours
+            </Button>
           </motion.div>
         </div>
       </motion.div>

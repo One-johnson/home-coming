@@ -13,7 +13,6 @@ import { isSmtpConfigured } from "./lib/smtpConfig";
 
 const confirmationTypeValidator = v.union(
   v.literal("registration_confirmation"),
-  v.literal("accommodation_confirmation"),
   v.literal("tour_confirmation"),
 );
 

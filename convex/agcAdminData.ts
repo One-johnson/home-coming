@@ -30,6 +30,11 @@ import {
   confirmBookingInventory,
   releaseBookingInventory,
 } from "./agcAccommodation";
+import {
+  getAccommodationTypesConfig,
+  getBishopRate,
+  getPoolTotalOverrides,
+} from "./lib/agcSettingsRuntime";
 
 // ------------------------------------------------------------------
 // Data access for AGC admin features. Queries and mutations live here;
@@ -56,6 +61,11 @@ export const getAgcSettings = query({
   handler: async (ctx) => {
     const rows = await ctx.db.query("agcSettings").collect();
     const map = new Map(rows.map((row) => [row.key, row.value]));
+    const [typesConfig, bishopRate, pools] = await Promise.all([
+      getAccommodationTypesConfig(ctx),
+      getBishopRate(ctx),
+      ctx.db.query("agcInventoryPools").collect(),
+    ]);
     return {
       deadline: map.get(AGC_SETTING_KEYS.deadline) ?? AGC_DEFAULTS.deadline,
       holdHours: Number(
@@ -79,6 +89,26 @@ export const getAgcSettings = query({
           return [...AGC_DEFAULT_TITLES];
         }
       })(),
+      // Live accommodation config (defaults merged with admin overrides).
+      accommodationTypes: Object.entries(typesConfig).map(
+        ([type, value]) => ({ type, ...value }),
+      ),
+      bishopRate,
+      pools: pools
+        .map((pool) => ({
+          _id: pool._id,
+          accommodationType: pool.accommodationType,
+          scope: pool.scope,
+          total: pool.total,
+          reserved: pool.reserved,
+          confirmed: pool.confirmed,
+          available: pool.total - pool.reserved - pool.confirmed,
+        }))
+        .sort(
+          (a, b) =>
+            a.accommodationType.localeCompare(b.accommodationType) ||
+            a.scope.localeCompare(b.scope),
+        ),
     };
   },
 });
@@ -163,6 +193,10 @@ export const setAgcSetting = mutation({
       v.literal("accommodation_bank_details"),
       v.literal("guest_titles"),
       v.literal("registration_lockdown"),
+      v.literal("accommodation_prices"),
+      v.literal("accommodation_labels"),
+      v.literal("bishop_rate"),
+      v.literal("pool_totals"),
     ),
     value: v.string(),
   },
@@ -192,6 +226,83 @@ export const setAgcSetting = mutation({
       metadata: { value: args.value },
     });
     return { success: true as const };
+  },
+});
+
+/** Insert-or-patch an agcSettings row by key (used by admin mutations). */
+async function upsertSetting(
+  ctx: MutationCtx,
+  key: string,
+  value: string,
+) {
+  const existing = await ctx.db
+    .query("agcSettings")
+    .withIndex("by_key", (q) => q.eq("key", key))
+    .unique();
+  if (existing) {
+    await ctx.db.patch(existing._id, { value, updatedAt: Date.now() });
+  } else {
+    await ctx.db.insert("agcSettings", { key, value, updatedAt: Date.now() });
+  }
+}
+
+/**
+ * Set an inventory pool's total capacity directly (Settings → Accommodation).
+ * Complements pool-to-pool reallocation. The new total must cover everything
+ * already reserved + confirmed; a ledger entry + audit log record the change.
+ */
+export const setPoolTotal = mutation({
+  args: {
+    sessionToken: sessionTokenValidator,
+    poolId: v.id("agcInventoryPools"),
+    total: v.number(),
+    note: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireRole(ctx, args.sessionToken, [
+      "admin",
+      "accommodation",
+    ]);
+    if (!Number.isInteger(args.total) || args.total < 0) {
+      throw new ConvexError("Total must be a whole number of 0 or more");
+    }
+    const pool = await ctx.db.get(args.poolId);
+    if (!pool) throw new ConvexError("Pool not found");
+    const inUse = pool.reserved + pool.confirmed;
+    if (args.total < inUse) {
+      throw new ConvexError(
+        `Total cannot be below the ${inUse} unit(s) already reserved or confirmed in this pool`,
+      );
+    }
+    if (args.total === pool.total) {
+      return { success: true as const, changed: false };
+    }
+
+    await ctx.db.patch(pool._id, { total: args.total });
+    // Persist the override so lazy seeding/imports reproduce this capacity.
+    const overrides = await getPoolTotalOverrides(ctx);
+    overrides[`${String(pool.accommodationType)}|${pool.scope}`] = args.total;
+    await upsertSetting(ctx, AGC_SETTING_KEYS.poolTotals, JSON.stringify(overrides));
+
+    await ctx.db.insert("agcInventoryLedger", {
+      poolId: pool._id,
+      accommodationType: pool.accommodationType,
+      scope: pool.scope,
+      action: "reallocate",
+      delta: args.total - pool.total,
+      actorEmail: actor.email,
+      note: `total set to ${args.total}${args.note ? `: ${args.note}` : ""}`,
+      createdAt: Date.now(),
+    });
+    await writeAuditLog(ctx, {
+      actorUserId: actor._id,
+      actorEmail: actor.email,
+      action: "agc_pool.total_set",
+      entityType: "agcInventoryPools",
+      entityId: pool._id,
+      summary: `Set ${pool.accommodationType} (${pool.scope}) pool total to ${args.total}`,
+    });
+    return { success: true as const, changed: true };
   },
 });
 
@@ -244,6 +355,7 @@ export const seedAgcDefaultsInternal = internalMutation({
       }
     }
 
+    const poolOverrides = await getPoolTotalOverrides(ctx);
     for (const seed of AGC_INVENTORY_SEED) {
       const matches = await ctx.db
         .query("agcInventoryPools")
@@ -254,10 +366,13 @@ export const seedAgcDefaultsInternal = internalMutation({
         )
         .collect();
       if (matches.length === 0) {
+        // Fresh pool — an admin's pool-total override wins over the seed.
+        const override =
+          poolOverrides[`${String(seed.accommodationType)}|${seed.scope}`];
         await ctx.db.insert("agcInventoryPools", {
           accommodationType: seed.accommodationType,
           scope: seed.scope,
-          total: seed.total,
+          total: override ?? seed.total,
           reserved: 0,
           confirmed: 0,
         });

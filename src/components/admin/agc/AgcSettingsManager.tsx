@@ -23,12 +23,34 @@ import { Textarea } from "@/components/ui/textarea";
 import { toastFriendlyErrorParts } from "@/lib/friendlyError";
 import { cn } from "@/lib/utils";
 
+type AgcAccommodationTypeRow = {
+  type: string;
+  label: string;
+  unit: "bed";
+  maxOccupancy: number;
+  poolScope: "regional" | "global";
+  pricing: { ghs: number; usd: number };
+};
+
+type AgcPoolRow = {
+  _id: string;
+  accommodationType: string;
+  scope: string;
+  total: number;
+  reserved: number;
+  confirmed: number;
+  available: number;
+};
+
 type AgcSettings = {
   deadline: string;
   holdHours: number;
   registrationBankDetails: string;
   accommodationBankDetails: string;
   titles: string[];
+  accommodationTypes: AgcAccommodationTypeRow[];
+  bishopRate: { ghs: number; usd: number };
+  pools: AgcPoolRow[];
 };
 
 type AgcSystemStatus = {
@@ -44,6 +66,11 @@ type SettingsDraft = {
   registrationBankDetails: string;
   accommodationBankDetails: string;
   titles: string[];
+  typePrices: Record<string, { ghs: string; usd: string }>;
+  typeLabels: Record<string, string>;
+  bishopGhsText: string;
+  bishopUsdText: string;
+  poolTotals: Record<string, string>; // pool _id → text
 };
 
 /** ISO timestamp → value accepted by <input type="datetime-local"> (local time). */
@@ -63,12 +90,30 @@ function fromLocalInput(value: string): string | null {
 }
 
 function toDraft(settings: AgcSettings): SettingsDraft {
+  const typePrices: Record<string, { ghs: string; usd: string }> = {};
+  const typeLabels: Record<string, string> = {};
+  for (const row of settings.accommodationTypes) {
+    typePrices[row.type] = {
+      ghs: String(row.pricing.ghs),
+      usd: String(row.pricing.usd),
+    };
+    typeLabels[row.type] = row.label;
+  }
+  const poolTotals: Record<string, string> = {};
+  for (const pool of settings.pools) {
+    poolTotals[pool._id] = String(pool.total);
+  }
   return {
     deadline: toLocalInput(settings.deadline),
     holdHoursText: String(settings.holdHours),
     registrationBankDetails: settings.registrationBankDetails,
     accommodationBankDetails: settings.accommodationBankDetails,
     titles: [...settings.titles],
+    typePrices,
+    typeLabels,
+    bishopGhsText: String(settings.bishopRate.ghs),
+    bishopUsdText: String(settings.bishopRate.usd),
+    poolTotals,
   };
 }
 
@@ -86,6 +131,7 @@ export function AgcSettingsManager() {
     sessionToken ? { sessionToken } : "skip",
   ) as AgcSystemStatus | undefined;
   const setSetting = useMutation(api.agcAdminData.setAgcSetting);
+  const setPoolTotal = useMutation(api.agcAdminData.setPoolTotal);
   const setLockdown = useMutation(api.agcAdminData.setRegistrationLockdown);
   const [lockdownBusy, setLockdownBusy] = useState(false);
   // Typed-keyword guard: the destructive direction of the toggle opens a
@@ -212,6 +258,105 @@ export function AgcSettingsManager() {
           }),
         );
       }
+
+      // --- Accommodation prices + labels (full snapshot per key) ---
+      const prices: Record<string, { ghs: number; usd: number }> = {};
+      const labels: Record<string, string> = {};
+      let typesValid = true;
+      for (const row of settings.accommodationTypes) {
+        const price = draft.typePrices[row.type];
+        const label = draft.typeLabels[row.type]?.trim() ?? "";
+        const ghs = Number(price?.ghs);
+        const usd = Number(price?.usd);
+        if (
+          !label ||
+          !Number.isFinite(ghs) ||
+          ghs < 0 ||
+          !Number.isFinite(usd) ||
+          usd < 0
+        ) {
+          typesValid = false;
+          break;
+        }
+        prices[row.type] = { ghs, usd };
+        labels[row.type] = label;
+      }
+      if (!typesValid) {
+        toast.error(
+          "Accommodation prices must be 0 or more and labels non-empty",
+        );
+        setSaving(false);
+        return;
+      }
+      ops.push(
+        setSetting({
+          sessionToken,
+          key: "accommodation_prices",
+          value: JSON.stringify(prices),
+        }),
+      );
+      ops.push(
+        setSetting({
+          sessionToken,
+          key: "accommodation_labels",
+          value: JSON.stringify(labels),
+        }),
+      );
+
+      // --- Bishop rate ---
+      const bishopGhs = Number(draft.bishopGhsText);
+      const bishopUsd = Number(draft.bishopUsdText);
+      if (
+        !Number.isFinite(bishopGhs) ||
+        bishopGhs < 0 ||
+        !Number.isFinite(bishopUsd) ||
+        bishopUsd < 0
+      ) {
+        toast.error("Bishop rate must be 0 or more in both currencies");
+        setSaving(false);
+        return;
+      }
+      ops.push(
+        setSetting({
+          sessionToken,
+          key: "bishop_rate",
+          value: JSON.stringify({ ghs: bishopGhs, usd: bishopUsd }),
+        }),
+      );
+
+      // --- Pool totals (direct edits; failures abort the save) ---
+      const poolEdits: Array<{ id: string; total: number }> = [];
+      for (const pool of settings.pools) {
+        const raw = draft.poolTotals[pool._id];
+        const total = Number(raw);
+        if (!Number.isInteger(total) || total < 0) {
+          toast.error(
+            `Pool total for ${pool.accommodationType} (${pool.scope.replace("_", " ")}) must be a whole number of 0 or more`,
+          );
+          setSaving(false);
+          return;
+        }
+        if (total !== pool.total) {
+          poolEdits.push({ id: pool._id, total });
+        }
+      }
+      for (const edit of poolEdits) {
+        ops.push(
+          setPoolTotal({
+            sessionToken,
+            poolId: edit.id as Parameters<typeof setPoolTotal>[0]["poolId"],
+            total: edit.total,
+          }),
+        );
+      }
+
+      if (ops.length === 0) {
+        toast.info("No changes to save");
+        setSaving(false);
+        return;
+      }
+      await Promise.all(ops);
+      toast.success("Settings saved");
       if (ops.length === 0) {
         toast.info("No changes to save");
         return;
@@ -297,6 +442,185 @@ export function AgcSettingsManager() {
               Shown on the offline accommodation payment form. One detail per line.
             </p>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Accommodation types &amp; pricing</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            Every option is priced per bed (one bed per guest). Price and label
+            changes apply to new bookings only — existing bookings keep their
+            original price.
+          </p>
+          <div className="space-y-3">
+            {settings.accommodationTypes.map((row) => (
+              <div
+                key={row.type}
+                className="grid items-end gap-2 rounded-lg border p-3 sm:grid-cols-[minmax(0,1fr)_7rem_7rem]"
+              >
+                <div className="space-y-1.5">
+                  <Label htmlFor={`acc-label-${row.type}`}>
+                    {row.type.replace(/_/g, " ")}
+                  </Label>
+                  <Input
+                    id={`acc-label-${row.type}`}
+                    value={draft.typeLabels[row.type] ?? ""}
+                    onChange={(e) =>
+                      patch({
+                        typeLabels: {
+                          ...draft.typeLabels,
+                          [row.type]: e.target.value,
+                        },
+                      })
+                    }
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor={`acc-ghs-${row.type}`}>GHS / bed</Label>
+                  <Input
+                    id={`acc-ghs-${row.type}`}
+                    type="number"
+                    min={0}
+                    value={draft.typePrices[row.type]?.ghs ?? ""}
+                    onChange={(e) =>
+                      patch({
+                        typePrices: {
+                          ...draft.typePrices,
+                          [row.type]: {
+                            ghs: e.target.value,
+                            usd: draft.typePrices[row.type]?.usd ?? "",
+                          },
+                        },
+                      })
+                    }
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor={`acc-usd-${row.type}`}>USD / bed</Label>
+                  <Input
+                    id={`acc-usd-${row.type}`}
+                    type="number"
+                    min={0}
+                    value={draft.typePrices[row.type]?.usd ?? ""}
+                    onChange={(e) =>
+                      patch({
+                        typePrices: {
+                          ...draft.typePrices,
+                          [row.type]: {
+                            ghs: draft.typePrices[row.type]?.ghs ?? "",
+                            usd: e.target.value,
+                          },
+                        },
+                      })
+                    }
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-end gap-3 rounded-lg border p-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="bishop-ghs">EBPV Bishop rate (GHS)</Label>
+              <Input
+                id="bishop-ghs"
+                type="number"
+                min={0}
+                className="w-32"
+                value={draft.bishopGhsText}
+                onChange={(e) => patch({ bishopGhsText: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="bishop-usd">EBPV Bishop rate (USD)</Label>
+              <Input
+                id="bishop-usd"
+                type="number"
+                min={0}
+                className="w-32"
+                value={draft.bishopUsdText}
+                onChange={(e) => patch({ bishopUsdText: e.target.value })}
+              />
+            </div>
+            <p className="max-w-xs text-xs text-muted-foreground">
+              Special per-bed rate applied when a guest on EBPV is flagged as
+              Bishop.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Accommodation pool capacity</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-xs text-muted-foreground">
+            Total beds per pool. Totals cannot go below what is already
+            reserved or confirmed; every change is recorded in the inventory
+            ledger.
+          </p>
+          {settings.pools.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No inventory pools yet — they are created automatically on first
+              use (or when the AGC seed runs).
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs text-muted-foreground">
+                    <th className="py-2 pr-3 font-medium">Type</th>
+                    <th className="py-2 pr-3 font-medium">Pool</th>
+                    <th className="py-2 pr-3 font-medium">Reserved</th>
+                    <th className="py-2 pr-3 font-medium">Confirmed</th>
+                    <th className="py-2 pr-3 font-medium">Available</th>
+                    <th className="py-2 pr-3 font-medium">Total beds</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {settings.pools.map((pool) => (
+                    <tr key={pool._id} className="border-t">
+                      <td className="py-2 pr-3 capitalize">
+                        {pool.accommodationType.replace(/_/g, " ")}
+                      </td>
+                      <td className="py-2 pr-3 text-muted-foreground">
+                        {pool.scope.replace(/_/g, " ")}
+                      </td>
+                      <td className="py-2 pr-3 tabular-nums text-muted-foreground">
+                        {pool.reserved}
+                      </td>
+                      <td className="py-2 pr-3 tabular-nums text-muted-foreground">
+                        {pool.confirmed}
+                      </td>
+                      <td className="py-2 pr-3 tabular-nums text-muted-foreground">
+                        {pool.available}
+                      </td>
+                      <td className="py-2 pr-3">
+                        <Input
+                          type="number"
+                          min={pool.reserved + pool.confirmed}
+                          aria-label={`Total for ${pool.accommodationType} (${pool.scope})`}
+                          className="w-24"
+                          value={draft.poolTotals[pool._id] ?? ""}
+                          onChange={(e) =>
+                            patch({
+                              poolTotals: {
+                                ...draft.poolTotals,
+                                [pool._id]: e.target.value,
+                              },
+                            })
+                          }
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </CardContent>
       </Card>
 

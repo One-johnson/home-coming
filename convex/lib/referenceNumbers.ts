@@ -22,7 +22,6 @@ export async function createUniqueReferenceNumber(
   _kind: ReferenceKind,
   table:
     | "registrations"
-    | "housingBookings"
     | "tourOrders"
     | "agcRegistrations"
     | "agcBookings",

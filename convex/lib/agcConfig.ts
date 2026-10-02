@@ -72,8 +72,8 @@ export function regionPricing(region: AgcRegion): RegionPricing {
 
 export type AccommodationTypeConfig = {
   label: string;
-  /** Units consumed: beds for dormitory/hostel, rooms/apartments otherwise. */
-  unit: "bed" | "room";
+  /** Units consumed — every type is priced per bed (1 bed per guest). */
+  unit: "bed";
   maxOccupancy: number;
   /** Region-scoped bed pools or one global pool. */
   poolScope: "regional" | "global";
@@ -103,22 +103,22 @@ export const AGC_ACCOMMODATION_TYPES: Record<
   },
   wise_serpents: {
     label: "Wise as Serpents Lodge",
-    unit: "room",
-    maxOccupancy: 2,
+    unit: "bed",
+    maxOccupancy: 1,
     poolScope: "global",
     pricing: { ghs: 2500, usd: 210 },
   },
   good_general: {
     label: "Good General Lodge",
-    unit: "room",
-    maxOccupancy: 2,
+    unit: "bed",
+    maxOccupancy: 1,
     poolScope: "global",
     pricing: { ghs: 5000, usd: 420 },
   },
   ebpv: {
     label: "EBPV Apartment",
-    unit: "room",
-    maxOccupancy: 2,
+    unit: "bed",
+    maxOccupancy: 1,
     poolScope: "global",
     pricing: { ghs: 6200, usd: 520 },
   },
@@ -128,27 +128,8 @@ export const AGC_ACCOMMODATION_TYPE_KEYS = Object.keys(
   AGC_ACCOMMODATION_TYPES,
 ) as AgcAccommodationType[];
 
-/** EBPV Bishop Special Rate per apartment (SRS §27). */
+/** Default EBPV Bishop Special Rate per bed (SRS §27) — admin-editable at runtime. */
 export const AGC_BISHOP_RATE = { ghs: 1500, usd: 140 } as const;
-
-export function accommodationPrice(
-  type: AgcAccommodationType,
-  region: AgcRegion,
-  isBishopRate = false,
-): { amount: number; currency: string } {
-  const ghsRegion = region === "ghana" || region === "west_africa";
-  const config = AGC_ACCOMMODATION_TYPES[type];
-  if (isBishopRate && type === "ebpv") {
-    return {
-      amount: ghsRegion ? AGC_BISHOP_RATE.ghs : AGC_BISHOP_RATE.usd,
-      currency: ghsRegion ? "GHS" : "USD",
-    };
-  }
-  return {
-    amount: ghsRegion ? config.pricing.ghs : config.pricing.usd,
-    currency: ghsRegion ? "GHS" : "USD",
-  };
-}
 
 // ------------------------------------------------------------------
 // Inventory pool defaults (SRS §23, §28)
@@ -203,7 +184,20 @@ export const AGC_SETTING_KEYS = {
   titles: "guest_titles",
   /** "true" blocks all new registrations AND accommodation bookings. */
   lockdown: "registration_lockdown",
+  /** JSON: { [type]: { ghs, usd } } — per-bed prices, admin-editable. */
+  accommodationPrices: "accommodation_prices",
+  /** JSON: { [type]: string } — display labels, admin-editable. */
+  accommodationLabels: "accommodation_labels",
+  /** JSON: { ghs, usd } — EBPV Bishop special rate, admin-editable. */
+  bishopRate: "bishop_rate",
+  /** JSON: { [type|scope]: number } — inventory pool totals, admin-editable. */
+  poolTotals: "pool_totals",
 } as const;
+
+/** All setting keys accepted by setAgcSetting (type-safe union of values). */
+export const AGC_SETTING_KEY_LIST = Object.values(AGC_SETTING_KEYS) as readonly (
+  | (typeof AGC_SETTING_KEYS)[keyof typeof AGC_SETTING_KEYS]
+)[];
 
 export const AGC_DEFAULT_TITLES = ["Bishop", "Member"] as const;
 

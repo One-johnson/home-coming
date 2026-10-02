@@ -3,13 +3,18 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
   AGC_ACCOMMODATION_TYPES,
-  AGC_BISHOP_RATE,
   AGC_DEFAULTS,
   AGC_INVENTORY_SEED,
   AGC_SETTING_KEYS,
-  accommodationPrice,
   scopeForRegion,
 } from "./lib/agcConfig";
+import {
+  getAccommodationTypesConfig,
+  getBishopRate,
+  getPoolTotalOverride,
+  type AccommodationTypesConfig,
+  type BishopRate,
+} from "./lib/agcSettingsRuntime";
 import type {
   AgcAccommodationType,
   AgcGender,
@@ -108,17 +113,19 @@ async function loadPoolMutable(
   );
   if (pool) return pool;
 
-  // Lazily seed from defaults if the admin seed hasn't run yet.
+  // Lazily seed from defaults (or the admin's pool-total override) if the
+  // admin seed hasn't run yet.
   const seed = seedFor(type, scope);
   if (!seed) {
     throw new Error(`No inventory pool configured for ${type} (${scope})`);
   }
+  const override = await getPoolTotalOverride(ctx, type, scope);
   const poolId: Id<"agcInventoryPools"> = await ctx.db.insert(
     "agcInventoryPools",
     {
       accommodationType: type,
       scope,
-      total: seed.total,
+      total: override ?? seed.total,
       reserved: 0,
       confirmed: 0,
     },
@@ -283,16 +290,18 @@ export type BookingGuestInput = {
 
 export type ComputedLine = {
   accommodationType: AgcAccommodationType;
-  /** Units consumed: beds for dormitory/hostel, rooms otherwise. */
+  /** Units consumed — one bed per guest for every type. */
   quantity: number;
   unitPrice: number;
   isBishopRate: boolean;
 };
 
-/** Group guests into priced lines. Rooms are shared by 2 (§24–26). */
+/** Group guests into priced lines. Every type is per-bed (1 unit per guest). */
 export function computeBookingLines(
   guests: BookingGuestInput[],
   region: Doc<"agcHubs">["region"],
+  typesConfig: AccommodationTypesConfig,
+  bishopRate: BishopRate,
 ): ComputedLine[] {
   const groups = new Map<string, number>();
   for (const guest of guests) {
@@ -305,16 +314,17 @@ export function computeBookingLines(
     const [type, rate] = key.split("|");
     const accommodationType = type as AgcAccommodationType;
     const isBishopRate = rate === "bishop";
-    const config = AGC_ACCOMMODATION_TYPES[accommodationType];
-    const quantity =
-      config.unit === "bed"
-        ? guestsInGroup
-        : Math.ceil(guestsInGroup / config.maxOccupancy);
-    const price = accommodationPrice(accommodationType, region, isBishopRate);
+    const ghsRegion = region === "ghana" || region === "west_africa";
+    const config = typesConfig[accommodationType];
+    // Every type is priced per bed — one unit per guest.
+    const quantity = guestsInGroup;
+    const unitPrice = isBishopRate
+      ? ghsRegion ? bishopRate.ghs : bishopRate.usd
+      : ghsRegion ? config.pricing.ghs : config.pricing.usd;
     lines.push({
       accommodationType,
       quantity,
-      unitPrice: price.amount,
+      unitPrice,
       isBishopRate,
     });
   }
@@ -389,7 +399,11 @@ export async function createBookingWithGuests(
     if (error) throw new ConvexError(error);
   }
 
-  const lines = computeBookingLines(guests, hub.region);
+  const [typesConfig, bishopRate] = await Promise.all([
+    getAccommodationTypesConfig(ctx),
+    getBishopRate(ctx),
+  ]);
+  const lines = computeBookingLines(guests, hub.region, typesConfig, bishopRate);
   const total = bookingTotal(lines);
   const currency = bookingCurrency(hub.region);
   const expiresAt = await computeHoldExpiry(ctx);
@@ -623,14 +637,18 @@ export async function availabilityForRegion(
   ctx: QueryCtx,
   region: Doc<"agcHubs">["region"],
 ): Promise<AvailabilityRow[]> {
+  const [typesConfig, bishopRate] = await Promise.all([
+    getAccommodationTypesConfig(ctx),
+    getBishopRate(ctx),
+  ]);
   const rows: AvailabilityRow[] = [];
   for (const type of Object.keys(AGC_ACCOMMODATION_TYPES) as AgcAccommodationType[]) {
     const scope: AgcInventoryScope =
-      AGC_ACCOMMODATION_TYPES[type].poolScope === "global"
+      typesConfig[type].poolScope === "global"
         ? "global"
         : scopeForRegion(region);
     const pool = await loadPoolRead(ctx, type, scope);
-    const config = AGC_ACCOMMODATION_TYPES[type];
+    const config = typesConfig[type];
     rows.push({
       accommodationType: type,
       scope: pool.scope,
@@ -638,8 +656,8 @@ export async function availabilityForRegion(
       available: availableUnits(pool),
       priceGhs: config.pricing.ghs,
       priceUsd: config.pricing.usd,
-      bishopPriceGhs: type === "ebpv" ? AGC_BISHOP_RATE.ghs : config.pricing.ghs,
-      bishopPriceUsd: type === "ebpv" ? AGC_BISHOP_RATE.usd : config.pricing.usd,
+      bishopPriceGhs: type === "ebpv" ? bishopRate.ghs : config.pricing.ghs,
+      bishopPriceUsd: type === "ebpv" ? bishopRate.usd : config.pricing.usd,
     });
   }
   return rows;

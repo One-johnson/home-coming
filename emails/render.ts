@@ -1,8 +1,5 @@
 import { render } from "@react-email/render";
 import { createElement, type ReactElement } from "react";
-import AccommodationConfirmationEmail, {
-  type AccommodationEmailProps,
-} from "./accommodation-confirmation";
 import RegistrationConfirmationEmail, {
   type RegistrationEmailProps,
 } from "./registration-confirmation";
@@ -23,10 +20,6 @@ async function renderEmail<P extends object>(
 
 export async function renderRegistrationEmail(props: RegistrationEmailProps) {
   return renderEmail(RegistrationConfirmationEmail, props);
-}
-
-export async function renderAccommodationEmail(props: AccommodationEmailProps) {
-  return renderEmail(AccommodationConfirmationEmail, props);
 }
 
 export async function renderRepCredentialsEmail(props: RepCredentialsEmailProps) {

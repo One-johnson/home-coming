@@ -80,7 +80,6 @@ function RegistrationFormInner() {
   const [group, setGroup] = useState("");
   const [denomination, setDenomination] = useState("");
   const [church, setChurch] = useState("");
-  const [accommodationInterest, setAccommodationInterest] = useState(false);
   const [consent, setConsent] = useState(false);
   const [honeypot, setHoneypot] = useState("");
   const [loading, setLoading] = useState(false);
@@ -232,7 +231,7 @@ function RegistrationFormInner() {
         church: church || undefined,
         ticketQuantity,
         addOns: SITE_FEATURES.addOnsEnabled ? totals.addOns : [],
-        accommodationInterest,
+        accommodationInterest: false,
         consent,
         honeypot: honeypot.trim() || undefined,
         mockPayment: false,
@@ -495,20 +494,6 @@ function RegistrationFormInner() {
                 />
               </div>
             </div>
-
-            {SITE_FEATURES.accommodationEnabled ? (
-              <Label className="flex items-center gap-3">
-                <Checkbox
-                  checked={accommodationInterest}
-                  onCheckedChange={(checked) =>
-                    setAccommodationInterest(checked === true)
-                  }
-                />
-                <span className="text-sm text-muted-foreground">
-                  I am interested in booking accommodation
-                </span>
-              </Label>
-            ) : null}
 
             <Label className="flex items-start gap-3">
               <Checkbox

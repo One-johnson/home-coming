@@ -1,11 +1,10 @@
 import { internal } from "../_generated/api";
 import type { MutationCtx } from "../_generated/server";
 
-export type PaymentRecordType = "registration" | "booking" | "tour";
+export type PaymentRecordType = "registration" | "tour";
 
 export type ConfirmationEmailType =
   | "registration_confirmation"
-  | "accommodation_confirmation"
   | "tour_confirmation";
 
 export function isSuccessfulPayment(status: string) {
@@ -18,8 +17,6 @@ export function confirmationTypeForRecord(
   switch (recordType) {
     case "registration":
       return "registration_confirmation";
-    case "booking":
-      return "accommodation_confirmation";
     case "tour":
       return "tour_confirmation";
   }

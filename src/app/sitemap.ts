@@ -1,5 +1,4 @@
 import type { MetadataRoute } from "next";
-import { SITE_FEATURES } from "@/lib/eventConfig";
 import { getSiteUrl, PAGE_SEO } from "@/lib/seo";
 
 export default function sitemap(): MetadataRoute.Sitemap {
@@ -7,19 +6,10 @@ export default function sitemap(): MetadataRoute.Sitemap {
   const now = new Date();
 
   return Object.values(PAGE_SEO)
-    .filter(
-      (page) =>
-        SITE_FEATURES.accommodationEnabled || page.path !== "/accommodation",
-    )
     .map((page) => ({
       url: `${siteUrl}${page.path === "/" ? "" : page.path}`,
       lastModified: now,
       changeFrequency: page.path === "/" ? "weekly" : "monthly",
-      priority:
-        page.path === "/"
-          ? 1
-          : page.path === "/accommodation"
-            ? 0.8
-            : 0.7,
+      priority: page.path === "/" ? 1 : 0.7,
     }));
 }

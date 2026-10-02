@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Section } from "@/components/ui/Section";
 import { ToursCheckout } from "@/components/tours/ToursCheckout";
+import { PreferredHotels } from "@/components/tours/PreferredHotels";
 import { createPageMetadata, PAGE_SEO } from "@/lib/seo";
 import { listTourPackages } from "@/lib/toursManifest";
 
@@ -27,6 +28,9 @@ export default function ToursPage() {
         you can add both before payment.
       </p>
       <ToursCheckout packages={packages} />
+      <div className="mt-16">
+        <PreferredHotels />
+      </div>
     </Section>
   );
 }

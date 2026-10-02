@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Separator } from "@/components/ui/separator";
-import { EVENT, SITE_FEATURES } from "@/lib/eventConfig";
+import { EVENT } from "@/lib/eventConfig";
 
 const footerLinkClassName =
   "text-white/90 underline-offset-4 transition hover:text-gold-light hover:underline";
@@ -30,13 +30,6 @@ export function Footer() {
                   Tours
                 </Link>
               </li>
-              {SITE_FEATURES.accommodationEnabled ? (
-                <li>
-                  <Link href="/accommodation" className={footerLinkClassName}>
-                    Book Accommodation
-                  </Link>
-                </li>
-              ) : null}
               <li>
                 <Link href="/faqs" className={footerLinkClassName}>
                   FAQs

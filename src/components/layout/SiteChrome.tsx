@@ -10,9 +10,7 @@ export function SiteChrome({ children }: { children: React.ReactNode }) {
   const isAdmin = pathname.startsWith("/admin");
   const isPortal = pathname.startsWith("/portal");
   const hideStickyCta =
-    pathname.startsWith("/registration") ||
-    pathname.startsWith("/tours") ||
-    pathname.startsWith("/accommodation");
+    pathname.startsWith("/registration") || pathname.startsWith("/tours");
 
   if (isAdmin || isPortal) {
     return <div className="min-h-svh bg-background">{children}</div>;

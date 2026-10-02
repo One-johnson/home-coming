@@ -8,8 +8,6 @@ import {
 } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
-  AGC_ACCOMMODATION_TYPES,
-  AGC_BISHOP_RATE,
   AGC_SETTING_KEYS,
 } from "./lib/agcConfig";
 import { agcOfflinePayment } from "./schemaTypes";
@@ -35,6 +33,10 @@ import {
   type BookingGuestInput,
 } from "./agcAccommodation";
 import { requireRep } from "./agcPortal";
+import {
+  getAccommodationTypesConfig,
+  getBishopRate,
+} from "./lib/agcSettingsRuntime";
 
 const guestValidator = v.object({
   firstName: v.string(),
@@ -61,21 +63,21 @@ export const getAccommodationOverview = query({
   args: { sessionToken: v.string() },
   handler: async (ctx, args) => {
     const { hub } = await requireRep(ctx, args.sessionToken);
-    const [availability, holdHours, deadline] = await Promise.all([
-      availabilityForRegion(ctx, hub.region),
-      getHoldHours(ctx),
-      getDeadlineMs(ctx),
-    ]);
+    const [availability, holdHours, deadline, typesConfig, bishopRate] =
+      await Promise.all([
+        availabilityForRegion(ctx, hub.region),
+        getHoldHours(ctx),
+        getDeadlineMs(ctx),
+        getAccommodationTypesConfig(ctx),
+        getBishopRate(ctx),
+      ]);
     return {
       hubName: hub.name,
       region: hub.region,
       currency: hub.region === "ghana" || hub.region === "west_africa" ? "GHS" : "USD",
       isGhsRegion: hub.region === "ghana" || hub.region === "west_africa",
-      bishopRate: {
-        ghs: AGC_BISHOP_RATE.ghs,
-        usd: AGC_BISHOP_RATE.usd,
-      },
-      accommodationTypes: Object.entries(AGC_ACCOMMODATION_TYPES).map(
+      bishopRate,
+      accommodationTypes: Object.entries(typesConfig).map(
         ([key, value]) => ({ type: key, ...value }),
       ),
       availability,
@@ -304,7 +306,11 @@ export const editBooking = mutation({
     }
 
     // 2. Compute and reserve the new lines (throws → whole edit aborts).
-    const lines = computeBookingLines(args.guests, booking.region);
+    const [typesConfig, bishopRate] = await Promise.all([
+      getAccommodationTypesConfig(ctx),
+      getBishopRate(ctx),
+    ]);
+    const lines = computeBookingLines(args.guests, booking.region, typesConfig, bishopRate);
     const total = bookingTotal(lines);
     const currency = bookingCurrency(booking.region);
     for (const line of lines) {

@@ -14,20 +14,24 @@ export const getOverview = query({
 
     const canRegistration =
       user.role === "admin" || user.role === "registration";
-    const canAccommodation =
-      user.role === "admin" || user.role === "accommodation";
     const canContent = user.role === "admin" || user.role === "content";
     const canEmails = user.role === "admin";
 
     const registrations = canRegistration
       ? await ctx.db.query("registrations").collect()
       : [];
-    const bookings = canAccommodation
-      ? await ctx.db.query("housingBookings").collect()
-      : [];
-    const housing = canAccommodation
-      ? await ctx.db.query("housing").collect()
-      : [];
+    // Badge for the AGC accommodation review page (pending payment checks).
+    const agcPendingBookings =
+      user.role === "admin" || user.role === "accommodation"
+        ? (
+            await ctx.db
+              .query("agcBookings")
+              .withIndex("by_payment_status", (q) =>
+                q.eq("paymentStatus", "pending_verification"),
+              )
+              .collect()
+          ).length
+        : 0;
     const faqs = canContent ? await ctx.db.query("faqs").collect() : [];
     const messages = canContent ? await ctx.db.query("messages").collect() : [];
     const emailLogs = canEmails
@@ -64,15 +68,6 @@ export const getOverview = query({
       0,
     );
 
-    const paidBookings = bookings.filter((b) => isPaid(b.paymentStatus));
-    const pendingBookings = bookings.filter(
-      (b) => b.paymentStatus === "pending_payment",
-    );
-    const bookingRevenue = paidBookings.reduce(
-      (sum, b) => sum + b.totalAmount,
-      0,
-    );
-
     const regionBreakdown: Record<string, number> = {};
     for (const r of registrations) {
       regionBreakdown[r.region] = (regionBreakdown[r.region] ?? 0) + 1;
@@ -94,9 +89,6 @@ export const getOverview = query({
     const registrationsLastWeek = registrations.filter(
       (r) => r.createdAt >= lastWeekStart && r.createdAt < thisWeekStart,
     ).length;
-    const bookingsThisWeek = bookings.filter(
-      (b) => b.createdAt >= thisWeekStart,
-    ).length;
 
     const last7Days = Array.from({ length: 7 }, (_, i) => {
       const start = now - (6 - i) * dayMs;
@@ -111,10 +103,6 @@ export const getOverview = query({
         count,
       };
     });
-
-    const lowHousing = housing.filter(
-      (h) => h.capacityLimit > 0 && h.capacityLimit - h.booked <= 5,
-    );
 
     const attention: {
       id: string;
@@ -140,26 +128,6 @@ export const getOverview = query({
         detail: `${failedRegistrations.length} registration payment${failedRegistrations.length === 1 ? "" : "s"} failed`,
         href: "/admin/registrations",
         tone: "danger",
-      });
-    }
-    if (canAccommodation && pendingBookings.length > 0) {
-      attention.push({
-        id: "booking-pending",
-        label: "Pending bookings",
-        detail: `${pendingBookings.length} housing booking${pendingBookings.length === 1 ? "" : "s"} unpaid`,
-        href: "/admin/bookings",
-        tone: "warn",
-      });
-    }
-    if (canAccommodation && lowHousing.length > 0) {
-      attention.push({
-        id: "housing-low",
-        label: "Low housing capacity",
-        detail: lowHousing
-          .map((h) => `${h.type}: ${Math.max(0, h.capacityLimit - h.booked)} left`)
-          .join(" · "),
-        href: "/admin/housing",
-        tone: "info",
       });
     }
     if (canEmails) {
@@ -200,21 +168,6 @@ export const getOverview = query({
         gatewayBreakdown,
         last7Days,
       },
-      bookings: {
-        total: bookings.length,
-        paid: paidBookings.length,
-        pending: pendingBookings.length,
-        revenue: bookingRevenue,
-        thisWeek: bookingsThisWeek,
-      },
-      housing: housing.map((h) => ({
-        _id: h._id,
-        type: h.type,
-        capacityLimit: h.capacityLimit,
-        booked: h.booked,
-        remaining: Math.max(0, h.capacityLimit - h.booked),
-        pricePerStay: h.pricePerStay,
-      })),
       content: {
         faqs: faqs.length,
         videos: messages.length,
@@ -230,7 +183,7 @@ export const getOverview = query({
       recentActivity,
       badges: {
         registrationsPending: pendingRegistrations.length,
-        bookingsPending: pendingBookings.length,
+        bookingsPending: agcPendingBookings,
         emailsFailed: emailLogs.filter((e) => e.status === "failed").length,
       },
     };
@@ -251,7 +204,6 @@ export const searchQuick = query({
       { href: "/admin", label: "Overview" },
       { href: "/admin/agc", label: "AGC console" },
       { href: "/admin/tours", label: "Tours" },
-      { href: "/admin/housing", label: "Housing" },
       { href: "/admin/hotels", label: "Hotels" },
       { href: "/admin/content", label: "Content" },
       { href: "/admin/hero", label: "Hero" },

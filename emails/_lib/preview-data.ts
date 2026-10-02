@@ -1,5 +1,4 @@
 import { getBannerUrl } from "../_components/banner";
-import type { AccommodationEmailProps } from "../accommodation-confirmation";
 import type { RegistrationEmailProps } from "../registration-confirmation";
 import type { RepCredentialsEmailProps } from "../rep-credentials";
 import type { TourEmailProps } from "../tour-confirmation";
@@ -12,17 +11,6 @@ export const previewRegistrationProps: RegistrationEmailProps = {
   addOnLines: ["VIP Meals × 1", "Ministers Grill × 2"],
   totalAmount: "GHS 80.00",
   accommodationInterest: true,
-};
-
-export const previewAccommodationProps: AccommodationEmailProps = {
-  bannerUrl: getBannerUrl(),
-  guestName: "Jane Doe",
-  housingLabel: "Condo",
-  referenceNumber: "STAY-1042",
-  checkIn: "2026-11-02",
-  checkOut: "2026-11-08",
-  guests: 2,
-  totalAmount: "USD 10.00",
 };
 
 export const previewTourProps: TourEmailProps = {

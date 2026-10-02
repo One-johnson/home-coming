@@ -1,6 +1,5 @@
 import { Section } from "@/components/ui/Section";
 import { LinkButton as Button } from "@/components/ui/app-button";
-import { SITE_FEATURES } from "@/lib/eventConfig";
 import { homeContent } from "@/lib/siteContent";
 
 const ctaButtonClassName =
@@ -25,23 +24,13 @@ export function RegistrationCTA() {
         >
           Explore Tours
         </Button>
-        {SITE_FEATURES.accommodationEnabled ? (
-          <Button
-            href="/accommodation"
-            variant="outline"
-            className={`${ctaButtonClassName} border-2 border-gold bg-transparent text-ink hover:bg-gold/10 hover:text-ink`}
-          >
-            Book Accommodation
-          </Button>
-        ) : (
-          <Button
-            href="/tours"
-            variant="outline"
-            className={`${ctaButtonClassName} border-2 border-gold bg-transparent text-ink hover:bg-gold/10 hover:text-ink`}
-          >
-            View Tours
-          </Button>
-        )}
+        <Button
+          href="/tours"
+          variant="outline"
+          className={`${ctaButtonClassName} border-2 border-gold bg-transparent text-ink hover:bg-gold/10 hover:text-ink`}
+        >
+          View Tours
+        </Button>
       </div>
     </Section>
   );

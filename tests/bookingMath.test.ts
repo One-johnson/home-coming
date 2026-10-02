@@ -68,7 +68,7 @@ describe("computeBookingSummary", () => {
     expect(summary.currency).toBe("GHS");
   });
 
-  test("rooms: guests share two per room, rounded up", () => {
+  test("lodges: every type is per-bed, one unit per guest", () => {
     const summary = computeBookingSummary(
       [
         { accommodationType: "wise_serpents", isBishopRate: false },
@@ -77,15 +77,15 @@ describe("computeBookingSummary", () => {
       ],
       "england",
     );
-    // 3 guests → 2 rooms (2 + 1).
+    // 3 guests → 3 beds (all types are per-bed now).
     expect(summary.lines[0]).toMatchObject({
       guests: 3,
-      units: 2,
-      unitLabel: "room",
+      units: 3,
+      unitLabel: "bed",
       unitPrice: 210,
-      subtotal: 420,
+      subtotal: 630,
     });
-    expect(summary.totalAmount).toBe(420);
+    expect(summary.totalAmount).toBe(630);
   });
 
   test("same type splits into standard and bishop lines", () => {
@@ -101,8 +101,8 @@ describe("computeBookingSummary", () => {
     const bishop = summary.lines.find((l) => l.isBishopRate);
     const standard = summary.lines.find((l) => !l.isBishopRate);
     expect(bishop).toMatchObject({ guests: 1, units: 1, unitPrice: 1500, subtotal: 1500 });
-    expect(standard).toMatchObject({ guests: 2, units: 1, unitPrice: 6200, subtotal: 6200 });
-    expect(summary.totalAmount).toBe(7700);
+    expect(standard).toMatchObject({ guests: 2, units: 2, unitPrice: 6200, subtotal: 12400 });
+    expect(summary.totalAmount).toBe(13900);
   });
 
   test("empty guest list yields a zeroed summary", () => {
@@ -146,7 +146,7 @@ describe("capacityProblem", () => {
     expect(problem).toContain("needs 3");
   });
 
-  test("rooms compare units, not guest count (3 guests fit 2 rooms)", () => {
+  test("beds compare units one-to-one with guest count", () => {
     const summary = computeBookingSummary(
       [
         { accommodationType: "wise_serpents", isBishopRate: false },
@@ -155,8 +155,8 @@ describe("capacityProblem", () => {
       ],
       "england",
     );
-    expect(summary.lines[0].units).toBe(2);
-    expect(capacityProblem(summary, availability)).toContain("needs 2");
+    expect(summary.lines[0].units).toBe(3);
+    expect(capacityProblem(summary, availability)).toContain("needs 3");
   });
 
   test("unknown types (stale availability) are ignored rather than crashing", () => {
@@ -178,7 +178,7 @@ describe("describeUnits", () => {
       ],
       "ghana",
     );
-    expect(describeUnits(summary)).toBe("2 beds · 1 room");
+    expect(describeUnits(summary)).toBe("2 beds · 1 bed");
   });
 });
 
@@ -202,10 +202,10 @@ describe("amountsMatch (exact-amount rule)", () => {
   });
 });
 
-test("config sanity: room types hold two, bed types hold one", () => {
+test("config sanity: every type is per-bed with occupancy one", () => {
   for (const [type, config] of Object.entries(AGC_ACCOMMODATION_TYPES)) {
-    if (config.unit === "bed") expect(config.maxOccupancy).toBe(1);
-    else expect(config.maxOccupancy).toBe(2);
+    expect(config.unit).toBe("bed");
+    expect(config.maxOccupancy).toBe(1);
     expect(type).toMatch(/^[a-z_]+$/);
   }
 });
