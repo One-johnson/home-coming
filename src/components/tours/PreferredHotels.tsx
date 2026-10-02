@@ -11,11 +11,18 @@ import { isConvexConfigured } from "@/lib/convex-config";
  * Preferred commercial hotels near campus. Accommodation itself is booked
  * through hub representatives in the rep portal — this list is informational
  * (contact, rates, distance, discount codes).
+ *
+ * The `isConvexConfigured()` guard lives OUTSIDE the component that calls
+ * `useQuery`, so static prerendering (no Convex env) never mounts the hook —
+ * same pattern as the old AccommodationPortal.
  */
 export function PreferredHotels() {
-  const hotels = useQuery(api.content.listHotels);
-
   if (!isConvexConfigured()) return null;
+  return <PreferredHotelsConnected />;
+}
+
+function PreferredHotelsConnected() {
+  const hotels = useQuery(api.content.listHotels);
 
   return (
     <div className="space-y-6">
