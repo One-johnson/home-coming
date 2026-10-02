@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { ConvexError } from "convex/values";
 import { internal } from "./_generated/api";
 import {
   internalMutation,
@@ -41,7 +42,7 @@ export async function requireAdminViaAction(ctx: ActionCtx, sessionToken: string
     sessionToken,
   });
   if (!actor || actor.role !== "admin") {
-    throw new Error("Unauthorized");
+    throw new ConvexError("Unauthorized");
   }
   return actor;
 }
@@ -316,13 +317,13 @@ export const createHub = mutation({
   handler: async (ctx, args) => {
     const actor = await requireAdmin(ctx, args.sessionToken);
     const name = args.name.trim();
-    if (!name) throw new Error("Hub name is required");
+    if (!name) throw new ConvexError("Hub name is required");
 
     const existing = await ctx.db
       .query("agcHubs")
       .withIndex("by_name", (q) => q.eq("name", name))
       .unique();
-    if (existing) throw new Error("A hub with this name already exists");
+    if (existing) throw new ConvexError("A hub with this name already exists");
 
     const hubId: Id<"agcHubs"> = await ctx.db.insert("agcHubs", {
       name,
@@ -357,7 +358,7 @@ export const updateHub = mutation({
   handler: async (ctx, args) => {
     const actor = await requireAdmin(ctx, args.sessionToken);
     const hub: Doc<"agcHubs"> | null = await ctx.db.get(args.hubId);
-    if (!hub) throw new Error("Hub not found");
+    if (!hub) throw new ConvexError("Hub not found");
 
     const patch: Partial<Doc<"agcHubs">> = {};
     if (args.region !== undefined) patch.region = args.region;
@@ -383,7 +384,7 @@ export const requireAdminSession = internalQuery({
   args: { sessionToken: v.string() },
   handler: async (ctx, args) => {
     const user = await getUserBySessionToken(ctx, args.sessionToken);
-    if (!user) throw new Error("Unauthorized");
+    if (!user) throw new ConvexError("Unauthorized");
     return user;
   },
 });
@@ -741,11 +742,11 @@ export const setRepEmail = mutation({
   handler: async (ctx, args) => {
     const actor = await requireAdmin(ctx, args.sessionToken);
     const rep: Doc<"agcRepresentatives"> | null = await ctx.db.get(args.repId);
-    if (!rep) throw new Error("Representative not found");
+    if (!rep) throw new ConvexError("Representative not found");
 
     const email = args.email.trim().toLowerCase();
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      throw new Error("Please enter a valid email address");
+      throw new ConvexError("Please enter a valid email address");
     }
     if (email) {
       const taken: Doc<"agcRepresentatives"> | null = await ctx.db
@@ -753,7 +754,7 @@ export const setRepEmail = mutation({
         .withIndex("by_email", (q) => q.eq("email", email))
         .unique();
       if (taken && taken._id !== rep._id) {
-        throw new Error("This email address is already in use by another representative");
+        throw new ConvexError("This email address is already in use by another representative");
       }
     }
 
@@ -782,8 +783,8 @@ export const deleteRep = mutation({
   handler: async (ctx, args) => {
     const actor = await requireAdmin(ctx, args.sessionToken);
     const rep: Doc<"agcRepresentatives"> | null = await ctx.db.get(args.repId);
-    if (!rep) throw new Error("Representative not found");
-    if (rep.deletedAt) throw new Error("Representative is already deleted");
+    if (!rep) throw new ConvexError("Representative not found");
+    if (rep.deletedAt) throw new ConvexError("Representative is already deleted");
 
     await deleteRepInternal(ctx, args.repId, actor.email);
 
@@ -846,8 +847,8 @@ export const restoreRep = mutation({
   handler: async (ctx, args) => {
     const actor = await requireAdmin(ctx, args.sessionToken);
     const rep: Doc<"agcRepresentatives"> | null = await ctx.db.get(args.repId);
-    if (!rep) throw new Error("Representative not found");
-    if (!rep.deletedAt) throw new Error("This representative is not deleted");
+    if (!rep) throw new ConvexError("Representative not found");
+    if (!rep.deletedAt) throw new ConvexError("This representative is not deleted");
 
     // Guard against username/email collisions with reps created after the
     // delete. Uses collect() so stray duplicate rows cannot crash the check.
@@ -860,7 +861,7 @@ export const restoreRep = mutation({
       (row) => row._id !== rep._id && row.deletedAt === undefined,
     );
     if (usernameClash) {
-      throw new Error(
+      throw new ConvexError(
         `Cannot restore: a new account for "${rep.username}" already exists. Delete it first.`,
       );
     }
@@ -874,7 +875,7 @@ export const restoreRep = mutation({
         (row) => row._id !== rep._id && row.deletedAt === undefined,
       );
       if (emailClash) {
-        throw new Error(
+        throw new ConvexError(
           `Cannot restore: the email ${rep.email} is now used by another account.`,
         );
       }
@@ -1007,7 +1008,7 @@ export const setRepStatus = mutation({
   handler: async (ctx, args) => {
     const actor = await requireAdmin(ctx, args.sessionToken);
     const rep: Doc<"agcRepresentatives"> | null = await ctx.db.get(args.repId);
-    if (!rep) throw new Error("Representative not found");
+    if (!rep) throw new ConvexError("Representative not found");
 
     await ctx.db.patch(args.repId, {
       status: args.status,
@@ -1245,7 +1246,7 @@ export const reviewAgcRegistration = mutation({
       "finance",
     ]);
     const record = await ctx.db.get(args.registrationId);
-    if (!record) throw new Error("Registration not found");
+    if (!record) throw new ConvexError("Registration not found");
 
     if (args.decision === "approve") {
       await ctx.db.patch(args.registrationId, {
@@ -1309,11 +1310,11 @@ export const reviewAgcBooking = mutation({
       "finance",
     ]);
     const booking = await ctx.db.get(args.bookingId);
-    if (!booking) throw new Error("Booking not found");
+    if (!booking) throw new ConvexError("Booking not found");
 
     if (args.decision === "approve") {
       if (booking.bookingStatus === "expired" || booking.bookingStatus === "cancelled") {
-        throw new Error("This booking is no longer active");
+        throw new ConvexError("This booking is no longer active");
       }
       await ctx.db.patch(args.bookingId, {
         paymentStatus: "confirmed",
@@ -1431,7 +1432,7 @@ export const deleteAgcRegistration = mutation({
       "finance",
     ]);
     const record = await ctx.db.get(args.registrationId);
-    if (!record) throw new Error("Registration not found");
+    if (!record) throw new ConvexError("Registration not found");
 
     await deleteRegistrationRecord(ctx, record);
 
@@ -1459,10 +1460,10 @@ export const deleteAgcRegistrationsBulk = mutation({
       "finance",
     ]);
     if (args.ids.length === 0) {
-      throw new Error("Select at least one registration");
+      throw new ConvexError("Select at least one registration");
     }
     if (args.ids.length > MAX_BULK_DELETE) {
-      throw new Error(`Delete at most ${MAX_BULK_DELETE} registrations at a time`);
+      throw new ConvexError(`Delete at most ${MAX_BULK_DELETE} registrations at a time`);
     }
 
     let deleted = 0;
@@ -1497,7 +1498,7 @@ export const deleteAgcBooking = mutation({
       "finance",
     ]);
     const booking = await ctx.db.get(args.bookingId);
-    if (!booking) throw new Error("Booking not found");
+    if (!booking) throw new ConvexError("Booking not found");
 
     await deleteBookingRecord(ctx, booking);
 
@@ -1525,10 +1526,10 @@ export const deleteAgcBookingsBulk = mutation({
       "finance",
     ]);
     if (args.ids.length === 0) {
-      throw new Error("Select at least one booking");
+      throw new ConvexError("Select at least one booking");
     }
     if (args.ids.length > MAX_BULK_DELETE) {
-      throw new Error(`Delete at most ${MAX_BULK_DELETE} bookings at a time`);
+      throw new ConvexError(`Delete at most ${MAX_BULK_DELETE} bookings at a time`);
     }
 
     let deleted = 0;
@@ -2084,9 +2085,9 @@ export const reallocatePool = mutation({
       "admin",
       "accommodation",
     ]);
-    if (args.quantity <= 0) throw new Error("Quantity must be positive");
+    if (args.quantity <= 0) throw new ConvexError("Quantity must be positive");
     if (args.fromScope === args.toScope) {
-      throw new Error("Source and target pools must differ");
+      throw new ConvexError("Source and target pools must differ");
     }
 
     const fromPool = await ctx.db
@@ -2097,10 +2098,10 @@ export const reallocatePool = mutation({
           .eq("scope", args.fromScope),
       )
       .unique();
-    if (!fromPool) throw new Error("Source pool not found");
+    if (!fromPool) throw new ConvexError("Source pool not found");
     const available = fromPool.total - fromPool.reserved - fromPool.confirmed;
     if (available < args.quantity) {
-      throw new Error(
+      throw new ConvexError(
         `Source pool has only ${available} available units`,
       );
     }
@@ -2113,7 +2114,7 @@ export const reallocatePool = mutation({
           .eq("scope", args.toScope),
       )
       .unique();
-    if (!toPool) throw new Error("Target pool not found");
+    if (!toPool) throw new ConvexError("Target pool not found");
 
     await ctx.db.patch(fromPool._id, { total: fromPool.total - args.quantity });
     await ctx.db.patch(toPool._id, { total: toPool.total + args.quantity });

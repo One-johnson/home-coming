@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
@@ -414,15 +415,15 @@ export const upsertGroup = mutation({
       "registration",
     ]);
     const name = args.name.trim();
-    if (!name) throw new Error("Group name is required");
-    if (args.price < 0) throw new Error("Price must be zero or greater");
+    if (!name) throw new ConvexError("Group name is required");
+    if (args.price < 0) throw new ConvexError("Price must be zero or greater");
 
     const duplicate = await ctx.db
       .query("registrationGroups")
       .withIndex("by_name", (q) => q.eq("name", name))
       .unique();
     if (duplicate && duplicate._id !== args.id) {
-      throw new Error("A group with this name already exists");
+      throw new ConvexError("A group with this name already exists");
     }
 
     const fields = {
@@ -439,7 +440,7 @@ export const upsertGroup = mutation({
 
     if (args.id) {
       const existing = await ctx.db.get(args.id);
-      if (!existing) throw new Error("Group not found");
+      if (!existing) throw new ConvexError("Group not found");
       await ctx.db.patch(args.id, fields);
       await writeAuditLog(ctx, {
         actorUserId: actor._id,
@@ -476,7 +477,7 @@ export const deleteGroup = mutation({
       "registration",
     ]);
     const existing = await ctx.db.get(args.id);
-    if (!existing) throw new Error("Group not found");
+    if (!existing) throw new ConvexError("Group not found");
 
     const denominations = await ctx.db
       .query("registrationDenominations")
@@ -513,10 +514,10 @@ export const upsertDenomination = mutation({
       "registration",
     ]);
     const group = await ctx.db.get(args.groupId);
-    if (!group) throw new Error("Group not found");
+    if (!group) throw new ConvexError("Group not found");
 
     const name = args.name.trim();
-    if (!name) throw new Error("Denomination name is required");
+    if (!name) throw new ConvexError("Denomination name is required");
 
     const siblings = await ctx.db
       .query("registrationDenominations")
@@ -526,7 +527,7 @@ export const upsertDenomination = mutation({
       (row) => row.name === name && row._id !== args.id,
     );
     if (duplicate) {
-      throw new Error("That denomination already exists in this group");
+      throw new ConvexError("That denomination already exists in this group");
     }
 
     const fields = {
@@ -538,7 +539,7 @@ export const upsertDenomination = mutation({
 
     if (args.id) {
       const existing = await ctx.db.get(args.id);
-      if (!existing) throw new Error("Denomination not found");
+      if (!existing) throw new ConvexError("Denomination not found");
       await ctx.db.patch(args.id, fields);
       await writeAuditLog(ctx, {
         actorUserId: actor._id,
@@ -575,7 +576,7 @@ export const deleteDenomination = mutation({
       "registration",
     ]);
     const existing = await ctx.db.get(args.id);
-    if (!existing) throw new Error("Denomination not found");
+    if (!existing) throw new ConvexError("Denomination not found");
     await ctx.db.delete(args.id);
 
     await writeAuditLog(ctx, {

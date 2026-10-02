@@ -278,6 +278,10 @@ export function RepRegistrationTab() {
   const expectedTotal = unitPrice * qty;
   const amountEntered = amountPaid.trim() !== "";
   const amountMatches = amountsMatch(Number(amountPaid) || 0, expectedTotal);
+  // The amount input displays the exact total until the rep types a value.
+  // Submit must send that same fallback — otherwise an untouched (pre-filled)
+  // field would quietly submit 0 and fail the server's exact-amount check.
+  const amountValue = amountEntered ? amountPaid : String(expectedTotal);
 
   const history = useMemo(() => registrations ?? [], [registrations]);
 
@@ -395,7 +399,7 @@ export function RepRegistrationTab() {
         sessionToken,
         quantity: qty,
         offline: {
-          amountPaid: Number(amountPaid) || 0,
+          amountPaid: Number(amountValue) || 0,
           referenceNumber: paymentRef,
           paymentDate,
           method,
@@ -676,7 +680,7 @@ export function RepRegistrationTab() {
                       aria-invalid={
                         amountEntered && !amountMatches ? true : undefined
                       }
-                      value={amountPaid || String(unitPrice * qty)}
+                      value={amountValue}
                       onChange={(e) => setAmountPaid(e.target.value)}
                     />
                     {amountEntered && !amountMatches ? (

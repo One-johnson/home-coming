@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import {
   internalQuery,
@@ -49,7 +49,7 @@ export async function requireRep(
   token: string,
 ): Promise<{ rep: Doc<"agcRepresentatives">; hub: Doc<"agcHubs"> }> {
   const result = await getRepByToken(ctx, token);
-  if (!result) throw new Error("Unauthorized");
+  if (!result) throw new ConvexError("Unauthorized");
   return result;
 }
 
@@ -86,13 +86,13 @@ export async function isRegistrationLocked(ctx: QueryCtx): Promise<boolean> {
 
 export async function assertBeforeDeadline(ctx: MutationCtx) {
   if (await isRegistrationLocked(ctx)) {
-    throw new Error(
+    throw new ConvexError(
       "Registrations are temporarily locked by the convention administrators.",
     );
   }
   const deadline = await getRegistrationDeadline(ctx);
   if (Date.now() > deadline) {
-    throw new Error(
+    throw new ConvexError(
       "The registration deadline has passed. Contact the registration desk for assistance.",
     );
   }
@@ -140,7 +140,7 @@ export const updateRepProfile = mutation({
 
     const email = args.email.trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      throw new Error("A valid email address is required");
+      throw new ConvexError("A valid email address is required");
     }
 
     const emailTaken = await ctx.db
@@ -148,7 +148,7 @@ export const updateRepProfile = mutation({
       .withIndex("by_email", (q) => q.eq("email", email))
       .unique();
     if (emailTaken && emailTaken._id !== rep._id) {
-      throw new Error("This email address is already in use");
+      throw new ConvexError("This email address is already in use");
     }
 
     await ctx.db.patch(rep._id, {
@@ -246,15 +246,15 @@ export const submitOfflineRegistration = mutation({
     await assertBeforeDeadline(ctx);
     const { rep, hub } = await requireRep(ctx, args.sessionToken);
     if (rep.status !== "active") {
-      throw new Error("This account is not active yet");
+      throw new ConvexError("This account is not active yet");
     }
     if (!Number.isInteger(args.quantity) || args.quantity <= 0) {
-      throw new Error("Quantity must be a whole number of at least 1");
+      throw new ConvexError("Quantity must be a whole number of at least 1");
     }
 
     const pricing = regionPricing(hub.region);
     if (pricing.online) {
-      throw new Error(
+      throw new ConvexError(
         "Your hub pays online with Stripe — no receipt upload needed.",
       );
     }
@@ -263,7 +263,7 @@ export const submitOfflineRegistration = mutation({
     // nothing less, nothing more. Quantity is the only pricing variable.
     const expectedTotal = pricing.price * args.quantity;
     if (!amountsMatch(args.offline.amountPaid, expectedTotal)) {
-      throw new Error(
+      throw new ConvexError(
         `Amount mismatch: you paid ${pricing.currency} ${args.offline.amountPaid} but ${args.quantity} delegate(s) cost exactly ${pricing.currency} ${expectedTotal}. Nothing less, nothing more — pay the exact total and submit again.`,
       );
     }
@@ -380,15 +380,15 @@ export const createOnlineRegistration = mutation({
     await assertBeforeDeadline(ctx);
     const { rep, hub } = await requireRep(ctx, args.sessionToken);
     if (rep.status !== "active") {
-      throw new Error("This account is not active yet");
+      throw new ConvexError("This account is not active yet");
     }
     if (!Number.isInteger(args.quantity) || args.quantity <= 0) {
-      throw new Error("Quantity must be a whole number of at least 1");
+      throw new ConvexError("Quantity must be a whole number of at least 1");
     }
 
     const pricing = regionPricing(hub.region);
     if (!pricing.online) {
-      throw new Error(
+      throw new ConvexError(
         "Your hub pays offline — submit a bank/MoMo receipt instead.",
       );
     }

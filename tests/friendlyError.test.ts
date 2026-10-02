@@ -39,6 +39,26 @@ describe("cleanErrorMessage", () => {
     ).toBe("Something went wrong. Please try again.");
   });
 
+  it("falls back for the production wire format of plain Error throws", () => {
+    // In production Convex strips the message of plain `throw new Error(...)`
+    // before sending it to the client — only the request id survives.
+    expect(
+      cleanErrorMessage("[Request ID: 269276eea9cd1a49] Server Error"),
+    ).toBe("Something went wrong. Please try again.");
+  });
+
+  it("passes through ConvexError payloads verbatim (works on production)", () => {
+    const err = new ConvexError(
+      "Amount mismatch: you paid GHS 0 but 1 delegate(s) cost exactly GHS 30.",
+    );
+    expect(cleanErrorMessage(err)).toBe(
+      "Amount mismatch: you paid GHS 0 but 1 delegate(s) cost exactly GHS 30.",
+    );
+    expect(friendlyError(err).title).toBe(
+      "Amount mismatch: you paid GHS 0 but 1 delegate(s) cost exactly GHS 30.",
+    );
+  });
+
   it("falls back for non-error values", () => {
     expect(cleanErrorMessage(undefined)).toBe(
       "Something went wrong. Please try again.",

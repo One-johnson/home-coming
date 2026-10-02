@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { ConvexError } from "convex/values";
 import {
   internalMutation,
   internalQuery,
@@ -158,7 +159,7 @@ export const applyMockPayment = internalMutation({
     if (args.type === "agc_registration") {
       const recordId = args.recordId as Id<"agcRegistrations">;
       const existing = await ctx.db.get(recordId);
-      if (!existing) throw new Error("Registration not found");
+      if (!existing) throw new ConvexError("Registration not found");
       await ctx.db.patch(recordId, {
         paymentStatus: "confirmed",
         paymentReference: args.reference,
@@ -172,7 +173,7 @@ export const applyMockPayment = internalMutation({
     if (args.type === "agc_booking") {
       const recordId = args.recordId as Id<"agcBookings">;
       const existing = await ctx.db.get(recordId);
-      if (!existing) throw new Error("Booking not found");
+      if (!existing) throw new ConvexError("Booking not found");
       await ctx.db.patch(recordId, {
         paymentStatus: "confirmed",
         paymentReference: args.reference,
@@ -186,7 +187,7 @@ export const applyMockPayment = internalMutation({
 
     if (args.type === "registration") {
       const existing = await ctx.db.get(args.recordId as Id<"registrations">);
-      if (!existing) throw new Error("Registration not found");
+      if (!existing) throw new ConvexError("Registration not found");
       await ctx.db.patch(args.recordId as Id<"registrations">, {
         paymentStatus: "mock_paid",
         paymentReference: args.reference,
@@ -203,7 +204,7 @@ export const applyMockPayment = internalMutation({
 
     if (args.type === "booking") {
       const existing = await ctx.db.get(args.recordId as Id<"housingBookings">);
-      if (!existing) throw new Error("Booking not found");
+      if (!existing) throw new ConvexError("Booking not found");
       await ctx.db.patch(args.recordId as Id<"housingBookings">, {
         paymentStatus: "mock_paid",
         paymentReference: args.reference,
@@ -219,7 +220,7 @@ export const applyMockPayment = internalMutation({
     }
 
     const existing = await ctx.db.get(args.recordId as Id<"tourOrders">);
-    if (!existing) throw new Error("Tour order not found");
+    if (!existing) throw new ConvexError("Tour order not found");
     await ctx.db.patch(args.recordId as Id<"tourOrders">, {
       paymentStatus: "mock_paid",
       paymentReference: args.reference,

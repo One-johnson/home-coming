@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
@@ -98,7 +99,7 @@ export const update = mutation({
       "content",
     ]);
     const existing = await ctx.db.get(args.id);
-    if (!existing) throw new Error("Hero slide not found");
+    if (!existing) throw new ConvexError("Hero slide not found");
 
     const patch: {
       alt?: string;
@@ -140,7 +141,7 @@ export const remove = mutation({
       "content",
     ]);
     const existing = await ctx.db.get(args.id);
-    if (!existing) throw new Error("Hero slide not found");
+    if (!existing) throw new ConvexError("Hero slide not found");
 
     if (existing.storageId) {
       await ctx.storage.delete(existing.storageId);
@@ -180,7 +181,7 @@ export const reorder = mutation({
       "content",
     ]);
     if (args.orderedIds.length === 0) {
-      throw new Error("No slides to reorder");
+      throw new ConvexError("No slides to reorder");
     }
 
     for (let i = 0; i < args.orderedIds.length; i++) {

@@ -1,3 +1,4 @@
+import { ConvexError } from "convex/values";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
@@ -66,13 +67,13 @@ export async function assertBeforeDeadline(ctx: MutationCtx) {
       .withIndex("by_key", (q) => q.eq("key", AGC_SETTING_KEYS.lockdown))
       .unique())?.value === "true"
   ) {
-    throw new Error(
+    throw new ConvexError(
       "Registrations are temporarily locked by the convention administrators.",
     );
   }
   const deadline = await getDeadlineMs(ctx);
   if (Date.now() > deadline) {
-    throw new Error(
+    throw new ConvexError(
       "The accommodation deadline has passed. Contact the registration desk for assistance.",
     );
   }
@@ -206,7 +207,7 @@ export async function reserveUnits(
 ) {
   if (units <= 0) return;
   if (availableUnits(pool) < units) {
-    throw new Error(
+    throw new ConvexError(
       `Not enough ${AGC_ACCOMMODATION_TYPES[pool.accommodationType].label} capacity in the ${pool.scope.replace(/_/g, " ")} pool. Available: ${availableUnits(pool)}, requested: ${units}.`,
     );
   }
@@ -379,13 +380,13 @@ export async function createBookingWithGuests(
 ): Promise<CreateBookingResult> {
   const { hub, rep, guests } = args;
   if (guests.length === 0) {
-    throw new Error("Add at least one guest before booking");
+    throw new ConvexError("Add at least one guest before booking");
   }
 
   // Validate every guest before touching inventory.
   for (let i = 0; i < guests.length; i += 1) {
     const error = validateGuestInput(guests[i], i + 1);
-    if (error) throw new Error(error);
+    if (error) throw new ConvexError(error);
   }
 
   const lines = computeBookingLines(guests, hub.region);

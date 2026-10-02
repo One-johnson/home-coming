@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { ConvexError } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { createUniqueReferenceNumber } from "./lib/referenceNumbers";
 import { writeAuditLog } from "./lib/audit";
@@ -50,24 +51,24 @@ export const create = mutation({
   },
   handler: async (ctx, args) => {
     if (args.honeypot?.trim()) {
-      throw new Error("Invalid submission");
+      throw new ConvexError("Invalid submission");
     }
 
     if (!args.consent) {
-      throw new Error("Consent is required");
+      throw new ConvexError("Consent is required");
     }
 
     if (args.type === "individual" && !args.fullName?.trim()) {
-      throw new Error("Full name is required for individual registration");
+      throw new ConvexError("Full name is required for individual registration");
     }
 
     if (args.ticketQuantity < 1) {
-      throw new Error("Ticket quantity must be at least 1");
+      throw new ConvexError("Ticket quantity must be at least 1");
     }
 
     const group = args.group?.trim();
     if (!group) {
-      throw new Error("Group is required");
+      throw new ConvexError("Group is required");
     }
 
     const pricing = await resolveGroupPricing(ctx, group);
@@ -91,7 +92,7 @@ export const create = mutation({
             : "stripe";
 
     if (gateway === "stripe" && amounts.currency === "GHS") {
-      throw new Error(
+      throw new ConvexError(
         "Stripe cannot charge GHS. Ghana cedi pricing is paid offline.",
       );
     }
@@ -181,7 +182,7 @@ export const updatePaymentStatus = mutation({
       "registration",
     ]);
     const existing = await ctx.db.get(args.id);
-    if (!existing) throw new Error("Registration not found");
+    if (!existing) throw new ConvexError("Registration not found");
 
     await ctx.db.patch(args.id, {
       paymentStatus: args.paymentStatus,
@@ -261,7 +262,7 @@ export const remove = mutation({
       "registration",
     ]);
     const existing = await ctx.db.get(args.id);
-    if (!existing) throw new Error("Registration not found");
+    if (!existing) throw new ConvexError("Registration not found");
 
     await ctx.db.delete(args.id);
 
@@ -292,7 +293,7 @@ export const bulkRemove = mutation({
       "registration",
     ]);
     if (args.ids.length === 0) {
-      throw new Error("Select at least one registration");
+      throw new ConvexError("Select at least one registration");
     }
 
     let deleted = 0;

@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { ConvexError } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { requireAnyRole, requireRole, sessionTokenValidator } from "./users";
 
@@ -320,7 +321,7 @@ export const removeAuditLog = mutation({
   handler: async (ctx, args) => {
     await requireRole(ctx, args.sessionToken, ["admin"]);
     const existing = await ctx.db.get(args.id);
-    if (!existing) throw new Error("Audit log not found");
+    if (!existing) throw new ConvexError("Audit log not found");
     await ctx.db.delete(args.id);
   },
 });

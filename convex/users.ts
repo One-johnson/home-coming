@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { ConvexError } from "convex/values";
 import { mutation, query, internalMutation, internalQuery } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
@@ -99,7 +100,7 @@ export async function requireRole(
 ) {
   const user = await getUserBySessionToken(ctx, sessionToken);
   if (!user || user.active === false || !allowedRoles.includes(user.role)) {
-    throw new Error("Unauthorized");
+    throw new ConvexError("Unauthorized");
   }
   return user;
 }
@@ -127,7 +128,7 @@ async function assertNotRemovingLastAdmin(
 
   const adminCount = await countAdmins(ctx);
   if (adminCount <= 1) {
-    throw new Error("Cannot remove or demote the last admin");
+    throw new ConvexError("Cannot remove or demote the last admin");
   }
 }
 
@@ -161,7 +162,7 @@ export const setUserRole = mutation({
 
     const target = await ctx.db.get(args.userId);
     if (!target) {
-      throw new Error("User not found");
+      throw new ConvexError("User not found");
     }
 
     await assertNotRemovingLastAdmin(ctx, target, args.role);
@@ -188,18 +189,18 @@ export const setUserActive = mutation({
   handler: async (ctx, args) => {
     const actor = await requireAdmin(ctx, args.sessionToken);
     if (actor._id === args.userId && !args.active) {
-      throw new Error("You cannot deactivate your own account");
+      throw new ConvexError("You cannot deactivate your own account");
     }
 
     const target = await ctx.db.get(args.userId);
     if (!target) {
-      throw new Error("User not found");
+      throw new ConvexError("User not found");
     }
 
     if (target.role === "admin" && !args.active) {
       const adminCount = await countAdmins(ctx);
       if (adminCount <= 1) {
-        throw new Error("Cannot deactivate the last admin");
+        throw new ConvexError("Cannot deactivate the last admin");
       }
     }
 
@@ -240,7 +241,7 @@ export const updateProfile = mutation({
     const user = await requireAnyRole(ctx, args.sessionToken);
     const name = args.name.trim();
     if (!name) {
-      throw new Error("Name is required");
+      throw new ConvexError("Name is required");
     }
     await ctx.db.patch(user._id, { name });
     return { success: true as const };
@@ -309,7 +310,7 @@ export const createUserRecord = internalMutation({
       .withIndex("by_email", (q) => q.eq("email", args.email))
       .unique();
     if (existing) {
-      throw new Error("Email already registered");
+      throw new ConvexError("Email already registered");
     }
 
     return await ctx.db.insert("users", {

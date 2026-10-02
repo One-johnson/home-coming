@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { ConvexError } from "convex/values";
 import { internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
 import { writeAuditLog } from "./lib/audit";
@@ -52,7 +53,7 @@ export const markEmailSent = mutation({
   handler: async (ctx, args) => {
     const actor = await requireRole(ctx, args.sessionToken, ["admin"]);
     const existing = await ctx.db.get(args.id);
-    if (!existing) throw new Error("Email log not found");
+    if (!existing) throw new ConvexError("Email log not found");
     await ctx.db.patch(args.id, { status: "sent", errorMessage: undefined });
     await writeAuditLog(ctx, {
       actorUserId: actor._id,
@@ -70,7 +71,7 @@ export const markEmailFailed = mutation({
   handler: async (ctx, args) => {
     const actor = await requireRole(ctx, args.sessionToken, ["admin"]);
     const existing = await ctx.db.get(args.id);
-    if (!existing) throw new Error("Email log not found");
+    if (!existing) throw new ConvexError("Email log not found");
     await ctx.db.patch(args.id, { status: "failed" });
     await writeAuditLog(ctx, {
       actorUserId: actor._id,
@@ -88,7 +89,7 @@ export const resendEmail = mutation({
   handler: async (ctx, args) => {
     const actor = await requireRole(ctx, args.sessionToken, ["admin"]);
     const existing = await ctx.db.get(args.id);
-    if (!existing) throw new Error("Email log not found");
+    if (!existing) throw new ConvexError("Email log not found");
 
     await ctx.scheduler.runAfter(0, internal.emailSender.queueResendEmail, {
       emailLogId: args.id,
@@ -110,7 +111,7 @@ export const remove = mutation({
   handler: async (ctx, args) => {
     const actor = await requireRole(ctx, args.sessionToken, ["admin"]);
     const existing = await ctx.db.get(args.id);
-    if (!existing) throw new Error("Email log not found");
+    if (!existing) throw new ConvexError("Email log not found");
 
     await ctx.db.delete(args.id);
     await writeAuditLog(ctx, {

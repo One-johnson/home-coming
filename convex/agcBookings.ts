@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import {
   internalMutation,
@@ -112,10 +112,10 @@ export const createBookingFromExcelInternal = internalMutation({
     await assertBeforeDeadline(ctx);
     const { rep, hub } = await requireRep(ctx, args.sessionToken);
     if (rep.status !== "active") {
-      throw new Error("This account is not active yet");
+      throw new ConvexError("This account is not active yet");
     }
     if (args.guests.length === 0) {
-      throw new Error("The uploaded file has no valid guest rows");
+      throw new ConvexError("The uploaded file has no valid guest rows");
     }
 
     const referenceNumber = await createUniqueReferenceNumber(
@@ -164,10 +164,10 @@ export const createBooking = mutation({
     await assertBeforeDeadline(ctx);
     const { rep, hub } = await requireRep(ctx, args.sessionToken);
     if (rep.status !== "active") {
-      throw new Error("This account is not active yet");
+      throw new ConvexError("This account is not active yet");
     }
     if (args.guests.length === 0) {
-      throw new Error("Add at least one guest");
+      throw new ConvexError("Add at least one guest");
     }
 
     const referenceNumber = await createUniqueReferenceNumber(
@@ -248,10 +248,10 @@ export const cancelBooking = mutation({
     const { rep } = await requireRep(ctx, args.sessionToken);
     const booking: Doc<"agcBookings"> | null = await ctx.db.get(args.bookingId);
     if (!booking || booking.repId !== rep._id) {
-      throw new Error("Booking not found");
+      throw new ConvexError("Booking not found");
     }
     if (booking.bookingStatus !== "reserved") {
-      throw new Error("Only unpaid reservations can be cancelled");
+      throw new ConvexError("Only unpaid reservations can be cancelled");
     }
 
     await releaseBookingInventory(ctx, booking, "cancel");
@@ -286,19 +286,19 @@ export const editBooking = mutation({
     const { rep, hub } = await requireRep(ctx, args.sessionToken);
     const booking: Doc<"agcBookings"> | null = await ctx.db.get(args.bookingId);
     if (!booking || booking.repId !== rep._id) {
-      throw new Error("Booking not found");
+      throw new ConvexError("Booking not found");
     }
     if (booking.bookingStatus !== "reserved") {
-      throw new Error(
+      throw new ConvexError(
         "Only reservations that are still on hold can be edited — contact the accommodation desk for confirmed bookings.",
       );
     }
     if (args.guests.length === 0) {
-      throw new Error("Add at least one guest before saving");
+      throw new ConvexError("Add at least one guest before saving");
     }
     for (let i = 0; i < args.guests.length; i += 1) {
       const error = validateGuestInput(args.guests[i], i + 1);
-      if (error) throw new Error(error);
+      if (error) throw new ConvexError(error);
     }
     await assertBeforeDeadline(ctx);
 
@@ -391,10 +391,10 @@ export const deleteBooking = mutation({
     const { rep } = await requireRep(ctx, args.sessionToken);
     const booking: Doc<"agcBookings"> | null = await ctx.db.get(args.bookingId);
     if (!booking || booking.repId !== rep._id) {
-      throw new Error("Booking not found");
+      throw new ConvexError("Booking not found");
     }
     if (booking.bookingStatus !== "reserved") {
-      throw new Error(
+      throw new ConvexError(
         "Only reservations that are still on hold can be deleted — cancelled and confirmed bookings are kept for the records.",
       );
     }
@@ -446,27 +446,27 @@ export const submitOfflineBookingPayment = mutation({
     const { rep, hub } = await requireRep(ctx, args.sessionToken);
     const booking: Doc<"agcBookings"> | null = await ctx.db.get(args.bookingId);
     if (!booking || booking.repId !== rep._id) {
-      throw new Error("Booking not found");
+      throw new ConvexError("Booking not found");
     }
     if (booking.paymentMode !== "offline") {
-      throw new Error("This booking is paid online — complete checkout instead");
+      throw new ConvexError("This booking is paid online — complete checkout instead");
     }
     if (
       booking.bookingStatus !== "reserved" ||
       (booking.paymentStatus !== "awaiting_payment" &&
         booking.paymentStatus !== "correction_requested")
     ) {
-      throw new Error("This booking can no longer receive a payment submission");
+      throw new ConvexError("This booking can no longer receive a payment submission");
     }
     if (booking.expiresAt && booking.expiresAt < Date.now()) {
-      throw new Error(
+      throw new ConvexError(
         "The hold window for this reservation has expired. Create a new booking.",
       );
     }
 
     // Exact-amount rule: offline payments must equal the system total.
     if (!amountsMatch(args.offline.amountPaid, booking.totalAmount)) {
-      throw new Error(
+      throw new ConvexError(
         `Amount mismatch: you paid ${booking.currency} ${args.offline.amountPaid} but this reservation requires exactly ${booking.currency} ${booking.totalAmount}. Nothing less, nothing more — pay the difference or book the correct number of guests.`,
       );
     }
@@ -625,10 +625,10 @@ export const substituteGuest = mutation({
   handler: async (ctx, args) => {
     const { rep } = await requireRep(ctx, args.sessionToken);
     const guest: Doc<"agcGuests"> | null = await ctx.db.get(args.guestId);
-    if (!guest) throw new Error("Guest not found");
+    if (!guest)      throw new ConvexError("Guest not found");
     const booking = await ctx.db.get(guest.bookingId);
     if (!booking || booking.repId !== rep._id) {
-      throw new Error("Guest not found in your bookings");
+      throw new ConvexError("Guest not found in your bookings");
     }
 
     const result = await applySubstitution(ctx, {
@@ -645,7 +645,7 @@ export const substituteGuest = mutation({
       actorRepId: rep._id,
       reason: args.reason,
     });
-    if (!result.ok) throw new Error(result.reason);
+    if (!result.ok) throw new ConvexError(result.reason);
 
     await writeAuditLog(ctx, {
       actorEmail: rep.email ?? rep.username,

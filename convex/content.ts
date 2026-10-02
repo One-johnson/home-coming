@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { ConvexError } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { internalMutation, mutation, query } from "./_generated/server";
@@ -116,10 +117,10 @@ export const updateHotel = mutation({
       "accommodation",
     ]);
     const existing = await ctx.db.get(args.id);
-    if (!existing) throw new Error("Hotel not found");
+    if (!existing) throw new ConvexError("Hotel not found");
 
     const name = args.name.trim();
-    if (!name) throw new Error("Hotel name is required");
+    if (!name) throw new ConvexError("Hotel name is required");
 
     await ctx.db.patch(args.id, {
       name,
@@ -233,7 +234,7 @@ export const bulkDeleteFaqs = mutation({
   handler: async (ctx, args) => {
     const actor = await requireRole(ctx, args.sessionToken, ["admin", "content"]);
     if (args.ids.length === 0) {
-      throw new Error("Select at least one FAQ");
+      throw new ConvexError("Select at least one FAQ");
     }
 
     let deleted = 0;
@@ -339,7 +340,7 @@ export const upsertMessage = mutation({
     const actor = await requireRole(ctx, args.sessionToken, ["admin", "content"]);
     const url = args.url.trim();
     if (!url) {
-      throw new Error("Video URL is required");
+      throw new ConvexError("Video URL is required");
     }
 
     const payload = {
@@ -403,7 +404,7 @@ export const bulkCreateMessages = mutation({
   handler: async (ctx, args) => {
     const actor = await requireRole(ctx, args.sessionToken, ["admin", "content"]);
     if (args.items.length === 0) {
-      throw new Error("Add at least one video");
+      throw new ConvexError("Add at least one video");
     }
 
     const messageIds: Id<"messages">[] = [];
@@ -414,13 +415,13 @@ export const bulkCreateMessages = mutation({
       const title = item.title.trim();
       const speaker = item.speaker.trim();
       if (!url) {
-        throw new Error(`Video URL is required (row ${i + 1})`);
+        throw new ConvexError(`Video URL is required (row ${i + 1})`);
       }
       if (!title) {
-        throw new Error(`Video title is required (row ${i + 1})`);
+        throw new ConvexError(`Video title is required (row ${i + 1})`);
       }
       if (!speaker) {
-        throw new Error(`Speaker is required (row ${i + 1})`);
+        throw new ConvexError(`Speaker is required (row ${i + 1})`);
       }
 
       const messageId = await ctx.db.insert("messages", {
@@ -479,7 +480,7 @@ export const bulkDeleteMessages = mutation({
   handler: async (ctx, args) => {
     const actor = await requireRole(ctx, args.sessionToken, ["admin", "content"]);
     if (args.ids.length === 0) {
-      throw new Error("Select at least one video");
+      throw new ConvexError("Select at least one video");
     }
 
     let deleted = 0;

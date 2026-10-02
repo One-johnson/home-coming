@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { ConvexError } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation, mutation, query } from "./_generated/server";
@@ -36,18 +37,18 @@ function validatePackageInput(args: {
   priceUsd: number;
   order: number;
 }) {
-  if (!args.label.trim()) throw new Error("Label is required");
-  if (!args.dateLabel.trim()) throw new Error("Date is required");
-  if (!args.timeRange.trim()) throw new Error("Time range is required");
-  if (!args.meals.trim()) throw new Error("Meals description is required");
+  if (!args.label.trim()) throw new ConvexError("Label is required");
+  if (!args.dateLabel.trim()) throw new ConvexError("Date is required");
+  if (!args.timeRange.trim()) throw new ConvexError("Time range is required");
+  if (!args.meals.trim()) throw new ConvexError("Meals description is required");
   if (!Number.isFinite(args.priceUsd) || args.priceUsd < 0) {
-    throw new Error("Price must be a non-negative number");
+    throw new ConvexError("Price must be a non-negative number");
   }
   if (!Number.isInteger(args.order) || args.order < 0) {
-    throw new Error("Order must be a whole number of at least 0");
+    throw new ConvexError("Order must be a whole number of at least 0");
   }
   const sites = normalizeSites(args.sites);
-  if (sites.length === 0) throw new Error("Add at least one site");
+  if (sites.length === 0) throw new ConvexError("Add at least one site");
   return sites;
 }
 
@@ -142,7 +143,7 @@ export const create = mutation({
       .withIndex("by_slug", (q) => q.eq("slug", slug))
       .first();
     if (existing) {
-      throw new Error(`A tour package with slug "${slug}" already exists`);
+      throw new ConvexError(`A tour package with slug "${slug}" already exists`);
     }
 
     const imageUrl = args.imageUrl?.trim() || undefined;
@@ -200,7 +201,7 @@ export const update = mutation({
       "registration",
     ]);
     const existing = await ctx.db.get(args.id);
-    if (!existing) throw new Error("Tour package not found");
+    if (!existing) throw new ConvexError("Tour package not found");
 
     const sites = validatePackageInput(args);
     const imageUrl = args.imageUrl?.trim() || undefined;
@@ -271,7 +272,7 @@ export const remove = mutation({
       "registration",
     ]);
     const existing = await ctx.db.get(args.id);
-    if (!existing) throw new Error("Tour package not found");
+    if (!existing) throw new ConvexError("Tour package not found");
 
     if (existing.imageStorageId) {
       await ctx.storage.delete(existing.imageStorageId);

@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation } from "./_generated/server";
@@ -54,7 +55,7 @@ export function sanitizeStaticGalleryPath(raw: string, year: number) {
 function assertImportSecret(secret: string) {
   const expected = process.env.IMPORT_SECRET;
   if (!expected || secret !== expected) {
-    throw new Error("Unauthorized bulk import");
+    throw new ConvexError("Unauthorized bulk import");
   }
 }
 
@@ -144,7 +145,7 @@ export const updateGallery = mutation({
     await requireRole(ctx, args.sessionToken, ["admin", "content"]);
     const existing = await ctx.db.get(args.id);
     if (!existing) {
-      throw new Error("Gallery not found");
+      throw new ConvexError("Gallery not found");
     }
     await ctx.db.patch(args.id, {
       year: args.year,
@@ -164,7 +165,7 @@ export const updateGalleryImage = mutation({
     await requireRole(ctx, args.sessionToken, ["admin", "content"]);
     const image = await ctx.db.get(args.id);
     if (!image) {
-      throw new Error("Image not found");
+      throw new ConvexError("Image not found");
     }
     await ctx.db.patch(args.id, {
       caption: args.caption?.trim() || undefined,
@@ -185,7 +186,7 @@ export const addGalleryImage = mutation({
 
     const gallery = await ctx.db.get(args.galleryId);
     if (!gallery) {
-      throw new Error("Gallery not found");
+      throw new ConvexError("Gallery not found");
     }
 
     const existing = await ctx.db
@@ -224,7 +225,7 @@ export const clearGalleryForImport = mutation({
       .first();
 
     if (!gallery) {
-      throw new Error(`No gallery found for year ${args.year}`);
+      throw new ConvexError(`No gallery found for year ${args.year}`);
     }
 
     const images = await ctx.db
@@ -311,7 +312,7 @@ export const registerStaticGalleryImages = mutation({
 
     const gallery = await ctx.db.get(args.galleryId);
     if (!gallery) {
-      throw new Error("Gallery not found");
+      throw new ConvexError("Gallery not found");
     }
 
     const entries = args.images.map((image) => ({
@@ -367,7 +368,7 @@ export const registerBulkGalleryImages = mutation({
 
     const gallery = await ctx.db.get(args.galleryId);
     if (!gallery) {
-      throw new Error("Gallery not found");
+      throw new ConvexError("Gallery not found");
     }
 
     const existing = await ctx.db
@@ -408,7 +409,7 @@ export const deleteGalleryImage = mutation({
 
     const image = await ctx.db.get(args.id);
     if (!image) {
-      throw new Error("Image not found");
+      throw new ConvexError("Image not found");
     }
 
     if (image.storageId) {
@@ -427,7 +428,7 @@ export const bulkDeleteGalleryImages = mutation({
   handler: async (ctx, args) => {
     await requireRole(ctx, args.sessionToken, ["admin", "content"]);
     if (args.ids.length === 0) {
-      throw new Error("Select at least one image");
+      throw new ConvexError("Select at least one image");
     }
 
     let deleted = 0;
@@ -544,11 +545,11 @@ export const setGalleryImageStaticPath = mutation({
 
     const image = await ctx.db.get(args.id);
     if (!image) {
-      throw new Error("Image not found");
+      throw new ConvexError("Image not found");
     }
     const gallery = await ctx.db.get(image.galleryId);
     if (!gallery) {
-      throw new Error("Gallery not found");
+      throw new ConvexError("Gallery not found");
     }
 
     const imageUrl = sanitizeStaticGalleryPath(args.path, gallery.year);
@@ -593,7 +594,7 @@ export const clearGalleryCoverStorage = mutation({
       .withIndex("by_year", (q) => q.eq("year", args.year))
       .first();
     if (!gallery) {
-      throw new Error(`No gallery found for year ${args.year}`);
+      throw new ConvexError(`No gallery found for year ${args.year}`);
     }
     if (!gallery.coverStorageId) {
       return { cleared: false, reason: "cover already static" };
@@ -657,7 +658,7 @@ export const addStaticGalleryImage = mutation({
 
     const gallery = await ctx.db.get(args.galleryId);
     if (!gallery) {
-      throw new Error("Gallery not found");
+      throw new ConvexError("Gallery not found");
     }
 
     const imageUrl = sanitizeStaticGalleryPath(args.fileName, gallery.year);

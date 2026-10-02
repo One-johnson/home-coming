@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { ConvexError } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { createUniqueReferenceNumber } from "./lib/referenceNumbers";
 import { writeAuditLog } from "./lib/audit";
@@ -116,16 +117,16 @@ export const createBooking = mutation({
   },
   handler: async (ctx, args) => {
     if (args.honeypot?.trim()) {
-      throw new Error("Invalid submission");
+      throw new ConvexError("Invalid submission");
     }
 
     const housing = await ctx.db.get(args.housingId);
     if (!housing) {
-      throw new Error("Housing option not found");
+      throw new ConvexError("Housing option not found");
     }
 
     if (housing.booked >= housing.capacityLimit) {
-      throw new Error("No availability remaining for this housing type");
+      throw new ConvexError("No availability remaining for this housing type");
     }
 
     const referenceNumber = await createUniqueReferenceNumber(
@@ -180,14 +181,14 @@ export const updateHousing = mutation({
       "accommodation",
     ]);
     const existing = await ctx.db.get(args.id);
-    if (!existing) throw new Error("Housing not found");
+    if (!existing) throw new ConvexError("Housing not found");
     if (args.capacityLimit < existing.booked) {
-      throw new Error(
+      throw new ConvexError(
         `Capacity cannot be below current bookings (${existing.booked})`,
       );
     }
     if (args.pricePerStay < 0) {
-      throw new Error("Price must be non-negative");
+      throw new ConvexError("Price must be non-negative");
     }
 
     await ctx.db.patch(args.id, {
@@ -224,9 +225,9 @@ export const updateHousingCapacity = mutation({
       "accommodation",
     ]);
     const housing = await ctx.db.get(args.id);
-    if (!housing) throw new Error("Housing not found");
+    if (!housing) throw new ConvexError("Housing not found");
     if (args.capacityLimit < housing.booked) {
-      throw new Error(
+      throw new ConvexError(
         `Capacity cannot be below current bookings (${housing.booked})`,
       );
     }
@@ -258,7 +259,7 @@ export const updateBookingPaymentStatus = mutation({
       "accommodation",
     ]);
     const existing = await ctx.db.get(args.id);
-    if (!existing) throw new Error("Booking not found");
+    if (!existing) throw new ConvexError("Booking not found");
 
     await ctx.db.patch(args.id, {
       paymentStatus: args.paymentStatus,

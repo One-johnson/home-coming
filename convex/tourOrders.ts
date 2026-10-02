@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { ConvexError } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import {
@@ -46,40 +47,40 @@ export const create = mutation({
   },
   handler: async (ctx, args) => {
     if (args.honeypot?.trim()) {
-      throw new Error("Invalid submission");
+      throw new ConvexError("Invalid submission");
     }
 
     if (!args.consent) {
-      throw new Error("Consent is required");
+      throw new ConvexError("Consent is required");
     }
 
     if (!args.fullName.trim()) {
-      throw new Error("Full name is required");
+      throw new ConvexError("Full name is required");
     }
 
     if (!args.email.trim()) {
-      throw new Error("Email is required");
+      throw new ConvexError("Email is required");
     }
 
     if (!args.phone.trim()) {
-      throw new Error("Phone is required");
+      throw new ConvexError("Phone is required");
     }
 
     if (!args.groupName?.trim()) {
-      throw new Error("Group is required");
+      throw new ConvexError("Group is required");
     }
 
     if (!args.denomination?.trim()) {
-      throw new Error("Denomination is required");
+      throw new ConvexError("Denomination is required");
     }
 
     const regionConfig = REGION_CONFIG[args.region as RegistrationRegion];
     if (!regionConfig) {
-      throw new Error("Invalid region selected");
+      throw new ConvexError("Invalid region selected");
     }
 
     if (args.items.length === 0) {
-      throw new Error("Select at least one tour package");
+      throw new ConvexError("Select at least one tour package");
     }
 
     const allPackages = await ctx.db.query("tourPackages").collect();
@@ -96,17 +97,17 @@ export const create = mutation({
 
     for (const item of args.items) {
       if (seen.has(item.packageSlug)) {
-        throw new Error("Duplicate tour package in order");
+        throw new ConvexError("Duplicate tour package in order");
       }
       seen.add(item.packageSlug);
 
       if (!Number.isInteger(item.quantity) || item.quantity < 1) {
-        throw new Error("Ticket quantities must be whole numbers of at least 1");
+        throw new ConvexError("Ticket quantities must be whole numbers of at least 1");
       }
 
       const pkg = bySlug.get(item.packageSlug);
       if (!pkg || !pkg.active) {
-        throw new Error("One or more selected tour packages are unavailable");
+        throw new ConvexError("One or more selected tour packages are unavailable");
       }
 
       lineItems.push({
@@ -193,7 +194,7 @@ export const updatePaymentStatus = mutation({
       "registration",
     ]);
     const existing = await ctx.db.get(args.id);
-    if (!existing) throw new Error("Tour order not found");
+    if (!existing) throw new ConvexError("Tour order not found");
 
     await ctx.db.patch(args.id, {
       paymentStatus: args.paymentStatus,
