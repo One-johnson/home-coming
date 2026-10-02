@@ -142,6 +142,45 @@ export function unitPrice(
 }
 
 /**
+ * Row shape served by getAccommodationOverview (`accommodationTypes` entries).
+ * Structural — keeps this module import-free so it stays a browser-safe mirror.
+ */
+export type AccommodationTypeRow = {
+  type: string;
+  label: string;
+  unit: "bed" | "room";
+  maxOccupancy: number;
+  pricing: { ghs: number; usd: number };
+};
+
+/**
+ * Build the live types config from the server overview so pre-submit totals
+ * reflect admin-edited prices. Rows override catalog entries by type; anything
+ * missing or unknown keeps its catalog default, so the result is always a
+ * complete Record (the server remains the pricing authority at submit time).
+ */
+export function typesConfigFromOverview(
+  rows: ReadonlyArray<AccommodationTypeRow> | undefined,
+): Record<AgcAccommodationType, AccommodationTypeConfig> {
+  const merged: Record<AgcAccommodationType, AccommodationTypeConfig> = {
+    ...AGC_ACCOMMODATION_TYPES,
+  };
+  if (!rows) return merged;
+  for (const row of rows) {
+    const type = row.type as AgcAccommodationType;
+    if (row.type in merged && row.pricing) {
+      merged[type] = {
+        label: row.label || merged[type].label,
+        unit: "bed",
+        maxOccupancy: 1,
+        pricing: { ...row.pricing },
+      };
+    }
+  }
+  return merged;
+}
+
+/**
  * Group guests into priced lines exactly like the server does, so the form's
  * live summary equals what `createBooking` will compute and charge.
  */
@@ -188,15 +227,23 @@ export function computeBookingSummary(
   };
 }
 
-/** Capacity problem for the computed lines, or null when everything fits. */
+/**
+ * Capacity problem for the computed lines, or null when everything fits.
+ * `types` accepts the live overview config so shortfall messages use the
+ * admin-edited labels; defaults are the catalog.
+ */
 export function capacityProblem(
   summary: BookingSummary,
   availability: Array<{ accommodationType: string; available: number }>,
+  types: Record<
+    AgcAccommodationType,
+    AccommodationTypeConfig
+  > = AGC_ACCOMMODATION_TYPES,
 ): string | null {
   for (const line of summary.lines) {
     const row = availability.find((a) => a.accommodationType === line.accommodationType);
     if (row && row.available < line.units) {
-      const config = AGC_ACCOMMODATION_TYPES[line.accommodationType];
+      const config = types[line.accommodationType] ?? AGC_ACCOMMODATION_TYPES[line.accommodationType];
       return `Only ${row.available} ${row.available === 1 ? config.unit : config.unit + "s"} left in ${config.label}, but the booking needs ${line.units}.`;
     }
   }

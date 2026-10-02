@@ -81,10 +81,13 @@ import type {
 } from "@/lib/agcBookingTypes";
 import type { AgcAccommodationType, AgcRegion } from "@/lib/agcPortal";
 import {
+  AGC_ACCOMMODATION_TYPES,
+  AGC_BISHOP_RATE,
   amountsMatch,
   capacityProblem,
   computeBookingSummary,
   describeUnits,
+  typesConfigFromOverview,
 } from "@/lib/bookingMath";
 
 const TITLE_OPTIONS = ["Bishop", "Rev.", "Pastor", "Elder", "Mr.", "Mrs.", "Ms.", "Dr."];
@@ -499,13 +502,24 @@ export function RepAccommodationTab() {
   const currency = overview?.currency ?? "GHS";
   const region: AgcRegion = overview?.region ?? "ghana";
 
+  // Live pricing config from the server overview so pre-submit totals reflect
+  // admin-edited prices (falls back to catalog defaults while it loads).
+  const liveTypes = useMemo(
+    () =>
+      overview
+        ? typesConfigFromOverview(overview.accommodationTypes)
+        : AGC_ACCOMMODATION_TYPES,
+    [overview],
+  );
+  const liveBishop = overview?.bishopRate ?? AGC_BISHOP_RATE;
+
   const summary = useMemo(
-    () => computeBookingSummary(drafts, region),
-    [drafts, region],
+    () => computeBookingSummary(drafts, region, liveTypes, liveBishop),
+    [drafts, region, liveTypes, liveBishop],
   );
   const capacityIssue = useMemo(
-    () => (overview ? capacityProblem(summary, overview.availability) : null),
-    [summary, overview],
+    () => (overview ? capacityProblem(summary, overview.availability, liveTypes) : null),
+    [summary, overview, liveTypes],
   );
   const allDraftsValid = drafts.length > 0 && drafts.every(draftIsValid);
 
@@ -654,8 +668,8 @@ export function RepAccommodationTab() {
   };
 
   const editSummary = useMemo(
-    () => computeBookingSummary(editDrafts, region),
-    [editDrafts, region],
+    () => computeBookingSummary(editDrafts, region, liveTypes, liveBishop),
+    [editDrafts, region, liveTypes, liveBishop],
   );
   const editCapacityIssue = useMemo(() => {
     // The edit releases the booking's current units before re-reserving, so
@@ -671,8 +685,9 @@ export function RepAccommodationTab() {
         accommodationType: row.accommodationType,
         available: row.available + (held.get(row.accommodationType) ?? 0),
       })),
+      liveTypes,
     );
-  }, [editSummary, overview, editTarget]);
+  }, [editSummary, overview, editTarget, liveTypes]);
   const editAllValid = editDrafts.length > 0 && editDrafts.every(draftIsValid);
 
   const handleEditSave = async () => {

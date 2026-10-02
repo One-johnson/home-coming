@@ -6,6 +6,7 @@ import {
   capacityProblem,
   computeBookingSummary,
   describeUnits,
+  typesConfigFromOverview,
   unitPrice,
 } from "../src/lib/bookingMath";
 
@@ -208,4 +209,123 @@ test("config sanity: every type is per-bed with occupancy one", () => {
     expect(config.maxOccupancy).toBe(1);
     expect(type).toMatch(/^[a-z_]+$/);
   }
+});
+
+/**
+ * Server-provided prices (getAccommodationOverview) must flow into the
+ * form's pre-submit totals so they always match what the server will charge.
+ */
+
+describe("typesConfigFromOverview", () => {
+  test("merges server rows over catalog defaults", () => {
+    const config = typesConfigFromOverview([
+      {
+        type: "dormitory",
+        label: "Dorm (renamed)",
+        unit: "bed",
+        maxOccupancy: 1,
+        pricing: { ghs: 175, usd: 18 },
+      },
+    ]);
+    expect(config.dormitory.pricing).toEqual({ ghs: 175, usd: 18 });
+    expect(config.dormitory.label).toBe("Dorm (renamed)");
+    // Untouched types keep their catalog values.
+    expect(config.hostel.pricing).toEqual({ ghs: 450, usd: 40 });
+  });
+
+  test("always returns the full catalog: missing types keep defaults, unknown rows are dropped", () => {
+    const config = typesConfigFromOverview([
+      {
+        type: "not_a_type",
+        label: "Ghost",
+        unit: "bed",
+        maxOccupancy: 1,
+        pricing: { ghs: 1, usd: 1 },
+      },
+    ]);
+    expect(Object.keys(config).sort()).toEqual(
+      Object.keys(AGC_ACCOMMODATION_TYPES).sort(),
+    );
+    expect(config.dormitory.pricing).toEqual({ ghs: 150, usd: 15 });
+  });
+
+  test("empty or undefined rows fall back to the catalog", () => {
+    expect(typesConfigFromOverview([])).toEqual(AGC_ACCOMMODATION_TYPES);
+    expect(typesConfigFromOverview(undefined)).toEqual(AGC_ACCOMMODATION_TYPES);
+  });
+});
+
+describe("computeBookingSummary with live overview config", () => {
+  const liveTypes = typesConfigFromOverview([
+    {
+      type: "hostel",
+      label: "Hostel",
+      unit: "bed",
+      maxOccupancy: 1,
+      pricing: { ghs: 500, usd: 45 },
+    },
+  ]);
+
+  test("admin-edited GHS price drives the pre-submit total", () => {
+    const summary = computeBookingSummary(
+      [
+        { accommodationType: "hostel", isBishopRate: false },
+        { accommodationType: "hostel", isBishopRate: false },
+      ],
+      "ghana",
+      liveTypes,
+    );
+    expect(summary.lines[0].unitPrice).toBe(500);
+    expect(summary.totalAmount).toBe(1000);
+  });
+
+  test("admin-edited USD price is used in non-GHS regions", () => {
+    const summary = computeBookingSummary(
+      [{ accommodationType: "hostel", isBishopRate: false }],
+      "england",
+      liveTypes,
+    );
+    expect(summary.lines[0].unitPrice).toBe(45);
+    expect(summary.totalAmount).toBe(45);
+  });
+
+  test("admin-edited bishop rate drives EBPV bishop lines", () => {
+    const summary = computeBookingSummary(
+      [{ accommodationType: "ebpv", isBishopRate: true }],
+      "ghana",
+      AGC_ACCOMMODATION_TYPES,
+      { ghs: 1600, usd: 150 },
+    );
+    expect(summary.lines[0].unitPrice).toBe(1600);
+  });
+});
+
+describe("capacityProblem with live types", () => {
+  test("shortfall messages use the admin-edited label", () => {
+    const types = typesConfigFromOverview([
+      {
+        type: "hostel",
+        label: "Hostel Annex",
+        unit: "bed",
+        maxOccupancy: 1,
+        pricing: { ghs: 450, usd: 40 },
+      },
+    ]);
+    const summary = computeBookingSummary(
+      [
+        { accommodationType: "hostel", isBishopRate: false },
+        { accommodationType: "hostel", isBishopRate: false },
+        { accommodationType: "hostel", isBishopRate: false },
+      ],
+      "ghana",
+      types,
+    );
+    const problem = capacityProblem(
+      summary,
+      [{ accommodationType: "hostel", available: 2 }],
+      types,
+    );
+    expect(problem).toContain("Hostel Annex");
+    expect(problem).toContain("Only 2 beds left");
+  });
 });
