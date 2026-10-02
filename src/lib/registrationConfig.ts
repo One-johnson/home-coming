@@ -1,6 +1,6 @@
 import { SITE_FEATURES } from "@/lib/eventConfig";
 
-export type PaymentGateway = "stripe" | "paypal" | "offline";
+export type PaymentGateway = "offline";
 
 export type RegistrationType = "individual" | "group";
 
@@ -51,7 +51,7 @@ export const GROUP_PRICING: Record<string, PricingConfig> = {
     price: 20,
     currency: "USD",
     currencySymbol: "$",
-    gateway: "stripe",
+    gateway: "offline",
     defaultCountryCode: "+",
     regionKey: "rest_of_africa",
   },
@@ -59,7 +59,7 @@ export const GROUP_PRICING: Record<string, PricingConfig> = {
     price: 20,
     currency: "EUR",
     currencySymbol: "€",
-    gateway: "stripe",
+    gateway: "offline",
     defaultCountryCode: "+",
     regionKey: "rest_of_europe",
   },
@@ -67,7 +67,7 @@ export const GROUP_PRICING: Record<string, PricingConfig> = {
     price: 20,
     currency: "GBP",
     currencySymbol: "£",
-    gateway: "stripe",
+    gateway: "offline",
     defaultCountryCode: "+44",
     regionKey: "uk",
   },
@@ -75,7 +75,7 @@ export const GROUP_PRICING: Record<string, PricingConfig> = {
     price: 20,
     currency: "CHF",
     currencySymbol: "CHF",
-    gateway: "stripe",
+    gateway: "offline",
     defaultCountryCode: "+41",
     regionKey: "switzerland",
   },
@@ -83,7 +83,7 @@ export const GROUP_PRICING: Record<string, PricingConfig> = {
     price: 20,
     currency: "USD",
     currencySymbol: "$",
-    gateway: "stripe",
+    gateway: "offline",
     defaultCountryCode: "+1",
     regionKey: "usa",
   },
@@ -91,7 +91,7 @@ export const GROUP_PRICING: Record<string, PricingConfig> = {
     price: 20,
     currency: "USD",
     currencySymbol: "$",
-    gateway: "stripe",
+    gateway: "offline",
     defaultCountryCode: "+",
     regionKey: "rest_of_world",
   },
@@ -107,7 +107,7 @@ export const GROUP_PRICING: Record<string, PricingConfig> = {
     price: 20,
     currency: "USD",
     currencySymbol: "$",
-    gateway: "stripe",
+    gateway: "offline",
     defaultCountryCode: "+",
     regionKey: "rest_of_world",
   },
@@ -131,7 +131,7 @@ export const GROUP_PRICING: Record<string, PricingConfig> = {
     price: 20,
     currency: "USD",
     currencySymbol: "$",
-    gateway: "stripe",
+    gateway: "offline",
     defaultCountryCode: "+",
     regionKey: "rest_of_world",
   },
@@ -169,7 +169,7 @@ export const REGION_CONFIG: Record<
     price: 20,
     currency: "USD",
     currencySymbol: "$",
-    gateway: "stripe",
+    gateway: "offline",
     defaultCountryCode: "+",
   },
   usa: {
@@ -177,7 +177,7 @@ export const REGION_CONFIG: Record<
     price: 20,
     currency: "USD",
     currencySymbol: "$",
-    gateway: "stripe",
+    gateway: "offline",
     defaultCountryCode: "+1",
   },
   canada: {
@@ -185,7 +185,7 @@ export const REGION_CONFIG: Record<
     price: 20,
     currency: "CAD",
     currencySymbol: "CA$",
-    gateway: "stripe",
+    gateway: "offline",
     defaultCountryCode: "+1",
   },
   switzerland: {
@@ -193,7 +193,7 @@ export const REGION_CONFIG: Record<
     price: 20,
     currency: "CHF",
     currencySymbol: "CHF",
-    gateway: "stripe",
+    gateway: "offline",
     defaultCountryCode: "+41",
   },
   uk: {
@@ -201,7 +201,7 @@ export const REGION_CONFIG: Record<
     price: 20,
     currency: "GBP",
     currencySymbol: "£",
-    gateway: "stripe",
+    gateway: "offline",
     defaultCountryCode: "+44",
   },
   rest_of_europe: {
@@ -209,7 +209,7 @@ export const REGION_CONFIG: Record<
     price: 20,
     currency: "EUR",
     currencySymbol: "€",
-    gateway: "stripe",
+    gateway: "offline",
     defaultCountryCode: "+",
   },
   rest_of_world: {
@@ -217,7 +217,7 @@ export const REGION_CONFIG: Record<
     price: 20,
     currency: "USD",
     currencySymbol: "$",
-    gateway: "stripe",
+    gateway: "offline",
     defaultCountryCode: "+",
   },
 };
@@ -314,12 +314,6 @@ export function formatPrice(amount: number, currency: string, symbol: string) {
 
 export function isOfflineCurrency(currency: string) {
   return currency === "GHS";
-}
-
-/** GHS regions pay offline (bank / MoMo); everything else can use Stripe or PayPal. */
-export function gatewaysForCurrency(currency: string): Array<"stripe" | "paypal"> {
-  if (isOfflineCurrency(currency)) return [];
-  return ["stripe", "paypal"];
 }
 
 export function isOfflineRegion(region: RegistrationRegion) {

@@ -12,11 +12,11 @@
     "seed": "echo Seed content from the admin dashboard after signing in",
     "upload-gallery": "node scripts/register-static-gallery.mjs",
     "gallery:sync": "node scripts/gallery-manifest.mjs sync",
-    "gallery:check": "node scripts/gallery-manifest.mjs check",    "gallery:import": "node scripts/gallery-import.mjs",
+    "gallery:check": "node scripts/gallery-manifest.mjs check",
+    "gallery:import": "node scripts/gallery-import.mjs",
     "tours:sync": "node scripts/tours-manifest.mjs sync",
     "tours:check": "node scripts/tours-manifest.mjs check",
-    "backup:content": "node scripts/backup-content.mjs"
-,
+    "backup:content": "node scripts/backup-content.mjs",
     "build": "node scripts/gallery-manifest.mjs check && node scripts/tours-manifest.mjs check && next build"
   },
   "dependencies": {
@@ -46,7 +46,6 @@
     "recharts": "^3.9.2",
     "shadcn": "^4.13.0",
     "sonner": "^2.0.7",
-    "stripe": "^22.3.2",
     "tailwind-merge": "^3.6.0",
     "tw-animate-css": "^1.4.0",
     "yet-another-react-lightbox": "^3.32.1",

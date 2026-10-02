@@ -11,7 +11,6 @@ account — before anything touches live payments or attendees.
 |---|---|---|---|
 | Frontend | `npm run dev` (localhost) | Vercel preview URL | Vercel production domain |
 | Convex | dev deployment | **second** Convex deployment | prod deployment |
-| Stripe | test keys | **test keys** | live keys |
 | Gallery/tours content | repo manifests | repo manifests (same branch) | repo manifests (main) |
 | Who can break what | anything | staging data only | real attendees |
 
@@ -44,7 +43,7 @@ npx convex env set SMTP_SECURE false --deployment staging
 npx convex env set SMTP_USER noreply@yourdomain.com --deployment staging
 npx convex env set SMTP_PASS <mailbox-password> --deployment staging
 npx convex env set SMTP_FROM "Homecoming <noreply@yourdomain.com>" --deployment staging
-# STRIPE_SECRET_KEY / PAYSTACK_SECRET_KEY: set sk_test_/test values only
+# PAYSTACK_SECRET_KEY: set test values only; payments are offline (bank/MoMo)
 ```
 
 ### 2.2 Vercel preview env vars
@@ -62,7 +61,6 @@ npx vercel env add <NAME> preview staging --value <v> --force --yes < /dev/null
 | `NEXT_PUBLIC_CONVEX_URL` | the staging Convex URL from 2.1 |
 | `NEXT_PUBLIC_CONVEX_SITE_URL` | the staging Convex site URL |
 | `NEXT_PUBLIC_SITE_URL` / `SITE_URL` | `https://staging.homecomingconvention.com` |
-| `STRIPE_SECRET_KEY` | `sk_test_…` (test mode) |
 | `PAYSTACK_SECRET_KEY` | Paystack test secret |
 
 Push a branch (or use Vercel's "Redeploy") — the preview URL now runs
@@ -131,7 +129,6 @@ zero access to production.
 - [ ] Audit log shows the tester's actions under their identity
 
 ### Payments (staging = test keys, zero real money)
-- [ ] Tour order end-to-end: select → details → review → **Stripe test card `4242 4242 4242 4242`** → confirmation page + email
 - [ ] Declined card (`4000 0000 0000 0002`) shows a friendly error
 - [ ] Paystack test flow (if using Paystack gateway regions)
 - [ ] Order appears in admin with correct total (server re-priced — try intercepting and tampering with the manifest prices; the order total must NOT change)

@@ -53,12 +53,6 @@ const guestValidator = v.object({
   isBishopRate: v.boolean(),
 });
 
-const paymentModeValidator = v.union(
-  v.literal("offline"),
-  v.literal("stripe"),
-  v.literal("paypal"),
-);
-
 // ------------------------------------------------------------------
 // Availability + config for the accommodation tab
 // ------------------------------------------------------------------
@@ -127,10 +121,8 @@ export const createBookingFromExcelInternal = internalMutation({
       hub,
       rep,
       guests: args.guests as BookingGuestInput[],
-      paymentMode:
-        hub.region === "ghana" || hub.region === "west_africa"
-          ? "offline"
-          : "stripe",
+      // Stripe removed — every region pays offline with receipt verification.
+      paymentMode: "offline",
       referenceNumber,
     });
 
@@ -158,7 +150,6 @@ export const createBooking = mutation({
   args: {
     sessionToken: v.string(),
     guests: v.array(guestValidator),
-    paymentMode: paymentModeValidator,
   },
   handler: async (ctx, args) => {
     await assertBeforeDeadline(ctx);
@@ -180,7 +171,8 @@ export const createBooking = mutation({
       hub,
       rep,
       guests: args.guests as BookingGuestInput[],
-      paymentMode: args.paymentMode,
+      // Stripe removed — every region pays offline with receipt verification.
+      paymentMode: "offline",
       referenceNumber,
     });
 
@@ -192,7 +184,6 @@ export const createBooking = mutation({
       summary: `Hub ${hub.name} reserved accommodation ${referenceNumber} (${result.totalAmount} ${result.currency})`,
       metadata: {
         guests: args.guests.length,
-        paymentMode: args.paymentMode,
         expiresAt: result.expiresAt,
       },
     });
@@ -209,9 +200,7 @@ export const createBooking = mutation({
           `Your accommodation reservation ${referenceNumber} for ${args.guests.length} guest(s) is held until`,
           new Date(result.expiresAt).toUTCString(),
           `Total: ${result.totalAmount} ${result.currency}`,
-          args.paymentMode === "offline"
-            ? "Pay by bank transfer or mobile money, then upload your receipt in the portal."
-            : "Complete payment online to confirm your reservation.",
+          "Pay by bank transfer or mobile money, then upload your receipt in the portal.",
           "",
           "— Homecoming 2026 Accommodation Desk",
         ].join("\n"),

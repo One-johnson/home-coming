@@ -46,7 +46,7 @@ type GroupForm = {
   price: string;
   currency: string;
   currencySymbol: string;
-  gateway: "offline" | "stripe" | "paypal";
+  gateway: "offline";
   defaultCountryCode: string;
   regionKey: Doc<"registrationGroups">["regionKey"];
   order: string;
@@ -65,7 +65,7 @@ function emptyGroupForm(order = 0): GroupForm {
     price: "20",
     currency: "USD",
     currencySymbol: "$",
-    gateway: "stripe",
+    gateway: "offline" as const,
     defaultCountryCode: "+",
     regionKey: "rest_of_world",
     order: String(order),
@@ -79,7 +79,8 @@ function toGroupForm(group: GroupDoc): GroupForm {
     price: String(group.price),
     currency: group.currency,
     currencySymbol: group.currencySymbol,
-    gateway: group.gateway,
+    // Legacy stripe/paypal rows are displayed as their effective offline flow.
+    gateway: "offline" as const,
     defaultCountryCode: group.defaultCountryCode,
     regionKey: group.regionKey,
     order: String(group.order),
@@ -166,7 +167,8 @@ export function GroupsManager() {
         price,
         currency: groupForm.currency,
         currencySymbol: groupForm.currencySymbol,
-        gateway: groupForm.gateway,
+        // Online gateways removed — groups always collect offline payment.
+        gateway: "offline",
         defaultCountryCode: groupForm.defaultCountryCode,
         regionKey: groupForm.regionKey,
         order,
@@ -667,31 +669,7 @@ function GroupEditor({
             }
           />
         </div>
-        <div className="space-y-1.5">
-          <Label>Gateway</Label>
-          <Select
-            value={form.gateway}
-            items={[
-              { value: "stripe", label: "Stripe" },
-              { value: "paypal", label: "PayPal" },
-            ]}
-            onValueChange={(value) => {
-              if (!value) return;
-              setForm({
-                ...form,
-                gateway: value as GroupForm["gateway"],
-              });
-            }}
-          >
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="stripe">Stripe</SelectItem>
-              <SelectItem value="paypal">PayPal</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+        {/* Gateway is always offline now — bank / MoMo with receipt verification. */}
         <div className="space-y-1.5">
           <Label>Region key</Label>
           <Select

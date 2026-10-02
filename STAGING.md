@@ -90,7 +90,6 @@ The staging site must never touch production data.
    npx convex env set SITE_URL https://staging.homecomingconvention.com --deployment staging
    npx convex env set SMTP_HOST <host> --deployment staging
    # ... SMTP_PORT / SMTP_SECURE / SMTP_USER / SMTP_PASS / SMTP_FROM
-   npx convex env set STRIPE_SECRET_KEY sk_test_... --deployment staging
    # ... PAYSTACK_SECRET_KEY / publishable keys
    ```
    Done state: staging currently holds IMPORT_SECRET, SITE_URL, the SMTP
@@ -147,7 +146,7 @@ Common operations:
 
 ## 5. Secrets hygiene on staging
 
-- Test keys only: `sk_test_…` Stripe / Paystack test secret. Live keys never enter staging — that's the entire point.
+- Test keys only: `sk_test_…` Paystack test secret. Live keys never enter staging — that's the entire point.
 - The staging `IMPORT_SECRET` must differ from production's.
 - `NEXT_PUBLIC_*` values are public by design; only the SMTP password and
   payment secret keys are sensitive, and those live in the staging Convex
@@ -160,4 +159,4 @@ Common operations:
 
 1. `curl -I https://staging.homecomingconvention.com` → expect `HTTP/2 200` (after DNS + deploy).
 2. Register the tester's account and confirm the credentials email links point at `staging.homecomingconvention.com` — that's the proof `SITE_URL` is scoped correctly.
-3. Book a tour with Stripe test card `4242 4242 4242 4242`; the Stripe Checkout URL should open, and returning should land back on the staging domain.
+3. Submit a tour order; the offline bank-instructions confirmation should appear, and returning should land back on the staging domain.

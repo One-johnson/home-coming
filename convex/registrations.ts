@@ -81,21 +81,9 @@ export const create = mutation({
       regionKey: pricing.regionKey,
     };
 
-    // GHS tickets are offline — bank / MoMo instructions with manual verification.
-    const gateway: "offline" | "stripe" =
-      amounts.currency === "GHS"
-        ? "offline"
-        : args.gateway === "stripe" || args.gateway === "paypal"
-          ? "stripe"
-          : amounts.gateway === "offline"
-            ? "offline"
-            : "stripe";
-
-    if (gateway === "stripe" && amounts.currency === "GHS") {
-      throw new ConvexError(
-        "Stripe cannot charge GHS. Ghana cedi pricing is paid offline.",
-      );
-    }
+    // Online gateways (Stripe/PayPal) were removed — every registration pays
+    // offline: bank / MoMo instructions with manual receipt verification.
+    const gateway = "offline" as const;
 
     const referenceNumber = await createUniqueReferenceNumber(
       ctx,

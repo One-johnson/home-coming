@@ -111,7 +111,8 @@ export const createBooking = mutation({
     checkOut: v.string(),
     guests: v.number(),
     notes: v.optional(v.string()),
-    gateway: v.union(v.literal("stripe"), v.literal("paypal")),
+    /** Historical stripe/paypal values were accepted before the offline switch. */
+    gateway: v.optional(v.union(v.literal("stripe"), v.literal("paypal"))),
     mockPayment: v.optional(v.boolean()),
     honeypot: v.optional(v.string()),
   },
@@ -147,7 +148,8 @@ export const createBooking = mutation({
       pricePerStay: housing.pricePerStay,
       totalAmount: housing.pricePerStay,
       currency: "USD",
-      gateway: args.gateway,
+      // Stripe removed — housing bookings are paid offline via bank instructions.
+      gateway: "offline",
       paymentStatus: args.mockPayment ? "mock_paid" : "pending_payment",
       paymentReference: args.mockPayment ? `MOCK-HOUSING-${Date.now()}` : undefined,
       referenceNumber,
@@ -163,7 +165,7 @@ export const createBooking = mutation({
       await queuePaymentConfirmation(ctx, "booking", bookingId, "mock_paid");
     }
 
-    return { id: bookingId, referenceNumber, gateway: args.gateway };
+    return { id: bookingId, referenceNumber, gateway: "offline" as const };
   },
 });
 

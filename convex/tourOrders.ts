@@ -40,7 +40,8 @@ export const create = mutation({
     denomination: v.string(),
     church: v.optional(v.string()),
     items: v.array(tourItemValidator),
-    gateway: v.union(v.literal("stripe"), v.literal("paypal")),
+    /** Historical stripe/paypal values were accepted before the offline switch. */
+    gateway: v.optional(v.union(v.literal("stripe"), v.literal("paypal"))),
     consent: v.boolean(),
     honeypot: v.optional(v.string()),
     mockPayment: v.optional(v.boolean()),
@@ -137,7 +138,8 @@ export const create = mutation({
       items: lineItems,
       totalAmount: grandTotal,
       currency: "USD",
-      gateway: args.gateway,
+      // Stripe removed — tour orders are paid offline via bank instructions.
+      gateway: "offline",
       paymentStatus: args.mockPayment ? "mock_paid" : "pending_payment",
       paymentReference: args.mockPayment
         ? `MOCK-TOUR-${Date.now()}`

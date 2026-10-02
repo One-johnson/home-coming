@@ -167,15 +167,12 @@ function HoldCountdown({ expiresAt }: { expiresAt: number }) {
 /** Per-booking payment dialog — its own state, so cards never leak values. */
 function PaymentDialog({
   booking,
-  isOffline,
   bankDetails,
   onClose,
   onSubmitOffline,
-  onSubmitOnline,
   submitting,
 }: {
   booking: RepBooking;
-  isOffline: boolean;
   bankDetails?: string;
   onClose: () => void;
   onSubmitOffline: (
@@ -188,7 +185,6 @@ function PaymentDialog({
       receipt: File | null;
     },
   ) => void;
-  onSubmitOnline: (booking: RepBooking) => void;
   submitting: boolean;
 }) {
   const [amountPaid, setAmountPaid] = useState(() =>
@@ -213,9 +209,7 @@ function PaymentDialog({
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>
-            {isOffline ? "Submit payment receipt" : "Pay online"}
-          </DialogTitle>
+          <DialogTitle>Submit payment receipt</DialogTitle>
           <DialogDescription>
             Booking {booking.referenceNumber} · {booking.currency}{" "}
             {booking.totalAmount} ·{" "}
@@ -223,8 +217,7 @@ function PaymentDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {isOffline ? (
-          <div className="space-y-3">
+        <div className="space-y-3">
             {bankDetails && (
               <p className="rounded-lg bg-muted p-3 text-xs whitespace-pre-line">
                 {bankDetails}
@@ -273,25 +266,6 @@ function PaymentDialog({
               />
             </div>
           </div>
-        ) : (
-          <div className="space-y-3">
-            <div className="flex items-start gap-3 rounded-lg border border-gold/40 bg-gold/5 p-3">
-              <span className="mt-0.5 flex size-4 items-center justify-center">
-                <span className="size-2 rounded-full bg-gold-dark" />
-              </span>
-              <span>
-                <span className="text-sm font-medium">Stripe</span>
-                <span className="mt-0.5 block text-xs text-muted-foreground">
-                  Cards for international payments
-                </span>
-              </span>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              You&apos;ll be redirected to complete the payment securely, then
-              returned here.
-            </p>
-          </div>
-        )}
 
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onClose}>
@@ -299,31 +273,21 @@ function PaymentDialog({
           </Button>
           <Button
             type="button"
-            disabled={
-              submitting ||
-              (isOffline && !receipt) ||
-              (isOffline && !amountMatches)
-            }
+            disabled={submitting || !receipt || !amountMatches}
             onClick={() =>
-              isOffline
-                ? onSubmitOffline(booking, {
+              onSubmitOffline(booking, {
                     amountPaid,
                     paymentRef,
                     paymentDate,
                     method,
                     receipt,
                   })
-                : onSubmitOnline(booking)
             }
           >
             {submitting && <Loader2Icon className="size-4 animate-spin" />}
-            {isOffline ? (
-              <>
+            <>
                 <ReceiptTextIcon className="size-4" /> Upload receipt
               </>
-            ) : (
-              "Continue to payment"
-            )}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -468,7 +432,6 @@ export function RepAccommodationTab() {
   const submitOffline = useMutation(api.agcBookings.submitOfflineBookingPayment);
   const substitute = useMutation(api.agcBookings.substituteGuest);
   const generateUploadUrl = useMutation(api.agcPortal.generateReceiptUploadUrl);
-  const createCheckout = useAction(api.stripeCheckout.createCheckoutSession);
   const downloadTemplate = useAction(api.agcExcel.downloadBookingTemplate);
   const createFromExcel = useAction(api.agcExcel.createBookingFromExcel);
   const previewExcelAction = useAction(api.agcExcel.previewBookingExcel);
@@ -579,7 +542,6 @@ export function RepAccommodationTab() {
           accommodationType: draft.accommodationType,
           isBishopRate: draft.isBishopRate,
         })),
-        paymentMode: isOffline ? "offline" : "stripe",
       });
       setLastBooking({
         bookingId: result.bookingId,
@@ -642,38 +604,6 @@ export function RepAccommodationTab() {
       });
       setPayTarget(null);
       toast.success("Receipt submitted — finance will review it.");
-    } catch (err) {
-      // Expired/revoked session → bounce to sign-in with a friendly toast.
-      if (handleSessionError(err)) return;
-      const friendly = friendlyError(err);
-      setError(
-        friendly.detail ? `${friendly.title}: ${friendly.detail}` : friendly.title,
-      );
-      toast.error(friendly.title, { description: friendly.detail });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handlePayOnline = async (booking: RepBooking) => {
-    if (!sessionToken) return;
-    setLoading(true);
-    setError("");
-    try {
-      // PayPal is disabled — online hubs pay through Stripe checkout.
-      const origin = window.location.origin;
-      const paymentResult = await createCheckout({
-        type: "agc_booking",
-        recordId: booking._id,
-        successUrl: `${origin}/portal/success?session_id={CHECKOUT_SESSION_ID}`,
-        cancelUrl: `${origin}/portal?canceled=1`,
-      });
-      if (paymentResult.mode === "checkout") {
-        window.location.href = paymentResult.url;
-        return;
-      }
-      setPayTarget(null);
-      toast.success(paymentResult.message ?? "Payment recorded.");
     } catch (err) {
       // Expired/revoked session → bounce to sign-in with a friendly toast.
       if (handleSessionError(err)) return;
@@ -1553,10 +1483,8 @@ export function RepAccommodationTab() {
               </AlertTitle>
               <AlertDescription>
                 {lastBooking.currency} {lastBooking.totalAmount} — held until{" "}
-                {new Date(lastBooking.expiresAt).toLocaleString()}.
-                {isOffline
-                  ? " Pay by bank transfer/MoMo and submit your receipt on the booking below."
-                  : " Complete payment online to confirm."}
+                {new Date(lastBooking.expiresAt).toLocaleString()}. Pay by bank
+                transfer/MoMo and submit your receipt on the booking below.
               </AlertDescription>
             </Alert>
           )}
@@ -1572,16 +1500,12 @@ export function RepAccommodationTab() {
               <p className="font-medium">How booking works</p>
               <ol className="mt-2 list-decimal space-y-1 pl-5 text-muted-foreground">
                 <li>Add guests above and reserve — beds are held for you.</li>
-                <li>
-                  {isOffline
-                    ? "Pay by bank transfer/MoMo and upload your receipt."
-                    : "Pay online with Stripe."}
-                </li>
+                <li>Pay by bank transfer/MoMo and upload your receipt.</li>
                 <li>
                   Finance confirms your payment and your booking is locked in.
                 </li>
               </ol>
-              {overview?.accommodationBankDetails && isOffline && (
+              {overview?.accommodationBankDetails && (
                 <p className="mt-3 rounded bg-muted p-3 text-xs whitespace-pre-line">
                   {overview.accommodationBankDetails}
                 </p>
@@ -1848,11 +1772,9 @@ export function RepAccommodationTab() {
       {payTarget && (
         <PaymentDialog
           booking={payTarget}
-          isOffline={payTarget.paymentMode === "offline"}
           bankDetails={overview?.accommodationBankDetails}
           onClose={() => setPayTarget(null)}
           onSubmitOffline={(target, data) => void handleSubmitOffline(target, data)}
-          onSubmitOnline={(target) => void handlePayOnline(target)}
           submitting={loading}
         />
       )}

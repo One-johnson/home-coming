@@ -254,8 +254,9 @@ export const submitOfflineRegistration = mutation({
 
     const pricing = regionPricing(hub.region);
     if (pricing.online) {
+      // Legacy Stripe-era guard — online is false for every region now.
       throw new ConvexError(
-        "Your hub pays online with Stripe — no receipt upload needed.",
+        "Your hub pays online — no receipt upload needed.",
       );
     }
 
@@ -366,67 +367,6 @@ export const submitOfflineRegistration = mutation({
     }
 
     return { registrationId, referenceNumber, receiptUrl };
-  },
-});
-
-/** Online (Stripe) registration purchase — Stripe checkout happens next. */
-export const createOnlineRegistration = mutation({
-  args: {
-    sessionToken: v.string(),
-    quantity: v.number(),
-    paymentMode: v.union(v.literal("stripe"), v.literal("paypal")),
-  },
-  handler: async (ctx, args) => {
-    await assertBeforeDeadline(ctx);
-    const { rep, hub } = await requireRep(ctx, args.sessionToken);
-    if (rep.status !== "active") {
-      throw new ConvexError("This account is not active yet");
-    }
-    if (!Number.isInteger(args.quantity) || args.quantity <= 0) {
-      throw new ConvexError("Quantity must be a whole number of at least 1");
-    }
-
-    const pricing = regionPricing(hub.region);
-    if (!pricing.online) {
-      throw new ConvexError(
-        "Your hub pays offline — submit a bank/MoMo receipt instead.",
-      );
-    }
-
-    const referenceNumber = await createUniqueReferenceNumber(
-      ctx,
-      "registration",
-      "agcRegistrations",
-    );
-    const registrationId: Id<"agcRegistrations"> = await ctx.db.insert(
-      "agcRegistrations",
-      {
-        hubId: hub._id,
-        repId: rep._id,
-        region: hub.region,
-        contactEmail: rep.email ?? undefined,
-        contactPhone: rep.phone ?? undefined,
-        quantity: args.quantity,
-        unitPrice: pricing.price,
-        currency: pricing.currency,
-        totalAmount: pricing.price * args.quantity,
-        paymentMode: args.paymentMode,
-        paymentStatus: "awaiting_payment",
-        referenceNumber,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      },
-    );
-
-    await writeAuditLog(ctx, {
-      actorEmail: rep.email ?? rep.username,
-      action: "agc_registration.online_created",
-      entityType: "agcRegistrations",
-      entityId: registrationId,
-      summary: `Hub ${hub.name} created an online registration ${referenceNumber} (${pricing.price * args.quantity} ${pricing.currency})`,
-    });
-
-    return { registrationId, referenceNumber };
   },
 });
 

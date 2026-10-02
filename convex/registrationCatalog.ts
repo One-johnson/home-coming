@@ -23,6 +23,7 @@ const regionKeyValidator = v.union(
   v.literal("rest_of_world"),
 );
 
+// Historical stripe/paypal literals remain accepted for legacy rows.
 const gatewayValidator = v.union(
   v.literal("stripe"),
   v.literal("paypal"),
@@ -35,7 +36,7 @@ const GROUP_SEED: Array<{
   price: number;
   currency: string;
   currencySymbol: string;
-  gateway: "stripe" | "paypal" | "offline";
+  gateway: "offline";
   defaultCountryCode: string;
   regionKey: RegistrationRegion;
   denominations: string[];
@@ -112,7 +113,7 @@ const GROUP_SEED: Array<{
     price: 20,
     currency: "USD",
     currencySymbol: "$",
-    gateway: "stripe",
+    gateway: "offline",
     defaultCountryCode: "+",
     regionKey: "rest_of_africa",
     denominations: [
@@ -146,7 +147,7 @@ const GROUP_SEED: Array<{
     price: 20,
     currency: "EUR",
     currencySymbol: "€",
-    gateway: "stripe",
+    gateway: "offline",
     defaultCountryCode: "+",
     regionKey: "rest_of_europe",
     denominations: [
@@ -160,7 +161,7 @@ const GROUP_SEED: Array<{
     price: 20,
     currency: "GBP",
     currencySymbol: "£",
-    gateway: "stripe",
+    gateway: "offline",
     defaultCountryCode: "+44",
     regionKey: "uk",
     denominations: [
@@ -175,7 +176,7 @@ const GROUP_SEED: Array<{
     price: 20,
     currency: "CHF",
     currencySymbol: "CHF",
-    gateway: "stripe",
+    gateway: "offline",
     defaultCountryCode: "+41",
     regionKey: "switzerland",
     denominations: ["Living Waters Church", "Other"],
@@ -185,7 +186,7 @@ const GROUP_SEED: Array<{
     price: 20,
     currency: "USD",
     currencySymbol: "$",
-    gateway: "stripe",
+    gateway: "offline",
     defaultCountryCode: "+1",
     regionKey: "usa",
     denominations: [
@@ -201,7 +202,7 @@ const GROUP_SEED: Array<{
     price: 20,
     currency: "USD",
     currencySymbol: "$",
-    gateway: "stripe",
+    gateway: "offline",
     defaultCountryCode: "+",
     regionKey: "rest_of_world",
     denominations: [
@@ -235,7 +236,7 @@ const GROUP_SEED: Array<{
     price: 20,
     currency: "USD",
     currencySymbol: "$",
-    gateway: "stripe",
+    gateway: "offline",
     defaultCountryCode: "+",
     regionKey: "rest_of_world",
     denominations: [
@@ -300,7 +301,7 @@ const GROUP_SEED: Array<{
     price: 20,
     currency: "USD",
     currencySymbol: "$",
-    gateway: "stripe",
+    gateway: "offline",
     defaultCountryCode: "+",
     regionKey: "rest_of_world",
     denominations: ["Other"],
@@ -334,7 +335,8 @@ export async function resolveGroupPricing(
     return {
       price: group.price,
       currency: group.currency,
-      gateway: group.gateway,
+      // Legacy stripe/paypal rows resolve to their effective offline flow.
+      gateway: "offline" as const,
       regionKey: group.regionKey,
       currencySymbol: group.currencySymbol,
       defaultCountryCode: group.defaultCountryCode,

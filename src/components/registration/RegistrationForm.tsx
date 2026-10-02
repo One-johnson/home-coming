@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { ArrowLeftIcon, CheckCircle2Icon, Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
@@ -22,7 +22,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Combobox,
   ComboboxContent,
@@ -38,12 +37,9 @@ import {
   calculateRegistrationTotal,
   formatPrice,
   getGroupPricing,
-  gatewaysForCurrency,
-  isOfflineCurrency,
   shouldShowChurchAffiliation,
   type PricingConfig,
 } from "@/lib/registrationConfig";
-import { buildCheckoutUrls } from "@/lib/stripeCheckout";
 import { EVENT, SITE_FEATURES } from "@/lib/eventConfig";
 import { isConvexConfigured } from "@/lib/convex-config";
 
@@ -54,8 +50,6 @@ const STEP_LABELS: Record<WizardStep, string> = {
   details: "Details",
   payment: "Payment",
 };
-type CheckoutGateway = "stripe" | "paypal";
-
 function ConvexRequiredMessage() {
   return (
     <Alert className="border-amber-200 bg-amber-50 text-amber-900">
@@ -74,7 +68,7 @@ function ConvexRequiredMessage() {
 function RegistrationFormInner() {
   const catalog = useQuery(api.registrationCatalog.listPublic);
   const createRegistration = useMutation(api.registrations.create);
-  const createCheckout = useAction(api.stripeCheckout.createCheckoutSession);
+  const portalConfig = useQuery(api.agcPortal.getPortalConfig);
 
   const [step, setStep] = useState<Step>("details");
   const [furthestStepIndex, setFurthestStepIndex] = useState(0);
@@ -89,7 +83,6 @@ function RegistrationFormInner() {
   const [accommodationInterest, setAccommodationInterest] = useState(false);
   const [consent, setConsent] = useState(false);
   const [honeypot, setHoneypot] = useState("");
-  const [gateway, setGateway] = useState<CheckoutGateway>("stripe");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [referenceNumber, setReferenceNumber] = useState<string | null>(null);
@@ -117,7 +110,8 @@ function RegistrationFormInner() {
         price: selectedCatalogGroup.price,
         currency: selectedCatalogGroup.currency,
         currencySymbol: selectedCatalogGroup.currencySymbol,
-        gateway: selectedCatalogGroup.gateway,
+        // Legacy stripe/paypal catalog rows resolve to the offline flow.
+        gateway: "offline" as const,
         defaultCountryCode: selectedCatalogGroup.defaultCountryCode,
         regionKey: selectedCatalogGroup.regionKey,
       };
@@ -145,8 +139,8 @@ function RegistrationFormInner() {
     };
   }, [pricing, ticketQuantity]);
 
-  const offlineOnly = isOfflineCurrency(displayTotals.currency);
-  const availableGateways = gatewaysForCurrency(displayTotals.currency);
+  // Every group pays offline now (Stripe/PayPal removed) — bank / MoMo
+  // instructions with the exact total, then finance verifies the payment.
   const stepIndex = STEPS.indexOf(step as WizardStep);
   const progressValue =
     stepIndex >= 0 ? ((stepIndex + 1) / STEPS.length) * 100 : 0;
@@ -188,8 +182,6 @@ function RegistrationFormInner() {
         }
       : getGroupPricing(value || "Other");
     setCountryCode(nextPricing.defaultCountryCode);
-    const gateways = gatewaysForCurrency(nextPricing.currency);
-    setGateway(gateways[0] ?? "stripe");
   };
 
   const validateDetails = () => {
@@ -229,10 +221,6 @@ function RegistrationFormInner() {
     setError("");
     setLoading(true);
     try {
-      const selectedGateway: CheckoutGateway | undefined = offlineOnly
-        ? undefined
-        : gateway;
-
       const result = await createRegistration({
         type,
         email,
@@ -245,7 +233,6 @@ function RegistrationFormInner() {
         ticketQuantity,
         addOns: SITE_FEATURES.addOnsEnabled ? totals.addOns : [],
         accommodationInterest,
-        gateway: selectedGateway,
         consent,
         honeypot: honeypot.trim() || undefined,
         mockPayment: false,
@@ -253,32 +240,11 @@ function RegistrationFormInner() {
 
       setReferenceNumber(result.referenceNumber);
 
-      if (offlineOnly) {
-        // GHS pricing is paid offline (bank transfer / MoMo). The backend
-        // stores the transaction as pending; instructions are shown below.
-        setPaymentMessage(
-          "Complete your payment via bank transfer or Mobile Money using the instructions emailed to you. Your registration will be confirmed once payment is verified by the finance team.",
-        );
-        setStep("confirmation");
-        toast.success("Registration submitted successfully");
-        return;
-      }
-
-      const urls = buildCheckoutUrls("/registration");
-
-      const paymentResult = await createCheckout({
-        type: "registration",
-        recordId: result.id,
-        successUrl: urls.successUrl,
-        cancelUrl: urls.cancelUrl,
-      });
-
-      if (paymentResult.mode === "checkout") {
-        window.location.href = paymentResult.url;
-        return;
-      }
-
-      setPaymentMessage(paymentResult.message ?? "Payment processed.");
+      // All registrations pay offline (bank transfer / MoMo). The backend
+      // stores the transaction as pending; the bank details are shown below.
+      setPaymentMessage(
+        "Complete your payment via bank transfer or Mobile Money using the account details shown above. Your registration will be confirmed once the finance team verifies your payment.",
+      );
       setStep("confirmation");
       toast.success("Registration submitted successfully");
     } catch (err) {
@@ -586,76 +552,18 @@ function RegistrationFormInner() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {offlineOnly ? (
-              <Alert>
-                <AlertTitle>Offline payment — Bank transfer / Mobile Money</AlertTitle>
-                <AlertDescription>
-                  This group is priced in Ghana cedis. After submitting, you will
-                  receive bank and MoMo payment instructions by email. Your
-                  registration is confirmed once the finance team verifies your
-                  payment.
-                </AlertDescription>
-              </Alert>
-            ) : (
-              <>
-                <div className="space-y-3">
-                  <Label>Payment method</Label>
-                  <RadioGroup
-                    value={gateway}
-                    onValueChange={(value) =>
-                      setGateway(value as CheckoutGateway)
-                    }
-                    className="grid gap-2"
-                  >
-                    {availableGateways.includes("stripe") && (
-                      <Label
-                        htmlFor="reg-gateway-stripe"
-                        className="flex cursor-pointer items-start gap-3 rounded-lg border p-3"
-                      >
-                        <RadioGroupItem
-                          id="reg-gateway-stripe"
-                          value="stripe"
-                          className="mt-0.5"
-                        />
-                        <span>
-                          <span className="font-medium">Stripe</span>
-                          <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
-                            Card payments
-                          </span>
-                        </span>
-                      </Label>
-                    )}
-                    {availableGateways.includes("paypal") && (
-                      <Label
-                        htmlFor="reg-gateway-paypal"
-                        className="flex cursor-pointer items-start gap-3 rounded-lg border p-3"
-                      >
-                        <RadioGroupItem
-                          id="reg-gateway-paypal"
-                          value="paypal"
-                          className="mt-0.5"
-                        />
-                        <span>
-                          <span className="font-medium">PayPal</span>
-                          <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
-                            PayPal balance or cards
-                          </span>
-                        </span>
-                      </Label>
-                    )}
-                  </RadioGroup>
-                </div>
-                <Alert>
-                  <AlertTitle>
-                    {gateway === "stripe" ? "Stripe Checkout" : "PayPal Checkout"}
-                  </AlertTitle>
-                  <AlertDescription>
-                    You will be redirected to complete payment, then return with
-                    your confirmation reference.
-                  </AlertDescription>
-                </Alert>
-              </>
-            )}
+            <Alert>
+              <AlertTitle>Offline payment — Bank transfer / Mobile Money</AlertTitle>
+              <AlertDescription>
+                Pay the exact total by bank transfer or Mobile Money to the
+                account below. Your registration is confirmed once the finance
+                team verifies your payment.
+              </AlertDescription>
+            </Alert>
+            <div className="rounded-lg border bg-muted/40 p-3 text-sm whitespace-pre-line">
+              {portalConfig?.registrationBankDetails ||
+                "Account details will be shown here once configured by the Super Admin."}
+            </div>
             {error && (
               <Alert className="border-destructive/30 bg-destructive/5">
                 <AlertDescription>{error}</AlertDescription>
@@ -679,14 +587,10 @@ function RegistrationFormInner() {
               {loading ? (
                 <>
                   <Loader2Icon className="size-4 animate-spin" />
-                  Redirecting…
+                  Submitting…
                 </>
-              ) : offlineOnly ? (
-                "Submit registration"
-              ) : gateway === "stripe" ? (
-                "Pay with Stripe"
               ) : (
-                "Pay with PayPal"
+                "Submit registration"
               )}
             </Button>
           </CardFooter>

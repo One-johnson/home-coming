@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { CheckCircle2Icon, Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
@@ -23,13 +23,9 @@ import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { HOUSING_TYPES, type HousingType } from "@/lib/registrationConfig";
-import { buildCheckoutUrls } from "@/lib/stripeCheckout";
 import { EVENT } from "@/lib/eventConfig";
 import { isConvexConfigured } from "@/lib/convex-config";
 import { cn } from "@/lib/utils";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-
-type CheckoutGateway = "stripe" | "paypal";
 
 function ConvexRequiredMessage() {
   return (
@@ -50,10 +46,9 @@ function AccommodationPortalInner() {
   const housing = useQuery(api.housing.listHousing);
   const hotels = useQuery(api.content.listHotels);
   const createBooking = useMutation(api.housing.createBooking);
-  const createCheckout = useAction(api.stripeCheckout.createCheckoutSession);
+  const portalConfig = useQuery(api.agcPortal.getPortalConfig);
 
   const [selectedType, setSelectedType] = useState<HousingType>("condo");
-  const [gateway, setGateway] = useState<CheckoutGateway>("stripe");
   const [guestName, setGuestName] = useState("");
   const [guestEmail, setGuestEmail] = useState("");
   const [guestPhone, setGuestPhone] = useState("");
@@ -107,31 +102,18 @@ function AccommodationPortalInner() {
         checkOut,
         guests,
         notes: notes || undefined,
-        gateway,
         honeypot: honeypot.trim() || undefined,
         mockPayment: false,
       });
 
-      const urls = buildCheckoutUrls("/accommodation");
-
-      const paymentResult = await createCheckout({
-        type: "booking",
-        recordId: result.id,
-        successUrl: urls.successUrl,
-        cancelUrl: urls.cancelUrl,
-      });
-
-      if (paymentResult.mode === "checkout") {
-        window.location.href = paymentResult.url;
-        return;
-      }
-
       setReferenceNumber(result.referenceNumber);
-      setPaymentMessage(paymentResult.message ?? "Payment processed.");
-      setConfirmed(true);
-      toast.success(
-        paymentResult.message ?? "Accommodation booked successfully",
+      // All bookings pay offline (bank / MoMo); the backend stores the
+      // booking as pending and finance verifies the payment manually.
+      setPaymentMessage(
+        "Complete your payment via bank transfer or Mobile Money using the account details shown above. Your booking will be confirmed once the finance team verifies your payment.",
       );
+      setConfirmed(true);
+      toast.success("Accommodation booking submitted successfully");
     } catch (err) {
       const message = cleanErrorMessage(err);
       setError(message);
@@ -336,48 +318,17 @@ function AccommodationPortalInner() {
                 </Alert>
               )}
 
-              <div className="space-y-3">
-                <Label>Payment method</Label>
-                <RadioGroup
-                  value={gateway}
-                  onValueChange={(value) =>
-                    setGateway(value as CheckoutGateway)
-                  }
-                  className="grid gap-2"
-                >
-                  <Label
-                    htmlFor="housing-gateway-stripe"
-                    className="flex cursor-pointer items-start gap-3 rounded-lg border p-3"
-                  >
-                    <RadioGroupItem
-                      id="housing-gateway-stripe"
-                      value="stripe"
-                      className="mt-0.5"
-                    />
-                    <span>
-                      <span className="font-medium">Stripe</span>
-                      <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
-                        Cards for international payments
-                      </span>
-                    </span>
-                  </Label>
-                  <Label
-                    htmlFor="housing-gateway-paypal"
-                    className="flex cursor-pointer items-start gap-3 rounded-lg border p-3"
-                  >
-                    <RadioGroupItem
-                      id="housing-gateway-paypal"
-                      value="paypal"
-                      className="mt-0.5"
-                    />
-                    <span>
-                      <span className="font-medium">PayPal</span>
-                      <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
-                        PayPal balance or cards
-                      </span>
-                    </span>
-                  </Label>
-                </RadioGroup>
+              <Alert>
+                <AlertTitle>Offline payment — Bank transfer / Mobile Money</AlertTitle>
+                <AlertDescription>
+                  Pay the exact total by bank transfer or Mobile Money to the
+                  account below. Your booking is confirmed once the finance
+                  team verifies your payment.
+                </AlertDescription>
+              </Alert>
+              <div className="rounded-lg border bg-muted/40 p-3 text-sm whitespace-pre-line">
+                {portalConfig?.registrationBankDetails ||
+                  "Account details will be shown here once configured by the Super Admin."}
               </div>
 
               <Card className="bg-muted/50">
@@ -386,9 +337,6 @@ function AccommodationPortalInner() {
                     Total: $
                     {selectedHousing?.pricePerStay ?? housingConfig.pricePerStay}{" "}
                     USD per stay
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    You will be redirected to Stripe Checkout.
                   </p>
                 </CardContent>
               </Card>
@@ -403,14 +351,14 @@ function AccommodationPortalInner() {
                 {loading ? (
                   <>
                     <Loader2Icon className="size-4 animate-spin" />
-                    &ldquo;Redirecting…&rdquo;
+                    Submitting…
                   </>
                 ) : !housingReady ? (
                   "Loading housing..."
                 ) : !selectedHousing ? (
                   "Housing unavailable"
                 ) : (
-                  "Book & Pay with Stripe"
+                  "Book accommodation"
                 )}
               </Button>
             </CardFooter>

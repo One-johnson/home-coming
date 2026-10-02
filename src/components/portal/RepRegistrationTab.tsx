@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import {
-  BanknoteIcon,
   CalendarClockIcon,
   CircleAlertIcon,
   CheckIcon,
@@ -49,7 +48,6 @@ import { downloadBase64File } from "@/lib/downloadFile";
 import { friendlyError } from "@/lib/friendlyError";
 import {
   AGC_REGION_LABELS,
-  isGhsRegion,
   paymentStatusMeta,
 } from "@/lib/agcPortal";
 import { amountsMatch } from "@/lib/bookingMath";
@@ -70,7 +68,7 @@ type RegistrationRow = {
   totalAmount: number;
   paymentMode: string;
   paymentStatus: string;
-  /** Online registrations stuck at checkout — show a resume-payment button. */
+  /** Legacy Stripe-era online purchases awaiting payment (informational). */
   canResumePayment: boolean;
   adminMessage: string | null;
   offline: {
@@ -238,9 +236,7 @@ export function RepRegistrationTab() {
     sessionToken ? { sessionToken } : "skip",
   );
   const submitOffline = useMutation(api.agcPortal.submitOfflineRegistration);
-  const createOnline = useMutation(api.agcPortal.createOnlineRegistration);
   const generateUploadUrl = useMutation(api.agcPortal.generateReceiptUploadUrl);
-  const createCheckout = useAction(api.stripeCheckout.createCheckoutSession);
   const exportRegistrations = useAction(
     api.agcExcel.exportRepRegistrationsExcel,
   );
@@ -256,21 +252,18 @@ export function RepRegistrationTab() {
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState("");
-  // Which history row is resuming Stripe checkout (resume-payment flow).
-  const [resumingId, setResumingId] = useState<string | null>(null);
   // History filter chips + reference search.
   const [filter, setFilter] = useState<RegistrationFilterId>("all");
   const [search, setSearch] = useState("");
   // Post-submit success panel (reference number of the new purchase).
   const [lastSubmitted, setLastSubmitted] = useState<string | null>(null);
 
-  const isOffline = rep ? isGhsRegion(rep.hubRegion) : true;
   const regionPricing = portalConfig?.regions.find(
     (entry: { region: string; price: number; currency: string }) =>
       entry.region === rep?.hubRegion,
   );
   const unitPrice = regionPricing?.price ?? 0;
-  const currency = regionPricing?.currency ?? (isOffline ? "GHS" : "USD");
+  const currency = regionPricing?.currency ?? "USD";
   const qty = Math.max(1, Math.floor(Number(quantity) || 0));
 
   // Exact-amount rule: the entered amount must equal the system total —
@@ -335,33 +328,6 @@ export function RepRegistrationTab() {
   const daysLeft = portalConfig?.deadline
     ? Math.max(0, Math.ceil((Date.parse(portalConfig.deadline) - now) / 86_400_000))
     : null;
-
-  const handleResumePayment = async (row: RegistrationRow) => {
-    if (!sessionToken) return;
-    setResumingId(row._id);
-    setError("");
-    try {
-      const origin = window.location.origin;
-      const paymentResult = await createCheckout({
-        type: "agc_registration",
-        recordId: row._id,
-        successUrl: `${origin}/portal/success?session_id={CHECKOUT_SESSION_ID}`,
-        cancelUrl: `${origin}/portal?canceled=1`,
-      });
-      if (paymentResult.mode === "checkout") {
-        window.location.assign(paymentResult.url);
-        return;
-      }
-      toast.success(paymentResult.message ?? "Payment recorded.");
-    } catch (err) {
-      // Expired/revoked session → bounce to sign-in with a friendly toast.
-      if (handleSessionError(err)) return;
-      const friendly = friendlyError(err);
-      toast.error(friendly.title, { description: friendly.detail });
-    } finally {
-      setResumingId(null);
-    }
-  };
 
   const handleDownloadExcel = async () => {
     if (!sessionToken) return;
@@ -428,42 +394,6 @@ export function RepRegistrationTab() {
     }
   };
 
-  const handleOnlineSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!sessionToken) return;
-    setLoading(true);
-    setError("");
-    try {
-      // PayPal is disabled — online hubs pay through Stripe checkout.
-      const created = await createOnline({
-        sessionToken,
-        quantity: qty,
-        paymentMode: "stripe",
-      });
-      const origin = window.location.origin;
-      const paymentResult = await createCheckout({
-        type: "agc_registration",
-        recordId: created.registrationId,
-        successUrl: `${origin}/portal/success?session_id={CHECKOUT_SESSION_ID}`,
-        cancelUrl: `${origin}/portal?canceled=1`,
-      });
-      if (paymentResult.mode === "checkout") {
-        window.location.href = paymentResult.url;
-        return;
-      }
-      toast.success(paymentResult.message ?? "Registration recorded.");
-    } catch (err) {
-      // Expired/revoked session → bounce to sign-in with a friendly toast.
-      if (handleSessionError(err)) return;
-      const friendly = friendlyError(err);
-      setError(
-        friendly.detail ? `${friendly.title}: ${friendly.detail}` : friendly.title,
-      );
-      toast.error(friendly.title, { description: friendly.detail });
-    } finally {
-      setLoading(false);
-    }
-  };
 
   return (
     <div className="space-y-8">
@@ -634,8 +564,7 @@ export function RepRegistrationTab() {
               </div>
             </section>
 
-            {isOffline ? (
-              <form className="space-y-5" onSubmit={handleOfflineSubmit}>
+            <form className="space-y-5" onSubmit={handleOfflineSubmit}>
                 {/* Step 2 — pay & upload receipt */}
                 <section className="space-y-3">
                   <p className="flex items-center gap-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
@@ -656,7 +585,7 @@ export function RepRegistrationTab() {
                     </p>
                   </div>
                   <Alert>
-                    <AlertTitle>Offline payment (GHS)</AlertTitle>
+                    <AlertTitle>Offline payment ({currency})</AlertTitle>
                     <AlertDescription>
                       Pay {currency} {unitPrice * qty} by bank transfer or mobile
                       money to the account below, then upload your receipt.
@@ -757,45 +686,6 @@ export function RepRegistrationTab() {
                   {loading ? "Submitting…" : "Submit for review"}
                 </Button>
               </form>
-            ) : (
-              <form className="space-y-5" onSubmit={handleOnlineSubmit}>
-                {/* Step 2 — pay online */}
-                <section className="space-y-3">
-                  <p className="flex items-center gap-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-                    <span className="flex size-5 items-center justify-center rounded-full bg-gold/20 text-[10px] font-bold text-gold-dark">2</span>
-                    Pay online
-                  </p>
-                  <div className="flex items-center justify-between gap-3 rounded-xl border border-gold/40 bg-gold/5 px-4 py-3">
-                    <div>
-                      <p className="text-xs text-muted-foreground">Total due</p>
-                      <p className="text-xl font-semibold tabular-nums text-ink">
-                        {currency} {unitPrice * qty}
-                      </p>
-                    </div>
-                    <p className="text-right text-xs text-muted-foreground">
-                      {qty} delegate{qty === 1 ? "" : "s"} × {currency} {unitPrice}
-                    </p>
-                  </div>
-                  <div className="flex items-start gap-3 rounded-lg border border-gold/40 bg-gold/5 p-3">
-                    <span className="mt-0.5 flex size-4 items-center justify-center">
-                      <span className="size-2 rounded-full bg-gold-dark" />
-                    </span>
-                    <span>
-                      <span className="font-medium">Stripe</span>
-                      <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
-                        Cards for international payments
-                      </span>
-                    </span>
-                  </div>
-                </section>
-                <Button type="submit" className="w-full" disabled={loading || portalConfig?.locked === true}>
-                  {loading && <Loader2Icon className="size-4 animate-spin" />}
-                  {loading
-                    ? "Redirecting…"
-                    : `Pay ${currency} ${unitPrice * qty} online`}
-                </Button>
-              </form>
-            )}
           </CardContent>
         </Card>
 
@@ -927,24 +817,11 @@ export function RepRegistrationTab() {
                     </a>
                   )}
                   {row.canResumePayment && (
-                    <div className="mt-3 flex items-center gap-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        disabled={resumingId !== null}
-                        onClick={() => void handleResumePayment(row)}
-                      >
-                        {resumingId === row._id && (
-                          <Loader2Icon className="size-4 animate-spin" />
-                        )}
-                        <BanknoteIcon className="size-4" />
-                        Resume payment
-                      </Button>
-                      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                        <ReceiptTextIcon className="size-3" />
-                        {row.currency} {row.totalAmount} still due
-                      </span>
-                    </div>
+                    <p className="mt-3 inline-flex items-center gap-1 text-xs text-muted-foreground">
+                      <ReceiptTextIcon className="size-3" />
+                      {row.currency} {row.totalAmount} still due — submit a
+                      receipt above to complete this registration.
+                    </p>
                   )}
                 </div>
               );

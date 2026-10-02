@@ -6,7 +6,7 @@ Convention website for the Homecoming Convention at Anagkazo Campus, Mampong, Gh
 
 - **Next.js** (App Router) + TypeScript + Tailwind CSS
 - **Convex** — database, serverless functions, file storage, auth
-- **Stripe** + **PayPal** (online payments) — stub mode until merchant credentials are configured
+- **Offline payments** — bank / MoMo with receipt verification for every region
 - **Offline payments** for Ghana / West Africa (bank transfer / MoMo, reviewed by finance)
 
 ## UI Toolkit
@@ -75,9 +75,8 @@ one-time temporary password. The rep completes first-time setup (new password
 + profile) at `/portal`, which has two tabs:
 
 - **Registration** — bulk delegate purchase by quantity (no attendee names).
-  Ghana / West Africa hubs (GHS 30) pay **offline** by bank transfer or MoMo
-  and upload a receipt for manual finance review; other regions pay online via
-  **Stripe or PayPal**.
+  Every region pays **offline** by bank transfer or MoMo (priced in the
+  region's currency) and uploads a receipt for manual finance review.
 - **Accommodation** — per-guest booking (name, gender, type) or bulk upload via
   an Excel template. Holds expire at the earlier of 72h or the Oct 13, 2026
   deadline. Substitutions keep the same gender and accommodation type; the
@@ -119,38 +118,14 @@ For a stable tester URL, **[STAGING.md](STAGING.md)** sets up `staging.homecomin
 
 ## Payment Integration
 
-### Registration
+### All flows are offline
 
-| Region | Price | Gateway |
-|--------|-------|---------|
-| Ghana, West Africa | 30 GHS | **Offline** — bank transfer / MoMo, receipt reviewed by finance |
-| Rest of Africa | $10 USD | Stripe or PayPal |
-| USA / Rest of World | $20 USD | Stripe or PayPal |
-| Switzerland | 20 CHF | Stripe or PayPal |
-| England | 20 GBP | Stripe or PayPal |
-| Rest of Europe | 20 EUR | Stripe or PayPal |
-
-Do **not** convert ₵30 → $30 for Stripe — that would overcharge. GHS regions are offline only (no gateway checkout).
-
-### Accommodation & Tours
-
-Users choose **Stripe** or **PayPal** at payment (priced in USD).
-
-### Stripe
-
-Keys live in Convex environment variables:
-
-| Variable | Where |
-|----------|--------|
-| `STRIPE_SECRET_KEY` | Convex (dev + prod) |
-| `STRIPE_PUBLISHABLE_KEY` | Convex (optional) |
-| `STRIPE_WEBHOOK_SECRET` | Convex (dev + prod) |
-| `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Next.js `.env.local` / Vercel |
-
-Webhook: `https://<your-convex-site>.convex.site/webhooks/stripe`  
-Events: `checkout.session.completed`, `checkout.session.expired`
-
-Success paths: `/registration/success`, `/accommodation/success`, `/tours/success`
+Stripe and PayPal were removed — every region, registration, accommodation
+booking, and tour order is paid by **bank transfer or Mobile Money** in the
+region's own currency. The bank / MoMo account details are configured in the
+admin console (`registration_bank_details`, `accommodation_bank_details`),
+shown directly on every payment form, and receipts are verified manually by
+the finance team.
 
 ### Offline (GHS)
 

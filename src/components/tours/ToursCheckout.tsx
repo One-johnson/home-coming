@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Image from "next/image";
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import type { TourPackageDisplay } from "@/lib/tourConfig";
 import {
   ArrowLeftIcon,
@@ -54,15 +54,11 @@ import {
   calculateTourTotal,
   resolveTourImage,
 } from "@/lib/tourConfig";
-import { buildCheckoutUrls } from "@/lib/stripeCheckout";
 import { EVENT } from "@/lib/eventConfig";
 import { isConvexConfigured } from "@/lib/convex-config";
 import { TourPackageCard } from "@/components/tours/TourPackageCard";
 import { useIsCompact } from "@/hooks/use-media-query";
 import { cn } from "@/lib/utils";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-
-type CheckoutGateway = "stripe" | "paypal";
 
 type CheckoutStep = "tickets" | "details" | "review" | "payment";
 const CHECKOUT_STEPS: CheckoutStep[] = [
@@ -140,12 +136,11 @@ function ToursCheckoutInner({
   const isCompact = useIsCompact();
   const catalog = useQuery(api.registrationCatalog.listPublic);
   const createTourOrder = useMutation(api.tourOrders.create);
-  const createCheckout = useAction(api.stripeCheckout.createCheckoutSession);
+  const portalConfig = useQuery(api.agcPortal.getPortalConfig);
 
   const [sheetOpen, setSheetOpen] = useState(false);
   const [step, setStep] = useState<CheckoutStep>("tickets");
   const [quantities, setQuantities] = useState<Record<string, number>>({});
-  const [gateway, setGateway] = useState<CheckoutGateway>("stripe");
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -302,7 +297,6 @@ function ToursCheckoutInner({
         // Slugs, not Convex ids — the server resolves and re-prices from
         // the database so the manifest can never set prices.
         items: totals.selections,
-        gateway,
         consent,
         honeypot: honeypot.trim() || undefined,
         mockPayment: false,
@@ -310,21 +304,11 @@ function ToursCheckoutInner({
 
       setReferenceNumber(result.referenceNumber);
 
-      const urls = buildCheckoutUrls("/tours");
-
-      const paymentResult = await createCheckout({
-        type: "tour",
-        recordId: result.id,
-        successUrl: urls.successUrl,
-        cancelUrl: urls.cancelUrl,
-      });
-
-      if (paymentResult.mode === "checkout") {
-        window.location.href = paymentResult.url;
-        return;
-      }
-
-      setPaymentMessage(paymentResult.message ?? "Payment processed.");
+      // All tour orders pay offline (bank / MoMo). The backend stores the
+      // order as pending; the bank details are shown on the payment step.
+      setPaymentMessage(
+        "Complete your payment via bank transfer or Mobile Money using the account details shown on the payment step. Your tickets will be confirmed once the finance team verifies your payment.",
+      );
       setConfirmed(true);
       toast.success("Tour order submitted successfully");
     } catch (err) {
@@ -835,62 +819,18 @@ function ToursCheckoutInner({
                     )}
                   </p>
                 </div>
-                <div className="space-y-3">
-                  <Label>Payment method</Label>
-                  <RadioGroup
-                    value={gateway}
-                    onValueChange={(value) =>
-                      setGateway(value as CheckoutGateway)
-                    }
-                    className="grid gap-2"
-                  >
-                    <Label
-                      htmlFor="tour-gateway-stripe"
-                      className="flex cursor-pointer items-start gap-3 rounded-lg border p-3"
-                    >
-                      <RadioGroupItem
-                        id="tour-gateway-stripe"
-                        value="stripe"
-                        className="mt-0.5"
-                      />
-                      <span>
-                        <span className="font-medium text-foreground">
-                          Stripe
-                        </span>
-                        <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
-                          Cards for international payments
-                        </span>
-                      </span>
-                    </Label>
-                    <Label
-                      htmlFor="tour-gateway-paypal"
-                      className="flex cursor-pointer items-start gap-3 rounded-lg border p-3"
-                    >
-                      <RadioGroupItem
-                        id="tour-gateway-paypal"
-                        value="paypal"
-                        className="mt-0.5"
-                      />
-                      <span>
-                        <span className="font-medium text-foreground">
-                          PayPal
-                        </span>
-                        <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
-                          PayPal balance or cards
-                        </span>
-                      </span>
-                    </Label>
-                  </RadioGroup>
-                </div>
                 <Alert>
-                  <AlertTitle>
-                    {gateway === "stripe" ? "Stripe Checkout" : "PayPal Checkout"}
-                  </AlertTitle>
+                  <AlertTitle>Offline payment — Bank transfer / Mobile Money</AlertTitle>
                   <AlertDescription>
-                    You will be redirected to complete payment, then return with
-                    your confirmation.
+                    Pay the exact total by bank transfer or Mobile Money to the
+                    account below. Your tickets are confirmed once the finance
+                    team verifies your payment.
                   </AlertDescription>
                 </Alert>
+                <div className="rounded-lg border bg-muted/40 p-3 text-sm whitespace-pre-line">
+                  {portalConfig?.registrationBankDetails ||
+                    "Account details will be shown here once configured by the Super Admin."}
+                </div>
                 {error && (
                   <Alert className="border-destructive/30 bg-destructive/5">
                     <AlertDescription>{error}</AlertDescription>
@@ -982,12 +922,10 @@ function ToursCheckoutInner({
                   {loading ? (
                     <>
                       <Loader2Icon className="size-4 animate-spin" />
-                      Redirecting…
+                      Submitting…
                     </>
-                  ) : gateway === "paypal" ? (
-                    "Pay with PayPal"
                   ) : (
-                    "Pay with Stripe"
+                    "Submit order"
                   )}
                 </AppButton>
               </div>

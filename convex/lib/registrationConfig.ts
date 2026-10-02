@@ -10,11 +10,11 @@ export type RegistrationRegion =
   | "rest_of_world";
 
 /**
- * Gateways after the Paystack removal: Stripe for online international flows,
- * PayPal alongside it, and `offline` for Ghana cedi pricing (bank / MoMo
- * instructions with receipt verification in the admin console).
+ * Online gateways (Stripe, PayPal) were removed — every region pays offline
+ * (bank / MoMo instructions with receipt verification in the admin console).
+ * Kept as a union with the historical literals so legacy rows still typecheck.
  */
-export type PaymentGateway = "stripe" | "paypal" | "offline";
+export type PaymentGateway = "offline";
 
 export type GroupPricing = {
   price: number;
@@ -40,37 +40,37 @@ export const GROUP_PRICING: Record<string, GroupPricing> = {
   "UD Africa": {
     price: 20,
     currency: "USD",
-    gateway: "stripe",
+    gateway: "offline",
     regionKey: "rest_of_africa",
   },
   "UD EU": {
     price: 20,
     currency: "EUR",
-    gateway: "stripe",
+    gateway: "offline",
     regionKey: "rest_of_europe",
   },
   "UD EU - UK": {
     price: 20,
     currency: "GBP",
-    gateway: "stripe",
+    gateway: "offline",
     regionKey: "uk",
   },
   "UD EU - Switzerland": {
     price: 20,
     currency: "CHF",
-    gateway: "stripe",
+    gateway: "offline",
     regionKey: "switzerland",
   },
   "UD North America": {
     price: 20,
     currency: "USD",
-    gateway: "stripe",
+    gateway: "offline",
     regionKey: "usa",
   },
   "United Islands": {
     price: 20,
     currency: "USD",
-    gateway: "stripe",
+    gateway: "offline",
     regionKey: "rest_of_world",
   },
   "United Jesus": {
@@ -82,7 +82,7 @@ export const GROUP_PRICING: Record<string, GroupPricing> = {
   "Eschatos International": {
     price: 20,
     currency: "USD",
-    gateway: "stripe",
+    gateway: "offline",
     regionKey: "rest_of_world",
   },
   "Reasonable Service Church": {
@@ -100,7 +100,7 @@ export const GROUP_PRICING: Record<string, GroupPricing> = {
   Other: {
     price: 20,
     currency: "USD",
-    gateway: "stripe",
+    gateway: "offline",
     regionKey: "rest_of_world",
   },
 };
@@ -126,33 +126,33 @@ export const REGION_CONFIG: Record<
     label: "Rest of Africa",
     price: 20,
     currency: "USD",
-    gateway: "stripe",
+    gateway: "offline",
   },
-  usa: { label: "USA", price: 20, currency: "USD", gateway: "stripe" },
-  canada: { label: "Canada", price: 20, currency: "CAD", gateway: "stripe" },
+  usa: { label: "USA", price: 20, currency: "USD", gateway: "offline" },
+  canada: { label: "Canada", price: 20, currency: "CAD", gateway: "offline" },
   switzerland: {
     label: "Switzerland",
     price: 20,
     currency: "CHF",
-    gateway: "stripe",
+    gateway: "offline",
   },
   uk: {
     label: "United Kingdom",
     price: 20,
     currency: "GBP",
-    gateway: "stripe",
+    gateway: "offline",
   },
   rest_of_europe: {
     label: "Rest of Europe",
     price: 20,
     currency: "EUR",
-    gateway: "stripe",
+    gateway: "offline",
   },
   rest_of_world: {
     label: "Rest of the World",
     price: 20,
     currency: "USD",
-    gateway: "stripe",
+    gateway: "offline",
   },
 };
 

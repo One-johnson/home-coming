@@ -251,6 +251,7 @@ export default defineSchema({
       v.union(
         v.literal("stripe"),
         v.literal("paypal"),
+        v.literal("offline"),
       ),
     ),
     paymentStatus: v.union(
@@ -312,6 +313,7 @@ export default defineSchema({
     gateway: v.union(
       v.literal("stripe"),
       v.literal("paypal"),
+      v.literal("offline"),
     ),
     paymentStatus: v.union(
       v.literal("pending_payment"),

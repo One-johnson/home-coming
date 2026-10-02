@@ -371,11 +371,7 @@ export default function RegistrationsTab() {
           {
             columnId: "paymentMode",
             title: "Mode",
-            options: [
-              { value: "offline", label: "offline" },
-              { value: "stripe", label: "stripe" },
-              { value: "paypal", label: "paypal" },
-            ],
+            options: [{ value: "offline", label: "offline" }],
           },
           {
             columnId: "paymentStatus",

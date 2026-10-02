@@ -374,7 +374,7 @@ export async function createBookingWithGuests(
     hub: Doc<"agcHubs">;
     rep: Doc<"agcRepresentatives">;
     guests: BookingGuestInput[];
-    paymentMode: "offline" | "stripe" | "paypal";
+    paymentMode: "offline";
     referenceNumber: string;
   },
 ): Promise<CreateBookingResult> {

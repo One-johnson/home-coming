@@ -12,7 +12,10 @@ export type RegionPricing = {
   label: string;
   price: number;
   currency: string;
-  /** Offline (GHS hubs) or online-capable international hubs. */
+  /**
+   * Legacy Stripe-era flag. Every region now pays offline (bank / MoMo with
+   * receipt verification); kept only so historical DB rows still validate.
+   */
   online: boolean;
 };
 
@@ -28,32 +31,32 @@ export const AGC_REGIONS: Record<AgcRegion, RegionPricing> = {
     label: "Rest of Africa",
     price: 10,
     currency: "USD",
-    online: true,
+    online: false,
   },
   north_america: {
     label: "North America",
     price: 20,
     currency: "USD",
-    online: true,
+    online: false,
   },
-  england: { label: "England", price: 20, currency: "GBP", online: true },
+  england: { label: "England", price: 20, currency: "GBP", online: false },
   switzerland: {
     label: "Switzerland",
     price: 20,
     currency: "CHF",
-    online: true,
+    online: false,
   },
   rest_of_europe: {
     label: "Rest of Europe",
     price: 20,
     currency: "EUR",
-    online: true,
+    online: false,
   },
   rest_of_world: {
     label: "Rest of World",
     price: 20,
     currency: "USD",
-    online: true,
+    online: false,
   },
 };
 
