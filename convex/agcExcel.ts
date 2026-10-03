@@ -387,6 +387,49 @@ function addBookingSheets(
   workbook: ExcelJS.Workbook,
   entries: BookingExportRow[],
 ) {
+  // Guests first: this is the sheet that opens with the workbook and the one
+  // coordinators work from, so every guest row names the hub that owns them
+  // and carries gender + accommodation type for room allocation.
+  const guestSheet = workbook.addWorksheet("Guests");
+  guestSheet.columns = [
+    { header: "Booking Reference", key: "reference", width: 16 },
+    { header: "Hub", key: "hub", width: 28 },
+    { header: "Title", key: "title", width: 10 },
+    { header: "First Name", key: "firstName", width: 20 },
+    { header: "Last Name", key: "lastName", width: 20 },
+    { header: "Gender", key: "gender", width: 10 },
+    { header: "Accommodation Type", key: "type", width: 22 },
+    { header: "Pool", key: "pool", width: 14 },
+    { header: "Bishop Rate", key: "bishop", width: 12 },
+    { header: "Guest Status", key: "guestStatus", width: 12 },
+    { header: "Booking Status", key: "bookingStatus", width: 16 },
+    { header: "Payment Status", key: "paymentStatus", width: 18 },
+    { header: "Country", key: "country", width: 16 },
+  ];
+  guestSheet.getRow(1).font = { bold: true };
+  for (const entry of entries) {
+    for (const guest of entry.guests) {
+      guestSheet.addRow({
+        reference: entry.booking.referenceNumber ?? "",
+        hub: entry.booking.hubName,
+        title: guest.title,
+        firstName: guest.firstName,
+        lastName: guest.lastName,
+        gender: guest.gender,
+        type: guest.accommodationType,
+        pool: guest.pool,
+        bishop: guest.isBishopRate ? "yes" : "no",
+        guestStatus: guest.status,
+        // Guest status is not cascaded when a booking is cancelled/expired,
+        // so carry the booking state too — filters must not room dead holds.
+        bookingStatus: entry.booking.bookingStatus,
+        paymentStatus: entry.booking.paymentStatus,
+        country: guest.country,
+      });
+    }
+  }
+  guestSheet.autoFilter = { from: "A1", to: "M1" };
+
   const sheet = workbook.addWorksheet("Bookings");
   sheet.columns = [
     { header: "Reference", key: "reference", width: 14 },
@@ -420,38 +463,6 @@ function addBookingSheets(
     });
   }
   sheet.autoFilter = { from: "A1", to: "K1" };
-
-  const guestSheet = workbook.addWorksheet("Guests");
-  guestSheet.columns = [
-    { header: "Booking Reference", key: "reference", width: 16 },
-    { header: "Title", key: "title", width: 10 },
-    { header: "First Name", key: "firstName", width: 20 },
-    { header: "Last Name", key: "lastName", width: 20 },
-    { header: "Gender", key: "gender", width: 10 },
-    { header: "Type", key: "type", width: 18 },
-    { header: "Pool", key: "pool", width: 14 },
-    { header: "Bishop Rate", key: "bishop", width: 12 },
-    { header: "Status", key: "status", width: 12 },
-    { header: "Country", key: "country", width: 16 },
-  ];
-  guestSheet.getRow(1).font = { bold: true };
-  for (const entry of entries) {
-    for (const guest of entry.guests) {
-      guestSheet.addRow({
-        reference: entry.booking.referenceNumber ?? "",
-        title: guest.title,
-        firstName: guest.firstName,
-        lastName: guest.lastName,
-        gender: guest.gender,
-        type: guest.accommodationType,
-        pool: guest.pool,
-        bishop: guest.isBishopRate ? "yes" : "no",
-        status: guest.status,
-        country: guest.country,
-      });
-    }
-  }
-  guestSheet.autoFilter = { from: "A1", to: "J1" };
 }
 
 export const exportBookingsExcel = action({
@@ -708,6 +719,45 @@ export const exportRepBookingsExcel = action({
     );
 
     const workbook = new ExcelJS.Workbook();
+
+    // Guests first, mirroring the admin workbook: one row per guest with the
+    // hub, gender and accommodation type needed for the rooming list.
+    const guestSheet = workbook.addWorksheet("Guests");
+    guestSheet.columns = [
+      { header: "Booking Reference", key: "reference", width: 16 },
+      { header: "Hub", key: "hub", width: 28 },
+      { header: "Title", key: "title", width: 10 },
+      { header: "First Name", key: "firstName", width: 20 },
+      { header: "Last Name", key: "lastName", width: 20 },
+      { header: "Gender", key: "gender", width: 10 },
+      { header: "Accommodation Type", key: "type", width: 22 },
+      { header: "Pool", key: "pool", width: 14 },
+      { header: "Bishop Rate", key: "bishop", width: 12 },
+      { header: "Guest Status", key: "guestStatus", width: 12 },
+      { header: "Booking Status", key: "bookingStatus", width: 16 },
+      { header: "Payment Status", key: "paymentStatus", width: 18 },
+    ];
+    guestSheet.getRow(1).font = { bold: true };
+    for (const entry of data.entries) {
+      for (const guest of entry.guests) {
+        guestSheet.addRow({
+          reference: entry.booking.referenceNumber,
+          hub: data.hubName,
+          title: guest.title,
+          firstName: guest.firstName,
+          lastName: guest.lastName,
+          gender: guest.gender,
+          type: guest.accommodationType,
+          pool: guest.pool,
+          bishop: guest.isBishopRate ? "yes" : "no",
+          guestStatus: guest.status,
+          bookingStatus: entry.booking.bookingStatus,
+          paymentStatus: entry.booking.paymentStatus,
+        });
+      }
+    }
+    guestSheet.autoFilter = { from: "A1", to: "L1" };
+
     const sheet = workbook.addWorksheet("Bookings");
     sheet.columns = [
       { header: "Reference", key: "reference", width: 14 },
@@ -762,36 +812,6 @@ export const exportRepBookingsExcel = action({
       });
     }
     sheet.autoFilter = { from: "A1", to: "N1" };
-
-    const guestSheet = workbook.addWorksheet("Guests");
-    guestSheet.columns = [
-      { header: "Booking Reference", key: "reference", width: 16 },
-      { header: "Title", key: "title", width: 10 },
-      { header: "First Name", key: "firstName", width: 20 },
-      { header: "Last Name", key: "lastName", width: 20 },
-      { header: "Gender", key: "gender", width: 10 },
-      { header: "Type", key: "type", width: 18 },
-      { header: "Pool", key: "pool", width: 14 },
-      { header: "Bishop Rate", key: "bishop", width: 12 },
-      { header: "Status", key: "status", width: 12 },
-    ];
-    guestSheet.getRow(1).font = { bold: true };
-    for (const entry of data.entries) {
-      for (const guest of entry.guests) {
-        guestSheet.addRow({
-          reference: entry.booking.referenceNumber,
-          title: guest.title,
-          firstName: guest.firstName,
-          lastName: guest.lastName,
-          gender: guest.gender,
-          type: guest.accommodationType,
-          pool: guest.pool,
-          bishop: guest.isBishopRate ? "yes" : "no",
-          status: guest.status,
-        });
-      }
-    }
-    guestSheet.autoFilter = { from: "A1", to: "I1" };
 
     const linesSheet = workbook.addWorksheet("Pricing Lines");
     linesSheet.columns = [
