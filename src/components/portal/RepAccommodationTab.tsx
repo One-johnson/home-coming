@@ -1,12 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import {
+  type LucideIcon,
   AlertTriangleIcon,
+  BedDoubleIcon,
   CalendarClockIcon,
   ChevronDownIcon,
+  ClipboardListIcon,
   DownloadIcon,
+  EllipsisIcon,
+  FileSpreadsheetIcon,
   LayoutGridIcon,
   Loader2Icon,
   PencilIcon,
@@ -14,12 +19,14 @@ import {
   SearchIcon,
   TableIcon,
   Trash2Icon,
+  UserPlusIcon,
   UsersIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import { useRepSession } from "@/components/portal/RepSessionProvider";
+import { useIsCompact } from "@/hooks/use-media-query";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -39,6 +46,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -49,6 +62,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import {
   Table,
   TableBody,
@@ -63,6 +84,7 @@ import { uploadFileToConvex } from "@/lib/galleryUpload";
 import { compressImageForUpload } from "@/lib/imageCompress";
 import { downloadBase64File } from "@/lib/downloadFile";
 import { friendlyError } from "@/lib/friendlyError";
+import { cn } from "@/lib/utils";
 import {
   AGC_ACCOMMODATION_LABELS,
   bookingStatusMeta,
@@ -74,11 +96,12 @@ import {
   guestRosterRows,
   isClosedBooking,
 } from "@/lib/agcBookingView";
-import { StatTile } from "@/components/portal/StatTile";
 import type {
   AccommodationOverview,
+  AccommodationTypeInfo,
   RepBooking,
 } from "@/lib/agcBookingTypes";
+import type { BookingSummary } from "@/lib/bookingMath";
 import type { AgcAccommodationType, AgcRegion } from "@/lib/agcPortal";
 import {
   AGC_ACCOMMODATION_TYPES,
@@ -125,6 +148,48 @@ const emptyDraft = (): Draft => ({
 const draftIsValid = (draft: Draft) =>
   draft.firstName.trim().length > 0 && draft.lastName.trim().length > 0;
 
+const BOOKING_FILTERS = [
+  { value: "all", label: "All" },
+  { value: "active", label: "Active" },
+  { value: "awaiting", label: "Awaiting payment" },
+  { value: "closed", label: "Closed" },
+] as const;
+
+type BookingFilter = (typeof BOOKING_FILTERS)[number]["value"];
+
+/** "GHS 1,500" — thousands separators everywhere money is shown. */
+function formatMoney(amount: number, currency: string) {
+  return `${currency} ${amount.toLocaleString("en-US")}`;
+}
+
+/** Shared by the list filter and the filter chips so counts can't drift. */
+function bookingMatchesFilter(booking: RepBooking, filter: BookingFilter) {
+  switch (filter) {
+    case "active":
+      return (
+        booking.bookingStatus === "reserved" ||
+        booking.bookingStatus === "pending_verification" ||
+        booking.bookingStatus === "correction_requested"
+      );
+    case "awaiting":
+      // Closed holds (cancelled/expired) are never "awaiting payment" —
+      // they no longer owe anything and must not inflate chase lists.
+      return (
+        !isClosedBooking(booking) &&
+        (booking.paymentStatus === "awaiting_payment" ||
+          booking.paymentStatus === "correction_requested")
+      );
+    case "closed":
+      return (
+        booking.bookingStatus === "confirmed" ||
+        booking.bookingStatus === "cancelled" ||
+        booking.bookingStatus === "expired"
+      );
+    default:
+      return true;
+  }
+}
+
 /** Live hold-countdown chip: amber under 24h, red under 6h. */
 function HoldCountdown({ expiresAt }: { expiresAt: number }) {
   const [now, setNow] = useState(() => Date.now());
@@ -164,6 +229,919 @@ function HoldCountdown({ expiresAt }: { expiresAt: number }) {
       <CalendarClockIcon className="mr-1 size-3" />
       {label}
     </Badge>
+  );
+}
+
+/** Centered dialog on desktop, bottom sheet on phones/tablets. */
+function ResponsiveDialog({
+  open,
+  onOpenChange,
+  title,
+  description,
+  children,
+  footer,
+  contentClassName,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  title: string;
+  description?: ReactNode;
+  children?: ReactNode;
+  footer?: ReactNode;
+  contentClassName?: string;
+}) {
+  const isCompact = useIsCompact();
+
+  if (isCompact) {
+    return (
+      <Sheet open={open} onOpenChange={onOpenChange}>
+        <SheetContent
+          side="bottom"
+          className={cn(
+            "max-h-[90dvh] gap-0 rounded-t-2xl p-0",
+            contentClassName,
+          )}
+        >
+          <div
+            className="mx-auto mt-3 h-1.5 w-12 shrink-0 rounded-full bg-muted-foreground/30"
+            aria-hidden
+          />
+          <SheetHeader className="shrink-0 gap-1 border-b border-border bg-muted/30 px-4 py-3 text-left">
+            <SheetTitle className="text-base">{title}</SheetTitle>
+            {description ? (
+              <SheetDescription className="text-xs leading-relaxed">
+                {description}
+              </SheetDescription>
+            ) : null}
+          </SheetHeader>
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+            {children}
+          </div>
+          {footer ? (
+            <SheetFooter className="shrink-0 flex-row flex-wrap justify-end gap-2 border-t border-border bg-muted/20 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+              {footer}
+            </SheetFooter>
+          ) : null}
+        </SheetContent>
+      </Sheet>
+    );
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        className={cn("max-h-[85dvh] overflow-y-auto", contentClassName)}
+      >
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          {description ? (
+            <DialogDescription>{description}</DialogDescription>
+          ) : null}
+        </DialogHeader>
+        {children}
+        {footer ? <DialogFooter>{footer}</DialogFooter> : null}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** One consistent zone heading: icon + title + count badge + right slot. */
+function ZoneHeader({
+  icon: Icon,
+  title,
+  badge,
+  description,
+  right,
+}: {
+  icon: LucideIcon;
+  title: string;
+  badge?: ReactNode;
+  description?: ReactNode;
+  right?: ReactNode;
+}) {
+  return (
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="min-w-0 space-y-1.5">
+        <CardTitle className="flex flex-wrap items-center gap-2 text-lg">
+          <Icon className="size-4 shrink-0 text-gold-dark" />
+          {title}
+          {badge !== undefined ? (
+            <Badge
+              variant="outline"
+              className="text-[11px] font-normal text-muted-foreground"
+            >
+              {badge}
+            </Badge>
+          ) : null}
+        </CardTitle>
+        {description ? <CardDescription>{description}</CardDescription> : null}
+      </div>
+      {right ? (
+        <div className="flex flex-wrap items-center gap-2">{right}</div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Capacity board: live pool counts grouped by what actually shares
+ * inventory (regional pools vs global pools), with price and bishop price.
+ */
+function CapacityBoard({
+  rows,
+  types,
+  currency,
+  isOffline,
+  deadline,
+  holdHours,
+}: {
+  rows: AccommodationOverview["availability"];
+  types: AccommodationTypeInfo[];
+  currency: string;
+  isOffline: boolean;
+  deadline: number;
+  holdHours: number;
+}) {
+  const [now] = useState(() => Date.now());
+  const msLeft = deadline - now;
+  const daysLeft = msLeft > 0 ? Math.ceil(msLeft / 86_400_000) : 0;
+
+  const labelFor = (type: string) =>
+    types.find((entry) => entry.type === type)?.label ??
+    AGC_ACCOMMODATION_LABELS[type as keyof typeof AGC_ACCOMMODATION_LABELS] ??
+    type;
+
+  const regional = rows.filter((row) => row.scope !== "global");
+  const global = rows.filter((row) => row.scope === "global");
+
+  const renderRow = (row: AccommodationOverview["availability"][number]) => {
+    const soldOut = row.available <= 0;
+    const nearlyGone =
+      !soldOut && row.total > 0 && row.available <= Math.ceil(row.total * 0.1);
+    const percent =
+      row.total > 0
+        ? Math.min(100, Math.round((row.available / row.total) * 100))
+        : 0;
+    const unitNoun = row.scope === "per_room" ? "rooms" : "beds";
+    const price = isOffline ? row.priceGhs : row.priceUsd;
+    const bishopPrice = isOffline ? row.bishopPriceGhs : row.bishopPriceUsd;
+
+    return (
+      <div
+        key={row.accommodationType}
+        className={cn("rounded-xl border p-3", soldOut && "opacity-70")}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <p className="min-w-0 truncate text-sm font-medium">
+            {labelFor(row.accommodationType)}
+          </p>
+          <Badge
+            variant="outline"
+            className={cn(
+              "shrink-0 text-[10px]",
+              soldOut
+                ? "border-destructive/40 bg-destructive/10 text-destructive"
+                : nearlyGone
+                  ? "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300"
+                  : "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
+            )}
+          >
+            {soldOut ? "Sold out" : nearlyGone ? "Nearly gone" : "Open"}
+          </Badge>
+        </div>
+        <p className="mt-1.5 text-xs text-muted-foreground">
+          <span className="text-base font-semibold text-foreground tabular-nums">
+            {row.available.toLocaleString("en-US")}
+          </span>{" "}
+          of {row.total.toLocaleString("en-US")} {unitNoun} left
+        </p>
+        <div
+          aria-hidden
+          className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted"
+        >
+          <div
+            className={cn(
+              "h-full rounded-full transition-all",
+              soldOut
+                ? "bg-destructive/70"
+                : nearlyGone
+                  ? "bg-amber-500"
+                  : "bg-emerald-500",
+            )}
+            style={{ width: `${percent}%` }}
+          />
+        </div>
+        <p className="mt-2 text-[11px] text-muted-foreground tabular-nums">
+          {formatMoney(price, currency)} / bed
+          {row.accommodationType === "ebpv" &&
+            ` · bishop ${formatMoney(bishopPrice, currency)}`}
+        </p>
+      </div>
+    );
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge
+          variant="outline"
+          className={cn(
+            "text-[11px] font-normal",
+            daysLeft > 0 && daysLeft <= 7
+              ? "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300"
+              : "text-muted-foreground",
+          )}
+        >
+          <CalendarClockIcon className="mr-1 size-3" />
+          {daysLeft > 0
+            ? `${daysLeft} day${daysLeft === 1 ? "" : "s"} left — closes`
+            : "Closes"}{" "}
+          {new Date(deadline).toLocaleDateString(undefined, {
+            day: "numeric",
+            month: "short",
+          })}
+        </Badge>
+        <Badge
+          variant="outline"
+          className="text-[11px] font-normal text-muted-foreground"
+        >
+          Holds last {holdHours}h
+        </Badge>
+      </div>
+      {regional.length > 0 ? (
+        <div className="space-y-2">
+          <p className="text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
+            Shared with hubs in your region
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {regional.map(renderRow)}
+          </div>
+        </div>
+      ) : null}
+      {global.length > 0 ? (
+        <div className="space-y-2">
+          <p className="text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
+            Shared across all regions
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {global.map(renderRow)}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Guest row: compact summary header (tappable on mobile) over the priced
+ * fields. Shared by the create builder and the edit dialog.
+ */
+function GuestRowEditor({
+  draft,
+  index,
+  variant = "create",
+  expanded = true,
+  onToggle,
+  onChange,
+  onRemove,
+  currency,
+  accommodationTypes,
+  availabilityFor,
+  priceFor,
+  bishopAmountLabel,
+}: {
+  draft: Draft;
+  index: number;
+  variant?: "create" | "edit";
+  expanded?: boolean;
+  onToggle?: () => void;
+  onChange: (patch: Partial<Draft>) => void;
+  onRemove: () => void;
+  currency: string;
+  accommodationTypes: AccommodationTypeInfo[] | undefined;
+  availabilityFor: (type: string) => { available: number } | undefined;
+  priceFor: (type: AgcAccommodationType, isBishopRate: boolean) => number;
+  bishopAmountLabel: string;
+}) {
+  const compact = variant === "edit";
+  const availability = availabilityFor(draft.accommodationType);
+  // The edit dialog releases the booking's own units before re-reserving, so
+  // listed sold-out counts there must not block choosing a type.
+  const soldOut = !compact && availability ? availability.available <= 0 : false;
+  const typeLabel =
+    accommodationTypes?.find((entry) => entry.type === draft.accommodationType)
+      ?.label ??
+    AGC_ACCOMMODATION_LABELS[draft.accommodationType] ??
+    draft.accommodationType;
+  const fullName = `${draft.firstName} ${draft.lastName}`.trim();
+
+  const summary = (
+    <>
+      <span className="block truncate text-sm font-medium">
+        {fullName || `Guest ${index + 1}`}
+      </span>
+      <span className="block truncate text-xs text-muted-foreground">
+        {typeLabel}
+        {draft.isBishopRate ? " · Bishop rate" : ""} ·{" "}
+        <span className="tabular-nums">
+          {formatMoney(
+            priceFor(draft.accommodationType, draft.isBishopRate),
+            currency,
+          )}
+        </span>
+        /bed
+      </span>
+    </>
+  );
+
+  return (
+    <div className="overflow-hidden rounded-xl border">
+      <div className="flex items-center gap-3 p-3">
+        <span
+          aria-hidden
+          className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold tabular-nums text-muted-foreground"
+        >
+          {index + 1}
+        </span>
+        {onToggle ? (
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-expanded={expanded}
+            className="min-w-0 flex-1 text-left"
+          >
+            {summary}
+          </button>
+        ) : (
+          <div className="min-w-0 flex-1">{summary}</div>
+        )}
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          onClick={onRemove}
+          aria-label={`Remove guest ${index + 1}`}
+          className="shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
+        >
+          <Trash2Icon className="size-4" />
+        </Button>
+        {onToggle ? (
+          <ChevronDownIcon
+            aria-hidden
+            className={cn(
+              "size-4 shrink-0 text-muted-foreground transition-transform md:hidden",
+              expanded && "rotate-180",
+            )}
+          />
+        ) : null}
+      </div>
+      <div
+        className={cn(
+          "grid gap-3 border-t p-3 sm:grid-cols-2 sm:p-4",
+          !compact && "lg:grid-cols-4",
+          !expanded && "hidden md:grid",
+        )}
+      >
+        <div className="space-y-1.5">
+          <Label className={cn(compact && "text-xs")}>Title</Label>
+          <Select
+            value={draft.title}
+            onValueChange={(value) => onChange({ title: value ?? draft.title })}
+          >
+            <SelectTrigger className={cn("w-full", compact && "h-9")}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {TITLE_OPTIONS.map((option) => (
+                <SelectItem key={option} value={option}>
+                  {option}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1.5">
+          <Label className={cn(compact && "text-xs")}>
+            First name
+            {!draft.firstName.trim() && (
+              <span className="text-destructive"> *</span>
+            )}
+          </Label>
+          <Input
+            className={cn(compact && "h-9")}
+            value={draft.firstName}
+            aria-invalid={!draft.firstName.trim()}
+            onChange={(e) => onChange({ firstName: e.target.value })}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label className={cn(compact && "text-xs")}>
+            Last name
+            {!draft.lastName.trim() && (
+              <span className="text-destructive"> *</span>
+            )}
+          </Label>
+          <Input
+            className={cn(compact && "h-9")}
+            value={draft.lastName}
+            aria-invalid={!draft.lastName.trim()}
+            onChange={(e) => onChange({ lastName: e.target.value })}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label className={cn(compact && "text-xs")}>Gender</Label>
+          <Select
+            value={draft.gender}
+            onValueChange={(value) =>
+              onChange({
+                gender: (value as "male" | "female") ?? draft.gender,
+              })
+            }
+          >
+            <SelectTrigger className={cn("w-full", compact && "h-9")}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="male">Male</SelectItem>
+              <SelectItem value="female">Female</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1.5 sm:col-span-2">
+          <Label className={cn(compact && "text-xs")}>Accommodation</Label>
+          <Select
+            value={draft.accommodationType}
+            items={accommodationTypes?.map((type) => ({
+              value: type.type,
+              label: type.label,
+            }))}
+            onValueChange={(value) => {
+              const next = (value ??
+                draft.accommodationType) as AgcAccommodationType;
+              onChange({
+                accommodationType: next,
+                // Bishop rate is EBPV-only — keep the pair consistent.
+                isBishopRate: next === "ebpv" ? draft.isBishopRate : false,
+              });
+            }}
+          >
+            <SelectTrigger className={cn("w-full", compact && "h-9")}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {accommodationTypes?.map((type) => {
+                const typeAvailability = availabilityFor(type.type);
+                const disabled =
+                  !compact && typeAvailability
+                    ? typeAvailability.available <= 0
+                    : false;
+                return (
+                  <SelectItem
+                    key={type.type}
+                    value={type.type}
+                    disabled={disabled}
+                  >
+                    <span className="flex w-full items-center justify-between gap-3">
+                      <span className="min-w-0 flex-1 truncate">
+                        {type.label}
+                        {disabled ? " — sold out" : ""}
+                      </span>
+                      <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                        {formatMoney(
+                          priceFor(type.type as AgcAccommodationType, false),
+                          currency,
+                        )}{" "}
+                        / bed
+                        {!compact && typeAvailability && !disabled
+                          ? ` · ${typeAvailability.available} left`
+                          : ""}
+                      </span>
+                    </span>
+                  </SelectItem>
+                );
+              })}
+            </SelectContent>
+          </Select>
+          {soldOut && (
+            <p className="text-xs text-destructive">
+              This type is sold out — pick another for this guest.
+            </p>
+          )}
+        </div>
+        <label
+          className={cn(
+            "flex items-center gap-2 rounded-lg border px-3 py-2 text-sm sm:col-span-2",
+            draft.accommodationType !== "ebpv" && "opacity-60",
+          )}
+          title={
+            draft.accommodationType !== "ebpv"
+              ? "Bishop rate applies to EBPV only"
+              : undefined
+          }
+        >
+          <Checkbox
+            checked={draft.isBishopRate}
+            disabled={draft.accommodationType !== "ebpv"}
+            onCheckedChange={(checked) =>
+              onChange({ isBishopRate: checked === true })
+            }
+          />
+          <span className="font-medium">Bishop rate</span>
+          <span className="text-xs text-muted-foreground tabular-nums">
+            +{bishopAmountLabel} · EBPV only
+          </span>
+        </label>
+      </div>
+    </div>
+  );
+}
+
+/** Fixed live totals bar: capsule on mobile, floating panel on desktop. */
+function SummaryBar({
+  guestCount,
+  summary,
+  currency,
+  capacityIssue,
+  allDraftsValid,
+  locked,
+  loading,
+  onReserve,
+  onShowBreakdown,
+}: {
+  guestCount: number;
+  summary: BookingSummary;
+  currency: string;
+  capacityIssue: string | null;
+  allDraftsValid: boolean;
+  locked: boolean;
+  loading: boolean;
+  onReserve: () => void;
+  onShowBreakdown: () => void;
+}) {
+  const disabled = loading || locked || !allDraftsValid || Boolean(capacityIssue);
+  const hint = capacityIssue
+    ? null
+    : !allDraftsValid
+      ? "Fill in every guest's first and last name to continue."
+      : locked
+        ? "Booking is paused by the convention administrators."
+        : null;
+
+  return (
+    <>
+      {/* Mobile: capsule above the portal bottom nav. */}
+      <div className="fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+3.75rem)] z-40 md:hidden">
+        <div className="rounded-xl border bg-card/95 p-3 shadow-lg backdrop-blur">
+          <div className="flex items-center justify-between gap-3">
+            <button
+              type="button"
+              onClick={onShowBreakdown}
+              className="min-w-0 text-left"
+            >
+              <span className="block truncate text-xs text-muted-foreground">
+                {guestCount} guest{guestCount === 1 ? "" : "s"} ·{" "}
+                {describeUnits(summary)}
+              </span>
+              <span className="block text-lg font-semibold tabular-nums">
+                {formatMoney(summary.totalAmount, currency)}
+              </span>
+            </button>
+            <Button
+              type="button"
+              onClick={onReserve}
+              disabled={disabled}
+              className="min-h-11 shrink-0"
+            >
+              {loading && <Loader2Icon className="size-4 animate-spin" />}
+              Reserve &amp; hold
+            </Button>
+          </div>
+          {capacityIssue ? (
+            <p className="mt-2 flex items-start gap-1.5 text-xs font-medium text-amber-700">
+              <AlertTriangleIcon className="mt-0.5 size-3.5 shrink-0" />{" "}
+              {capacityIssue}
+            </p>
+          ) : hint ? (
+            <p className="mt-2 text-[11px] text-muted-foreground">{hint}</p>
+          ) : null}
+        </div>
+      </div>
+
+      {/* Desktop: floating totals panel. */}
+      <div className="fixed right-6 bottom-6 z-40 hidden w-80 md:block">
+        <div className="rounded-xl border bg-card/95 p-4 shadow-lg backdrop-blur">
+          <p className="text-xs text-muted-foreground">
+            {guestCount} guest{guestCount === 1 ? "" : "s"} ·{" "}
+            {describeUnits(summary)}
+          </p>
+          <div className="mt-2 space-y-1">
+            {summary.lines.map((line) => (
+              <p
+                key={`${line.accommodationType}-${line.isBishopRate}`}
+                className="text-xs text-muted-foreground tabular-nums"
+              >
+                {line.units} × {formatMoney(line.unitPrice, currency)}
+                {line.isBishopRate ? " (bishop)" : ""} ={" "}
+                {formatMoney(line.subtotal, currency)}
+              </p>
+            ))}
+          </div>
+          <div className="mt-2 flex items-end justify-between gap-2">
+            <p className="text-xs text-muted-foreground">Total</p>
+            <p className="text-xl font-semibold tabular-nums">
+              {formatMoney(summary.totalAmount, currency)}
+            </p>
+          </div>
+          {capacityIssue ? (
+            <p className="mt-2 flex items-start gap-1.5 text-xs font-medium text-amber-700">
+              <AlertTriangleIcon className="mt-0.5 size-3.5 shrink-0" />{" "}
+              {capacityIssue}
+            </p>
+          ) : hint ? (
+            <p className="mt-2 text-[11px] text-muted-foreground">{hint}</p>
+          ) : null}
+          <Button
+            type="button"
+            onClick={onReserve}
+            disabled={disabled}
+            className="mt-3 w-full"
+          >
+            {loading && <Loader2Icon className="size-4 animate-spin" />}
+            Reserve &amp; hold
+          </Button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+/** Mobile-only per-line breakdown of the live summary. */
+function BreakdownSheet({
+  open,
+  onOpenChange,
+  guestCount,
+  summary,
+  currency,
+  capacityIssue,
+  allDraftsValid,
+  locked,
+  loading,
+  onReserve,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  guestCount: number;
+  summary: BookingSummary;
+  currency: string;
+  capacityIssue: string | null;
+  allDraftsValid: boolean;
+  locked: boolean;
+  loading: boolean;
+  onReserve: () => void;
+}) {
+  const disabled = loading || locked || !allDraftsValid || Boolean(capacityIssue);
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent side="bottom" className="gap-0 rounded-t-2xl p-0 md:hidden">
+        <div
+          className="mx-auto mt-3 h-1.5 w-12 rounded-full bg-muted-foreground/30"
+          aria-hidden
+        />
+        <SheetHeader className="border-b border-border bg-muted/30 px-4 py-3 text-left">
+          <SheetTitle className="text-base">Booking summary</SheetTitle>
+          <SheetDescription>
+            {guestCount} guest{guestCount === 1 ? "" : "s"} — every bed priced
+            for your region.
+          </SheetDescription>
+        </SheetHeader>
+        <div className="space-y-2 px-4 py-4">
+          {summary.lines.map((line) => (
+            <div
+              key={`${line.accommodationType}-${line.isBishopRate}`}
+              className="flex items-center justify-between gap-3 text-sm"
+            >
+              <div className="min-w-0">
+                <p className="truncate">
+                  {line.units} ×{" "}
+                  {AGC_ACCOMMODATION_LABELS[line.accommodationType] ??
+                    line.accommodationType}
+                </p>
+                <p className="text-xs text-muted-foreground tabular-nums">
+                  {formatMoney(line.unitPrice, currency)} / bed
+                  {line.isBishopRate ? " · bishop rate" : ""}
+                </p>
+              </div>
+              <p className="shrink-0 tabular-nums">
+                {formatMoney(line.subtotal, currency)}
+              </p>
+            </div>
+          ))}
+          <div className="flex items-center justify-between gap-3 border-t pt-3 text-sm">
+            <p className="font-medium">Total</p>
+            <p className="text-lg font-semibold tabular-nums">
+              {formatMoney(summary.totalAmount, currency)}
+            </p>
+          </div>
+          {capacityIssue ? (
+            <p className="flex items-start gap-1.5 text-xs font-medium text-amber-700">
+              <AlertTriangleIcon className="mt-0.5 size-3.5 shrink-0" />{" "}
+              {capacityIssue}
+            </p>
+          ) : null}
+        </div>
+        <SheetFooter className="border-t border-border bg-muted/20 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          <Button
+            type="button"
+            onClick={onReserve}
+            disabled={disabled}
+            className="min-h-11 w-full"
+          >
+            {loading && <Loader2Icon className="size-4 animate-spin" />}
+            Reserve &amp; hold
+          </Button>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+/** Booking card: same anatomy on every breakpoint. */
+function BookingCard({
+  booking,
+  locked,
+  loading,
+  onPay,
+  onEdit,
+  onCancel,
+  onDelete,
+  onSubstitute,
+}: {
+  booking: RepBooking;
+  locked: boolean;
+  loading: boolean;
+  onPay: (booking: RepBooking) => void;
+  onEdit: (booking: RepBooking) => void;
+  onCancel: (booking: RepBooking) => void;
+  onDelete: (booking: RepBooking) => void;
+  onSubstitute: (guest: RepBooking["guests"][number]) => void;
+}) {
+  const status = bookingStatusMeta(booking.bookingStatus);
+  const payStatus = displayPaymentStatus(booking);
+  const canPayOffline =
+    !isClosedBooking(booking) &&
+    booking.paymentMode === "offline" &&
+    booking.bookingStatus === "reserved" &&
+    (booking.paymentStatus === "awaiting_payment" ||
+      booking.paymentStatus === "correction_requested");
+  const canPayOnline =
+    !isClosedBooking(booking) &&
+    booking.paymentMode !== "offline" &&
+    booking.bookingStatus === "reserved" &&
+    booking.paymentStatus === "awaiting_payment";
+  const isReserved = booking.bookingStatus === "reserved";
+  const activeGuests = booking.guests.filter(
+    (guest) => guest.status === "active",
+  );
+
+  return (
+    <div className="flex flex-col rounded-xl border bg-card p-4 text-sm">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="font-mono text-xs tracking-wider">
+            {booking.referenceNumber || "(pending)"}
+          </p>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">
+            Created{" "}
+            {new Date(booking.createdAt).toLocaleDateString(undefined, {
+              day: "numeric",
+              month: "short",
+              year: "numeric",
+            })}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Badge variant="outline" className={status.className}>
+            {status.label}
+          </Badge>
+          <Badge variant="outline" className={payStatus.className}>
+            {payStatus.label}
+          </Badge>
+          {isReserved && booking.expiresAt ? (
+            <HoldCountdown expiresAt={booking.expiresAt} />
+          ) : null}
+        </div>
+      </div>
+
+      <div className="mt-3 flex items-end justify-between gap-3">
+        <p className="text-lg font-semibold tabular-nums">
+          {formatMoney(booking.totalAmount, booking.currency)}
+        </p>
+        <p className="text-xs text-muted-foreground">
+          {activeGuests.length} guest{activeGuests.length === 1 ? "" : "s"} ·{" "}
+          {booking.paymentMode === "offline" ? "offline" : "online"}
+        </p>
+      </div>
+
+      {booking.adminMessage ? (
+        <p className="mt-2 rounded-lg bg-orange-50 p-2 text-xs text-orange-900 dark:bg-orange-950 dark:text-orange-300">
+          {booking.adminMessage}
+        </p>
+      ) : null}
+
+      <ul className="mt-3 space-y-1.5">
+        {activeGuests.map((guest) => (
+          <li key={guest._id} className="flex items-center gap-2.5">
+            <span
+              aria-hidden
+              className={cn(
+                "flex size-7 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold",
+                guestAvatarClass(guest),
+              )}
+            >
+              {guestInitials(guest)}
+            </span>
+            <span className="min-w-0 flex-1 truncate text-xs">
+              {guest.title} {guest.firstName} {guest.lastName}
+            </span>
+            <span className="hidden shrink-0 text-[11px] text-muted-foreground sm:block">
+              {AGC_ACCOMMODATION_LABELS[
+                guest.accommodationType as keyof typeof AGC_ACCOMMODATION_LABELS
+              ] ?? guest.accommodationType}
+            </span>
+            {guest.isBishopRate ? (
+              <Badge variant="outline" className="shrink-0 text-[10px]">
+                Bishop
+              </Badge>
+            ) : null}
+            {isReserved ? (
+              <Button
+                type="button"
+                variant="link"
+                size="sm"
+                className="h-auto shrink-0 p-0 text-[11px]"
+                onClick={() => onSubstitute(guest)}
+              >
+                Substitute
+              </Button>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+
+      <div className="mt-auto flex flex-wrap items-center gap-2 pt-3">
+        {canPayOffline ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => onPay(booking)}
+          >
+            <ReceiptTextIcon className="size-4" /> Submit receipt
+          </Button>
+        ) : null}
+        {canPayOnline ? (
+          <Button type="button" size="sm" onClick={() => onPay(booking)}>
+            Pay online
+          </Button>
+        ) : null}
+        {isReserved ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              aria-label="More booking actions"
+              className="ml-auto inline-flex min-h-9 items-center justify-center rounded-lg border border-border bg-background px-2.5 outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <EllipsisIcon className="size-4" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem disabled={loading} onClick={() => onEdit(booking)}>
+                <PencilIcon /> Edit guests
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={loading}
+                onClick={() => onCancel(booking)}
+              >
+                Cancel reservation
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                variant="destructive"
+                disabled={loading}
+                onClick={() => onDelete(booking)}
+              >
+                <Trash2Icon /> Delete permanently
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
+      </div>
+
+      {locked ? (
+        <p className="mt-3 rounded-lg bg-emerald-50 p-2 text-xs text-emerald-900 dark:bg-emerald-950 dark:text-emerald-300">
+          Payment confirmed — this booking is locked. Contact the accommodation
+          desk for any changes.
+        </p>
+      ) : null}
+    </div>
   );
 }
 
@@ -207,20 +1185,41 @@ function PaymentDialog({
     Number(amountPaid) || 0,
     booking.totalAmount,
   );
+  const activeGuests = booking.guests.filter(
+    (g) => g.status === "active",
+  ).length;
 
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Submit payment receipt</DialogTitle>
-          <DialogDescription>
-            Booking {booking.referenceNumber} · {booking.currency}{" "}
-            {booking.totalAmount} ·{" "}
-            {booking.guests.filter((g) => g.status === "active").length} guest(s)
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-3">
+    <ResponsiveDialog
+      open
+      onOpenChange={(open) => !open && onClose()}
+      title="Submit payment receipt"
+      description={`Booking ${booking.referenceNumber} · ${formatMoney(booking.totalAmount, booking.currency)} · ${activeGuests} guest(s)`}
+      footer={
+        <>
+          <Button type="button" variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            disabled={submitting || !receipt || !amountMatches}
+            onClick={() =>
+              onSubmitOffline(booking, {
+                amountPaid,
+                paymentRef,
+                paymentDate,
+                method,
+                receipt,
+              })
+            }
+          >
+            {submitting && <Loader2Icon className="size-4 animate-spin" />}
+            <ReceiptTextIcon className="size-4" /> Upload receipt
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3">
             {bankDetails && (
               <p className="rounded-lg bg-muted p-3 text-xs whitespace-pre-line">
                 {bankDetails}
@@ -270,31 +1269,7 @@ function PaymentDialog({
             </div>
           </div>
 
-        <DialogFooter>
-          <Button type="button" variant="outline" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            disabled={submitting || !receipt || !amountMatches}
-            onClick={() =>
-              onSubmitOffline(booking, {
-                    amountPaid,
-                    paymentRef,
-                    paymentDate,
-                    method,
-                    receipt,
-                  })
-            }
-          >
-            {submitting && <Loader2Icon className="size-4 animate-spin" />}
-            <>
-                <ReceiptTextIcon className="size-4" /> Upload receipt
-              </>
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    </ResponsiveDialog>
   );
 }
 
@@ -314,44 +1289,54 @@ function ExcelPreviewDialog({
 }) {
   if (preview.rows.length === 0) {
     return (
-      <Dialog open onOpenChange={(open) => !open && onClose()}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>No bookable guests found</DialogTitle>
-            <DialogDescription>
-              The file has no valid guest rows. Fix the problems below and
-              upload again.
-            </DialogDescription>
-          </DialogHeader>
-          <ul className="max-h-48 space-y-1 overflow-y-auto text-xs text-destructive">
-            {preview.errors.map((error) => (
-              <li key={error}>• {error}</li>
-            ))}
-          </ul>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={onReset}>
-              Choose another file
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ResponsiveDialog
+        open
+        onOpenChange={(open) => !open && onClose()}
+        title="No bookable guests found"
+        description="The file has no valid guest rows. Fix the problems below and upload again."
+        footer={
+          <Button type="button" variant="outline" onClick={onReset}>
+            Choose another file
+          </Button>
+        }
+      >
+        <ul className="max-h-48 space-y-1 overflow-y-auto text-xs text-destructive">
+          {preview.errors.map((error) => (
+            <li key={error}>• {error}</li>
+          ))}
+        </ul>
+      </ResponsiveDialog>
     );
   }
 
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>Review your sheet</DialogTitle>
-          <DialogDescription>
+    <ResponsiveDialog
+      open
+      onOpenChange={(open) => !open && onClose()}
+      title="Review your sheet"
+      description={
+        <>
             {preview.rows.length} guest{preview.rows.length === 1 ? "" : "s"}{" "}
             ready to book.
             {preview.errors.length > 0 &&
               ` ${preview.errors.length} row${preview.errors.length === 1 ? "" : "s"} will be skipped (listed below).`}
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="max-h-72 overflow-y-auto rounded-lg border">
+        </>
+      }
+      contentClassName="sm:max-w-2xl"
+      footer={
+        <>
+          <Button type="button" variant="outline" onClick={onReset}>
+            Choose another file
+          </Button>
+          <Button type="button" onClick={onConfirm} disabled={submitting}>
+            {submitting && <Loader2Icon className="size-4 animate-spin" />}
+            Confirm &amp; book {preview.rows.length} guest
+            {preview.rows.length === 1 ? "" : "s"}
+          </Button>
+        </>
+      }
+    >
+      <div className="max-h-72 overflow-y-auto rounded-lg border">
           <Table>
             <TableHeader>
               <TableRow>
@@ -402,18 +1387,7 @@ function ExcelPreviewDialog({
           </div>
         )}
 
-        <DialogFooter>
-          <Button type="button" variant="outline" onClick={onReset}>
-            Choose another file
-          </Button>
-          <Button type="button" onClick={onConfirm} disabled={submitting}>
-            {submitting && <Loader2Icon className="size-4 animate-spin" />}
-            Confirm &amp; book {preview.rows.length} guest
-            {preview.rows.length === 1 ? "" : "s"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    </ResponsiveDialog>
   );
 }
 
@@ -476,9 +1450,7 @@ export function RepAccommodationTab() {
   const [subTitle, setSubTitle] = useState("");
 
   // Bookings list filters
-  const [filter, setFilter] = useState<
-    "all" | "active" | "awaiting" | "closed"
-  >("all");
+  const [filter, setFilter] = useState<BookingFilter>("all");
   const [search, setSearch] = useState("");
 
   // Desktop view mode: comfy cards or dense table (mobile is always cards).
@@ -490,6 +1462,15 @@ export function RepAccommodationTab() {
     () => guestRosterRows(bookings ?? []),
     [bookings],
   );
+
+  // Mobile: split the tab into two views so phones never scroll past a long
+  // builder to reach an existing booking.
+  const [mobileView, setMobileView] = useState<"book" | "bookings">("book");
+  // Mobile guest rows collapse to a summary; newly added guests auto-expand.
+  const [expandedGuest, setExpandedGuest] = useState<number | null>(null);
+  // Mobile-only per-line breakdown sheet.
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const builderRef = useRef<HTMLDivElement>(null);
 
   // Excel flow
   const [excelFileName, setExcelFileName] = useState("");
@@ -523,18 +1504,41 @@ export function RepAccommodationTab() {
   );
   const allDraftsValid = drafts.length > 0 && drafts.every(draftIsValid);
 
+  /** Live per-bed price for a draft (bishop rate applies to EBPV only). */
+  const priceFor = (type: AgcAccommodationType, isBishopRate: boolean) => {
+    if (isBishopRate && type === "ebpv") {
+      return isOffline ? liveBishop.ghs : liveBishop.usd;
+    }
+    const config = liveTypes[type] ?? AGC_ACCOMMODATION_TYPES[type];
+    return isOffline ? config.pricing.ghs : config.pricing.usd;
+  };
+  const bishopAmountLabel = formatMoney(
+    isOffline ? liveBishop.ghs : liveBishop.usd,
+    currency,
+  );
+
   const availabilityFor = (type: string) =>
     overview?.availability.find((row) => row.accommodationType === type);
 
-  const addDraft = () => setDrafts((prev) => [...prev, emptyDraft()]);
+  const addDraft = () => {
+    setExpandedGuest(drafts.length);
+    setDrafts((prev) => [...prev, emptyDraft()]);
+  };
 
   const updateDraft = (index: number, patch: Partial<Draft>) =>
     setDrafts((prev) =>
       prev.map((draft, i) => (i === index ? { ...draft, ...patch } : draft)),
     );
 
-  const removeDraft = (index: number) =>
+  const removeDraft = (index: number) => {
+    setExpandedGuest((current) => {
+      if (current === null) return current;
+      if (current === index) return null;
+      if (current > index) return current - 1;
+      return current;
+    });
     setDrafts((prev) => prev.filter((_, i) => i !== index));
+  };
 
   const handleCreateBooking = async () => {
     if (!sessionToken || drafts.length === 0) return;
@@ -565,6 +1569,7 @@ export function RepAccommodationTab() {
         expiresAt: result.expiresAt,
       });
       setDrafts([]);
+      setExpandedGuest(null);
       toast.success(
         `Reservation held until ${new Date(result.expiresAt).toLocaleString()}`,
       );
@@ -896,28 +1901,10 @@ export function RepAccommodationTab() {
 
   const filteredBookings = useMemo(() => {
     const all = bookings ?? [];
-    const matchesFilter = (booking: RepBooking) => {
-      switch (filter) {
-        case "active":
-          return booking.bookingStatus === "reserved" || booking.bookingStatus === "pending_verification" || booking.bookingStatus === "correction_requested";
-        case "awaiting":
-          // Closed holds (cancelled/expired) are never "awaiting payment" —
-          // they no longer owe anything and must not inflate chase lists.
-          return (
-            !isClosedBooking(booking) &&
-            (booking.paymentStatus === "awaiting_payment" ||
-              booking.paymentStatus === "correction_requested")
-          );
-        case "closed":
-          return booking.bookingStatus === "confirmed" || booking.bookingStatus === "cancelled" || booking.bookingStatus === "expired";
-        default:
-          return true;
-      }
-    };
     const term = search.trim().toLowerCase();
     return all.filter(
       (booking) =>
-        matchesFilter(booking) &&
+        bookingMatchesFilter(booking, filter) &&
         (!term ||
           booking.referenceNumber.toLowerCase().includes(term) ||
           booking.guests.some((guest) =>
@@ -926,12 +1913,33 @@ export function RepAccommodationTab() {
     );
   }, [bookings, filter, search]);
 
+  const bookingCounts = useMemo(() => {
+    const all = bookings ?? [];
+    return {
+      all: all.length,
+      active: all.filter((booking) => bookingMatchesFilter(booking, "active"))
+        .length,
+      awaiting: all.filter((booking) =>
+        bookingMatchesFilter(booking, "awaiting"),
+      ).length,
+      closed: all.filter((booking) => bookingMatchesFilter(booking, "closed"))
+        .length,
+    };
+  }, [bookings]);
+
+  /** Empty-state CTA: jump to the builder with a fresh guest row. */
+  const startBooking = () => {
+    addDraft();
+    setMobileView("book");
+    builderRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
   /** Payment confirmed → the booking is locked: no edit/cancel/delete/substitute. */
   const isLockedBooking = (booking: RepBooking) =>
     booking.bookingStatus === "confirmed";
 
   return (
-    <div className="space-y-8">
+    <div className="mx-auto w-full max-w-6xl space-y-6">
       {portalConfig?.locked && (
         <Alert variant="destructive">
           <AlertTriangleIcon className="size-4" />
@@ -944,378 +1952,213 @@ export function RepAccommodationTab() {
         </Alert>
       )}
 
-      {/* Availability — skeletons while loading */}
-      {overview === undefined && sessionToken ? (
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {[0, 1, 2].map((i) => (
-            <Card key={i}>
-              <CardHeader className="pb-2">
-                <Skeleton className="h-4 w-40" />
-                <Skeleton className="h-3 w-52" />
-              </CardHeader>
-              <CardContent>
-                <Skeleton className="h-6 w-24" />
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      ) : (
-        overview && (
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {overview.availability.map((row) => {
-              const soldOut = row.available <= 0;
-              // Remaining rooms are the headline; price moves to a caption.
-              const unitNoun = row.scope === "per_room" ? "rooms" : "beds";
-              const nearlyGone = !soldOut && row.available <= Math.ceil(row.total * 0.1);
-              return (
-                <StatTile
-                  key={row.accommodationType}
-                  label={
-                    AGC_ACCOMMODATION_LABELS[
-                      row.accommodationType as keyof typeof AGC_ACCOMMODATION_LABELS
-                    ] ?? row.accommodationType
-                  }
-                  value={row.available}
-                  valueSuffix={`of ${row.total} ${unitNoun} left`}
-                  hint={
-                    soldOut
-                      ? "Sold out"
-                      : nearlyGone
-                        ? "Nearly gone — book soon"
-                        : row.scope.replace(/_/g, " ")
-                  }
-                  tone={soldOut ? "neutral" : nearlyGone ? "warning" : "info"}
-                  className={soldOut ? "opacity-60" : undefined}
-                >
-                  <p className="text-[11px] text-muted-foreground">
-                    {currency} {isOffline ? row.priceGhs : row.priceUsd}
-                    {row.accommodationType === "ebpv" &&
-                      ` · bishop ${currency} ${isOffline ? row.bishopPriceGhs : row.bishopPriceUsd}`}
-                  </p>
-                </StatTile>
-              );
-            })}          </div>
-        )
-      )}
+      {/* Mobile: split the tab into two views so phones never scroll past a
+          long builder to reach an existing booking. */}
+      <Tabs
+        value={mobileView}
+        onValueChange={(value) => {
+          const next = value as "book" | "bookings";
+          setMobileView(next);
+          window.scrollTo({ top: 0, behavior: "auto" });
+        }}
+        className="md:hidden"
+      >
+        <TabsList className="w-full">
+          <TabsTrigger value="book">New booking</TabsTrigger>
+          <TabsTrigger value="bookings">
+            Your bookings
+            {bookings && bookings.length > 0 ? ` (${bookings.length})` : ""}
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
 
-      {/* Booking form */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Build your booking</CardTitle>
-          <CardDescription>
-            Add guests one by one. Every option is priced per bed — one bed per
-            guest.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {error && (
-            <Alert variant="destructive">
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
-
-          {drafts.length === 0 && (
-            <p className="text-sm text-muted-foreground">
-              No guests added yet. Click “Add guest” to start.
-            </p>
-          )}
-
-          {drafts.map((draft, index) => {
-            const row = availabilityFor(draft.accommodationType);
-            const soldOut = row ? row.available <= 0 : false;
-            return (
-              <div key={index} className="rounded-lg border p-3 sm:p-4">
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                  <div className="space-y-1.5">
-                    <Label>Title</Label>
-                    <Select
-                      value={draft.title}
-                      onValueChange={(value) =>
-                        updateDraft(index, { title: value ?? draft.title })
-                      }
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {TITLE_OPTIONS.map((option) => (
-                          <SelectItem key={option} value={option}>
-                            {option}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+      {/* Availability & deadline */}
+      <section
+        className={cn("space-y-3", mobileView !== "book" && "hidden md:block")}
+        aria-label="Availability"
+      >
+        <Card>
+          <CardHeader>
+            <ZoneHeader
+              icon={BedDoubleIcon}
+              title="Availability & deadline"
+              description="Live bed counts for the pools your hub draws from — one bed per guest."
+            />
+          </CardHeader>
+          <CardContent>
+            {overview === undefined && sessionToken ? (
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {[0, 1, 2].map((i) => (
+                  <div key={i} className="space-y-3 rounded-xl border p-3">
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="h-5 w-24" />
+                    <Skeleton className="h-1.5 w-full" />
                   </div>
-                  <div className="space-y-1.5">
-                    <Label>
-                      First name{!draft.firstName.trim() && <span className="text-destructive"> *</span>}
-                    </Label>
-                    <Input
-                      value={draft.firstName}
-                      aria-invalid={!draft.firstName.trim()}
-                      onChange={(e) =>
-                        updateDraft(index, { firstName: e.target.value })
-                      }
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>
-                      Last name{!draft.lastName.trim() && <span className="text-destructive"> *</span>}
-                    </Label>
-                    <Input
-                      value={draft.lastName}
-                      aria-invalid={!draft.lastName.trim()}
-                      onChange={(e) =>
-                        updateDraft(index, { lastName: e.target.value })
-                      }
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>Gender</Label>
-                    <Select
-                      value={draft.gender}
-                      onValueChange={(value) =>
-                        updateDraft(index, {
-                          gender: (value as "male" | "female") ?? draft.gender,
-                        })
-                      }
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="male">Male</SelectItem>
-                        <SelectItem value="female">Female</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1.5 sm:col-span-2">
-                    <Label>Accommodation</Label>
-                    <Select
-                      value={draft.accommodationType}
-                      items={overview?.accommodationTypes.map((type) => ({
-                        value: type.type,
-                        label: type.label,
-                      }))}
-                      onValueChange={(value) => {
-                        const next = (value ?? draft.accommodationType) as AgcAccommodationType;
-                        updateDraft(index, {
-                          accommodationType: next,
-                          // Bishop rate is EBPV-only — keep the pair consistent.
-                          isBishopRate: next === "ebpv" ? draft.isBishopRate : false,
-                        });
-                      }}
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {overview?.accommodationTypes.map((type) => {
-                          const avail = availabilityFor(type.type);
-                          const disabled = avail ? avail.available <= 0 : false;
-                          return (
-                            <SelectItem
-                              key={type.type}
-                              value={type.type}
-                              disabled={disabled}
-                            >
-                              <span className="flex w-full items-center justify-between gap-3">
-                                <span className="min-w-0 flex-1 truncate">
-                                  {type.label}
-                                  {disabled ? " — sold out" : ""}
-                                </span>
-                                <span className="shrink-0 text-xs text-muted-foreground">
-                                  {`${currency} ${isOffline ? type.pricing.ghs : type.pricing.usd} / bed`}
-                                </span>
-                              </span>
-                            </SelectItem>
-                          );
-                        })}
-                      </SelectContent>
-                    </Select>
-                    {soldOut && (
-                      <p className="text-xs text-destructive">
-                        This type is sold out — pick another for this guest.
-                      </p>
-                    )}
-                  </div>
-                  <label className="flex items-center gap-2 text-sm sm:col-span-2">
-                    <Checkbox
-                      checked={draft.isBishopRate}
-                      disabled={draft.accommodationType !== "ebpv"}
-                      onCheckedChange={(checked) =>
-                        updateDraft(index, { isBishopRate: checked === true })
-                      }
-                    />
-                    Bishop Special Rate (EBPV only)
-                  </label>
-                </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => removeDraft(index)}
-                  className="mt-3 h-auto gap-1 px-2 py-1 text-xs text-destructive hover:text-destructive"
-                >
-                  <Trash2Icon className="size-3" /> Remove guest
-                </Button>
+                ))}
               </div>
-            );
-          })}
+            ) : overview ? (
+              <CapacityBoard
+                rows={overview.availability}
+                types={overview.accommodationTypes}
+                currency={currency}
+                isOffline={isOffline}
+                deadline={overview.deadline}
+                holdHours={overview.holdHours}
+              />
+            ) : null}
+          </CardContent>
+        </Card>
+      </section>
 
-          {/* Sticky live summary. On mobile it sits ABOVE the fixed bottom
-              nav (h-14 + safe area) so the total and the Reserve button are
-              always reachable while adding guests. */}
-          {drafts.length > 0 && (
-            <div className="sticky bottom-[calc(env(safe-area-inset-bottom)+3.75rem)] z-10 rounded-lg border bg-card p-3 shadow-sm md:bottom-2 sm:p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
-                <div className="min-w-0 text-sm">
-                  <p className="font-medium">
-                    {drafts.length} guest{drafts.length === 1 ? "" : "s"} ·{" "}
-                    {describeUnits(summary)}
-                  </p>
-                  <p className="truncate text-xs text-muted-foreground sm:hidden">
-                    {summary.lines
-                      .map((line) => `${line.units} ${line.unitLabel}${line.units === 1 ? "" : "s"}`)
-                      .join(" · ")}
-                  </p>
-                  <div className="hidden sm:block">
-                    {summary.lines.map((line) => (
-                      <p key={`${line.accommodationType}-${line.isBishopRate}`} className="text-xs text-muted-foreground">
-                        {line.units} {line.unitLabel}
-                        {line.units === 1 ? "" : "s"} × {currency} {line.unitPrice}
-                        {line.isBishopRate ? " (bishop)" : ""} = {currency} {line.subtotal}
-                      </p>
-                    ))}
-                  </div>
-                </div>
-                <div className="text-right">
-                  <p className="text-xs text-muted-foreground">Total</p>
-                  <p className="text-lg font-semibold sm:text-xl">
-                    {currency} {summary.totalAmount}
-                  </p>
-                </div>
-              </div>
-              {capacityIssue && (
-                <p className="mt-2 flex items-start gap-1.5 text-xs font-medium text-amber-700">
-                  <AlertTriangleIcon className="mt-0.5 size-3.5 shrink-0" /> {capacityIssue}
-                </p>
-              )}
-              {/* Mobile: the primary action lives in the sticky bar so reps
-                  never scroll back up to reserve. */}
-              <Button
-                type="button"
-                className="mt-3 w-full md:hidden"
-                onClick={() => void handleCreateBooking()}
-                disabled={
-                  loading ||
-                  portalConfig?.locked === true ||
-                  !allDraftsValid ||
-                  Boolean(capacityIssue)
-                }
-              >
-                {loading && <Loader2Icon className="size-4 animate-spin" />}
-                Reserve &amp; hold
-              </Button>
-            </div>
-          )}
-
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="outline" onClick={addDraft}>
-              + Add guest
-            </Button>
-            {drafts.length > 0 && (
-              <Button
-                type="button"
-                className="hidden md:inline-flex"
-                onClick={() => void handleCreateBooking()}
-                disabled={
-                  loading ||
-                  portalConfig?.locked === true ||
-                  !allDraftsValid ||
-                  Boolean(capacityIssue)
-                }
-              >
-                {loading && <Loader2Icon className="size-4 animate-spin" />}
-                Reserve &amp; hold
-              </Button>
+      {/* New reservation */}
+      <section
+        ref={builderRef}
+        className={cn("scroll-mt-24", mobileView !== "book" && "hidden md:block")}
+        aria-label="New reservation"
+      >
+        <Card>
+          <CardHeader>
+            <ZoneHeader
+              icon={UserPlusIcon}
+              title="New reservation"
+              badge={
+                drafts.length > 0
+                  ? `${drafts.length} guest${drafts.length === 1 ? "" : "s"}`
+                  : undefined
+              }
+              description="Add guests one by one. Every option is priced per bed — one bed per guest."
+            />
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {error && (
+              <Alert variant="destructive">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
             )}
-            {drafts.length > 0 && !allDraftsValid && (
-              <p className="self-center text-xs text-muted-foreground">
-                Fill in every guest&apos;s first and last name to continue.
+
+            {drafts.length === 0 && (
+              <p className="text-sm text-muted-foreground">
+                No guests added yet. Click “Add guest” to start.
               </p>
             )}
-          </div>
 
-          <div className="rounded-lg border border-dashed p-4">
-            <p className="text-sm font-medium">Or upload an Excel sheet</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              We&apos;ll check the file and show you a preview first — nothing is
-              booked until you confirm. Rows with problems are listed before you
-              commit.
-            </p>
-            <div className="mt-3 flex flex-wrap items-center gap-2">
+            {drafts.map((draft, index) => (
+              <GuestRowEditor
+                key={index}
+                draft={draft}
+                index={index}
+                expanded={expandedGuest === index}
+                onToggle={() =>
+                  setExpandedGuest(expandedGuest === index ? null : index)
+                }
+                onChange={(patch) => updateDraft(index, patch)}
+                onRemove={() => removeDraft(index)}
+                currency={currency}
+                accommodationTypes={overview?.accommodationTypes}
+                availabilityFor={availabilityFor}
+                priceFor={priceFor}
+                bishopAmountLabel={bishopAmountLabel}
+              />
+            ))}
+
+
+            <div className="flex flex-wrap items-center gap-2">
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => void handleDownloadTemplate()}
+                onClick={addDraft}
+                className="w-full border-dashed sm:w-auto"
               >
-                Download template
+                + Add guest
               </Button>
-              <Input
-                ref={excelInputRef}
-                type="file"
-                accept=".xlsx,.xlsm"
-                className="w-full sm:max-w-xs"
-                onChange={(e) => void handleExcelSelect(e.target.files?.[0] ?? null)}
-              />
-              {excelPreview && (
-                <Button type="button" variant="ghost" onClick={resetExcel}>
-                  Clear
-                </Button>
+              {drafts.length > 0 && !allDraftsValid && (
+                <p className="self-center text-xs text-muted-foreground">
+                  Fill in every guest&apos;s first and last name to continue.
+                </p>
               )}
             </div>
-            {excelPreview && (
-              <p className="mt-2 text-xs text-muted-foreground">
-                {excelFileName}: {excelPreview.rows.length} valid row(s)
-                {excelPreview.errors.length > 0 &&
-                  `, ${excelPreview.errors.length} with problems`}
-              </p>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+
+            {/* Bulk import — secondary path, still previews before booking. */}
+            <div className="rounded-xl border border-dashed bg-muted/20 p-3">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <div className="flex min-w-0 items-center gap-2">
+                  <FileSpreadsheetIcon className="size-4 shrink-0 text-muted-foreground" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">Bulk import from Excel</p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      We preview the file first — nothing is booked until you confirm.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => void handleDownloadTemplate()}
+                  >
+                    Download template
+                  </Button>
+                  <Input
+                    ref={excelInputRef}
+                    type="file"
+                    accept=".xlsx,.xlsm"
+                    aria-label="Choose an Excel file"
+                    className="w-full text-xs sm:w-56"
+                    onChange={(e) => void handleExcelSelect(e.target.files?.[0] ?? null)}
+                  />
+                  {excelPreview && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={resetExcel}
+                    >
+                      Clear
+                    </Button>
+                  )}
+                </div>
+              </div>
+              {excelPreview && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {excelFileName}: {excelPreview.rows.length} valid row(s)
+                  {excelPreview.errors.length > 0 &&
+                    `, ${excelPreview.errors.length} with problems`}
+                </p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </section>
 
       {/* Guest roster — every name, gender, room type and payment status in one flat list. */}
       {rosterRows.length > 0 && (
+        <section
+          className={cn(mobileView !== "bookings" && "hidden md:block")}
+          aria-label="Guest roster"
+        >
         <Card>
           <CardHeader>
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <CardTitle className="flex items-center gap-2 text-lg">
-                  <UsersIcon className="size-4 text-gold-dark" />
-                  Guest roster
-                  <Badge variant="outline" className="ml-1 text-[11px] font-normal text-muted-foreground">
-                    {rosterRows.length}
-                  </Badge>
-                </CardTitle>
-                <CardDescription>
-                  Every guest across all bookings — payment status follows the parent booking.
-                </CardDescription>
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setRosterOpen((open) => !open)}
-                aria-expanded={rosterOpen}
-              >
-                {rosterOpen ? "Hide guests" : "Show guests"}
-                <ChevronDownIcon
-                  className={`size-4 transition-transform ${rosterOpen ? "rotate-180" : ""}`}
-                />
-              </Button>
-            </div>
+            <ZoneHeader
+              icon={UsersIcon}
+              title="Guest roster"
+              badge={rosterRows.length}
+              description="Every guest across all bookings — payment status follows the parent booking."
+              right={
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setRosterOpen((open) => !open)}
+                  aria-expanded={rosterOpen}
+                >
+                  {rosterOpen ? "Hide guests" : "Show guests"}
+                  <ChevronDownIcon
+                    className={`size-4 transition-transform ${rosterOpen ? "rotate-180" : ""}`}
+                  />
+                </Button>
+              }
+            />
           </CardHeader>
           {rosterOpen && (
             <CardContent>
@@ -1425,83 +2268,95 @@ export function RepAccommodationTab() {
             </CardContent>
           )}
         </Card>
+        </section>
       )}
-      {/* Bookings list */}
+
+      {/* Your bookings */}
+      <section
+        className={cn(mobileView !== "bookings" && "hidden md:block")}
+        aria-label="Your bookings"
+      >
       <Card>
         <CardHeader>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <CardTitle className="text-lg">Your bookings</CardTitle>
-              <CardDescription>
-                Holds expire automatically at the earlier of {overview?.holdHours ?? 72}{" "}
-                hours or the registration deadline.
-              </CardDescription>
-            </div>
-            {(bookings?.length ?? 0) > 0 && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={exporting}
-                onClick={() => void handleDownloadExcel()}
-              >
-                {exporting ? (
-                  <Loader2Icon className="size-4 animate-spin" />
-                ) : (
-                  <DownloadIcon className="size-4" />
-                )}
-                Excel report
-              </Button>
-            )}
-          </div>
-          {(bookings?.length ?? 0) > 3 && (
-            <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-              <Tabs
-                value={filter}
-                onValueChange={(value) =>
-                  setFilter(value as typeof filter)
-                }
-              >
-                <TabsList>
-                  <TabsTrigger value="all">All</TabsTrigger>
-                  <TabsTrigger value="active">Active</TabsTrigger>
-                  <TabsTrigger value="awaiting">Awaiting payment</TabsTrigger>
-                  <TabsTrigger value="closed">Closed</TabsTrigger>
-                </TabsList>
-              </Tabs>
-              <div className="relative">
-                <SearchIcon className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  type="search"
-                  placeholder="Reference or guest name…"
-                  className="h-9 w-56 pl-8"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
-              </div>
-              {/* Desktop only — mobile always uses cards. */}
-              <ToggleGroup
-                value={[viewMode]}
-                onValueChange={(value) => {
-                  const next = value[0] as "cards" | "table" | undefined;
-                  if (next === "cards" || next === "table") setViewMode(next);
-                }}
-                variant="outline"
-                size="sm"
-                className="hidden md:inline-flex"
-                aria-label="Toggle bookings view"
-              >
-                <ToggleGroupItem value="cards" aria-label="Card view">
-                  <LayoutGridIcon className="size-4" />
-                </ToggleGroupItem>
-                <ToggleGroupItem value="table" aria-label="Table view">
-                  <TableIcon className="size-4" />
-                </ToggleGroupItem>
-              </ToggleGroup>
-            </div>
-          )}
+          <ZoneHeader
+            icon={ClipboardListIcon}
+            title="Your bookings"
+            badge={bookings && bookings.length > 0 ? bookings.length : undefined}
+            description="Pay, edit or cancel before the hold expires."
+            right={
+              (bookings?.length ?? 0) > 0 ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={exporting}
+                  onClick={() => void handleDownloadExcel()}
+                >
+                  {exporting ? (
+                    <Loader2Icon className="size-4 animate-spin" />
+                  ) : (
+                    <DownloadIcon className="size-4" />
+                  )}
+                  Excel report
+                </Button>
+              ) : undefined
+            }
+          />
         </CardHeader>
         <CardContent className="space-y-4">
+          {(bookings?.length ?? 0) > 0 ? (
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center gap-2">
+                {BOOKING_FILTERS.map((option) => (
+                  <Button
+                    key={option.value}
+                    type="button"
+                    size="sm"
+                    variant={filter === option.value ? "default" : "outline"}
+                    className="rounded-full"
+                    aria-pressed={filter === option.value}
+                    onClick={() => setFilter(option.value)}
+                  >
+                    {option.label}
+                    <span className="text-[11px] tabular-nums opacity-70">
+                      {bookingCounts[option.value]}
+                    </span>
+                  </Button>
+                ))}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="relative min-w-0 flex-1 sm:max-w-xs">
+                  <SearchIcon className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    type="search"
+                    placeholder="Reference or guest name…"
+                    className="h-9 w-full pl-8"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                  />
+                </div>
+                {/* Desktop only — mobile always uses cards. */}
+                <ToggleGroup
+                  value={[viewMode]}
+                  onValueChange={(value) => {
+                    const next = value[0] as "cards" | "table" | undefined;
+                    if (next === "cards" || next === "table") setViewMode(next);
+                  }}
+                  variant="outline"
+                  size="sm"
+                  className="ml-auto hidden md:inline-flex"
+                  aria-label="Toggle bookings view"
+                >
+                  <ToggleGroupItem value="cards" aria-label="Card view">
+                    <LayoutGridIcon className="size-4" />
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value="table" aria-label="Table view">
+                    <TableIcon className="size-4" />
+                  </ToggleGroupItem>
+                </ToggleGroup>
+              </div>
+            </div>
+          ) : null}
           {lastBooking && (
             <Alert>
               <AlertTitle>
@@ -1522,19 +2377,57 @@ export function RepAccommodationTab() {
               ))}
             </div>
           ) : (bookings ?? []).length === 0 ? (
-            <div className="rounded-lg border border-dashed p-6 text-sm">
+            <div className="rounded-xl border border-dashed p-6 text-sm">
               <p className="font-medium">How booking works</p>
-              <ol className="mt-2 list-decimal space-y-1 pl-5 text-muted-foreground">
-                <li>Add guests above and reserve — beds are held for you.</li>
-                <li>Pay by bank transfer/MoMo and upload your receipt.</li>
-                <li>
-                  Finance confirms your payment and your booking is locked in.
+              <ol className="mt-4 space-y-3">
+                <li className="flex gap-3">
+                  <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold tabular-nums">
+                    1
+                  </span>
+                  <div>
+                    <p className="font-medium">Add guests and reserve</p>
+                    <p className="text-muted-foreground">
+                      Beds are held for {overview?.holdHours ?? 72}h while you
+                      pay.
+                    </p>
+                  </div>
+                </li>
+                <li className="flex gap-3">
+                  <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold tabular-nums">
+                    2
+                  </span>
+                  <div>
+                    <p className="font-medium">Pay and upload your receipt</p>
+                    <p className="text-muted-foreground">
+                      Bank transfer or MoMo, then submit the receipt on the
+                      booking.
+                    </p>
+                  </div>
+                </li>
+                <li className="flex gap-3">
+                  <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold tabular-nums">
+                    3
+                  </span>
+                  <div>
+                    <p className="font-medium">Finance confirms</p>
+                    <p className="text-muted-foreground">
+                      Your booking is locked in and the beds are guaranteed.
+                    </p>
+                  </div>
                 </li>
               </ol>
+              <Button type="button" className="mt-4" onClick={startBooking}>
+                Add your first guest
+              </Button>
               {overview?.accommodationBankDetails && (
-                <p className="mt-3 rounded bg-muted p-3 text-xs whitespace-pre-line">
-                  {overview.accommodationBankDetails}
-                </p>
+                <details className="mt-4 text-xs">
+                  <summary className="cursor-pointer text-muted-foreground">
+                    Payment details
+                  </summary>
+                  <p className="mt-2 rounded bg-muted p-3 whitespace-pre-line">
+                    {overview.accommodationBankDetails}
+                  </p>
+                </details>
               )}
             </div>
           ) : filteredBookings.length === 0 ? (
@@ -1648,151 +2541,57 @@ export function RepAccommodationTab() {
                   viewMode === "table" ? " md:hidden" : ""
                 }`}
               >
-            {filteredBookings.map((booking) => {
-              const status = bookingStatusMeta(booking.bookingStatus);
-              const payStatus = displayPaymentStatus(booking);
-              const canPayOffline =
-                !isClosedBooking(booking) &&
-                booking.paymentMode === "offline" &&
-                booking.bookingStatus === "reserved" &&
-                (booking.paymentStatus === "awaiting_payment" ||
-                  booking.paymentStatus === "correction_requested");
-              const canPayOnline =
-                !isClosedBooking(booking) &&
-                booking.paymentMode !== "offline" &&
-                booking.bookingStatus === "reserved" &&
-                booking.paymentStatus === "awaiting_payment";
-              const isReserved = booking.bookingStatus === "reserved";
-              const activeGuests = booking.guests.filter(
-                (guest) => guest.status === "active",
-              );
-              return (
-                <div key={booking._id} className="flex flex-col rounded-lg border p-4 text-sm">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="font-mono text-xs tracking-wider">
-                      {booking.referenceNumber || "(pending)"}
-                    </span>
-                    <div className="flex flex-wrap gap-2">
-                      <Badge variant="outline" className={status.className}>
-                        {status.label}
-                      </Badge>
-                      <Badge variant="outline" className={payStatus.className}>
-                        {payStatus.label}
-                      </Badge>
-                      {booking.bookingStatus === "reserved" && booking.expiresAt && (
-                        <HoldCountdown expiresAt={booking.expiresAt} />
-                      )}
-                    </div>
-                  </div>
-                  <p className="mt-2">
-                    <strong>
-                      {booking.currency} {booking.totalAmount}
-                    </strong>{" "}
-                    · {booking.guests.length} guest(s) ·{" "}
-                    {booking.paymentMode === "offline" ? "offline" : "online"}
-                  </p>
-                  {booking.adminMessage && (
-                    <p className="mt-2 rounded bg-orange-50 p-2 text-xs text-orange-900 dark:bg-orange-950 dark:text-orange-300">
-                      {booking.adminMessage}
-                    </p>
-                  )}
-
-                  <div className="mt-3 space-y-1">
-                    {activeGuests.map((guest) => (
-                      <div
-                        key={guest._id}
-                        className="flex flex-wrap items-center justify-between gap-2 text-xs"
-                      >
-                        <span>
-                          {guest.title} {guest.firstName} {guest.lastName} ·{" "}
-                          {guest.gender} ·{" "}
-                          {
-                            AGC_ACCOMMODATION_LABELS[
-                              guest.accommodationType as keyof typeof AGC_ACCOMMODATION_LABELS
-                            ]
-                          }
-                          {guest.isBishopRate && " · Bishop rate"}
-                        </span>
-                        {booking.bookingStatus === "reserved" ? (
-                          <Button
-                            type="button"
-                            variant="link"
-                            size="sm"
-                            className="h-auto p-0"
-                            onClick={() => openSubstitution(guest)}
-                          >
-                            Substitute
-                          </Button>
-                        ) : null}
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="mt-auto flex flex-wrap items-center gap-2 pt-3">
-                    {canPayOffline && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setPayTarget(booking)}
-                      >
-                        <ReceiptTextIcon className="size-4" /> Submit receipt
-                      </Button>
-                    )}
-                    {canPayOnline && (
-                      <Button type="button" size="sm" onClick={() => setPayTarget(booking)}>
-                        Pay online
-                      </Button>
-                    )}
-                    {isReserved && (
-                      <>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => openEdit(booking)}
-                          disabled={loading}
-                        >
-                          <PencilIcon className="size-4" /> Edit
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setCancelTarget(booking)}
-                          disabled={loading}
-                          className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                        >
-                          Cancel
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setDeleteTarget(booking)}
-                          disabled={loading}
-                          aria-label="Delete reservation"
-                          className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                        >
-                          <Trash2Icon className="size-4" />
-                        </Button>
-                      </>
-                    )}
-                  </div>
-                  {isLockedBooking(booking) && (
-                    <p className="mt-3 rounded bg-emerald-50 p-2 text-xs text-emerald-900 dark:bg-emerald-950 dark:text-emerald-300">
-                      Payment confirmed — this booking is locked. Contact the
-                      accommodation desk for any changes.
-                    </p>
-                  )}
-                </div>
-              );
-            })}
+            {filteredBookings.map((booking) => (
+              <BookingCard
+                key={booking._id}
+                booking={booking}
+                locked={isLockedBooking(booking)}
+                loading={loading}
+                onPay={setPayTarget}
+                onEdit={openEdit}
+                onCancel={setCancelTarget}
+                onDelete={setDeleteTarget}
+                onSubstitute={openSubstitution}
+              />
+            ))}
               </div>
             </>
           )}
         </CardContent>
       </Card>
+      </section>
+
+      {/* Room for the fixed summary bar so content never hides behind it. */}
+      {drafts.length > 0 && <div className="h-36 md:h-40" aria-hidden />}
+
+      {drafts.length > 0 && (
+        <SummaryBar
+          guestCount={drafts.length}
+          summary={summary}
+          currency={currency}
+          capacityIssue={capacityIssue}
+          allDraftsValid={allDraftsValid}
+          locked={portalConfig?.locked === true}
+          loading={loading}
+          onReserve={() => void handleCreateBooking()}
+          onShowBreakdown={() => setReviewOpen(true)}
+        />
+      )}
+      <BreakdownSheet
+        open={reviewOpen}
+        onOpenChange={setReviewOpen}
+        guestCount={drafts.length}
+        summary={summary}
+        currency={currency}
+        capacityIssue={capacityIssue}
+        allDraftsValid={allDraftsValid}
+        locked={portalConfig?.locked === true}
+        loading={loading}
+        onReserve={() => {
+          setReviewOpen(false);
+          void handleCreateBooking();
+        }}
+      />
 
       {/* Payment dialog */}
       {payTarget && (
@@ -1817,21 +2616,18 @@ export function RepAccommodationTab() {
       )}
 
       {/* Cancel confirmation */}
-      <Dialog
+      <ResponsiveDialog
         open={cancelTarget !== null}
         onOpenChange={(open) => !open && setCancelTarget(null)}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Cancel this reservation?</DialogTitle>
-            <DialogDescription>
-              {cancelTarget?.referenceNumber} — cancelling releases the held
-              beds back to the pool immediately. Other hubs can take them. You
-              would need to book again if space remains.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setCancelTarget(null)}>
+        title="Cancel this reservation?"
+        description={`${cancelTarget?.referenceNumber ?? ""} — cancelling releases the held beds back to the pool immediately. Other hubs can take them. You would need to book again if space remains.`}
+        footer={
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setCancelTarget(null)}
+            >
               Keep reservation
             </Button>
             <Button
@@ -1843,191 +2639,24 @@ export function RepAccommodationTab() {
               {loading && <Loader2Icon className="size-4 animate-spin" />}
               Cancel reservation
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </>
+        }
+      />
 
       {/* Edit reservation dialog (reserved bookings only) */}
-      <Dialog
+      <ResponsiveDialog
         open={editTarget !== null}
         onOpenChange={(open) => !open && setEditTarget(null)}
-      >
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Edit reservation {editTarget?.referenceNumber}</DialogTitle>
-            <DialogDescription>
-              The hold is released and re-reserved with your changes — if a bed
-              type sells out meanwhile, saving fails and nothing changes. New
-              total: {currency} {editSummary.totalAmount} ({describeUnits(editSummary)}).
-            </DialogDescription>
-          </DialogHeader>
-          <div className="max-h-[50vh] space-y-3 overflow-y-auto pr-1">
-            {editDrafts.map((draft, index) => (
-              <div key={index} className="rounded-lg border p-3">
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <div className="space-y-1">
-                    <Label className="text-xs">Title</Label>
-                    <Select
-                      value={draft.title}
-                      onValueChange={(value) =>
-                        setEditDrafts((prev) =>
-                          prev.map((d, i) =>
-                            i === index ? { ...d, title: value ?? d.title } : d,
-                          ),
-                        )
-                      }
-                    >
-                      <SelectTrigger className="h-9 w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {TITLE_OPTIONS.map((option) => (
-                          <SelectItem key={option} value={option}>
-                            {option}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Gender</Label>
-                    <Select
-                      value={draft.gender}
-                      onValueChange={(value) =>
-                        setEditDrafts((prev) =>
-                          prev.map((d, i) =>
-                            i === index
-                              ? { ...d, gender: (value as "male" | "female") ?? d.gender }
-                              : d,
-                          ),
-                        )
-                      }
-                    >
-                      <SelectTrigger className="h-9 w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="male">Male</SelectItem>
-                        <SelectItem value="female">Female</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">First name</Label>
-                    <Input
-                      className="h-9"
-                      value={draft.firstName}
-                      onChange={(e) =>
-                        setEditDrafts((prev) =>
-                          prev.map((d, i) =>
-                            i === index ? { ...d, firstName: e.target.value } : d,
-                          ),
-                        )
-                      }
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Last name</Label>
-                    <Input
-                      className="h-9"
-                      value={draft.lastName}
-                      onChange={(e) =>
-                        setEditDrafts((prev) =>
-                          prev.map((d, i) =>
-                            i === index ? { ...d, lastName: e.target.value } : d,
-                          ),
-                        )
-                      }
-                    />
-                  </div>
-                  <div className="space-y-1 sm:col-span-2">
-                    <Label className="text-xs">Accommodation</Label>
-                    <Select
-                      value={draft.accommodationType}
-                      items={overview?.accommodationTypes.map((type) => ({
-                        value: type.type,
-                        label: type.label,
-                      }))}
-                      onValueChange={(value) =>
-                        setEditDrafts((prev) =>
-                          prev.map((d, i) => {
-                            if (i !== index) return d;
-                            const next = (value ?? d.accommodationType) as Draft["accommodationType"];
-                            return {
-                              ...d,
-                              accommodationType: next,
-                              isBishopRate: next === "ebpv" ? d.isBishopRate : false,
-                            };
-                          }),
-                        )
-                      }
-                    >
-                      <SelectTrigger className="h-9 w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {overview?.accommodationTypes.map((type) => (
-                          <SelectItem key={type.type} value={type.type}>
-                            <span className="flex w-full items-center justify-between gap-3">
-                              <span className="min-w-0 flex-1 truncate">{type.label}</span>
-                              <span className="shrink-0 text-xs text-muted-foreground">
-                                {`${currency} ${isOffline ? type.pricing.ghs : type.pricing.usd} / bed`}
-                              </span>
-                            </span>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <label className="flex items-center gap-2 text-xs sm:col-span-2">
-                    <Checkbox
-                      checked={draft.isBishopRate}
-                      disabled={draft.accommodationType !== "ebpv"}
-                      onCheckedChange={(checked) =>
-                        setEditDrafts((prev) =>
-                          prev.map((d, i) =>
-                            i === index ? { ...d, isBishopRate: checked === true } : d,
-                          ),
-                        )
-                      }
-                    />
-                    Bishop Special Rate (EBPV only)
-                  </label>
-                </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="mt-2 h-auto px-2 py-1 text-xs text-destructive hover:text-destructive"
-                  onClick={() =>
-                    setEditDrafts((prev) => prev.filter((_, i) => i !== index))
-                  }
-                >
-                  <Trash2Icon className="size-3" /> Remove
-                </Button>
-              </div>
-            ))}
-            {editDrafts.length === 0 && (
-              <p className="text-sm text-muted-foreground">
-                No guests left — add one or delete the reservation instead.
-              </p>
-            )}
+        title={`Edit reservation ${editTarget?.referenceNumber ?? ""}`}
+        description={`The hold is released and re-reserved with your changes — if a bed type sells out meanwhile, saving fails and nothing changes. New total: ${formatMoney(editSummary.totalAmount, currency)} (${describeUnits(editSummary)}).`}
+        contentClassName="sm:max-w-2xl"
+        footer={
+          <>
             <Button
               type="button"
               variant="outline"
-              size="sm"
-              onClick={() => setEditDrafts((prev) => [...prev, emptyDraft()])}
+              onClick={() => setEditTarget(null)}
             >
-              + Add guest
-            </Button>
-          </div>
-          {editCapacityIssue && (
-            <p className="flex items-center gap-1.5 text-xs font-medium text-amber-700">
-              <AlertTriangleIcon className="size-3.5" /> {editCapacityIssue}
-            </p>
-          )}
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setEditTarget(null)}>
               Cancel
             </Button>
             <Button
@@ -2038,27 +2667,69 @@ export function RepAccommodationTab() {
               {loading && <Loader2Icon className="size-4 animate-spin" />}
               Save changes
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          {editDrafts.map((draft, index) => (
+            <GuestRowEditor
+              key={index}
+              draft={draft}
+              index={index}
+              variant="edit"
+              expanded
+              onChange={(patch) =>
+                setEditDrafts((prev) =>
+                  prev.map((entry, i) =>
+                    i === index ? { ...entry, ...patch } : entry,
+                  ),
+                )
+              }
+              onRemove={() =>
+                setEditDrafts((prev) => prev.filter((_, i) => i !== index))
+              }
+              currency={currency}
+              accommodationTypes={overview?.accommodationTypes}
+              availabilityFor={availabilityFor}
+              priceFor={priceFor}
+              bishopAmountLabel={bishopAmountLabel}
+            />
+          ))}
+
+          {editDrafts.length === 0 && (
+            <p className="text-sm text-muted-foreground">
+              No guests left — add one or delete the reservation instead.
+            </p>
+          )}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setEditDrafts((prev) => [...prev, emptyDraft()])}
+          >
+            + Add guest
+          </Button>
+          {editCapacityIssue && (
+            <p className="flex items-center gap-1.5 text-xs font-medium text-amber-700">
+              <AlertTriangleIcon className="size-3.5" /> {editCapacityIssue}
+            </p>
+          )}
+        </div>
+      </ResponsiveDialog>
 
       {/* Delete confirmation */}
-      <Dialog
+      <ResponsiveDialog
         open={deleteTarget !== null}
         onOpenChange={(open) => !open && setDeleteTarget(null)}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete this reservation?</DialogTitle>
-            <DialogDescription>
-              {deleteTarget?.referenceNumber} will be permanently removed —
-              guests, payment lines, and the hold itself. The beds return to
-              the pool immediately. This cannot be undone; use Cancel instead
-              if you want a record kept.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setDeleteTarget(null)}>
+        title="Delete this reservation?"
+        description={`${deleteTarget?.referenceNumber ?? ""} will be permanently removed — guests, payment lines, and the hold itself. The beds return to the pool immediately. This cannot be undone; use Cancel instead if you want a record kept.`}
+        footer={
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setDeleteTarget(null)}
+            >
               Keep reservation
             </Button>
             <Button
@@ -2070,25 +2741,36 @@ export function RepAccommodationTab() {
               {loading && <Loader2Icon className="size-4 animate-spin" />}
               Delete permanently
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </>
+        }
+      />
 
       {/* Substitution dialog */}
-      <Dialog
+      <ResponsiveDialog
         open={subTarget !== null}
         onOpenChange={(open) => !open && setSubTarget(null)}
+        title="Substitute guest"
+        description={`Replacing ${subTarget?.title ?? ""} ${subTarget?.firstName ?? ""} ${subTarget?.lastName ?? ""}. Same gender and accommodation type required (original data is preserved in history).`}
+        footer={
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setSubTarget(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={() => void handleSubstitution()}
+              disabled={loading || !subFirst.trim() || !subLast.trim()}
+            >
+              Save substitution
+            </Button>
+          </>
+        }
       >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Substitute guest</DialogTitle>
-            <DialogDescription>
-              Replacing {subTarget?.title} {subTarget?.firstName}{" "}
-              {subTarget?.lastName}. Same gender and accommodation type required
-              (original data is preserved in history).
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label>Title</Label>
               <Select value={subTitle} onValueChange={(value) => setSubTitle(value ?? "")}>
@@ -2130,20 +2812,7 @@ export function RepAccommodationTab() {
               <Input value={subLast} onChange={(e) => setSubLast(e.target.value)} />
             </div>
           </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setSubTarget(null)}>
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              onClick={() => void handleSubstitution()}
-              disabled={loading || !subFirst.trim() || !subLast.trim()}
-            >
-              Save substitution
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      </ResponsiveDialog>
     </div>
   );
 }
