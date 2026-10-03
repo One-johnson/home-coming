@@ -19,6 +19,7 @@ import { Card } from "@/components/ui/card";
 import { DataTable } from "@/components/ui/data-table";
 import { StatTile } from "@/components/portal/StatTile";
 import { createActionsColumn, multiSelectFilter } from "@/components/admin/columns";
+import { accommodationExportRows } from "@/lib/agcBookingExport";
 import { toastFriendlyErrorParts } from "@/lib/friendlyError";
 import {
   AGC_ACCOMMODATION_LABELS,
@@ -353,19 +354,11 @@ export function BookingsTab() {
           }
           renderSubRow={renderSubRow}
           expandedId={expandedId}
-          exportFilename="agc-bookings.csv"
-          exportRow={(row) => ({
-            reference: row.referenceNumber,
-            hub: row.hubName,
-            region: row.region,
-            bookingStatus: row.bookingStatus,
-            paymentStatus: row.paymentStatus,
-            guests: row.guests.filter((g) => g.status === "active").length,
-            total: row.totalAmount,
-            currency: row.currency,
-            mode: row.paymentMode,
-            createdAt: new Date(row.createdAt).toISOString(),
-          })}
+          exportFilename="agc-accommodation-guests.csv"
+          // One row per guest (name, gender, accommodation type) — the table
+          // itself only shows a count, so the details live in the expanded
+          // row and would otherwise be lost in the export.
+          exportRows={accommodationExportRows}
           facetFilters={[
             {
               columnId: "region",

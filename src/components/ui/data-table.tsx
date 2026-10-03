@@ -72,6 +72,11 @@ type DataTableProps<TData, TValue> = {
   searchPlaceholder?: string;
   exportFilename?: string;
   exportRow?: (row: TData) => Record<string, unknown>;
+  /**
+   * Fan-out export: return one CSV row per entry (e.g. one row per guest on
+   * a booking). Takes precedence over exportRow when provided.
+   */
+  exportRows?: (row: TData) => Array<Record<string, unknown>>;
   getRowId?: (row: TData) => string;
   facetFilters?: FacetFilter[];
   bulkActions?: (ctx: {
@@ -119,6 +124,7 @@ export function DataTable<TData, TValue>({
   searchPlaceholder = "Search...",
   exportFilename = "export.csv",
   exportRow,
+  exportRows,
   getRowId,
   facetFilters = [],
   bulkActions,
@@ -222,14 +228,15 @@ export function DataTable<TData, TValue>({
 
     if (!rows.length) return;
 
-    const payload = rows.map((row) => {
-      if (exportRow) return exportRow(row.original);
+    const payload = rows.flatMap((row) => {
+      if (exportRows) return exportRows(row.original);
+      if (exportRow) return [exportRow(row.original)];
       const record: Record<string, unknown> = {};
       row.getVisibleCells().forEach((cell) => {
         if (cell.column.id === "select") return;
         record[cell.column.id] = cell.getValue();
       });
-      return record;
+      return [record];
     });
 
     exportToCsv(payload, exportFilename);
