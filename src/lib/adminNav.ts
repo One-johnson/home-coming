@@ -115,7 +115,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
       {
         href: "/admin/settings",
         label: "Settings",
-        description: "Deadlines, payment details, and guest titles",
+        description: "Deadline, payment details, pricing, capacity, and operations",
         area: "settings",
       },
     ],

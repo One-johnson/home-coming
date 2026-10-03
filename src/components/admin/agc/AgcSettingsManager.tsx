@@ -1,14 +1,29 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useMutation, useQuery } from "convex/react";
-import { Loader2Icon, Plus, Save, ShieldAlert, Trash2, TriangleAlert } from "lucide-react";
+import {
+  Loader2Icon,
+  Plus,
+  Save,
+  ShieldAlert,
+  Trash2,
+  TriangleAlert,
+} from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
+import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { useAdminSession } from "@/components/admin/AdminSessionProvider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -85,6 +100,17 @@ type SettingsDraft = {
   poolTotals: Record<string, string>; // pool _id → text
 };
 
+/** In-page section anchors. Operations is instant — never part of a save. */
+type SectionId = "general" | "payments" | "accommodation" | "titles" | "operations";
+
+const SECTIONS: Array<{ id: SectionId; label: string }> = [
+  { id: "general", label: "General" },
+  { id: "payments", label: "Payments" },
+  { id: "accommodation", label: "Accommodation" },
+  { id: "titles", label: "Guest titles" },
+  { id: "operations", label: "Operations" },
+];
+
 /** ISO timestamp → value accepted by <input type="datetime-local"> (local time). */
 function toLocalInput(iso: string): string {
   const d = new Date(iso);
@@ -127,6 +153,22 @@ function toDraft(settings: AgcSettings): SettingsDraft {
     bishopUsdText: String(settings.bishopRate.usd),
     poolTotals,
   };
+}
+
+/** Counts the text fields that differ from the saved snapshot. */
+function countChanged(pairs: Array<[string, string]>): number {
+  return pairs.reduce((count, [a, b]) => count + (a === b ? 0 : 1), 0);
+}
+
+/** Small amber dot marking sections with unsaved edits. */
+function DirtyDot({ className }: { className?: string }) {
+  return (
+    <span
+      title="Unsaved changes"
+      aria-label="Unsaved changes"
+      className={cn("inline-block size-2 shrink-0 rounded-full bg-amber-500", className)}
+    />
+  );
 }
 
 /**
@@ -200,6 +242,69 @@ function SampleBookingColumn({
   );
 }
 
+/** Live sample-booking preview for the current (possibly unsaved) prices. */
+function SampleBookingPreview({
+  previewGhs,
+  previewUsd,
+  savedGhsTotal,
+  savedUsdTotal,
+  labels,
+  hasEdits,
+  fallbackCount,
+}: {
+  previewGhs: BookingSummary;
+  previewUsd: BookingSummary;
+  savedGhsTotal: number;
+  savedUsdTotal: number;
+  labels: Record<AgcAccommodationType, AccommodationTypeConfig>;
+  hasEdits: boolean;
+  fallbackCount: number;
+}) {
+  return (
+    <div className="rounded-lg border bg-muted/30 p-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="space-y-0.5">
+          <p className="text-sm font-medium">Sample booking preview</p>
+          <p className="text-xs text-muted-foreground">
+            6 guests — one bed in every type, plus one EBPV guest on the Bishop
+            rate. Uses your current edits; the server applies them to new
+            bookings once saved.
+          </p>
+        </div>
+        <Badge
+          variant="outline"
+          className={
+            hasEdits
+              ? "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300"
+              : "text-muted-foreground"
+          }
+        >
+          {hasEdits ? "Previewing unsaved edits" : "Matches saved"}
+        </Badge>
+      </div>
+      <div className="mt-3 grid gap-3">
+        <SampleBookingColumn
+          summary={previewGhs}
+          savedTotal={savedGhsTotal}
+          labels={labels}
+        />
+        <SampleBookingColumn
+          summary={previewUsd}
+          savedTotal={savedUsdTotal}
+          labels={labels}
+        />
+      </div>
+      {fallbackCount > 0 && (
+        <p className="mt-2 text-[11px] text-muted-foreground">
+          {fallbackCount} field
+          {fallbackCount === 1 ? " is" : "s are"} empty or not a valid price —
+          the preview uses the last saved value there.
+        </p>
+      )}
+    </div>
+  );
+}
+
 /** The exact keyword required to arm the lockdown switch. */
 const LOCKDOWN_KEYWORD = "LOCKDOWN";
 
@@ -213,46 +318,42 @@ export function AgcSettingsManager() {
     api.agcAdminData.getAgcSystemStatus,
     sessionToken ? { sessionToken } : "skip",
   ) as AgcSystemStatus | undefined;
+
+  if (settings === undefined) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-24 rounded-xl" />
+        <Skeleton className="h-48 rounded-xl" />
+        <Skeleton className="h-48 rounded-xl" />
+      </div>
+    );
+  }
+
+  return (
+    <AgcSettingsForm
+      settings={settings}
+      systemStatus={systemStatus}
+      sessionToken={sessionToken}
+    />
+  );
+}
+
+function AgcSettingsForm({
+  settings,
+  systemStatus,
+  sessionToken,
+}: {
+  settings: AgcSettings;
+  systemStatus: AgcSystemStatus | undefined;
+  sessionToken: string | null;
+}) {
   const setSetting = useMutation(api.agcAdminData.setAgcSetting);
   const setPoolTotal = useMutation(api.agcAdminData.setPoolTotal);
   const setLockdown = useMutation(api.agcAdminData.setRegistrationLockdown);
-  const [lockdownBusy, setLockdownBusy] = useState(false);
-  // Typed-keyword guard: the destructive direction of the toggle opens a
-  // confirmation dialog that only arms once the keyword is typed exactly.
-  const [lockdownConfirmOpen, setLockdownConfirmOpen] = useState(false);
-  const [lockdownConfirmText, setLockdownConfirmText] = useState("");
 
-  const handleLockdownSwitch = () => {
-    if (!systemStatus || lockdownBusy) return;
-    if (!systemStatus.locked) {
-      // Enabling is destructive → require the typed keyword.
-      setLockdownConfirmText("");
-      setLockdownConfirmOpen(true);
-      return;
-    }
-    void toggleLockdown();
-  };
-
-  const toggleLockdown = async () => {
-    if (!sessionToken || !systemStatus || lockdownBusy) return;
-    const next = !systemStatus.locked;
-    setLockdownBusy(true);
-    try {
-      await setLockdown({ sessionToken, locked: next });
-      toast.success(
-        next
-          ? "Registration lockdown enabled — new registrations and bookings are blocked"
-          : "Registration lockdown disabled",
-      );
-    } catch (err) {
-      toast.error(
-        ...toastFriendlyErrorParts(err, "Failed to update lockdown"),
-      );
-    } finally {
-      setLockdownBusy(false);
-    }
-  };
   const [saving, setSaving] = useState(false);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [activeSection, setActiveSection] = useState<SectionId>("general");
   // Local edits keyed to the server snapshot they started from. With no
   // edits yet (or fresh data after a save) the draft derives directly from
   // `settings` — no state-sync effect needed.
@@ -261,27 +362,70 @@ export function AgcSettingsManager() {
     value: SettingsDraft;
   } | null>(null);
 
-  const draft: SettingsDraft | null =
-    edit && settings && edit.source === settings
-      ? edit.value
-      : settings
-        ? toDraft(settings)
-        : null;
-
-  if (settings === undefined || draft === null) {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-48 rounded-xl" />
-        <Skeleton className="h-48 rounded-xl" />
-      </div>
-    );
-  }
+  const savedDraft = toDraft(settings);
+  const draft: SettingsDraft =
+    edit && edit.source === settings ? edit.value : savedDraft;
 
   const patch = (partial: Partial<SettingsDraft>) => {
-    if (!settings) return;
-    const base = edit && edit.source === settings ? edit.value : toDraft(settings);
+    const base = edit && edit.source === settings ? edit.value : savedDraft;
     setEdit({ source: settings, value: { ...base, ...partial } });
   };
+
+  // --- Unsaved-change tracking (drives the action bar + section dots) ---
+  const dirtySections: Record<SectionId, boolean> = {
+    general:
+      draft.deadline !== savedDraft.deadline ||
+      draft.holdHoursText !== savedDraft.holdHoursText,
+    payments:
+      draft.registrationBankDetails !== savedDraft.registrationBankDetails ||
+      draft.accommodationBankDetails !== savedDraft.accommodationBankDetails,
+    accommodation:
+      draft.bishopGhsText !== savedDraft.bishopGhsText ||
+      draft.bishopUsdText !== savedDraft.bishopUsdText ||
+      settings.accommodationTypes.some(
+        (row) =>
+          (draft.typePrices[row.type]?.ghs ?? "") !==
+            (savedDraft.typePrices[row.type]?.ghs ?? "") ||
+          (draft.typePrices[row.type]?.usd ?? "") !==
+            (savedDraft.typePrices[row.type]?.usd ?? "") ||
+          (draft.typeLabels[row.type] ?? "") !==
+            (savedDraft.typeLabels[row.type] ?? ""),
+      ) ||
+      settings.pools.some(
+        (pool) =>
+          (draft.poolTotals[pool._id] ?? "") !==
+          (savedDraft.poolTotals[pool._id] ?? ""),
+      ),
+    titles: draft.titles.join("\u0000") !== savedDraft.titles.join("\u0000"),
+    operations: false,
+  };
+  const isDirty = SECTIONS.some((section) => dirtySections[section.id]);
+  const changeCount = countChanged([
+    [draft.deadline, savedDraft.deadline],
+    [draft.holdHoursText, savedDraft.holdHoursText],
+    [draft.registrationBankDetails, savedDraft.registrationBankDetails],
+    [draft.accommodationBankDetails, savedDraft.accommodationBankDetails],
+    [draft.bishopGhsText, savedDraft.bishopGhsText],
+    [draft.bishopUsdText, savedDraft.bishopUsdText],
+    ...settings.accommodationTypes.flatMap((row): Array<[string, string]> => [
+      [
+        draft.typePrices[row.type]?.ghs ?? "",
+        savedDraft.typePrices[row.type]?.ghs ?? "",
+      ],
+      [
+        draft.typePrices[row.type]?.usd ?? "",
+        savedDraft.typePrices[row.type]?.usd ?? "",
+      ],
+      [draft.typeLabels[row.type] ?? "", savedDraft.typeLabels[row.type] ?? ""],
+    ]),
+    ...settings.pools.map(
+      (pool): [string, string] => [
+        draft.poolTotals[pool._id] ?? "",
+        savedDraft.poolTotals[pool._id] ?? "",
+      ],
+    ),
+    [draft.titles.join("\u0000"), savedDraft.titles.join("\u0000")],
+  ]);
 
   // --- Live sample-booking preview (unsaved edits) ---
   // Recomputed from the draft's text values on every keystroke so admins see
@@ -356,13 +500,23 @@ export function AgcSettingsManager() {
     Number.isFinite(holdHours) &&
     holdHours > 0 &&
     holdHours <= 24 * 30;
-  const canSave = Boolean(sessionToken) && !saving && deadlineIso !== null && holdValid && titlesValid;
+  const canSave =
+    Boolean(sessionToken) && !saving && deadlineIso !== null && holdValid && titlesValid;
+  const saveBlocker = !sessionToken
+    ? "Sign in to save."
+    : deadlineIso === null
+      ? "Pick a valid deadline."
+      : !holdValid
+        ? "Hold window must be between 1 and 720 hours."
+        : !titlesValid
+          ? "Guest titles cannot be blank."
+          : null;
 
   const save = async () => {
-    if (!sessionToken || !settings || !canSave || saving || deadlineIso === null) return;
+    if (!sessionToken || !canSave || saving || deadlineIso === null) return;
     setSaving(true);
     try {
-      const current = toDraft(settings);
+      const current = savedDraft;
       const ops: Array<Promise<unknown>> = [];
       if (draft.deadline !== current.deadline && deadlineIso) {
         ops.push(
@@ -488,12 +642,12 @@ export function AgcSettingsManager() {
           poolEdits.push({ id: pool._id, total });
         }
       }
-      for (const edit of poolEdits) {
+      for (const poolEdit of poolEdits) {
         ops.push(
           setPoolTotal({
             sessionToken,
-            poolId: edit.id as Parameters<typeof setPoolTotal>[0]["poolId"],
-            total: edit.total,
+            poolId: poolEdit.id as Parameters<typeof setPoolTotal>[0]["poolId"],
+            total: poolEdit.total,
           }),
         );
       }
@@ -504,6 +658,7 @@ export function AgcSettingsManager() {
         return;
       }
       await Promise.all(ops);
+      setSavedAt(Date.now());
       toast.success("Settings saved");
     } catch (err) {
       toast.error(...toastFriendlyErrorParts(err, "Failed to save settings"));
@@ -512,11 +667,168 @@ export function AgcSettingsManager() {
     }
   };
 
+  // ⌘/Ctrl+S saves while there are unsaved changes. Re-registered each render
+  // so the handler always closes over the latest draft.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        if (isDirty && canSave) void save();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  });
+
+  // Warn before leaving the page with unsaved edits.
+  useEffect(() => {
+    if (!isDirty) return;
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [isDirty]);
+
+  // Scroll-spy for the section nav (the console header is h-16, so sections
+  // count as active once their top passes ~140px).
+  useEffect(() => {
+    const onScroll = () => {
+      let current: SectionId = "general";
+      for (const section of SECTIONS) {
+        const el = document.getElementById(`agc-section-${section.id}`);
+        if (el && el.getBoundingClientRect().top <= 140) current = section.id;
+      }
+      setActiveSection(current);
+    };
+    const frame = requestAnimationFrame(onScroll);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", onScroll);
+    };
+  }, []);
+
+  const scrollToSection = (id: SectionId) => {
+    const el = document.getElementById(`agc-section-${id}`);
+    if (!el) return;
+    const top = el.getBoundingClientRect().top + window.scrollY - 88;
+    window.scrollTo({ top, behavior: "smooth" });
+    setActiveSection(id);
+  };
+
+  const discard = () => {
+    setEdit(null);
+    toast.info("Unsaved changes discarded");
+  };
+
+  // --- Registration lockdown (instant; independent of the save workflow) ---
+  const [lockdownBusy, setLockdownBusy] = useState(false);
+  // Typed-keyword guard: the destructive direction of the toggle opens a
+  // confirmation dialog that only arms once the keyword is typed exactly.
+  const [lockdownConfirmOpen, setLockdownConfirmOpen] = useState(false);
+  const [lockdownConfirmText, setLockdownConfirmText] = useState("");
+
+  const toggleLockdown = async () => {
+    if (!sessionToken || !systemStatus || lockdownBusy) return;
+    const next = !systemStatus.locked;
+    setLockdownBusy(true);
+    try {
+      await setLockdown({ sessionToken, locked: next });
+      toast.success(
+        next
+          ? "Registration lockdown enabled — new registrations and bookings are blocked"
+          : "Registration lockdown disabled",
+      );
+    } catch (err) {
+      toast.error(
+        ...toastFriendlyErrorParts(err, "Failed to update lockdown"),
+      );
+    } finally {
+      setLockdownBusy(false);
+    }
+  };
+
+  const handleLockdownSwitch = () => {
+    if (!systemStatus || lockdownBusy) return;
+    if (!systemStatus.locked) {
+      // Enabling is destructive → require the typed keyword.
+      setLockdownConfirmText("");
+      setLockdownConfirmOpen(true);
+      return;
+    }
+    void toggleLockdown();
+  };
+
   return (
-    <div className="space-y-4">
-      <Card>
+    <div className={cn("space-y-5", isDirty && "pb-28")}>
+      {/* Page header: context, live status, and links to the operational tabs. */}
+      <AdminPageHeader
+        description="Deadline, bank details, per-bed pricing and capacity, guest titles, and operational controls. Edits apply to new bookings only, and only once saved."
+        actions={
+          <>
+            {systemStatus?.locked && (
+              <Badge variant="destructive">
+                <TriangleAlert />
+                Lockdown active
+              </Badge>
+            )}
+            <span className="self-center text-xs text-muted-foreground">
+              {savedAt
+                ? `Saved ${new Date(savedAt).toLocaleTimeString()}`
+                : "No changes saved this session."}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              nativeButton={false}
+              render={<Link href="/admin/accommodation" />}
+            >
+              Accommodation console
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              nativeButton={false}
+              render={<Link href="/admin/registrations" />}
+            >
+              Registrations
+            </Button>
+          </>
+        }
+      />
+
+      {/* Section navigation with scroll-spy and unsaved-edit dots. */}
+      <nav
+        aria-label="Settings sections"
+        className="flex gap-1 overflow-x-auto rounded-xl border bg-card p-1"
+      >
+        {SECTIONS.map((section) => (
+          <button
+            key={section.id}
+            type="button"
+            aria-current={activeSection === section.id ? "true" : undefined}
+            onClick={() => scrollToSection(section.id)}
+            className={cn(
+              "flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm transition-colors",
+              activeSection === section.id
+                ? "bg-accent font-medium text-accent-foreground"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground",
+            )}
+          >
+            {section.label}
+            {dirtySections[section.id] && <DirtyDot />}
+          </button>
+        ))}
+      </nav>
+
+      <Card id="agc-section-general" data-agc-section="general" className="scroll-mt-24">
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Registration &amp; accommodation</CardTitle>
+          <CardTitle className="flex items-center gap-2 text-base">
+            Registration &amp; accommodation
+            {dirtySections.general && <DirtyDot />}
+          </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
@@ -540,6 +852,7 @@ export function AgcSettingsManager() {
                 type="number"
                 min={1}
                 max={720}
+                inputMode="numeric"
                 value={draft.holdHoursText}
                 onChange={(e) => patch({ holdHoursText: e.target.value })}
                 className={!holdValid ? "border-destructive" : undefined}
@@ -553,9 +866,12 @@ export function AgcSettingsManager() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card id="agc-section-payments" data-agc-section="payments" className="scroll-mt-24">
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Bank payment details</CardTitle>
+          <CardTitle className="flex items-center gap-2 text-base">
+            Bank payment details
+            {dirtySections.payments && <DirtyDot />}
+          </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-1.5">
@@ -587,232 +903,231 @@ export function AgcSettingsManager() {
         </CardContent>
       </Card>
 
-      <Card>
+      {/* Pricing + capacity merged: one row per accommodation type. */}
+      <Card id="agc-section-accommodation" data-agc-section="accommodation" className="scroll-mt-24">
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Accommodation types &amp; pricing</CardTitle>
+          <CardTitle className="flex items-center gap-2 text-base">
+            Accommodation types
+            {dirtySections.accommodation && <DirtyDot />}
+          </CardTitle>
+          <CardDescription>
+            Every option is priced per bed (one bed per guest) and draws from
+            inventory pools. Price, label, and capacity changes apply to new
+            bookings only — existing bookings keep their original terms.
+          </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-xs text-muted-foreground">
-            Every option is priced per bed (one bed per guest). Price and label
-            changes apply to new bookings only — existing bookings keep their
-            original price.
-          </p>
-          <div className="space-y-3">
-            {settings.accommodationTypes.map((row) => (
-              <div
-                key={row.type}
-                className="grid items-end gap-2 rounded-lg border p-3 sm:grid-cols-[minmax(0,1fr)_7rem_7rem]"
-              >
-                <div className="space-y-1.5">
-                  <Label htmlFor={`acc-label-${row.type}`}>
-                    {row.type.replace(/_/g, " ")}
-                  </Label>
-                  <Input
-                    id={`acc-label-${row.type}`}
-                    value={draft.typeLabels[row.type] ?? ""}
-                    onChange={(e) =>
-                      patch({
-                        typeLabels: {
-                          ...draft.typeLabels,
-                          [row.type]: e.target.value,
-                        },
-                      })
-                    }
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor={`acc-ghs-${row.type}`}>GHS / bed</Label>
-                  <Input
-                    id={`acc-ghs-${row.type}`}
-                    type="number"
-                    min={0}
-                    value={draft.typePrices[row.type]?.ghs ?? ""}
-                    onChange={(e) =>
-                      patch({
-                        typePrices: {
-                          ...draft.typePrices,
-                          [row.type]: {
-                            ghs: e.target.value,
-                            usd: draft.typePrices[row.type]?.usd ?? "",
-                          },
-                        },
-                      })
-                    }
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor={`acc-usd-${row.type}`}>USD / bed</Label>
-                  <Input
-                    id={`acc-usd-${row.type}`}
-                    type="number"
-                    min={0}
-                    value={draft.typePrices[row.type]?.usd ?? ""}
-                    onChange={(e) =>
-                      patch({
-                        typePrices: {
-                          ...draft.typePrices,
-                          [row.type]: {
-                            ghs: draft.typePrices[row.type]?.ghs ?? "",
-                            usd: e.target.value,
-                          },
-                        },
-                      })
-                    }
-                  />
-                </div>
+        <CardContent>
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem] xl:items-start">
+            <div className="space-y-3">
+              <div className="hidden gap-3 px-4 text-xs font-medium text-muted-foreground lg:grid lg:grid-cols-[minmax(0,1fr)_7rem_7rem_minmax(0,15rem)]">
+                <span>Type &amp; display label</span>
+                <span>GHS / bed</span>
+                <span>USD / bed</span>
+                <span>Capacity (beds)</span>
               </div>
-            ))}
-          </div>
-          <div className="flex flex-wrap items-end gap-3 rounded-lg border p-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="bishop-ghs">EBPV Bishop rate (GHS)</Label>
-              <Input
-                id="bishop-ghs"
-                type="number"
-                min={0}
-                className="w-32"
-                value={draft.bishopGhsText}
-                onChange={(e) => patch({ bishopGhsText: e.target.value })}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="bishop-usd">EBPV Bishop rate (USD)</Label>
-              <Input
-                id="bishop-usd"
-                type="number"
-                min={0}
-                className="w-32"
-                value={draft.bishopUsdText}
-                onChange={(e) => patch({ bishopUsdText: e.target.value })}
-              />
-            </div>
-            <p className="max-w-xs text-xs text-muted-foreground">
-              Special per-bed rate applied when a guest on EBPV is flagged as
-              Bishop.
-            </p>
-          </div>
-
-          {/* Live preview: what the current (possibly unsaved) prices do to a
-              representative booking. */}
-          <div className="rounded-lg border bg-muted/30 p-3">
-            <div className="flex flex-wrap items-start justify-between gap-2">
-              <div className="space-y-0.5">
-                <p className="text-sm font-medium">Sample booking preview</p>
-                <p className="text-xs text-muted-foreground">
-                  6 guests — one bed in every type, plus one EBPV guest on the
-                  Bishop rate. Uses your current edits; the server applies them
-                  to new bookings once saved.
-                </p>
-              </div>
-              <Badge
-                variant="outline"
-                className={
-                  previewHasEdits
-                    ? "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300"
-                    : "text-muted-foreground"
-                }
-              >
-                {previewHasEdits ? "Previewing unsaved edits" : "Matches saved"}
-              </Badge>
-            </div>
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <SampleBookingColumn
-                summary={previewGhs}
-                savedTotal={savedGhs.totalAmount}
-                labels={previewTypes}
-              />
-              <SampleBookingColumn
-                summary={previewUsd}
-                savedTotal={savedUsd.totalAmount}
-                labels={previewTypes}
-              />
-            </div>
-            {previewFallbackCount > 0 && (
-              <p className="mt-2 text-[11px] text-muted-foreground">
-                {previewFallbackCount} field
-                {previewFallbackCount === 1 ? " is" : "s are"} empty or not a
-                valid price — the preview uses the last saved value there.
-              </p>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Accommodation pool capacity</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <p className="text-xs text-muted-foreground">
-            Total beds per pool. Totals cannot go below what is already
-            reserved or confirmed; every change is recorded in the inventory
-            ledger.
-          </p>
-          {settings.pools.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No inventory pools yet — they are created automatically on first
-              use (or when the AGC seed runs).
-            </p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-xs text-muted-foreground">
-                    <th className="py-2 pr-3 font-medium">Type</th>
-                    <th className="py-2 pr-3 font-medium">Pool</th>
-                    <th className="py-2 pr-3 font-medium">Reserved</th>
-                    <th className="py-2 pr-3 font-medium">Confirmed</th>
-                    <th className="py-2 pr-3 font-medium">Available</th>
-                    <th className="py-2 pr-3 font-medium">Total beds</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {settings.pools.map((pool) => (
-                    <tr key={pool._id} className="border-t">
-                      <td className="py-2 pr-3 capitalize">
-                        {pool.accommodationType.replace(/_/g, " ")}
-                      </td>
-                      <td className="py-2 pr-3 text-muted-foreground">
-                        {pool.scope.replace(/_/g, " ")}
-                      </td>
-                      <td className="py-2 pr-3 tabular-nums text-muted-foreground">
-                        {pool.reserved}
-                      </td>
-                      <td className="py-2 pr-3 tabular-nums text-muted-foreground">
-                        {pool.confirmed}
-                      </td>
-                      <td className="py-2 pr-3 tabular-nums text-muted-foreground">
-                        {pool.available}
-                      </td>
-                      <td className="py-2 pr-3">
+              {settings.accommodationTypes.map((row) => {
+                const pools = settings.pools.filter(
+                  (pool) => pool.accommodationType === row.type,
+                );
+                return (
+                  <div
+                    key={row.type}
+                    className="space-y-3 rounded-lg border p-3 lg:grid lg:grid-cols-[minmax(0,1fr)_7rem_7rem_minmax(0,15rem)] lg:items-start lg:gap-3 lg:space-y-0"
+                  >
+                    <div className="space-y-1.5">
+                      <Label
+                        htmlFor={`acc-label-${row.type}`}
+                        className="text-xs capitalize text-muted-foreground"
+                      >
+                        {row.type.replace(/_/g, " ")} label
+                      </Label>
+                      <Input
+                        id={`acc-label-${row.type}`}
+                        value={draft.typeLabels[row.type] ?? ""}
+                        onChange={(e) =>
+                          patch({
+                            typeLabels: {
+                              ...draft.typeLabels,
+                              [row.type]: e.target.value,
+                            },
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 lg:contents">
+                      <div className="space-y-1.5">
+                        <Label
+                          htmlFor={`acc-ghs-${row.type}`}
+                          className="text-xs text-muted-foreground"
+                        >
+                          GHS / bed
+                        </Label>
                         <Input
+                          id={`acc-ghs-${row.type}`}
                           type="number"
-                          min={pool.reserved + pool.confirmed}
-                          aria-label={`Total for ${pool.accommodationType} (${pool.scope})`}
-                          className="w-24"
-                          value={draft.poolTotals[pool._id] ?? ""}
+                          min={0}
+                          inputMode="decimal"
+                          value={draft.typePrices[row.type]?.ghs ?? ""}
                           onChange={(e) =>
                             patch({
-                              poolTotals: {
-                                ...draft.poolTotals,
-                                [pool._id]: e.target.value,
+                              typePrices: {
+                                ...draft.typePrices,
+                                [row.type]: {
+                                  ghs: e.target.value,
+                                  usd: draft.typePrices[row.type]?.usd ?? "",
+                                },
                               },
                             })
                           }
                         />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label
+                          htmlFor={`acc-usd-${row.type}`}
+                          className="text-xs text-muted-foreground"
+                        >
+                          USD / bed
+                        </Label>
+                        <Input
+                          id={`acc-usd-${row.type}`}
+                          type="number"
+                          min={0}
+                          inputMode="decimal"
+                          value={draft.typePrices[row.type]?.usd ?? ""}
+                          onChange={(e) =>
+                            patch({
+                              typePrices: {
+                                ...draft.typePrices,
+                                [row.type]: {
+                                  ghs: draft.typePrices[row.type]?.ghs ?? "",
+                                  usd: e.target.value,
+                                },
+                              },
+                            })
+                          }
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <p className="text-xs font-medium text-muted-foreground">
+                        Capacity (beds)
+                      </p>
+                      {pools.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">
+                          No inventory pool yet.
+                        </p>
+                      ) : (
+                        <div className="space-y-1.5">
+                          {pools.map((pool) => {
+                            const held = pool.reserved + pool.confirmed;
+                            const draftTotal =
+                              parsePriceInput(draft.poolTotals[pool._id]) ??
+                              pool.total;
+                            const belowHeld = draftTotal < held;
+                            return (
+                              <div key={pool._id} className="flex items-center gap-2">
+                                <span className="w-20 shrink-0 text-[11px] capitalize text-muted-foreground">
+                                  {pool.scope.replace(/_/g, " ")}
+                                </span>
+                                <Input
+                                  type="number"
+                                  min={held}
+                                  inputMode="numeric"
+                                  aria-label={`Total beds for ${row.type} (${pool.scope})`}
+                                  className="h-8 w-20"
+                                  value={draft.poolTotals[pool._id] ?? ""}
+                                  onChange={(e) =>
+                                    patch({
+                                      poolTotals: {
+                                        ...draft.poolTotals,
+                                        [pool._id]: e.target.value,
+                                      },
+                                    })
+                                  }
+                                />
+                                <span
+                                  title={`${pool.reserved} reserved · ${pool.confirmed} confirmed`}
+                                  className={cn(
+                                    "text-[11px] tabular-nums text-muted-foreground",
+                                    belowHeld && "font-medium text-destructive",
+                                  )}
+                                >
+                                  {belowHeld
+                                    ? `below the ${held} held`
+                                    : `${Math.max(0, draftTotal - held)} free · ${held} held`}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* Rate rules that don't belong to a single type. */}
+              <div className="flex flex-wrap items-end gap-3 rounded-lg border p-3">
+                <div className="space-y-1.5">
+                  <Label
+                    htmlFor="bishop-ghs"
+                    className="text-xs text-muted-foreground"
+                  >
+                    EBPV Bishop rate (GHS / bed)
+                  </Label>
+                  <Input
+                    id="bishop-ghs"
+                    type="number"
+                    min={0}
+                    inputMode="decimal"
+                    className="w-32"
+                    value={draft.bishopGhsText}
+                    onChange={(e) => patch({ bishopGhsText: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label
+                    htmlFor="bishop-usd"
+                    className="text-xs text-muted-foreground"
+                  >
+                    EBPV Bishop rate (USD / bed)
+                  </Label>
+                  <Input
+                    id="bishop-usd"
+                    type="number"
+                    min={0}
+                    inputMode="decimal"
+                    className="w-32"
+                    value={draft.bishopUsdText}
+                    onChange={(e) => patch({ bishopUsdText: e.target.value })}
+                  />
+                </div>
+                <p className="max-w-xs text-xs text-muted-foreground">
+                  Special per-bed rate applied when a guest on EBPV is flagged
+                  as Bishop.
+                </p>
+              </div>
             </div>
-          )}
+
+            <SampleBookingPreview
+              previewGhs={previewGhs}
+              previewUsd={previewUsd}
+              savedGhsTotal={savedGhs.totalAmount}
+              savedUsdTotal={savedUsd.totalAmount}
+              labels={previewTypes}
+              hasEdits={previewHasEdits}
+              fallbackCount={previewFallbackCount}
+            />
+          </div>
         </CardContent>
       </Card>
 
-      <Card>
+      <Card id="agc-section-titles" data-agc-section="titles" className="scroll-mt-24">
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Guest titles</CardTitle>
+          <CardTitle className="flex items-center gap-2 text-base">
+            Guest titles
+            {dirtySections.titles && <DirtyDot />}
+          </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-xs text-muted-foreground">
@@ -864,31 +1179,28 @@ export function AgcSettingsManager() {
         </CardContent>
       </Card>
 
-      <div className="flex items-center gap-3">
-        <Button type="button" disabled={!canSave} onClick={() => void save()}>
-          {saving ? (
-            <Loader2Icon className="size-4 animate-spin" />
-          ) : (
-            <Save className="size-4" />
-          )}
-          Save changes
-        </Button>
-        {!holdValid && (
-          <p className="text-xs text-destructive">
-            Hold window must be between 1 and 720 hours.
-          </p>
-        )}
-        {deadlineIso === null && (
-          <p className="text-xs text-destructive">Pick a valid deadline.</p>
-        )}
-      </div>
-
-      <Card className="border-destructive/40">
+      {/* Instant controls — deliberately separate from the saved settings. */}
+      <Card
+        id="agc-section-operations"
+        data-agc-section="operations"
+        className="scroll-mt-24 border-destructive/40"
+      >
         <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base text-destructive">
-            <TriangleAlert className="size-4" />
-            Danger zone
+          <CardTitle className="flex flex-wrap items-center gap-2 text-base">
+            <span className="flex items-center gap-2 text-destructive">
+              <ShieldAlert className="size-4" />
+              Operational controls
+            </span>
+            <Badge
+              variant="outline"
+              className="text-[11px] font-normal text-muted-foreground"
+            >
+              Applies instantly — no save needed
+            </Badge>
           </CardTitle>
+          <CardDescription>
+            Live switches that bypass the save workflow above.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-wrap items-start justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3">
@@ -933,12 +1245,29 @@ export function AgcSettingsManager() {
             )}
           </div>
           <div className="space-y-1 rounded-lg border p-3">
-            <Label className="text-sm">Email delivery (SMTP)</Label>
-            {systemStatus === undefined ? (
-              <Skeleton className="h-5 w-56" />
-            ) : systemStatus.smtp.configured ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <Label className="text-sm">Email delivery (SMTP)</Label>
+              {systemStatus === undefined ? (
+                <Skeleton className="h-5 w-20 rounded-full" />
+              ) : systemStatus.smtp.configured ? (
+                <Badge
+                  variant="outline"
+                  className="border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+                >
+                  Configured
+                </Badge>
+              ) : (
+                <Badge
+                  variant="outline"
+                  className="border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300"
+                >
+                  Not configured
+                </Badge>
+              )}
+            </div>
+            {systemStatus === undefined ? null : systemStatus.smtp.configured ? (
               <p className="text-xs text-muted-foreground">
-                Configured —{" "}
+                Sending via{" "}
                 <span className="font-mono">
                   {systemStatus.smtp.host}:{systemStatus.smtp.port}
                   {systemStatus.smtp.secure ? " (TLS)" : ""}
@@ -947,8 +1276,8 @@ export function AgcSettingsManager() {
               </p>
             ) : (
               <p className="text-xs text-muted-foreground">
-                Not configured — credential and review emails are logged on the
-                Emails page but not delivered.
+                Credential and review emails are logged on the Emails page but
+                not delivered.
               </p>
             )}
             <p className="text-[11px] text-muted-foreground">
@@ -958,6 +1287,34 @@ export function AgcSettingsManager() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Floating unsaved-changes bar: only present when there is work to
+          commit, anchored bottom-right so it never covers the sidebar. */}
+      {isDirty && (
+        <div className="fixed inset-x-4 bottom-4 z-40 flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-background/95 p-3 shadow-elevate backdrop-blur sm:left-auto sm:right-6 sm:max-w-xl">
+          <div className="min-w-0">
+            <p className="text-sm font-medium">
+              {changeCount} unsaved change{changeCount === 1 ? "" : "s"}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {saveBlocker ?? "Ctrl/⌘ + S to save"}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="outline" disabled={saving} onClick={discard}>
+              Discard
+            </Button>
+            <Button type="button" onClick={() => void save()} disabled={!canSave}>
+              {saving ? (
+                <Loader2Icon className="size-4 animate-spin" />
+              ) : (
+                <Save className="size-4" />
+              )}
+              Save changes
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Typed-keyword guard for arming the lockdown — cannot be flipped accidentally. */}
       <Dialog
