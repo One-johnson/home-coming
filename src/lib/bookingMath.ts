@@ -13,6 +13,19 @@ export function amountsMatch(entered: number, expected: number): boolean {
   return Math.abs(entered - expected) < 0.005;
 }
 
+/**
+ * Parse an admin settings price field (free-typed text). Returns null when the
+ * value is empty, whitespace, non-numeric, or negative so callers can fall
+ * back to the last saved price while an admin is mid-edit.
+ */
+export function parsePriceInput(text: string | undefined): number | null {
+  if (text === undefined) return null;
+  const trimmed = text.trim();
+  if (trimmed === "") return null;
+  const value = Number(trimmed);
+  return Number.isFinite(value) && value >= 0 ? value : null;
+}
+
 export type AgcAccommodationType =
   | "dormitory"
   | "hostel"

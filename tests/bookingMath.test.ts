@@ -6,6 +6,7 @@ import {
   capacityProblem,
   computeBookingSummary,
   describeUnits,
+  parsePriceInput,
   typesConfigFromOverview,
   unitPrice,
 } from "../src/lib/bookingMath";
@@ -297,6 +298,24 @@ describe("computeBookingSummary with live overview config", () => {
       { ghs: 1600, usd: 150 },
     );
     expect(summary.lines[0].unitPrice).toBe(1600);
+  });
+});
+
+describe("parsePriceInput (admin settings preview)", () => {
+  test("accepts zero and positive numbers, trimming whitespace", () => {
+    expect(parsePriceInput("0")).toBe(0);
+    expect(parsePriceInput("150")).toBe(150);
+    expect(parsePriceInput("450.5")).toBe(450.5);
+    expect(parsePriceInput("  42  ")).toBe(42);
+  });
+
+  test("returns null for empty, non-numeric, and negative values so the preview can fall back", () => {
+    expect(parsePriceInput(undefined)).toBeNull();
+    expect(parsePriceInput("")).toBeNull();
+    expect(parsePriceInput("   ")).toBeNull();
+    expect(parsePriceInput("abc")).toBeNull();
+    expect(parsePriceInput("-5")).toBeNull();
+    expect(parsePriceInput("Infinity")).toBeNull();
   });
 });
 

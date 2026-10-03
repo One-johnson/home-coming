@@ -1003,8 +1003,8 @@ export function RepAccommodationTab() {
         <CardHeader>
           <CardTitle className="text-lg">Build your booking</CardTitle>
           <CardDescription>
-            Add guests one by one. Rooms (Wise as Serpents, Good General, EBPV)
-            accommodate 2 guests and are priced per room.
+            Add guests one by one. Every option is priced per bed — one bed per
+            guest.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -1093,6 +1093,10 @@ export function RepAccommodationTab() {
                     <Label>Accommodation</Label>
                     <Select
                       value={draft.accommodationType}
+                      items={overview?.accommodationTypes.map((type) => ({
+                        value: type.type,
+                        label: type.label,
+                      }))}
                       onValueChange={(value) => {
                         const next = (value ?? draft.accommodationType) as AgcAccommodationType;
                         updateDraft(index, {
@@ -1115,8 +1119,15 @@ export function RepAccommodationTab() {
                               value={type.type}
                               disabled={disabled}
                             >
-                              {type.label}
-                              {disabled ? " — sold out" : ""}
+                              <span className="flex w-full items-center justify-between gap-3">
+                                <span className="min-w-0 flex-1 truncate">
+                                  {type.label}
+                                  {disabled ? " — sold out" : ""}
+                                </span>
+                                <span className="shrink-0 text-xs text-muted-foreground">
+                                  {`${currency} ${isOffline ? type.pricing.ghs : type.pricing.usd} / bed`}
+                                </span>
+                              </span>
                             </SelectItem>
                           );
                         })}
@@ -1933,6 +1944,10 @@ export function RepAccommodationTab() {
                     <Label className="text-xs">Accommodation</Label>
                     <Select
                       value={draft.accommodationType}
+                      items={overview?.accommodationTypes.map((type) => ({
+                        value: type.type,
+                        label: type.label,
+                      }))}
                       onValueChange={(value) =>
                         setEditDrafts((prev) =>
                           prev.map((d, i) => {
@@ -1953,7 +1968,12 @@ export function RepAccommodationTab() {
                       <SelectContent>
                         {overview?.accommodationTypes.map((type) => (
                           <SelectItem key={type.type} value={type.type}>
-                            {type.label}
+                            <span className="flex w-full items-center justify-between gap-3">
+                              <span className="min-w-0 flex-1 truncate">{type.label}</span>
+                              <span className="shrink-0 text-xs text-muted-foreground">
+                                {`${currency} ${isOffline ? type.pricing.ghs : type.pricing.usd} / bed`}
+                              </span>
+                            </span>
                           </SelectItem>
                         ))}
                       </SelectContent>

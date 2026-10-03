@@ -6,6 +6,7 @@ import { Loader2Icon, Plus, Save, ShieldAlert, Trash2, TriangleAlert } from "luc
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import { useAdminSession } from "@/components/admin/AdminSessionProvider";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -20,6 +21,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  computeBookingSummary,
+  parsePriceInput,
+  typesConfigFromOverview,
+} from "@/lib/bookingMath";
+import type {
+  AccommodationTypeConfig,
+  AgcAccommodationType,
+  BookingSummary,
+  GuestDraft,
+} from "@/lib/bookingMath";
 import { toastFriendlyErrorParts } from "@/lib/friendlyError";
 import { cn } from "@/lib/utils";
 
@@ -117,6 +129,77 @@ function toDraft(settings: AgcSettings): SettingsDraft {
   };
 }
 
+/**
+ * Representative booking used by the live pricing preview: one bed in every
+ * type plus an EBPV guest on the Bishop rate, so a bishop-rate edit shows up
+ * in the sample total too.
+ */
+const SAMPLE_BOOKING: Array<
+  Pick<GuestDraft, "accommodationType" | "isBishopRate">
+> = [
+  { accommodationType: "dormitory", isBishopRate: false },
+  { accommodationType: "hostel", isBishopRate: false },
+  { accommodationType: "wise_serpents", isBishopRate: false },
+  { accommodationType: "good_general", isBishopRate: false },
+  { accommodationType: "ebpv", isBishopRate: false },
+  { accommodationType: "ebpv", isBishopRate: true },
+];
+
+/** One currency column of the live sample-booking preview. */
+function SampleBookingColumn({
+  summary,
+  savedTotal,
+  labels,
+}: {
+  summary: BookingSummary;
+  savedTotal: number;
+  labels: Record<AgcAccommodationType, AccommodationTypeConfig>;
+}) {
+  const delta = summary.totalAmount - savedTotal;
+  return (
+    <div className="rounded-md border bg-background p-2.5">
+      <p className="text-xs font-semibold tracking-wide text-muted-foreground">
+        {summary.currency}
+      </p>
+      <ul className="mt-1.5 space-y-1">
+        {summary.lines.map((line) => (
+          <li
+            key={`${line.accommodationType}-${line.isBishopRate}`}
+            className="flex items-baseline justify-between gap-2 text-xs"
+          >
+            <span className="min-w-0 truncate">
+              {labels[line.accommodationType].label}
+              {line.isBishopRate ? " · Bishop" : ""} × {line.units}
+            </span>
+            <span className="shrink-0 tabular-nums text-muted-foreground">
+              {line.unitPrice} × {line.units} ={" "}
+              <span className="font-medium text-foreground">
+                {line.subtotal}
+              </span>
+            </span>
+          </li>
+        ))}
+      </ul>
+      <div className="mt-2 flex items-baseline justify-between border-t pt-2 text-sm">
+        <span className="font-medium">Sample total</span>
+        <span className="font-semibold tabular-nums">
+          {summary.currency} {summary.totalAmount}
+        </span>
+      </div>
+      <p className="mt-1 text-[11px] text-muted-foreground">
+        Saved total: {summary.currency} {savedTotal}
+        {delta !== 0 && (
+          <span className={delta > 0 ? " text-amber-700" : " text-emerald-700"}>
+            {" "}
+            ({delta > 0 ? "+" : ""}
+            {delta})
+          </span>
+        )}
+      </p>
+    </div>
+  );
+}
+
 /** The exact keyword required to arm the lockdown switch. */
 const LOCKDOWN_KEYWORD = "LOCKDOWN";
 
@@ -199,6 +282,71 @@ export function AgcSettingsManager() {
     const base = edit && edit.source === settings ? edit.value : toDraft(settings);
     setEdit({ source: settings, value: { ...base, ...partial } });
   };
+
+  // --- Live sample-booking preview (unsaved edits) ---
+  // Recomputed from the draft's text values on every keystroke so admins see
+  // the effect of price edits before saving. Fields that are empty or invalid
+  // mid-edit fall back to the last saved value rather than showing a
+  // misleading total (the fallback count is surfaced in the UI).
+  const previewRows = settings.accommodationTypes.map((row) => ({
+    row,
+    ghs: parsePriceInput(draft.typePrices[row.type]?.ghs),
+    usd: parsePriceInput(draft.typePrices[row.type]?.usd),
+  }));
+  const previewTypes = typesConfigFromOverview(
+    previewRows.map(({ row, ghs, usd }) => ({
+      type: row.type,
+      label: (draft.typeLabels[row.type] ?? "").trim() || row.label,
+      unit: "bed" as const,
+      maxOccupancy: 1,
+      pricing: { ghs: ghs ?? row.pricing.ghs, usd: usd ?? row.pricing.usd },
+    })),
+  );
+  const previewBishopGhs = parsePriceInput(draft.bishopGhsText);
+  const previewBishopUsd = parsePriceInput(draft.bishopUsdText);
+  const previewFallbackCount =
+    previewRows.reduce(
+      (count, entry) =>
+        count +
+        (entry.ghs === null ? 1 : 0) +
+        (entry.usd === null ? 1 : 0),
+      0,
+    ) +
+    (previewBishopGhs === null ? 1 : 0) +
+    (previewBishopUsd === null ? 1 : 0);
+  const previewBishop = {
+    ghs: previewBishopGhs ?? settings.bishopRate.ghs,
+    usd: previewBishopUsd ?? settings.bishopRate.usd,
+  };
+  // Sample totals in both currencies: GHS hubs pay in GHS, everyone else USD.
+  const previewGhs = computeBookingSummary(
+    SAMPLE_BOOKING,
+    "ghana",
+    previewTypes,
+    previewBishop,
+  );
+  const previewUsd = computeBookingSummary(
+    SAMPLE_BOOKING,
+    "england",
+    previewTypes,
+    previewBishop,
+  );
+  const savedTypes = typesConfigFromOverview(settings.accommodationTypes);
+  const savedGhs = computeBookingSummary(
+    SAMPLE_BOOKING,
+    "ghana",
+    savedTypes,
+    settings.bishopRate,
+  );
+  const savedUsd = computeBookingSummary(
+    SAMPLE_BOOKING,
+    "england",
+    savedTypes,
+    settings.bishopRate,
+  );
+  const previewHasEdits =
+    previewGhs.totalAmount !== savedGhs.totalAmount ||
+    previewUsd.totalAmount !== savedUsd.totalAmount;
 
   const holdHours = Number(draft.holdHoursText);
   const deadlineIso = fromLocalInput(draft.deadline);
@@ -353,12 +501,6 @@ export function AgcSettingsManager() {
       if (ops.length === 0) {
         toast.info("No changes to save");
         setSaving(false);
-        return;
-      }
-      await Promise.all(ops);
-      toast.success("Settings saved");
-      if (ops.length === 0) {
-        toast.info("No changes to save");
         return;
       }
       await Promise.all(ops);
@@ -548,6 +690,50 @@ export function AgcSettingsManager() {
               Special per-bed rate applied when a guest on EBPV is flagged as
               Bishop.
             </p>
+          </div>
+
+          {/* Live preview: what the current (possibly unsaved) prices do to a
+              representative booking. */}
+          <div className="rounded-lg border bg-muted/30 p-3">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div className="space-y-0.5">
+                <p className="text-sm font-medium">Sample booking preview</p>
+                <p className="text-xs text-muted-foreground">
+                  6 guests — one bed in every type, plus one EBPV guest on the
+                  Bishop rate. Uses your current edits; the server applies them
+                  to new bookings once saved.
+                </p>
+              </div>
+              <Badge
+                variant="outline"
+                className={
+                  previewHasEdits
+                    ? "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300"
+                    : "text-muted-foreground"
+                }
+              >
+                {previewHasEdits ? "Previewing unsaved edits" : "Matches saved"}
+              </Badge>
+            </div>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <SampleBookingColumn
+                summary={previewGhs}
+                savedTotal={savedGhs.totalAmount}
+                labels={previewTypes}
+              />
+              <SampleBookingColumn
+                summary={previewUsd}
+                savedTotal={savedUsd.totalAmount}
+                labels={previewTypes}
+              />
+            </div>
+            {previewFallbackCount > 0 && (
+              <p className="mt-2 text-[11px] text-muted-foreground">
+                {previewFallbackCount} field
+                {previewFallbackCount === 1 ? " is" : "s are"} empty or not a
+                valid price — the preview uses the last saved value there.
+              </p>
+            )}
           </div>
         </CardContent>
       </Card>
