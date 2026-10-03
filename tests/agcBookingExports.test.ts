@@ -258,12 +258,118 @@ test("admin accommodation export opens on all hubs' guests with name, gender and
     guests.find((guest) => guest["Last Name"] === "Owusu"),
   ).toMatchObject({ Gender: "female", "Accommodation Type": "hostel" });
 
-  // The booking-level summary sheet is still exported alongside it.
+  // One sheet per hub follows, each holding only that hub's guests.
+  const accraSheet = workbook.getWorksheet("Accra Central");
+  expect(accraSheet).toBeDefined();
+  expect(
+    sheetRecords(accraSheet!).map((guest) => guest["Last Name"]),
+  ).toEqual(["Mensah", "Owusu"]);
+
+  const londonSheet = workbook.getWorksheet("London Central");
+  expect(londonSheet).toBeDefined();
+  expect(sheetRecords(londonSheet!).map((guest) => guest["Last Name"])).toEqual(
+    ["Smith"],
+  );
+
+  // The booking-level summary sheet is still exported alongside them.
   const bookings = sheetRecords(workbook.getWorksheet("Bookings")!);
   expect(bookings.map((row) => row.Reference).sort()).toEqual([
     "HC-ACC-001",
     "HC-ACC-002",
   ]);
+});
+
+test("per-hub sheets sanitize hub names for Excel, stay unique and cap at 31 characters", async () => {
+  const t = createTestConvex();
+  const adminToken = await seedAdminToken(t);
+
+  const plainHub = await seedHubWithRep(t, {
+    name: "Alpha Beta Central",
+    region: "ghana",
+    country: "Ghana",
+  });
+  const slashedHub = await seedHubWithRep(t, {
+    name: "Alpha/Beta Central",
+    region: "ghana",
+    country: "Ghana",
+  });
+  const longHub = await seedHubWithRep(t, {
+    name: "North America Delegates Coordinating Hub",
+    region: "north_america",
+    country: "United States",
+  });
+
+  const ownGuest = (firstName: string, lastName: string): GuestSeed => ({
+    title: "Mr.",
+    firstName,
+    lastName,
+    gender: "male",
+    accommodationType: "dormitory",
+    pool: "africa",
+    country: "Ghana",
+  });
+
+  await seedBooking(t, {
+    hubId: plainHub.hubId,
+    repId: plainHub.repId,
+    region: "ghana",
+    referenceNumber: "HC-NAME-001",
+    guests: [ownGuest("One", "Plain")],
+  });
+  await seedBooking(t, {
+    hubId: slashedHub.hubId,
+    repId: slashedHub.repId,
+    region: "ghana",
+    referenceNumber: "HC-NAME-002",
+    guests: [ownGuest("Two", "Slash"), ownGuest("Three", "Slash")],
+  });
+  await seedBooking(t, {
+    hubId: longHub.hubId,
+    repId: longHub.repId,
+    region: "north_america",
+    referenceNumber: "HC-NAME-003",
+    guests: [
+      {
+        title: "Ms.",
+        firstName: "Four",
+        lastName: "Longname",
+        gender: "female",
+        accommodationType: "hostel",
+        pool: "rest_of_world",
+        country: "United States",
+      },
+    ],
+  });
+
+  const result = await t.action(api.agcExcel.exportBookingsExcel, {
+    sessionToken: adminToken,
+  });
+  const workbook = await loadWorkbook(result);
+  const names = workbook.worksheets.map((worksheet) => worksheet.name);
+
+  expect(names).toContain("Guests");
+  expect(names).toContain("Bookings");
+  // "Alpha Beta Central" and "Alpha/Beta Central" collapse to the same safe
+  // name, so one keeps it and the other gets a numeric suffix.
+  const alphaSheets = names.filter((name) =>
+    name.startsWith("Alpha Beta Central"),
+  );
+  expect(new Set(alphaSheets).size).toBe(2);
+  expect(
+    alphaSheets
+      .map(
+        (name) => sheetRecords(workbook.getWorksheet(name)!).length,
+      )
+      .sort(),
+  ).toEqual([1, 2]);
+
+  // Excel caps sheet names at 31 characters.
+  const longSheet = names.find((name) =>
+    name.startsWith("North America Delegates"),
+  );
+  expect(longSheet).toBeDefined();
+  expect(longSheet!.length).toBeLessThanOrEqual(31);
+  expect(sheetRecords(workbook.getWorksheet(longSheet!)!)).toHaveLength(1);
 });
 
 test("rep accommodation export opens on the hub's guests with name, gender and accommodation type", async () => {

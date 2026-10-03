@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { ColumnDef } from "@tanstack/react-table";
-import { Trash2 } from "lucide-react";
+import { Download, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
@@ -20,6 +20,7 @@ import { DataTable } from "@/components/ui/data-table";
 import { StatTile } from "@/components/portal/StatTile";
 import { createActionsColumn, multiSelectFilter } from "@/components/admin/columns";
 import { accommodationExportRows } from "@/lib/agcBookingExport";
+import { exportToCsv } from "@/lib/exportCsv";
 import { toastFriendlyErrorParts } from "@/lib/friendlyError";
 import {
   AGC_ACCOMMODATION_LABELS,
@@ -136,6 +137,15 @@ export function BookingsTab() {
     clearSelection: () => void,
   ) => {
     setDeleteTarget({ kind: "bulk", rows: selectedRows, clearSelection });
+  };
+
+  /** One booking's guests — same rows as the table export, scoped to a row. */
+  const handleDownloadGuestList = (row: AdminBookingRow) => {
+    const label = (row.referenceNumber || row.hubName).replace(
+      /[\\/:*?"<>|]/g,
+      "-",
+    );
+    exportToCsv(accommodationExportRows(row), `agc-guests-${label}.csv`);
   };
 
   const handleConfirmDelete = async () => {
@@ -284,6 +294,19 @@ export function BookingsTab() {
           {row.guests.length === 0 && (
             <p className="text-muted-foreground">No guests recorded.</p>
           )}
+        </div>
+        <div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 gap-1.5"
+            disabled={row.guests.length === 0}
+            onClick={() => handleDownloadGuestList(row)}
+          >
+            <Download className="size-3.5" />
+            Download guest list
+          </Button>
         </div>
         {row.offline && (
           <div className="rounded-lg bg-muted/50 p-3 text-sm">

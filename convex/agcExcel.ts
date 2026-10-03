@@ -383,15 +383,13 @@ type BookingExportRow = {
   }>;
 };
 
-function addBookingSheets(
-  workbook: ExcelJS.Workbook,
-  entries: BookingExportRow[],
-) {
-  // Guests first: this is the sheet that opens with the workbook and the one
-  // coordinators work from, so every guest row names the hub that owns them
-  // and carries gender + accommodation type for room allocation.
-  const guestSheet = workbook.addWorksheet("Guests");
-  guestSheet.columns = [
+/** Guest-list columns, shared by the combined sheet and every per-hub sheet. */
+function guestSheetColumns(): Array<{
+  header: string;
+  key: string;
+  width: number;
+}> {
+  return [
     { header: "Booking Reference", key: "reference", width: 16 },
     { header: "Hub", key: "hub", width: 28 },
     { header: "Title", key: "title", width: 10 },
@@ -406,6 +404,12 @@ function addBookingSheets(
     { header: "Payment Status", key: "paymentStatus", width: 18 },
     { header: "Country", key: "country", width: 16 },
   ];
+}
+
+function addGuestRows(
+  guestSheet: ExcelJS.Worksheet,
+  entries: BookingExportRow[],
+): void {
   guestSheet.getRow(1).font = { bold: true };
   for (const entry of entries) {
     for (const guest of entry.guests) {
@@ -429,6 +433,58 @@ function addBookingSheets(
     }
   }
   guestSheet.autoFilter = { from: "A1", to: "M1" };
+}
+
+/**
+ * Excel caps sheet names at 31 characters, rejects : \ / ? * [ ] and needs
+ * them unique across the workbook. Hub names can break all three rules, so
+ * key off a sanitized form and add a numeric suffix when two hubs collapse
+ * to the same safe name.
+ */
+function hubSheetName(hubName: string, taken: Set<string>): string {
+  const cleaned = hubName
+    .replace(/[\\/:?*\[\]]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const base = cleaned.slice(0, 31).trim() || "Hub";
+  let candidate = base;
+  for (let n = 2; taken.has(candidate.toLowerCase()); n += 1) {
+    const suffix = ` (${n})`;
+    candidate = `${base.slice(0, 31 - suffix.length).trim()}${suffix}`;
+  }
+  taken.add(candidate.toLowerCase());
+  return candidate;
+}
+
+function addBookingSheets(
+  workbook: ExcelJS.Workbook,
+  entries: BookingExportRow[],
+) {
+  // Guests first: this is the sheet that opens with the workbook and the one
+  // coordinators work from, so every guest row names the hub that owns them
+  // and carries gender + accommodation type for room allocation.
+  const guestSheet = workbook.addWorksheet("Guests");
+  guestSheet.columns = guestSheetColumns();
+  addGuestRows(guestSheet, entries);
+
+  // Then one sheet per hub, so each coordinator can open (or print) only
+  // their own guests. Hubs whose bookings have no guests recorded are skipped
+  // rather than given an empty tab.
+  const takenSheetNames = new Set(["guests", "bookings"]);
+  const hubs = [...new Set(entries.map((entry) => entry.booking.hubName))].sort(
+    (a, b) => a.localeCompare(b),
+  );
+  for (const hubName of hubs) {
+    const hubEntries = entries.filter(
+      (entry) => entry.booking.hubName === hubName,
+    );
+    if (!hubEntries.some((entry) => entry.guests.length > 0)) continue;
+    const hubSheet = workbook.addWorksheet(
+      hubSheetName(hubName, takenSheetNames),
+    );
+    hubSheet.columns = guestSheetColumns();
+    addGuestRows(hubSheet, hubEntries);
+  }
 
   const sheet = workbook.addWorksheet("Bookings");
   sheet.columns = [
