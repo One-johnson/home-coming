@@ -889,7 +889,7 @@ function HubDetailDialog({
   isAdmin: boolean;
   onClose: () => void;
   onRenamed: (hubId: string, name: string, repUsername: string | null) => void;
-  onCredentials: (v: string) => void;
+  onCredentials: (credentials: RepCredentials) => void;
   onEditEmail: (rep: NonNullable<HubRow["rep"]>) => void;
   onDeleted: (username: string, undo: () => Promise<void>) => void;
 }) {
