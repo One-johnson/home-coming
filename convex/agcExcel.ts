@@ -628,7 +628,7 @@ export const exportHubsRepsExcel = action({
       "Every hub has one row. Row 2 under the header is a summary line with the per-status totals (active, pending setup, no rep, disabled).",
     ]);
     instructions.addRow([
-      "Every hub has one row. The username is the hub name in lowercase with spaces replaced by underscores (e.g. Ashanti Mampong → ashanti_mampong) — hubs without a rep account show the username they will get once one is created.",
+      "Every hub has one row. The username is the hub name in lowercase (e.g. Ashanti Mampong → ashanti_mampong) — hubs without a rep account show the username they will get once one is created. At sign-in, reps may type the name with underscores, hyphens or spaces — all variants work.",
     ]);
     instructions.addRow([
       "Status shows the real account state: pending_setup (temp password below still works), active (rep completed setup), disabled, or no_rep (no account yet).",

@@ -5,14 +5,14 @@ import { Fragment, useMemo, useState } from "react";
 import {
   AlertTriangle,
   Check,
-  ChevronDown,
-  ChevronRight,
   Copy,
   Download,
   InboxIcon,
   KeyRound,
   Loader2Icon,
   Mail,
+  Pencil,
+  Plus,
   PowerOff,
   SearchIcon,
   Sparkles,
@@ -56,6 +56,7 @@ import {
   sortHubRows,
 } from "@/lib/hubRosterView";
 import type { HubFilterId, HubRosterRow, HubSortId } from "@/lib/hubRosterView";
+import { AGC_REGION_LABELS, type AgcRegion } from "@/lib/agcPortal";
 import {
   Table,
   TableBody,
@@ -870,6 +871,262 @@ function HubDetail({
   );
 }
 
+/**
+ * Hub details (stats + rep account) shown in a modal dialog. Admins can
+ * rename the hub inline from the title — the rep username follows the new
+ * name while the old one keeps working as an alias.
+ */
+function HubDetailDialog({
+  hub,
+  isAdmin,
+  onClose,
+  onRenamed,
+  onCredentials,
+  onEditEmail,
+  onDeleted,
+}: {
+  hub: HubRow;
+  isAdmin: boolean;
+  onClose: () => void;
+  onRenamed: (hubId: string, name: string, repUsername: string | null) => void;
+  onCredentials: (v: string) => void;
+  onEditEmail: (rep: NonNullable<HubRow["rep"]>) => void;
+  onDeleted: (username: string, undo: () => Promise<void>) => void;
+}) {
+  const { sessionToken } = useAdminSession();
+  const renameHubAction = useAction(api.agcAdmin.renameHub);
+  const [renaming, setRenaming] = useState(false);
+  const [newName, setNewName] = useState(hub.hubName);
+  const [busy, setBusy] = useState(false);
+
+  const regionLabel =
+    AGC_REGION_LABELS[hub.region as AgcRegion] ?? hub.region.replace(/_/g, " ");
+
+  const startRename = () => {
+    setNewName(hub.hubName);
+    setRenaming(true);
+  };
+
+  const saveRename = async () => {
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+    if (trimmed === hub.hubName) {
+      setRenaming(false);
+      return;
+    }
+    if (!sessionToken || busy) return;
+    setBusy(true);
+    try {
+      const result = await renameHubAction({
+        sessionToken,
+        hubId: hub._id as Id<"agcHubs">,
+        newName: trimmed,
+      });
+      onRenamed(hub._id, result.name, result.repUsername);
+      toast.success(`Renamed to ${result.name}`, {
+        description: result.repUsername
+          ? `Reps now sign in as ${result.repUsername} — the previous username keeps working.`
+          : undefined,
+      });
+      setRenaming(false);
+    } catch (err) {
+      toast.error(...toastFriendlyErrorParts(err, "Failed to rename hub"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2.5">
+            <HubAvatar hubName={hub.hubName} large />
+            {isAdmin && renaming ? (
+              <span className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                <Input
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void saveRename();
+                    } else if (e.key === "Escape") {
+                      setRenaming(false);
+                    }
+                  }}
+                  autoFocus
+                  className="h-8"
+                  aria-label="New hub name"
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={busy || !newName.trim()}
+                  onClick={() => void saveRename()}
+                >
+                  Save
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  disabled={busy}
+                  onClick={() => setRenaming(false)}
+                >
+                  Cancel
+                </Button>
+              </span>
+            ) : (
+              <span className="flex flex-wrap items-center gap-2">
+                {hub.hubName}
+                {!hub.active && (
+                  <Badge variant="outline" className="text-[10px]">inactive</Badge>
+                )}
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={startRename}
+                    aria-label={`Rename ${hub.hubName}`}
+                    title="Rename hub"
+                    className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  >
+                    <Pencil className="size-3.5" />
+                  </button>
+                )}
+              </span>
+            )}
+          </DialogTitle>
+          <DialogDescription>
+            {regionLabel} — registrations, accommodation and the rep account.
+          </DialogDescription>
+        </DialogHeader>
+        <HubDetail
+          hub={hub}
+          isAdmin={isAdmin}
+          onCredentials={onCredentials}
+          onEditEmail={onEditEmail}
+          onDeleted={onDeleted}
+        />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Create a single hub without going through the bulk importer. */
+function AddHubDialog({
+  onClose,
+  onAdded,
+}: {
+  onClose: () => void;
+  onAdded: () => void;
+}) {
+  const { sessionToken } = useAdminSession();
+  const addHubAction = useAction(api.agcAdmin.addHub);
+  const [name, setName] = useState("");
+  const [region, setRegion] = useState<AgcRegion>("ghana");
+  const [country, setCountry] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const trimmedName = name.trim();
+  const usernamePreview = trimmedName
+    .toLowerCase()
+    .replace(/\s+/g, "_");
+
+  const create = async () => {
+    if (!sessionToken || busy || !trimmedName) return;
+    setBusy(true);
+    try {
+      const hub = await addHubAction({
+        sessionToken,
+        name: trimmedName,
+        region,
+        country: country.trim() || undefined,
+      });
+      toast.success(`Added hub ${hub.name}`, {
+        description: `Reps for this hub will sign in as ${hub.repUsername}.`,
+      });
+      onAdded();
+      onClose();
+    } catch (err) {
+      toast.error(...toastFriendlyErrorParts(err, "Failed to add hub"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Add a hub</DialogTitle>
+          <DialogDescription>
+            New hubs behave exactly like imported ones — create a rep account
+            afterwards from the hub&rsquo;s detail view.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1">
+            <Label htmlFor="add-hub-name">Hub name</Label>
+            <Input
+              id="add-hub-name"
+              placeholder="e.g. Ashanti Mampong"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              autoFocus
+            />
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1">
+              <Label htmlFor="add-hub-region">Region</Label>
+              <Select value={region} onValueChange={(v) => setRegion((v ?? "ghana") as AgcRegion)}>
+                <SelectTrigger id="add-hub-region">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(AGC_REGION_LABELS).map(([id, label]) => (
+                    <SelectItem key={id} value={id}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="add-hub-country">Country (optional)</Label>
+              <Input
+                id="add-hub-country"
+                placeholder="e.g. Ghana"
+                value={country}
+                onChange={(e) => setCountry(e.target.value)}
+              />
+            </div>
+          </div>
+          {trimmedName && (
+            <p className="text-xs text-muted-foreground">
+              Reps will sign in as{" "}
+              <span className="font-mono">{usernamePreview}</span>.
+            </p>
+          )}
+        </div>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            disabled={busy || !trimmedName}
+            onClick={() => void create()}
+          >
+            <Plus className="size-4" />
+            Add hub
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function HubsRepsManager() {
   const { sessionToken, user } = useAdminSession();
   // Rep account setup/maintenance is admin-only server-side; staff can browse.
@@ -923,7 +1180,8 @@ export function HubsRepsManager() {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<HubFilterId>("all");
   const [sort, setSort] = useState<HubSortId>("name");
-  const [expanded, setExpanded] = useState<string | null>(null);
+  const [detailHub, setDetailHub] = useState<HubRow | null>(null);
+  const [addHubOpen, setAddHubOpen] = useState(false);
   const [selected, setSelected] = useState<Map<string, string>>(new Map());
   const [emailTarget, setEmailTarget] = useState<
     NonNullable<HubRow["rep"]> | null
@@ -992,6 +1250,26 @@ export function HubsRepsManager() {
 
   const handleDeleted = (username: string, undo: () => Promise<void>) => {
     deleteToast(`Deleted ${username} — restorable for 7 days`, undo);
+  };
+
+  /** Keep the open detail dialog in sync after an inline rename. */
+  const handleRenamed = (
+    hubId: string,
+    name: string,
+    repUsername: string | null,
+  ) => {
+    setDetailHub((prev) =>
+      prev && prev._id === hubId
+        ? {
+            ...prev,
+            hubName: name,
+            rep:
+              prev.rep && repUsername
+                ? { ...prev.rep, username: repUsername }
+                : prev.rep,
+          }
+        : prev,
+    );
   };
 
   if (!sessionToken) {
@@ -1119,6 +1397,18 @@ export function HubsRepsManager() {
                 </Button>
               )}
               {isAdmin && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-9"
+                  onClick={() => setAddHubOpen(true)}
+                >
+                  <Plus className="size-4" />
+                  Add hub
+                </Button>
+              )}
+              {isAdmin && (
                 <DropdownMenu>
                   <DropdownMenuTrigger
                     render={
@@ -1214,9 +1504,7 @@ export function HubsRepsManager() {
                         )}
                         <button
                           type="button"
-                          onClick={() =>
-                            setExpanded(expanded === hub._id ? null : hub._id)
-                          }
+                          onClick={() => setDetailHub(hub)}
                           className="flex min-w-0 flex-1 items-center gap-3 text-left"
                         >
                           <HubAvatar hubName={hub.hubName} />
@@ -1254,7 +1542,6 @@ export function HubsRepsManager() {
                   <TableHeader>
                     <TableRow className="hover:bg-transparent">
                       {isAdmin && <TableHead className="w-8" />}
-                      <TableHead className="w-8" />
                       <TableHead>Hub</TableHead>
                       <TableHead>Region</TableHead>
                       <TableHead>Representative</TableHead>
@@ -1267,15 +1554,13 @@ export function HubsRepsManager() {
                   <TableBody>
                     {rows.map((hub) => (
                       <Fragment key={hub._id}>
-                        <TableRow
-                          className={cn(
-                            "cursor-pointer",
-                            hub.needsAttention && "border-l-4 border-l-amber-400",
-                          )}
-                          onClick={() =>
-                            setExpanded(expanded === hub._id ? null : hub._id)
-                          }
-                        >
+                    <TableRow
+                      className={cn(
+                        "cursor-pointer",
+                        hub.needsAttention && "border-l-4 border-l-amber-400",
+                      )}
+                      onClick={() => setDetailHub(hub)}
+                    >
                           {isAdmin && (
                             <TableCell>
                               {hub.rep && (
@@ -1294,13 +1579,6 @@ export function HubsRepsManager() {
                               )}
                             </TableCell>
                           )}
-                          <TableCell>
-                            {expanded === hub._id ? (
-                              <ChevronDown className="size-4 text-muted-foreground" />
-                            ) : (
-                              <ChevronRight className="size-4 text-muted-foreground" />
-                            )}
-                          </TableCell>
                           <TableCell>
                             <span className="flex items-center gap-2.5">
                               <HubAvatar hubName={hub.hubName} />
@@ -1359,19 +1637,6 @@ export function HubsRepsManager() {
                             <QuietBadge hub={hub} />
                           </TableCell>
                         </TableRow>
-                        {expanded === hub._id && (
-                          <TableRow>
-                            <TableCell colSpan={isAdmin ? 9 : 8} className="p-2">
-                              <HubDetail
-                                hub={hub}
-                                isAdmin={isAdmin}
-                                onCredentials={setCredentials}
-                                onEditEmail={setEmailTarget}
-                                onDeleted={handleDeleted}
-                              />
-                            </TableCell>
-                          </TableRow>
-                        )}
                       </Fragment>
                     ))}
                   </TableBody>
@@ -1382,6 +1647,24 @@ export function HubsRepsManager() {
         </CardContent>
       </Card>
 
+      {detailHub && (
+        <HubDetailDialog
+          key={detailHub._id}
+          hub={detailHub}
+          isAdmin={isAdmin}
+          onClose={() => setDetailHub(null)}
+          onRenamed={handleRenamed}
+          onCredentials={setCredentials}
+          onEditEmail={setEmailTarget}
+          onDeleted={handleDeleted}
+        />
+      )}
+      {addHubOpen && (
+        <AddHubDialog
+          onClose={() => setAddHubOpen(false)}
+          onAdded={() => setFilter("all")}
+        />
+      )}
       {emailTarget && (
         <EditEmailDialog
           key={emailTarget._id}

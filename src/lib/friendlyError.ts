@@ -112,7 +112,7 @@ const mappings: Array<{
     test: /invalid username or password/i,
     title: "We couldn't sign you in",
     detail:
-      "Check your hub username and password, then try again. Usernames are the hub name in lowercase with underscores (e.g. ashanti_mampong).",
+      "Check your hub username and password, then try again. Usernames are the hub name in lowercase — underscores, hyphens or spaces all work (e.g. ashanti_mampong).",
   },
   {
     test: /account has been disabled|not active yet/i,

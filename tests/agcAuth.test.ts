@@ -733,3 +733,258 @@ test("getHubRoster aggregates per-hub registration and booking activity", async 
   expect(row.bookings.pending).toBe(0);
   expect(row.needsAttention).toBe(true); // pending registration
 });
+
+test("login accepts separator variants of the hub username", async () => {
+  const t = createTestConvex();
+
+  const hubId = await t.run((ctx) => ctx.db.insert("agcHubs", HUB));
+  const username = "test_hub";
+  const tempPassword = "temp-secret-2";
+  const { default: bcrypt } = await import("bcryptjs");
+  await seedRep(t, hubId, username, await bcrypt.hash(tempPassword, 12), tempPassword);
+
+  // Underscore, hyphen, space and mixed case all resolve to the same rep —
+  // "setup_required" means the rep was found and the password verified.
+  for (const variant of ["test-hub", "Test Hub", "TEST-HUB", "  test_hub  "]) {
+    const result = (await t.action(api.agcAuth.repLogin, {
+      username: variant,
+      password: tempPassword,
+    })) as RepLoginResult;
+    expect(result.kind, `variant: ${variant}`).toBe("setup_required");
+  }
+
+  // First-time setup also accepts variants and returns the stored username.
+  const setup = (await t.action(api.agcAuth.completeFirstLoginSetup, {
+    username: "Test-Hub",
+    temporaryPassword: tempPassword,
+    newPassword: "my-new-password-2",
+    firstName: "Ama",
+    lastName: "Mensah",
+    email: "ama2@testhub.example",
+    phone: "+233200000002",
+  })) as RepAuthResult;
+  expect(setup.rep.username).toBe(username);
+
+  // Post-setup sign-in with a hyphenated form works with the new password.
+  const login = (await t.action(api.agcAuth.repLogin, {
+    username: "test hub",
+    password: "my-new-password-2",
+  })) as RepLoginResult;
+  expect(login.kind).toBe("ok");
+  if (login.kind !== "ok") return;
+  expect(login.result.rep.username).toBe(username);
+});
+
+test("addHub creates a hub and rejects case-insensitive duplicates", async () => {
+  const t = createTestConvex();
+
+  const { createHash, randomBytes } = await import("node:crypto");
+  const adminToken = createHash("sha256").update(randomBytes(24)).digest("hex");
+  await t.run(async (ctx) => {
+    const adminId = await ctx.db.insert("users", {
+      name: "Admin",
+      email: "admin2@example.com",
+      passwordHash: "not-a-real-hash",
+      role: "admin",
+      active: true,
+      createdAt: Date.now(),
+    });
+    await ctx.db.insert("sessions", {
+      userId: adminId,
+      token: adminToken,
+      expiresAt: Date.now() + 3_600_000,
+      createdAt: Date.now(),
+    });
+  });
+
+  const added = await t.action(api.agcAdmin.addHub, {
+    sessionToken: adminToken,
+    name: "  Kumasi Asokwa  ",
+    region: "ghana",
+    country: "Ghana",
+  });
+  expect(added.name).toBe("Kumasi Asokwa");
+  expect(added.repUsername).toBe("kumasi_asokwa");
+
+  const hub = await t.run(async (ctx) =>
+    ctx.db
+      .query("agcHubs")
+      .withIndex("by_name", (q) => q.eq("name", "Kumasi Asokwa"))
+      .unique(),
+  );
+  expect(hub!.region).toBe("ghana");
+  expect(hub!.country).toBe("Ghana");
+  expect(hub!.active).toBe(true);
+
+  // A different-cased duplicate is rejected.
+  await expect(
+    t.action(api.agcAdmin.addHub, {
+      sessionToken: adminToken,
+      name: "kumasi asokwa",
+      region: "ghana",
+    }),
+  ).rejects.toThrow(/already exists/i);
+
+  // Non-admins are rejected.
+  await expect(
+    t.action(api.agcAdmin.addHub, {
+      sessionToken: "not-a-session",
+      name: "Tamale Central",
+      region: "ghana",
+    }),
+  ).rejects.toThrow(/unauthorized/i);
+});
+
+test("renameHub rotates the rep username and the old username keeps working", async () => {
+  const t = createTestConvex();
+
+  const { default: bcrypt } = await import("bcryptjs");
+  const tempPassword = "temp-secret-3";
+
+  const hubId = await t.run((ctx) => ctx.db.insert("agcHubs", HUB));
+  await seedRep(
+    t,
+    hubId,
+    "old_town_hub",
+    await bcrypt.hash(tempPassword, 12),
+    tempPassword,
+  );
+  // A second hub keeps the name "Test Hub" (for the duplicate-name check)
+  // and a rep whose username derives from nothing — used to prove alias
+  // collisions are refused.
+  const keeperHubId = await t.run((ctx) => ctx.db.insert("agcHubs", HUB));
+  void keeperHubId;
+  const otherHubId = await t.run((ctx) =>
+    ctx.db.insert("agcHubs", { ...HUB, name: "Other Hub" }),
+  );
+  await seedRep(
+    t,
+    otherHubId,
+    "blocked_name",
+    await bcrypt.hash(tempPassword, 12),
+    tempPassword,
+  );
+
+  const { createHash, randomBytes } = await import("node:crypto");
+  const adminToken = createHash("sha256").update(randomBytes(24)).digest("hex");
+  await t.run(async (ctx) => {
+    const adminId = await ctx.db.insert("users", {
+      name: "Admin",
+      email: "admin3@example.com",
+      passwordHash: "not-a-real-hash",
+      role: "admin",
+      active: true,
+      createdAt: Date.now(),
+    });
+    await ctx.db.insert("sessions", {
+      userId: adminId,
+      token: adminToken,
+      expiresAt: Date.now() + 3_600_000,
+      createdAt: Date.now(),
+    });
+  });
+
+  const renamed = await t.action(api.agcAdmin.renameHub, {
+    sessionToken: adminToken,
+    hubId,
+    newName: "  New Town Hub  ",
+  });
+  expect(renamed.name).toBe("New Town Hub");
+  expect(renamed.repUsername).toBe("new_town_hub");
+
+  // Hub and rep records reflect the rename; the old username is an alias.
+  const { hub, rep } = await t.run(async (ctx) => {
+    const hubDoc = await ctx.db
+      .query("agcHubs")
+      .withIndex("by_name", (q) => q.eq("name", "New Town Hub"))
+      .unique();
+    const repDoc = await ctx.db
+      .query("agcRepresentatives")
+      .withIndex("by_username", (q) => q.eq("username", "new_town_hub"))
+      .unique();
+    return { hub: hubDoc!, rep: repDoc! };
+  });
+  expect(hub).toBeTruthy();
+  expect(rep.previousUsernames).toContain("old_town_hub");
+
+  // New username signs in…
+  const withNew = (await t.action(api.agcAuth.repLogin, {
+    username: "new_town_hub",
+    password: tempPassword,
+  })) as RepLoginResult;
+  expect(withNew.kind).toBe("setup_required");
+
+  // …as does a separator variant of the new hub name…
+  const withVariant = (await t.action(api.agcAuth.repLogin, {
+    username: "new town hub",
+    password: tempPassword,
+  })) as RepLoginResult;
+  expect(withVariant.kind).toBe("setup_required");
+
+  // …and the pre-rename username still resolves via the alias.
+  const withOld = (await t.action(api.agcAuth.repLogin, {
+    username: "old_town_hub",
+    password: tempPassword,
+  })) as RepLoginResult;
+  expect(withOld.kind).toBe("setup_required");
+
+  // Duplicate hub name (case-insensitive) is rejected.
+  await expect(
+    t.action(api.agcAdmin.renameHub, {
+      sessionToken: adminToken,
+      hubId,
+      newName: "test hub",
+    }),
+  ).rejects.toThrow(/already exists/i);
+
+  // A username owned by ANOTHER rep (current or alias) is rejected.
+  await expect(
+    t.action(api.agcAdmin.renameHub, {
+      sessionToken: adminToken,
+      hubId,
+      newName: "Blocked Name",
+    }),
+  ).rejects.toThrow(/already uses/i);
+});
+
+test("requestUsernameReminder emails the exact username without enumerating", async () => {
+  const t = createTestConvex();
+
+  const hubId = await t.run((ctx) => ctx.db.insert("agcHubs", HUB));
+  const { default: bcrypt } = await import("bcryptjs");
+  await t.run((ctx) =>
+    ctx.db.insert("agcRepresentatives", {
+      hubId,
+      username: "remind_hub",
+      email: "ama@remindhub.example",
+      passwordHash: bcrypt.hashSync("whatever-secret-1", 12),
+      profileComplete: false,
+      mustChangePassword: true,
+      status: "pending_setup",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    } as never),
+  );
+
+  // Registered address → reminder queued with the exact username.
+  const hit = await t.action(api.agcAuth.requestUsernameReminder, {
+    email: "  Ama@RemindHub.example ",
+    clientOrigin: "http://localhost:5401",
+  });
+  expect(hit.success).toBe(true);
+
+  let logs = await t.run((ctx) => ctx.db.query("emailLogs").collect());
+  expect(logs).toHaveLength(1);
+  expect(logs[0].to).toBe("ama@remindhub.example");
+  expect(logs[0].body).toContain("Username: remind_hub");
+  expect(logs[0].body).toContain("http://localhost:5401/portal");
+
+  // Unknown address → same success, no email (no enumeration).
+  const miss = await t.action(api.agcAuth.requestUsernameReminder, {
+    email: "nobody@nowhere.example",
+  });
+  expect(miss.success).toBe(true);
+
+  logs = await t.run((ctx) => ctx.db.query("emailLogs").collect());
+  expect(logs).toHaveLength(1);
+});

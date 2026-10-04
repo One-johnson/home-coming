@@ -7,17 +7,50 @@ import { ConvexError } from "convex/values";
 import { action, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { buildResetUrl } from "./lib/resetUrls";
+import { buildPortalUrl, buildResetUrl } from "./lib/resetUrls";
 import { LOCK_MESSAGE, MAX_FAILURES } from "./lib/loginThrottle";
 
 const BCRYPT_ROUNDS = 12;
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
 const RESET_TTL_MS = 1000 * 60 * 60 * 3; // 3 hours (SRS §7)
 
-function normalizeUsername(username: string) {
-  // Reps commonly type the hub name with spaces — normalize to the
-  // underscore form used by deriveUsername (usernames never contain spaces).
-  return username.trim().toLowerCase().replace(/\s+/g, "_");
+/**
+ * Canonical username for throttle keys: lowercase with separators collapsed
+ * to underscores, so "Ashanti-Mampong" and "ashanti mampong" attempts share
+ * the same brute-force lockout bucket as "ashanti_mampong".
+ */
+function canonicalUsername(username: string) {
+  return username.trim().toLowerCase().replace(/[\s-]+/g, "_");
+}
+
+/**
+ * Username variants to try for a login attempt, in order. Stored usernames
+ * are the hub name lowercased with spaces as underscores, but reps type the
+ * name with any separator — underscore, hyphen or space. The exact typed
+ * form comes first so a stored username containing hyphens still matches.
+ */
+export function usernameVariants(username: string): string[] {
+  const base = username.trim().toLowerCase();
+  if (!base) return [];
+  return [
+    ...new Set([
+      base,
+      base.replace(/[\s-]+/g, "_"),
+      base.replace(/[\s_]+/g, "-"),
+    ]),
+  ];
+}
+
+/** Find a rep by any separator variant of the typed username. */
+async function findRepByUsername(
+  ctx: ActionCtx,
+  rawUsername: string,
+): Promise<Doc<"agcRepresentatives"> | null> {
+  const variants = usernameVariants(rawUsername);
+  if (variants.length === 0) return null;
+  return await ctx.runQuery(internal.agcAuthData.getRepByUsernameVariants, {
+    usernames: variants,
+  });
 }
 
 /** Structured error payload so the UI can show remaining attempts / lock time. */
@@ -112,11 +145,7 @@ async function queueRepEmail(
 export const requestPasswordReset = action({
   args: { username: v.string(), clientOrigin: v.optional(v.string()) },
   handler: async (ctx, args): Promise<{ success: true }> => {
-    const username = normalizeUsername(args.username);
-    const rep: Doc<"agcRepresentatives"> | null = await ctx.runQuery(
-      internal.agcAuthData.getRepByUsername,
-      { username },
-    );
+    const rep = await findRepByUsername(ctx, args.username);
 
     // Always report success so the endpoint cannot enumerate valid usernames.
     if (!rep || !rep.email || rep.status === "disabled") return { success: true };
@@ -140,6 +169,46 @@ export const requestPasswordReset = action({
         "",
         "A password reset was requested for your AGC 2026 representative portal account.",
         `Open this link within 3 hours to choose a new password: ${url}`,
+        "",
+        "If you did not request this, you can ignore this email.",
+        "",
+        "— Homecoming 2026 Registration Desk",
+      ].join("\n"),
+    });
+    return { success: true };
+  },
+});
+
+/**
+ * "Forgot username" flow: after the rep submits their registered email
+ * address, that exact username is emailed to it. The response is always
+ * success so the endpoint cannot enumerate registered emails — the match
+ * against the account's own email address IS the verification.
+ */
+export const requestUsernameReminder = action({
+  args: { email: v.string(), clientOrigin: v.optional(v.string()) },
+  handler: async (ctx, args): Promise<{ success: true }> => {
+    const email = args.email.trim().toLowerCase();
+    const rep: Doc<"agcRepresentatives"> | null = email
+      ? await ctx.runQuery(internal.agcAuthData.getRepByEmail, { email })
+      : null;
+
+    if (!rep || rep.status === "disabled" || !rep.email) {
+      return { success: true };
+    }
+
+    await queueRepEmail(ctx, {
+      to: rep.email,
+      subject: "Homecoming 2026 — your representative username",
+      body: [
+        "Hello,",
+        "",
+        "You asked us to remind you of the username for your Homecoming 2026 representative portal account.",
+        "",
+        `Username: ${rep.username}`,
+        `Sign in at: ${buildPortalUrl(args.clientOrigin)}`,
+        "",
+        "Tip: separators are flexible at sign-in — you can type your hub name with underscores, hyphens or spaces.",
         "",
         "If you did not request this, you can ignore this email.",
         "",
@@ -180,11 +249,8 @@ export const resetPassword = action({
 export const repLogin = action({
   args: { username: v.string(), password: v.string() },
   handler: async (ctx, args): Promise<RepLoginResult> => {
-    const username = normalizeUsername(args.username);
-    const rep: Doc<"agcRepresentatives"> | null = await ctx.runQuery(
-      internal.agcAuthData.getRepByUsername,
-      { username },
-    );
+    const username = canonicalUsername(args.username);
+    const rep = await findRepByUsername(ctx, args.username);
     if (!rep) throwInvalidCredentials(MAX_FAILURES);
     if (rep.status === "disabled") {
       throw new ConvexError<LoginErrorData>({
@@ -276,11 +342,8 @@ export const completeFirstLoginSetup = action({
     if (args.newPassword.length < 8) {
       throw new ConvexError("New password must be at least 8 characters");
     }
-    const username = normalizeUsername(args.username);
-    const rep: Doc<"agcRepresentatives"> | null = await ctx.runQuery(
-      internal.agcAuthData.getRepByUsername,
-      { username },
-    );
+    const username = canonicalUsername(args.username);
+    const rep = await findRepByUsername(ctx, args.username);
     if (!rep) throwInvalidCredentials(MAX_FAILURES);
     if (rep.status === "disabled") {
       throw new ConvexError<LoginErrorData>({

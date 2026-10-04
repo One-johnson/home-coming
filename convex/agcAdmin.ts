@@ -9,6 +9,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { requireAdminViaAction } from "./agcAdminData";
 import { AGC_REGIONS } from "./lib/agcConfig";
 import { buildPortalUrl } from "./lib/resetUrls";
+import { agcRegion } from "./schemaTypes";
 
 const BCRYPT_ROUNDS = 12;
 
@@ -127,6 +128,157 @@ export const importHubs = action({
 });
 
 // ------------------------------------------------------------------
+// Hubs — single add (admin UI)
+// ------------------------------------------------------------------
+
+export const addHub = action({
+  args: {
+    sessionToken: v.string(),
+    name: v.string(),
+    region: agcRegion,
+    country: v.optional(v.string()),
+  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    hubId: Id<"agcHubs">;
+    name: string;
+    region: string;
+    country: string;
+    /** Username a representative for this hub will sign in with. */
+    repUsername: string;
+  }> => {
+    const actor = await requireAdminViaAction(ctx, args.sessionToken);
+
+    const name = args.name.trim();
+    const country = args.country?.trim() ?? "";
+    if (!name) {
+      throw new ConvexError("Hub name is required");
+    }
+    if (!AGC_REGIONS[args.region]) {
+      throw new ConvexError("Unknown region");
+    }
+
+    const existing: Doc<"agcHubs"> | null = await ctx.runQuery(
+      internal.agcAdminData.findHubNameConflict,
+      { name },
+    );
+    if (existing) {
+      throw new ConvexError(`A hub named "${existing.name}" already exists`);
+    }
+
+    const hubId: Id<"agcHubs"> = await ctx.runMutation(
+      internal.agcAdminData.insertHub,
+      {
+        name,
+        region: args.region,
+        country,
+      },
+    );
+
+    await ctx.runMutation(internal.agcAdminData.insertAuditEntry, {
+      actorEmail: actor.email,
+      summary: `Added hub ${name} (${args.region}${country ? `, ${country}` : ""})`,
+    });
+
+    return {
+      hubId,
+      name,
+      region: args.region,
+      country,
+      repUsername: deriveUsername(name),
+    };
+  },
+});
+
+/**
+ * Rename a hub. The hub's rep username follows the new name, and the old
+ * username is kept as an alias so credentials issued before the rename
+ * (including printed materials and emails) keep working.
+ */
+export const renameHub = action({
+  args: {
+    sessionToken: v.string(),
+    hubId: v.id("agcHubs"),
+    newName: v.string(),
+  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    hubId: Id<"agcHubs">;
+    name: string;
+    /** The rep's username after the rename, or null when the hub has no rep. */
+    repUsername: string | null;
+  }> => {
+    const actor = await requireAdminViaAction(ctx, args.sessionToken);
+
+    const newName = args.newName.trim();
+    if (!newName) {
+      throw new ConvexError("Hub name is required");
+    }
+
+    const hub: Doc<"agcHubs"> | null = await ctx.runQuery(
+      internal.agcAdminData.getHubById,
+      { hubId: args.hubId },
+    );
+    if (!hub) {
+      throw new ConvexError("Hub not found");
+    }
+
+    if (newName.toLowerCase() !== hub.name.toLowerCase()) {
+      const conflict: Doc<"agcHubs"> | null = await ctx.runQuery(
+        internal.agcAdminData.findHubNameConflict,
+        { name: newName, excludeHubId: args.hubId },
+      );
+      if (conflict) {
+        throw new ConvexError(`A hub named "${conflict.name}" already exists`);
+      }
+    }
+
+    // The rep username follows the hub name; the old one stays as an alias.
+    let repUsername: string | null = null;
+    const rep: Doc<"agcRepresentatives"> | null = await ctx.runQuery(
+      internal.agcAdminData.getRepByHubId,
+      { hubId: args.hubId },
+    );
+    if (rep) {
+      const newUsername = deriveUsername(newName);
+      if (newUsername !== rep.username) {
+        const owner: Doc<"agcRepresentatives"> | null = await ctx.runQuery(
+          internal.agcAuthData.findRepByUsernameOrAlias,
+          { username: newUsername },
+        );
+        if (owner && owner._id !== rep._id) {
+          throw new ConvexError(
+            `Another representative already uses the username ${newUsername}`,
+          );
+        }
+        await ctx.runMutation(internal.agcAdminData.renameRepUsername, {
+          repId: rep._id,
+          username: newUsername,
+          previousUsername: rep.username,
+        });
+      }
+      repUsername = newUsername;
+    }
+
+    await ctx.runMutation(internal.agcAdminData.setHubName, {
+      hubId: args.hubId,
+      name: newName,
+    });
+
+    await ctx.runMutation(internal.agcAdminData.insertAuditEntry, {
+      actorEmail: actor.email,
+      summary: `Renamed hub "${hub.name}" to "${newName}"`,
+    });
+
+    return { hubId: args.hubId, name: newName, repUsername };
+  },
+});
+
+// ------------------------------------------------------------------
 // Representative accounts (SRS §5–6, §58)
 // ------------------------------------------------------------------
 
@@ -153,7 +305,7 @@ export const createRep = action({
 
     const username = deriveUsername(hub.name);
     const existing: Doc<"agcRepresentatives"> | null = await ctx.runQuery(
-      internal.agcAdminData.getRepByUsername,
+      internal.agcAuthData.findRepByUsernameOrAlias,
       { username },
     );
     if (existing) {
@@ -257,8 +409,12 @@ export const bulkCreateReps = action({
       )
       .map((hub) => ({ hub, username: deriveUsername(hub.name) }));
 
+    // Aliases (usernames kept after hub renames) are reserved too.
     const usernameSeen = new Set(
-      reps.map((rep) => rep.username.toLowerCase()),
+      reps.flatMap((rep) => [
+        rep.username.toLowerCase(),
+        ...(rep.previousUsernames ?? []).map((u) => u.toLowerCase()),
+      ]),
     );
     const results: {
       created: Array<{

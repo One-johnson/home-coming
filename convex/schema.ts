@@ -338,6 +338,11 @@ export default defineSchema({
     /** Soft delete: set when a rep is removed; purged 7 days later. */
     deletedAt: v.optional(v.number()),
     deletedBy: v.optional(v.string()),
+    /**
+     * Usernames this rep previously signed in with. Hub renames rotate the
+     * username to follow the new hub name while old usernames keep working.
+     */
+    previousUsernames: v.optional(v.array(v.string())),
     createdAt: v.number(),
     updatedAt: v.number(),
   })

@@ -28,6 +28,59 @@ export const getRepByUsername = internalQuery({
   },
 });
 
+/**
+ * Lookup a rep by any separator variant of their username. Reps type their
+ * hub name freely — "Ashanti-Mampong", "ashanti mampong" and
+ * "ashanti_mampong" all resolve to the stored username. Variants are tried
+ * in order (exact form first), so an exact stored username always wins.
+ * Falls back to previousUsernames, so reps can still sign in with the
+ * username their hub had before a rename.
+ */
+export const getRepByUsernameVariants = internalQuery({
+  args: { usernames: v.array(v.string()) },
+  handler: async (ctx, args) => {
+    for (const username of args.usernames) {
+      const rep = await ctx.db
+        .query("agcRepresentatives")
+        .withIndex("by_username", (q) => q.eq("username", username))
+        .unique();
+      if (rep && rep.deletedAt === undefined) return rep;
+    }
+    if (args.usernames.length > 0) {
+      const wanted = new Set(args.usernames);
+      const reps = await ctx.db.query("agcRepresentatives").collect();
+      for (const rep of reps) {
+        if (rep.deletedAt !== undefined) continue;
+        if (rep.previousUsernames?.some((u) => wanted.has(u))) return rep;
+      }
+    }
+    return null;
+  },
+});
+
+/**
+ * Collision check for create/rename: the username must not belong to any
+ * other live rep — neither as their current username nor as a rename alias.
+ */
+export const findRepByUsernameOrAlias = internalQuery({
+  args: { username: v.string() },
+  handler: async (ctx, args) => {
+    const direct = await ctx.db
+      .query("agcRepresentatives")
+      .withIndex("by_username", (q) => q.eq("username", args.username))
+      .unique();
+    if (direct && direct.deletedAt === undefined) return direct;
+    const reps = await ctx.db.query("agcRepresentatives").collect();
+    return (
+      reps.find(
+        (rep) =>
+          rep.deletedAt === undefined &&
+          rep.previousUsernames?.includes(args.username),
+      ) ?? null
+    );
+  },
+});
+
 export const getRepByEmail = internalQuery({
   args: { email: v.string() },
   handler: async (ctx, args) => {

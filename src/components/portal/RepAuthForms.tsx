@@ -50,6 +50,95 @@ function PasswordEye({
   );
 }
 
+/**
+ * "Forgot username" helper: the rep confirms their registered email address
+ * and the exact username is emailed to it. The server always reports success
+ * so the form never reveals whether an email is registered.
+ */
+function RepForgotUsername({ onBack }: { onBack: () => void }) {
+  const requestReminder = useAction(api.agcAuth.requestUsernameReminder);
+  const [email, setEmail] = useState("");
+  const [sent, setSent] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError("");
+    try {
+      await requestReminder({
+        email,
+        clientOrigin: window.location.origin,
+      });
+      setSent(true);
+    } catch (err) {
+      const friendly = friendlyError(err);
+      setError(
+        friendly.detail
+          ? `${friendly.title}: ${friendly.detail}`
+          : friendly.title,
+      );
+      toast.error(friendly.title, { description: friendly.detail });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Card className="mx-auto w-full max-w-md">
+      <CardHeader className="items-center text-center">
+        <CardTitle className="font-display text-2xl text-primary">
+          Find your username
+        </CardTitle>
+        <CardDescription>
+          Enter the email address on your representative account and
+          we&rsquo;ll email your exact username to it.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {sent ? (
+          <p className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-center text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300">
+            If that email belongs to a representative account, the username is
+            on its way — check your inbox (and spam folder).
+          </p>
+        ) : (
+          <form className="space-y-4" onSubmit={handleSubmit}>
+            {error && (
+              <Alert variant="destructive">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+            <div className="space-y-2">
+              <Label htmlFor="forgot-username-email">Account email</Label>
+              <Input
+                id="forgot-username-email"
+                type="email"
+                required
+                autoComplete="email"
+                placeholder="rep@example.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </div>
+            <Button type="submit" className="w-full" disabled={loading}>
+              {loading ? "Sending…" : "Email me my username"}
+            </Button>
+          </form>
+        )}
+        <Button
+          type="button"
+          variant="ghost"
+          className="mt-2 w-full text-muted-foreground hover:text-foreground"
+          onClick={onBack}
+        >
+          ← Back to sign in
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
 export function RepSignIn() {
   const login = useAction(api.agcAuth.repLogin);
   const { setSession } = useRepSession();
@@ -61,6 +150,7 @@ export function RepSignIn() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [setupUsername, setSetupUsername] = useState<string | null>(null);
+  const [showForgotUsername, setShowForgotUsername] = useState(false);
 
   // Lockout progress state from the latest failed sign-in.
   const [attemptsRemaining, setAttemptsRemaining] = useState<number | null>(null);
@@ -120,6 +210,10 @@ export function RepSignIn() {
     );
   }
 
+  if (showForgotUsername) {
+    return <RepForgotUsername onBack={() => setShowForgotUsername(false)} />;
+  }
+
   return (
     <Card className="mx-auto w-full max-w-md">
       <CardHeader className="items-center text-center">
@@ -154,9 +248,11 @@ export function RepSignIn() {
               onChange={(e) => setUsername(e.target.value)}
             />
             <p className="text-xs text-muted-foreground">
-              Your username is your hub name in lowercase with spaces replaced
-              by underscores — e.g. the hub &ldquo;Ashanti Mampong&rdquo; signs
-              in as <span className="font-mono">ashanti_mampong</span>.
+              Your username is your hub name in lowercase — separators are
+              flexible: the hub &ldquo;Ashanti Mampong&rdquo; signs in as{" "}
+              <span className="font-mono">ashanti_mampong</span>,{" "}
+              <span className="font-mono">ashanti-mampong</span> or{" "}
+              <span className="font-mono">ashanti mampong</span>.
             </p>
           </div>
           <div className="space-y-2">
@@ -189,6 +285,14 @@ export function RepSignIn() {
           >
             Forgot your password?
           </Link>{" "}
+          ·{" "}
+          <button
+            type="button"
+            className="font-medium text-primary hover:underline"
+            onClick={() => setShowForgotUsername(true)}
+          >
+            Forgot your username?
+          </button>{" "}
           · Contact the registration desk at{" "}
           <a
             href={`mailto:${EVENT.supportEmail}`}

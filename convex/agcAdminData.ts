@@ -622,6 +622,25 @@ export const getHubByName = internalQuery({
   },
 });
 
+/**
+ * Case-insensitive duplicate check for manually added / renamed hubs.
+ * Pass excludeHubId when renaming so the hub does not conflict with itself.
+ */
+export const findHubNameConflict = internalQuery({
+  args: { name: v.string(), excludeHubId: v.optional(v.id("agcHubs")) },
+  handler: async (ctx, args) => {
+    const target = args.name.trim().toLowerCase();
+    const hubs = await ctx.db.query("agcHubs").collect();
+    return (
+      hubs.find(
+        (hub) =>
+          hub._id !== args.excludeHubId &&
+          hub.name.trim().toLowerCase() === target,
+      ) ?? null
+    );
+  },
+});
+
 export const getHubById = internalQuery({
   args: { hubId: v.id("agcHubs") },
   handler: async (ctx, args) => {
@@ -645,6 +664,18 @@ export const patchHub = internalMutation({
   },
 });
 
+/** Live (non-deleted) representative account for a hub, if any. */
+export const getRepByHubId = internalQuery({
+  args: { hubId: v.id("agcHubs") },
+  handler: async (ctx, args) => {
+    const reps = await ctx.db
+      .query("agcRepresentatives")
+      .withIndex("by_hub", (q) => q.eq("hubId", args.hubId))
+      .collect();
+    return reps.find((rep) => rep.deletedAt === undefined) ?? null;
+  },
+});
+
 export const insertHub = internalMutation({
   args: {
     name: v.string(),
@@ -658,6 +689,41 @@ export const insertHub = internalMutation({
       country: args.country,
       active: true,
       createdAt: Date.now(),
+    });
+  },
+});
+
+export const setHubName = internalMutation({
+  args: {
+    hubId: v.id("agcHubs"),
+    name: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.hubId, { name: args.name });
+  },
+});
+
+/**
+ * Point a rep's username at the renamed hub. The previous username is kept
+ * as an alias so credentials issued before the rename keep working.
+ */
+export const renameRepUsername = internalMutation({
+  args: {
+    repId: v.id("agcRepresentatives"),
+    username: v.string(),
+    previousUsername: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const rep = await ctx.db.get(args.repId);
+    if (!rep) return;
+    const aliases = new Set(rep.previousUsernames ?? []);
+    if (args.previousUsername !== args.username) {
+      aliases.add(args.previousUsername);
+    }
+    await ctx.db.patch(args.repId, {
+      username: args.username,
+      previousUsernames: [...aliases],
+      updatedAt: Date.now(),
     });
   },
 });
