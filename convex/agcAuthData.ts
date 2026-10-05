@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internalMutation, internalQuery } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { writeAuditLog } from "./lib/audit";
+import { canonicalUsername } from "./lib/hubUsername";
 import { isSmtpConfigured } from "./lib/smtpConfig";
 import {
   EMAIL_LOCK_MS,
@@ -32,16 +33,36 @@ export const getRepByUsername = internalQuery({
 });
 
 /**
- * Lookup a rep by any separator variant of their username. Reps type their
- * hub name freely — "Ashanti-Mampong", "ashanti mampong" and
- * "ashanti_mampong" all resolve to the stored username. Variants are tried
- * in order (exact form first), so an exact stored username always wins.
- * Falls back to previousUsernames, so reps can still sign in with the
- * username their hub had before a rename.
+ * Lookup a rep by any candidate form of their username. Reps type their
+ * hub name freely — "Ashanti-Mampong", "ashanti mampong", "Gabon –
+ * Libreville"… — and all forms resolve to the stored username. Candidates
+ * are tried in order (exact form first) unless the caller passes the
+ * canonical form, which then matches every live rep whose stored username
+ * or rename alias canonicalizes to it — so legacy usernames carrying
+ * punctuation (e.g. "gabon_-_libreville") still sign in.
  */
 export const getRepByUsernameVariants = internalQuery({
-  args: { usernames: v.array(v.string()) },
+  args: {
+    usernames: v.array(v.string()),
+    canonical: v.optional(v.string()),
+  },
   handler: async (ctx, args) => {
+    if (args.canonical) {
+      const reps = await ctx.db.query("agcRepresentatives").collect();
+      for (const rep of reps) {
+        if (rep.deletedAt !== undefined) continue;
+        if (
+          canonicalUsername(rep.username) === args.canonical ||
+          rep.previousUsernames?.some(
+            (alias) => canonicalUsername(alias) === args.canonical,
+          )
+        ) {
+          return rep;
+        }
+      }
+      return null;
+    }
+
     for (const username of args.usernames) {
       const rep = await ctx.db
         .query("agcRepresentatives")

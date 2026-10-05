@@ -8,6 +8,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { requireAdminViaAction } from "./agcAdminData";
 import { AGC_REGIONS } from "./lib/agcConfig";
+import { deriveUsername as deriveHubUsername } from "./lib/hubUsername";
 import { buildPortalUrl } from "./lib/resetUrls";
 import { agcRegion } from "./schemaTypes";
 
@@ -22,10 +23,10 @@ function generateTempPassword() {
   return out;
 }
 
-/** Hub name -> rep username ("Ashanti Mampong" -> "ashanti_mampong"). */
-function deriveUsername(hubName: string) {
-  return hubName.toLowerCase().replace(/\s+/g, "_");
-}
+// Hub name -> rep username ("Ashanti Mampong" -> "ashanti_mampong",
+// "Gabon – Libreville" -> "gabon_libreville"). Punctuation is folded away
+// so usernames stay simple to type — see convex/lib/hubUsername.ts.
+const deriveUsername = deriveHubUsername;
 
 // ------------------------------------------------------------------
 // Seeds — thin action wrapper (the real work is in agcAdminData)

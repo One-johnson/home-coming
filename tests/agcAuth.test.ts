@@ -775,6 +775,51 @@ test("login accepts separator variants of the hub username", async () => {
   expect(login.result.rep.username).toBe(username);
 });
 
+test("legacy punctuation-heavy usernames still sign in after separator typing", async () => {
+  const t = createTestConvex();
+
+  const hubId = await t.run((ctx) =>
+    ctx.db.insert("agcHubs", { ...HUB, name: "Gabon – Libreville" }),
+  );
+  const tempPassword = "temp-secret-4";
+  const { default: bcrypt } = await import("bcryptjs");
+  // Username the OLD deriveUsername produced for "Gabon – Libreville":
+  // only whitespace became underscores, so the dash stayed inside.
+  await seedRep(
+    t,
+    hubId,
+    "gabon_-_libreville",
+    await bcrypt.hash(tempPassword, 12),
+    tempPassword,
+  );
+
+  // Space, hyphen, or the en-dashed hub name itself — all reach the same
+  // rep through the canonical form instead of failing invalid-credentials.
+  for (const variant of [
+    "gabon libreville",
+    "gabon-libreville",
+    "Gabon – Libreville",
+  ]) {
+    const result = (await t.action(api.agcAuth.repLogin, {
+      username: variant,
+      password: tempPassword,
+    })) as RepLoginResult;
+    expect(result.kind, `variant: ${variant}`).toBe("setup_required");
+  }
+
+  // First-time setup with a separator-typed username works too.
+  const setup = (await t.action(api.agcAuth.completeFirstLoginSetup, {
+    username: "gabon libreville",
+    temporaryPassword: tempPassword,
+    newPassword: "my-new-password-4",
+    firstName: "Ada",
+    lastName: "Ondo",
+    email: "ada@gabon.example",
+    phone: "+241000000004",
+  })) as RepAuthResult;
+  expect(setup.rep.username).toBe("gabon_-_libreville");
+});
+
 test("addHub creates a hub and rejects case-insensitive duplicates", async () => {
   const t = createTestConvex();
 
@@ -805,6 +850,17 @@ test("addHub creates a hub and rejects case-insensitive duplicates", async () =>
   });
   expect(added.name).toBe("Kumasi Asokwa");
   expect(added.repUsername).toBe("kumasi_asokwa");
+
+  // Punctuation in the hub name folds away — no more dashes inside the
+  // username (regression for the "Gabon – Libreville" -> "gabon_-_libreville"
+  // bug).
+  const punctuated = await t.action(api.agcAdmin.addHub, {
+    sessionToken: adminToken,
+    name: "Gabon – Libreville",
+    region: "rest_of_africa",
+    country: "Gabon",
+  });
+  expect(punctuated.repUsername).toBe("gabon_libreville");
 
   const hub = await t.run(async (ctx) =>
     ctx.db

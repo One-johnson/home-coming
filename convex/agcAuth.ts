@@ -7,6 +7,10 @@ import { ConvexError } from "convex/values";
 import { action, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
+import {
+  canonicalUsername as canonicalUsernameLib,
+  usernameCandidates,
+} from "./lib/hubUsername";
 import { buildPortalUrl, buildResetUrl } from "./lib/resetUrls";
 import {
   emailThrottleKey,
@@ -19,41 +23,30 @@ const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
 const RESET_TTL_MS = 1000 * 60 * 60 * 3; // 3 hours (SRS §7)
 
 /**
- * Canonical username for throttle keys: lowercase with separators collapsed
- * to underscores, so "Ashanti-Mampong" and "ashanti mampong" attempts share
- * the same brute-force lockout bucket as "ashanti_mampong".
+ * Canonical username for throttle keys and lookups. The shared rules live
+ * in convex/lib/hubUsername.ts: accents folded and every run of
+ * non-alphanumeric characters collapsed to one underscore, so typed forms
+ * like "Gabon–Libreville" and stored "gabon_libreville" both normalize to
+ * the same key.
  */
-function canonicalUsername(username: string) {
-  return username.trim().toLowerCase().replace(/[\s-]+/g, "_");
-}
+const canonicalUsername = canonicalUsernameLib;
 
 /**
- * Username variants to try for a login attempt, in order. Stored usernames
- * are the hub name lowercased with spaces as underscores, but reps type the
- * name with any separator — underscore, hyphen or space. The exact typed
- * form comes first so a stored username containing hyphens still matches.
+ * Find a rep by any candidate form of the typed username. The canonical
+ * form (last candidate) wins immediately: every punctuation-heavy stored
+ * username — like "gabon_-_libreville" from a hub name such as
+ * "Gabon – Libreville" — canonicalizes to the same key as anything the
+ * rep types, so the exact stored form does not need to match first.
  */
-export function usernameVariants(username: string): string[] {
-  const base = username.trim().toLowerCase();
-  if (!base) return [];
-  return [
-    ...new Set([
-      base,
-      base.replace(/[\s-]+/g, "_"),
-      base.replace(/[\s_]+/g, "-"),
-    ]),
-  ];
-}
-
-/** Find a rep by any separator variant of the typed username. */
 async function findRepByUsername(
   ctx: ActionCtx,
   rawUsername: string,
 ): Promise<Doc<"agcRepresentatives"> | null> {
-  const variants = usernameVariants(rawUsername);
-  if (variants.length === 0) return null;
+  const candidates = usernameCandidates(rawUsername);
+  if (candidates.length === 0) return null;
   return await ctx.runQuery(internal.agcAuthData.getRepByUsernameVariants, {
-    usernames: variants,
+    usernames: candidates,
+    canonical: canonicalUsername(rawUsername),
   });
 }
 

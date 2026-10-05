@@ -17,6 +17,7 @@ import {
   sessionTokenValidator,
 } from "./users";
 import { writeAuditLog } from "./lib/audit";
+import { canonicalUsername } from "./lib/hubUsername";
 import {
   AGC_DEFAULTS,
   AGC_DEFAULT_BANK_DETAILS,
@@ -593,9 +594,10 @@ export const listHubsRepsExportData = query({
     }
     return hubs.map((hub) => {
       const rep = repByHub.get(hub._id);
-      // Mirrors agcAdmin.deriveUsername: hub name lowercased, whitespace →
-      // underscores. Used as the would-be username for hubs without a rep.
-      const derivedUsername = hub.name.toLowerCase().replace(/\s+/g, "_");
+      // Mirrors deriveUsername (convex/lib/hubUsername.ts): hub name
+      // lowercased with punctuation folded to underscores. Used as the
+      // would-be username for hubs without a rep.
+      const derivedUsername = canonicalUsername(hub.name);
       return {
         hubName: hub.name,
         region: hub.region,
