@@ -8,7 +8,11 @@ import { action, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { buildPortalUrl, buildResetUrl } from "./lib/resetUrls";
-import { LOCK_MESSAGE, MAX_FAILURES } from "./lib/loginThrottle";
+import {
+  emailThrottleKey,
+  LOCK_MESSAGE,
+  MAX_FAILURES,
+} from "./lib/loginThrottle";
 
 const BCRYPT_ROUNDS = 12;
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
@@ -150,6 +154,14 @@ export const requestPasswordReset = action({
     // Always report success so the endpoint cannot enumerate valid usernames.
     if (!rep || !rep.email || rep.status === "disabled") return { success: true };
 
+    // Anti mail-bombing: both rep-facing email endpoints share one
+    // per-mailbox bucket. Suppression is silent — no distinguishable error.
+    const allowance = await ctx.runMutation(
+      internal.agcAuthData.consumeEmailSendAllowance,
+      { key: emailThrottleKey(rep.email) },
+    );
+    if (!allowance.allowed) return { success: true };
+
     const token = createHash("sha256").update(randomBytes(32)).digest("hex");
     await ctx.runMutation(internal.agcAuthData.insertPasswordReset, {
       repId: rep._id,
@@ -196,6 +208,13 @@ export const requestUsernameReminder = action({
     if (!rep || rep.status === "disabled" || !rep.email) {
       return { success: true };
     }
+
+    // Shared per-mailbox anti-bombing bucket with the password-reset flow.
+    const allowance = await ctx.runMutation(
+      internal.agcAuthData.consumeEmailSendAllowance,
+      { key: emailThrottleKey(rep.email) },
+    );
+    if (!allowance.allowed) return { success: true };
 
     await queueRepEmail(ctx, {
       to: rep.email,

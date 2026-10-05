@@ -849,6 +849,14 @@ test("renameHub rotates the rep username and the old username keeps working", as
     await bcrypt.hash(tempPassword, 12),
     tempPassword,
   );
+  // Give the rep an email so the rename notification can be verified.
+  await t.run(async (ctx) => {
+    const rep = await ctx.db
+      .query("agcRepresentatives")
+      .withIndex("by_username", (q) => q.eq("username", "old_town_hub"))
+      .unique();
+    await ctx.db.patch(rep!._id, { email: "rep@oldtown.example" });
+  });
   // A second hub keeps the name "Test Hub" (for the duplicate-name check)
   // and a rep whose username derives from nothing — used to prove alias
   // collisions are refused.
@@ -888,6 +896,7 @@ test("renameHub rotates the rep username and the old username keeps working", as
     sessionToken: adminToken,
     hubId,
     newName: "  New Town Hub  ",
+    clientOrigin: "http://localhost:5401",
   });
   expect(renamed.name).toBe("New Town Hub");
   expect(renamed.repUsername).toBe("new_town_hub");
@@ -945,6 +954,72 @@ test("renameHub rotates the rep username and the old username keeps working", as
       newName: "Blocked Name",
     }),
   ).rejects.toThrow(/already uses/i);
+
+  // The rep was emailed the new username (failed renames queue nothing).
+  const logs = await t.run((ctx) => ctx.db.query("emailLogs").collect());
+  expect(logs).toHaveLength(1);
+  expect(logs[0].to).toBe("rep@oldtown.example");
+  expect(logs[0].body).toContain("Previous username: old_town_hub");
+  expect(logs[0].body).toContain("New username: new_town_hub");
+  expect(logs[0].body).toContain("http://localhost:5401/portal");
+});
+
+test("rep-facing email endpoints share a per-mailbox send cap", async () => {
+  const t = createTestConvex();
+
+  const hubId = await t.run((ctx) => ctx.db.insert("agcHubs", HUB));
+  await t.run((ctx) =>
+    ctx.db.insert("agcRepresentatives", {
+      hubId,
+      username: "throttle_hub",
+      email: "ama@throttle.example",
+      passwordHash: "not-a-real-hash",
+      profileComplete: false,
+      mustChangePassword: true,
+      status: "pending_setup",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    } as never),
+  );
+
+  // Three reset requests land (EMAIL_MAX_SENDS)…
+  for (let i = 0; i < 3; i += 1) {
+    const result = await t.action(api.agcAuth.requestPasswordReset, {
+      username: "throttle_hub",
+    });
+    expect(result.success).toBe(true);
+  }
+  let logs = await t.run((ctx) => ctx.db.query("emailLogs").collect());
+  expect(logs).toHaveLength(3);
+
+  // …the fourth is silently suppressed (still reports success)…
+  const fourth = await t.action(api.agcAuth.requestPasswordReset, {
+    username: "throttle_hub",
+  });
+  expect(fourth.success).toBe(true);
+  logs = await t.run((ctx) => ctx.db.query("emailLogs").collect());
+  expect(logs).toHaveLength(3);
+
+  // …and switching to the username-reminder flow does not bypass the cap:
+  // both endpoints draw from the same per-mailbox bucket.
+  const reminder = await t.action(api.agcAuth.requestUsernameReminder, {
+    email: "ama@throttle.example",
+  });
+  expect(reminder.success).toBe(true);
+  logs = await t.run((ctx) => ctx.db.query("emailLogs").collect());
+  expect(logs).toHaveLength(3);
+
+  // The mailbox allowance row exists under its namespaced key.
+  const rows = await t.run((ctx) => ctx.db.query("agcLoginThrottle").collect());
+  expect(rows.map((r) => r.key)).toContain("email:mailbox:ama@throttle.example");
+
+  // Unknown users still produce nothing (no enumeration, no allowance use).
+  await t.action(api.agcAuth.requestPasswordReset, { username: "ghost_hub" });
+  await t.action(api.agcAuth.requestUsernameReminder, {
+    email: "ghost@nowhere.example",
+  });
+  logs = await t.run((ctx) => ctx.db.query("emailLogs").collect());
+  expect(logs).toHaveLength(3);
 });
 
 test("requestUsernameReminder emails the exact username without enumerating", async () => {

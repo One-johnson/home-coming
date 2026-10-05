@@ -24,3 +24,21 @@ export const LOCK_MESSAGE =
 export function throttleKey(username: string): string {
   return username.trim().toLowerCase();
 }
+
+// ------------------------------------------------------------------
+// Email-send throttle (anti mail-bombing for rep-facing emails).
+// Shares the agcLoginThrottle table under a namespaced key so login
+// lockouts and email allowances never interfere. Both rep-facing
+// email endpoints (password reset + username reminder) draw from ONE
+// per-mailbox bucket, so switching between flows cannot multiply the
+// number of emails an attacker can trigger.
+// ------------------------------------------------------------------
+
+export const EMAIL_MAX_SENDS = 3;
+export const EMAIL_WINDOW_MS = 1000 * 60 * 60; // 1-hour rolling window
+export const EMAIL_LOCK_MS = 1000 * 60 * 60; // 1-hour suppression
+
+/** Shared per-mailbox bucket key for rep-facing emails. */
+export function emailThrottleKey(email: string): string {
+  return `email:mailbox:${email.trim().toLowerCase()}`;
+}

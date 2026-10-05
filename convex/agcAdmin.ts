@@ -202,6 +202,8 @@ export const renameHub = action({
     sessionToken: v.string(),
     hubId: v.id("agcHubs"),
     newName: v.string(),
+    /** Browser origin, used to build the portal link in the notification email. */
+    clientOrigin: v.optional(v.string()),
   },
   handler: async (
     ctx,
@@ -239,6 +241,8 @@ export const renameHub = action({
 
     // The rep username follows the hub name; the old one stays as an alias.
     let repUsername: string | null = null;
+    let usernameChanged = false;
+    let previousUsername: string | null = null;
     const rep: Doc<"agcRepresentatives"> | null = await ctx.runQuery(
       internal.agcAdminData.getRepByHubId,
       { hubId: args.hubId },
@@ -260,6 +264,8 @@ export const renameHub = action({
           username: newUsername,
           previousUsername: rep.username,
         });
+        usernameChanged = true;
+        previousUsername = rep.username;
       }
       repUsername = newUsername;
     }
@@ -273,6 +279,39 @@ export const renameHub = action({
       actorEmail: actor.email,
       summary: `Renamed hub "${hub.name}" to "${newName}"`,
     });
+
+    // Keep credentials on file accurate: tell the rep their username changed.
+    // The password is untouched and the old username still works as an alias.
+    if (usernameChanged && rep && rep.email && previousUsername) {
+      const renameEmail = await ctx.runMutation(
+        internal.agcAuthData.insertEmailLog,
+        {
+          to: rep.email,
+          subject:
+            "Homecoming 2026 — your hub was renamed; your sign-in username has changed",
+          body: [
+            `Hello ${newName} representative,`,
+            "",
+            `Your hub "${hub.name}" has been renamed to "${newName}" on the Homecoming representative portal.`,
+            "Your sign-in username now matches the new hub name:",
+            "",
+            `Previous username: ${previousUsername}`,
+            `New username: ${repUsername}`,
+            "",
+            `Portal: ${buildPortalUrl(args.clientOrigin)}`,
+            "",
+            "Your password is unchanged, and the previous username keeps working — you can sign in with either.",
+            "",
+            "— Homecoming 2026 Registration Desk",
+          ].join("\n"),
+        },
+      );
+      if (renameEmail.shouldSend) {
+        await ctx.scheduler.runAfter(0, internal.emailSendAction.sendEmail, {
+          emailLogId: renameEmail.emailLogId,
+        });
+      }
+    }
 
     return { hubId: args.hubId, name: newName, repUsername };
   },

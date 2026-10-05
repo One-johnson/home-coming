@@ -4,6 +4,9 @@ import type { Id } from "./_generated/dataModel";
 import { writeAuditLog } from "./lib/audit";
 import { isSmtpConfigured } from "./lib/smtpConfig";
 import {
+  EMAIL_LOCK_MS,
+  EMAIL_MAX_SENDS,
+  EMAIL_WINDOW_MS,
   LOCK_MS,
   MAX_FAILURES,
   throttleKey,
@@ -188,6 +191,66 @@ export const clearLoginFailures = internalMutation({
     if (row) {
       await ctx.db.delete(row._id);
     }
+  },
+});
+
+/**
+ * Atomically consume one email-send allowance for a mailbox bucket.
+ * Returns allowed=false once EMAIL_MAX_SENDS sends have happened within
+ * EMAIL_WINDOW_MS — the caller must then silently skip the email (never
+ * reveal suppression, or the endpoint becomes enumerable again). The
+ * check-and-record happens in one mutation so concurrent requests cannot
+ * race past the cap.
+ */
+export const consumeEmailSendAllowance = internalMutation({
+  args: { key: v.string() },
+  handler: async (ctx, args): Promise<{ allowed: boolean }> => {
+    const now = Date.now();
+    const row = await ctx.db
+      .query("agcLoginThrottle")
+      .withIndex("by_key", (q) => q.eq("key", args.key))
+      .unique();
+
+    if (row) {
+      // Suppressed: the mailbox is locked or the cap was just exceeded.
+      if (
+        (row.lockedUntil !== undefined && row.lockedUntil > now) ||
+        row.failedCount >= EMAIL_MAX_SENDS
+      ) {
+        if (row.lockedUntil === undefined || row.lockedUntil < now) {
+          await ctx.db.patch(row._id, {
+            failedCount: row.failedCount + 1,
+            lockedUntil: now + EMAIL_LOCK_MS,
+            lastFailureAt: now,
+          });
+        }
+        return { allowed: false };
+      }
+      // Window over → start a fresh allowance period.
+      if (
+        row.lastFailureAt !== undefined &&
+        now - row.lastFailureAt > EMAIL_WINDOW_MS
+      ) {
+        await ctx.db.patch(row._id, {
+          failedCount: 1,
+          lockedUntil: undefined,
+          lastFailureAt: now,
+        });
+        return { allowed: true };
+      }
+      await ctx.db.patch(row._id, {
+        failedCount: row.failedCount + 1,
+        lastFailureAt: now,
+      });
+      return { allowed: true };
+    }
+
+    await ctx.db.insert("agcLoginThrottle", {
+      key: args.key,
+      failedCount: 1,
+      lastFailureAt: now,
+    });
+    return { allowed: true };
   },
 });
 

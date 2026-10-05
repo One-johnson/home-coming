@@ -921,6 +921,7 @@ function HubDetailDialog({
         sessionToken,
         hubId: hub._id as Id<"agcHubs">,
         newName: trimmed,
+        clientOrigin: window.location.origin,
       });
       onRenamed(hub._id, result.name, result.repUsername);
       toast.success(`Renamed to ${result.name}`, {
