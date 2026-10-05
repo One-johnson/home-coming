@@ -87,6 +87,11 @@ export type LoginErrorInfo = {
   attemptsRemaining?: number;
   /** Epoch ms when the current lockout lifts (locked throws). */
   lockedUntil?: number;
+  /**
+   * The account's exact stored username, sent when the typed username
+   * resolved to a rep but the password was wrong.
+   */
+  resolvedUsername?: string;
 };
 
 /** Pull lockout metadata out of a sign-in error, if the server sent it. */
@@ -99,6 +104,9 @@ export function loginErrorInfo(err: unknown): LoginErrorInfo {
   }
   if (typeof data.lockedUntil === "number") {
     info.lockedUntil = data.lockedUntil;
+  }
+  if (typeof data.resolvedUsername === "string") {
+    info.resolvedUsername = data.resolvedUsername;
   }
   return info;
 }

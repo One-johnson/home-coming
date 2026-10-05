@@ -56,6 +56,12 @@ export type LoginErrorData = {
   kind: "invalid_credentials" | "locked" | "disabled" | "generic";
   attemptsRemaining?: number;
   lockedUntil?: number;
+  /**
+   * The account's exact stored username, sent only when the typed username
+   * resolved to a rep but the password was wrong — lets the UI show the
+   * precise handle to use next time.
+   */
+  resolvedUsername?: string;
 };
 
 /** Throw a lockout error carrying the unlock timestamp for the UI countdown. */
@@ -67,12 +73,20 @@ function throwLocked(lockedUntil: number): never {
   });
 }
 
-/** Throw an invalid-credentials error carrying how many attempts are left. */
-function throwInvalidCredentials(attemptsRemaining: number): never {
+/**
+ * Throw an invalid-credentials error carrying how many attempts are left.
+ * When the username resolved to a live rep, also carry its exact stored
+ * form so the UI can remind the rep of their precise handle.
+ */
+function throwInvalidCredentials(
+  attemptsRemaining: number,
+  resolvedUsername?: string,
+): never {
   throw new ConvexError<LoginErrorData>({
     message: "Invalid username or password",
     kind: "invalid_credentials",
     attemptsRemaining,
+    ...(resolvedUsername ? { resolvedUsername } : {}),
   });
 }
 
@@ -288,7 +302,10 @@ export const repLogin = action({
       if (throttle.lockedUntil) {
         throwLocked(throttle.lockedUntil);
       }
-      throwInvalidCredentials(throttle.attemptsRemaining ?? MAX_FAILURES);
+      throwInvalidCredentials(
+        throttle.attemptsRemaining ?? MAX_FAILURES,
+        rep.username,
+      );
     }
 
     // Expected flow-control outcome (NOT an error): the rep still has a
@@ -380,7 +397,10 @@ export const completeFirstLoginSetup = action({
       if (throttle.lockedUntil) {
         throwLocked(throttle.lockedUntil);
       }
-      throwInvalidCredentials(throttle.attemptsRemaining ?? MAX_FAILURES);
+      throwInvalidCredentials(
+        throttle.attemptsRemaining ?? MAX_FAILURES,
+        rep.username,
+      );
     }
 
     const email = args.email.trim().toLowerCase();

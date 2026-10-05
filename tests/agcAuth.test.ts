@@ -185,6 +185,44 @@ test("temp password stops working after activation; old password rejected", asyn
   expect(again.kind).toBe("ok");
 });
 
+test("failed sign-in surfaces the exact stored username only when the account exists", async () => {
+  const t = createTestConvex();
+  const hubId = await t.run((ctx) =>
+    ctx.db.insert("agcHubs", { ...HUB, name: "Gabon – Libreville" }),
+  );
+  const tempPassword = "temp-secret-9";
+  const { default: bcrypt } = await import("bcryptjs");
+  await seedRep(
+    t,
+    hubId,
+    "gabon_-_libreville",
+    await bcrypt.hash(tempPassword, 12),
+    tempPassword,
+  );
+
+  // Correct username, wrong password: the error carries the exact stored
+  // username (punctuation included) so the UI can remind the rep.
+  const knownErr = await t.action(api.agcAuth.repLogin, {
+    username: "gabon libreville",
+    password: "wrong-password",
+  }).catch((err: unknown) => err);
+  expect(knownErr).toBeInstanceOf(Error);
+  expect((knownErr as { data?: { resolvedUsername?: string } }).data)
+    .toMatchObject({ resolvedUsername: "gabon_-_libreville" });
+
+  // Unknown username: no resolvedUsername — the failure must stay
+  // indistinguishable from a wrong-password failure.
+  const unknownErr = await t.action(api.agcAuth.repLogin, {
+    username: "no_such_hub",
+    password: "wrong-password",
+  }).catch((err: unknown) => err);
+  expect(unknownErr).toBeInstanceOf(Error);
+  expect(
+    (unknownErr as { data?: { resolvedUsername?: string } }).data
+      ?.resolvedUsername,
+  ).toBeUndefined();
+});
+
 test("repeated wrong passwords lock the account, then it recovers", async () => {
   const t = createTestConvex();
   const hubId = await t.run((ctx) => ctx.db.insert("agcHubs", HUB));
@@ -1118,4 +1156,161 @@ test("requestUsernameReminder emails the exact username without enumerating", as
 
   logs = await t.run((ctx) => ctx.db.query("emailLogs").collect());
   expect(logs).toHaveLength(1);
+});
+
+test("migrateRepUsernames rewrites punctuation usernames and keeps them as aliases", async () => {
+  const t = createTestConvex();
+  const adminToken = await seedAdmin(t);
+
+  const legacyHubId = await t.run((ctx) =>
+    ctx.db.insert("agcHubs", {
+      name: "Gabon – Libreville",
+      region: "rest_of_africa" as const,
+      country: "Gabon",
+      active: true,
+      createdAt: Date.now(),
+    }),
+  );
+  const cleanHubId = await t.run((ctx) =>
+    ctx.db.insert("agcHubs", {
+      name: "Kumasi Asokwa",
+      region: "ghana" as const,
+      country: "Ghana",
+      active: true,
+      createdAt: Date.now(),
+    }),
+  );
+
+  const { default: bcrypt } = await import("bcryptjs");
+  const tempPassword = "temp-secret-1";
+  const passwordHash = await bcrypt.hash(tempPassword, 12);
+
+  // Legacy account: punctuation baked into the stored username.
+  const legacyRepId = await seedRep(
+    t,
+    legacyHubId,
+    "gabon_-_libreville",
+    passwordHash,
+    tempPassword,
+  );
+  // Already-canonical account, with a rename alias — must stay untouched.
+  const cleanRepId = await seedRep(
+    t,
+    cleanHubId,
+    "kumasi_asokwa",
+    passwordHash,
+    tempPassword,
+  );
+  await t.run(async (ctx) => {
+    await ctx.db.patch(cleanRepId, { previousUsernames: ["old_kumasi"] });
+  });
+
+  const result = await t.mutation(api.agcAdminData.migrateRepUsernames, {
+    sessionToken: adminToken,
+  });
+
+  expect(result.migrated).toEqual([
+    { repId: legacyRepId, from: "gabon_-_libreville", to: "gabon_libreville" },
+  ]);
+  expect(result.skipped).toEqual([]);
+
+  const [legacyRep, cleanRep] = await t.run(async (ctx) => [
+    await ctx.db.get(legacyRepId),
+    await ctx.db.get(cleanRepId),
+  ]);
+  expect(legacyRep!.username).toBe("gabon_libreville");
+  expect(legacyRep!.previousUsernames).toContain("gabon_-_libreville");
+  expect(cleanRep!.username).toBe("kumasi_asokwa");
+  expect(cleanRep!.previousUsernames).toEqual(["old_kumasi"]);
+
+  // Old spelling still signs in (as does any separator variant).
+  const viaAlias = await t.action(api.agcAuth.repLogin, {
+    username: "gabon_-_libreville",
+    password: tempPassword,
+  });
+  expect(viaAlias.kind).toBe("setup_required");
+  const viaCanonical = await t.action(api.agcAuth.repLogin, {
+    username: "gabon libreville",
+    password: tempPassword,
+  });
+  expect(viaCanonical.kind).toBe("setup_required");
+
+  // Second run is a no-op.
+  const again = await t.mutation(api.agcAdminData.migrateRepUsernames, {
+    sessionToken: adminToken,
+  });
+  expect(again.migrated).toEqual([]);
+  expect(again.skipped).toEqual([]);
+
+  // Non-admins are rejected.
+  await expect(
+    t.mutation(api.agcAdminData.migrateRepUsernames, {
+      sessionToken: "not-a-session",
+    }),
+  ).rejects.toThrow(/unauthorized/i);
+});
+
+test("migrateRepUsernames skips usernames whose canonical form is already taken", async () => {
+  const t = createTestConvex();
+  const adminToken = await seedAdmin(t);
+
+  const hubId = await t.run((ctx) => ctx.db.insert("agcHubs", HUB));
+  const { default: bcrypt } = await import("bcryptjs");
+  const passwordHash = await bcrypt.hash("temp-secret-1", 12);
+
+  // Another live rep already holds the canonical form as their username.
+  await seedRep(t, hubId, "gabon_libreville", passwordHash, "temp-secret-1");
+  const punctuationRepId = await seedRep(
+    t,
+    hubId,
+    "gabon_-_libreville",
+    passwordHash,
+    "temp-secret-1",
+  );
+  // A rep whose rename alias claims the canonical form of another legacy rep.
+  const aliasHolderId = await seedRep(
+    t,
+    hubId,
+    "coast_hub",
+    passwordHash,
+    "temp-secret-1",
+  );
+  await t.run(async (ctx) => {
+    await ctx.db.patch(aliasHolderId, {
+      previousUsernames: ["takoradi-west"],
+    });
+  });
+  const aliasBlockedId = await seedRep(
+    t,
+    hubId,
+    "takoradi.west",
+    passwordHash,
+    "temp-secret-1",
+  );
+
+  const result = await t.mutation(api.agcAdminData.migrateRepUsernames, {
+    sessionToken: adminToken,
+  });
+
+  expect(result.migrated).toEqual([]);
+  expect(result.skipped).toEqual([
+    {
+      username: "gabon_-_libreville",
+      target: "gabon_libreville",
+      reason: "canonical form already used by another account",
+    },
+    {
+      username: "takoradi.west",
+      target: "takoradi_west",
+      reason: "canonical form already used by another account",
+    },
+  ]);
+
+  // Nothing changed on disk.
+  const [punctuationRep, aliasBlockedRep] = await t.run(async (ctx) => [
+    await ctx.db.get(punctuationRepId),
+    await ctx.db.get(aliasBlockedId),
+  ]);
+  expect(punctuationRep!.username).toBe("gabon_-_libreville");
+  expect(aliasBlockedRep!.username).toBe("takoradi.west");
 });

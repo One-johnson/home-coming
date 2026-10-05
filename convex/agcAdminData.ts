@@ -734,6 +734,87 @@ export const renameRepUsername = internalMutation({
 // Representative account management (SRS §5–6, §58)
 // ------------------------------------------------------------------
 
+/**
+ * One-shot cleanup for accounts created before usernames were strict
+ * slugs: rewrite every live rep's stored username to its canonical form
+ * (e.g. "gabon_-_libreville" -> "gabon_libreville") while keeping the
+ * old spelling as a sign-in alias. Idempotent — a second run finds
+ * nothing to do. A rep whose canonical form is already claimed by another
+ * live account (as username or alias) is left untouched and reported as
+ * skipped.
+ */
+export const migrateRepUsernames = mutation({
+  args: { sessionToken: sessionTokenValidator },
+  handler: async (ctx, args) => {
+    const actor = await requireAdmin(ctx, args.sessionToken);
+
+    const reps = (await ctx.db.query("agcRepresentatives").collect())
+      .filter((rep) => rep.deletedAt === undefined)
+      .sort((a, b) => a.username.localeCompare(b.username));
+
+    const migrated: Array<{
+      repId: Id<"agcRepresentatives">;
+      from: string;
+      to: string;
+    }> = [];
+    const skipped: Array<{ username: string; target: string; reason: string }> =
+      [];
+
+    for (const rep of reps) {
+      const target = canonicalUsername(rep.username);
+      if (!target) {
+        skipped.push({
+          username: rep.username,
+          target,
+          reason: "username has no alphanumeric characters",
+        });
+        continue;
+      }
+      if (target === rep.username) continue; // already canonical
+
+      const conflict = reps.some(
+        (other) =>
+          other._id !== rep._id &&
+          (canonicalUsername(other.username) === target ||
+            (other.previousUsernames ?? []).some(
+              (alias) => canonicalUsername(alias) === target,
+            )),
+      );
+      if (conflict) {
+        skipped.push({
+          username: rep.username,
+          target,
+          reason: "canonical form already used by another account",
+        });
+        continue;
+      }
+
+      const aliases = new Set(rep.previousUsernames ?? []);
+      aliases.add(rep.username);
+      await ctx.db.patch(rep._id, {
+        username: target,
+        previousUsernames: [...aliases],
+        updatedAt: Date.now(),
+      });
+      migrated.push({ repId: rep._id, from: rep.username, to: target });
+    }
+
+    if (migrated.length > 0) {
+      await writeAuditLog(ctx, {
+        actorUserId: actor._id,
+        actorEmail: actor.email,
+        action: "agc_rep.usernames_migrated",
+        entityType: "agcRepresentatives",
+        summary: `Migrated ${migrated.length} username(s) to canonical form: ${migrated
+          .map((m) => `${m.from} → ${m.to}`)
+          .join(", ")}`,
+      });
+    }
+
+    return { migrated, skipped };
+  },
+});
+
 export const listReps = query({
   args: { sessionToken: sessionTokenValidator },
   handler: async (ctx, args) => {

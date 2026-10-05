@@ -34,6 +34,7 @@ import type * as lib_bannerImage from "../lib/bannerImage.js";
 import type * as lib_emailTemplates from "../lib/emailTemplates.js";
 import type * as lib_eventConfig from "../lib/eventConfig.js";
 import type * as lib_hotelConfig from "../lib/hotelConfig.js";
+import type * as lib_hubUsername from "../lib/hubUsername.js";
 import type * as lib_loginThrottle from "../lib/loginThrottle.js";
 import type * as lib_paymentEmail from "../lib/paymentEmail.js";
 import type * as lib_referenceNumbers from "../lib/referenceNumbers.js";
@@ -85,6 +86,7 @@ declare const fullApi: ApiFromModules<{
   "lib/emailTemplates": typeof lib_emailTemplates;
   "lib/eventConfig": typeof lib_eventConfig;
   "lib/hotelConfig": typeof lib_hotelConfig;
+  "lib/hubUsername": typeof lib_hubUsername;
   "lib/loginThrottle": typeof lib_loginThrottle;
   "lib/paymentEmail": typeof lib_paymentEmail;
   "lib/referenceNumbers": typeof lib_referenceNumbers;

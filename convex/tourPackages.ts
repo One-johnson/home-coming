@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { slugifyTourLabel } from "./lib/tourConfig";
@@ -26,6 +26,23 @@ const packageFields = {
 
 function normalizeSites(sites: string[]) {
   return sites.map((site) => site.trim()).filter(Boolean);
+}
+
+/**
+ * Best-effort storage cleanup. A stored file id can dangle — deleted via
+ * the dashboard, a retired-package sync, or an interrupted operation — and
+ * storage.delete throws "Delete on non-existent doc" for missing files,
+ * which used to make every image update on such a package fail with a
+ * generic "Something went wrong". getUrl returns null when the file is
+ * gone, so gate the delete on that and let the save proceed.
+ */
+async function deleteStorageFileIfPresent(
+  ctx: MutationCtx,
+  storageId: Id<"_storage">,
+) {
+  if (await ctx.storage.getUrl(storageId)) {
+    await ctx.storage.delete(storageId);
+  }
 }
 
 function validatePackageInput(args: {
@@ -216,7 +233,7 @@ export const update = mutation({
     let imageStorageId = existing.imageStorageId;
     if (args.clearImageStorage) {
       if (existing.imageStorageId) {
-        await ctx.storage.delete(existing.imageStorageId);
+        await deleteStorageFileIfPresent(ctx, existing.imageStorageId);
       }
       imageStorageId = undefined;
     } else if (args.imageStorageId) {
@@ -224,7 +241,7 @@ export const update = mutation({
         existing.imageStorageId &&
         existing.imageStorageId !== args.imageStorageId
       ) {
-        await ctx.storage.delete(existing.imageStorageId);
+        await deleteStorageFileIfPresent(ctx, existing.imageStorageId);
       }
       imageStorageId = args.imageStorageId;
     }
@@ -275,7 +292,7 @@ export const remove = mutation({
     if (!existing) throw new ConvexError("Tour package not found");
 
     if (existing.imageStorageId) {
-      await ctx.storage.delete(existing.imageStorageId);
+      await deleteStorageFileIfPresent(ctx, existing.imageStorageId);
     }
 
     await ctx.db.delete(args.id);

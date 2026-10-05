@@ -53,7 +53,11 @@ export async function syncTourPackagesToDefaults(ctx: MutationCtx) {
   for (const pkg of allPackages) {
     if (keepSlugs.has(pkg.slug)) continue;
     if (pkg.imageStorageId) {
-      await ctx.storage.delete(pkg.imageStorageId);
+      // Guarded: a dangling file id must not break the sync (see
+      // deleteStorageFileIfPresent in tourPackages.ts).
+      if (await ctx.storage.getUrl(pkg.imageStorageId)) {
+        await ctx.storage.delete(pkg.imageStorageId);
+      }
     }
     await ctx.db.delete(pkg._id);
     deleted += 1;

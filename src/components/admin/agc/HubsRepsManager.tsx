@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
+import { canonicalUsername } from "@convex/lib/hubUsername";
 import { useAdminSession } from "@/components/admin/AdminSessionProvider";
 import { toastFriendlyErrorParts } from "@/lib/friendlyError";
 import { Badge } from "@/components/ui/badge";
@@ -1190,6 +1191,10 @@ export function HubsRepsManager() {
   const [bulkCreateOpen, setBulkCreateOpen] = useState(false);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [exportingReps, setExportingReps] = useState(false);
+  // One-click migration of punctuation usernames to canonical slugs.
+  const [migrateUsernamesOpen, setMigrateUsernamesOpen] = useState(false);
+  const [migratingUsernames, setMigratingUsernames] = useState(false);
+  const migrateUsernames = useMutation(api.agcAdminData.migrateRepUsernames);
 
   const summary = useMemo(
     () => hubRosterSummary(roster ?? []),
@@ -1208,6 +1213,16 @@ export function HubsRepsManager() {
     () => (roster ?? []).filter((hub) => hub.rep === null && hub.active).length,
     [roster],
   );
+
+  /** Live reps whose stored username is not yet a canonical slug. */
+  const legacyUsernames = useMemo(() => {
+    const seen = new Set<string>();
+    for (const hub of roster ?? []) {
+      const username = hub.rep?.username;
+      if (username && canonicalUsername(username) !== username) seen.add(username);
+    }
+    return [...seen];
+  }, [roster]);
 
   const exportRepsSheet = async () => {
     if (!sessionToken || exportingReps) return;
@@ -1233,6 +1248,29 @@ export function HubsRepsManager() {
       toast.error(...toastFriendlyErrorParts(err, "Export failed"));
     } finally {
       setExportingReps(false);
+    }
+  };
+
+  const runMigrateUsernames = async () => {
+    if (!sessionToken || migratingUsernames) return;
+    setMigratingUsernames(true);
+    try {
+      const result = await migrateUsernames({ sessionToken });
+      setMigrateUsernamesOpen(false);
+      if (result.migrated.length === 0) {
+        toast.info("No legacy usernames to migrate");
+      } else {
+        toast.success(
+          `Migrated ${result.migrated.length} username(s) — old spellings keep working`,
+        );
+      }
+      for (const skip of result.skipped) {
+        toast.info(`${skip.username}: ${skip.reason}`);
+      }
+    } catch (err) {
+      toast.error(...toastFriendlyErrorParts(err, "Username migration failed"));
+    } finally {
+      setMigratingUsernames(false);
     }
   };
 
@@ -1428,6 +1466,18 @@ export function HubsRepsManager() {
                     <DropdownMenuItem onClick={() => setBulkCreateOpen(true)}>
                       <UserPlus className="size-4" />
                       Create reps in bulk…
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      disabled={legacyUsernames.length === 0}
+                      title={
+                        legacyUsernames.length === 0
+                          ? "All usernames already use the canonical form"
+                          : `Rewrite ${legacyUsernames.length} username(s) that still contain punctuation`
+                      }
+                      onClick={() => setMigrateUsernamesOpen(true)}
+                    >
+                      <Sparkles className="size-4" />
+                      Migrate legacy usernames…
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem
@@ -1760,6 +1810,61 @@ export function HubsRepsManager() {
           onDownloadSheet={() => void exportRepsSheet()}
           onClose={() => setBulkResetResult(null)}
         />
+      )}
+      {migrateUsernamesOpen && (
+        <Dialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setMigrateUsernamesOpen(false);
+          }}
+        >
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Sparkles className="size-4 text-gold" />
+                Migrate {legacyUsernames.length} username(s)?
+              </DialogTitle>
+              <DialogDescription>
+                Usernames created before strict slug rules keep punctuation in
+                them (e.g.{" "}
+                <span className="font-mono">gabon_-_libreville</span>). Each is
+                rewritten to its clean form (e.g.{" "}
+                <span className="font-mono">gabon_libreville</span>) and the old
+                spelling keeps working as a sign-in alias — passwords and active
+                sessions are unaffected.
+              </DialogDescription>
+            </DialogHeader>
+            <ul className="max-h-40 space-y-1 overflow-y-auto rounded-lg border p-2 text-sm">
+              {legacyUsernames.map((username) => (
+                <li key={username} className="font-mono text-xs">
+                  {username} <span className="text-muted-foreground">→</span>{" "}
+                  {canonicalUsername(username)}
+                </li>
+              ))}
+            </ul>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setMigrateUsernamesOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                disabled={migratingUsernames}
+                onClick={() => void runMigrateUsernames()}
+              >
+                {migratingUsernames ? (
+                  <Loader2Icon className="size-4 animate-spin" />
+                ) : (
+                  <Sparkles className="size-4" />
+                )}
+                Migrate {legacyUsernames.length} username(s)
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   );

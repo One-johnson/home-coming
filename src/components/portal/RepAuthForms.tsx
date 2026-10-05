@@ -155,11 +155,20 @@ export function RepSignIn() {
   // Lockout progress state from the latest failed sign-in.
   const [attemptsRemaining, setAttemptsRemaining] = useState<number | null>(null);
   const [lockedUntil, setLockedUntil] = useState<number | null>(null);
+  // Exact stored username the server resolved — shown when the typed
+  // username matched an account but the password was wrong.
+  const [resolvedUsername, setResolvedUsername] = useState<string | null>(null);
+
+  const updateUsername = (next: string) => {
+    setUsername(next);
+    setResolvedUsername(null);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError("");
+    setResolvedUsername(null);
     try {
       const outcome = await login({ username, password });
 
@@ -188,6 +197,9 @@ export function RepSignIn() {
       toast.error(friendly.title, { description: friendly.detail });
       // Drive the lockout indicator from structured server data when present.
       const info = loginErrorInfo(err);
+      if (info.resolvedUsername) {
+        setResolvedUsername(info.resolvedUsername);
+      }
       if (info.lockedUntil) {
         setLockedUntil(info.lockedUntil);
         setAttemptsRemaining(null);
@@ -231,6 +243,23 @@ export function RepSignIn() {
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
+          {resolvedUsername && (
+            <Alert>
+              <AlertDescription>
+                We found your account — its exact username is{" "}
+                <button
+                  type="button"
+                  className="font-mono font-semibold underline underline-offset-2"
+                  onClick={() => updateUsername(resolvedUsername)}
+                >
+                  {resolvedUsername}
+                </button>
+                {" "}
+                (click to fill it in). Spaces, hyphens or underscores all
+                work — only the password was wrong.
+              </AlertDescription>
+            </Alert>
+          )}
           {(attemptsRemaining !== null || lockedUntil !== null) && (
             <LockoutIndicator
               attemptsRemaining={attemptsRemaining}
@@ -245,7 +274,7 @@ export function RepSignIn() {
               autoComplete="username"
               placeholder="e.g. ashanti_mampong"
               value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              onChange={(e) => updateUsername(e.target.value)}
             />
             <p className="text-xs text-muted-foreground">
               Your username is your hub name in lowercase — separators are

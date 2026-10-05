@@ -39,9 +39,12 @@ const modules = {
   "convex/tourPackages.ts": () => import("../convex/tourPackages"),
   "convex/users.ts": () => import("../convex/users"),
   "convex/lib/audit.ts": () => import("../convex/lib/audit"),
+  "convex/lib/hubUsername.ts": () => import("../convex/lib/hubUsername"),
   "convex/lib/loginThrottle.ts": () => import("../convex/lib/loginThrottle"),
   "convex/lib/resetUrls.ts": () => import("../convex/lib/resetUrls"),
   "convex/lib/smtpConfig.ts": () => import("../convex/lib/smtpConfig"),
+  "convex/lib/syncTours.ts": () => import("../convex/lib/syncTours"),
+  "convex/lib/tourConfig.ts": () => import("../convex/lib/tourConfig"),
 };
 
 export function createTestConvex() {
