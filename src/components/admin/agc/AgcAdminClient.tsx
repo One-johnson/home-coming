@@ -15,6 +15,12 @@ import { Card } from "@/components/ui/card";
 import { DataTable } from "@/components/ui/data-table";
 import { Textarea } from "@/components/ui/textarea";
 import { createActionsColumn, multiSelectFilter } from "@/components/admin/columns";
+import {
+  RowDetailDialog,
+  RowDetailItem,
+  RowDetailList,
+  RowDetailSection,
+} from "@/components/admin/agc/RowDetailDialog";
 import { toastFriendlyErrorParts } from "@/lib/friendlyError";
 import { paymentStatusMeta } from "@/lib/agcPortal";
 
@@ -123,7 +129,8 @@ export default function RegistrationsTab() {
   const deleteOne = useMutation(api.agcAdminData.deleteAgcRegistration);
   const deleteBulk = useMutation(api.agcAdminData.deleteAgcRegistrationsBulk);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  // Row shown in the detail dialog (opened by clicking a table row).
+  const [detailRow, setDetailRow] = useState<AdminRegistrationRow | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<RegistrationDeleteTarget | null>(null);
 
@@ -142,6 +149,7 @@ export default function RegistrationsTab() {
         message,
       });
       toast.success(`Registration ${decision.replace(/_/g, " ")}d`);
+      setDetailRow(null);
     } catch (err) {
       toast.error(...toastFriendlyErrorParts(err, "Review failed"));
     } finally {
@@ -281,46 +289,72 @@ export default function RegistrationsTab() {
     [busyId, sessionToken],
   );
 
-  const renderSubRow = (row: AdminRegistrationRow) => (
-    <div className="space-y-2">
+  /** Everything a registration detail dialog shows for one row. */
+  const registrationDetail = (row: AdminRegistrationRow) => (
+    <>
+      <RowDetailSection title="Registration">
+        <RowDetailList>
+          <RowDetailItem label="Reference">
+            <span className="font-mono">
+              {row.referenceNumber || "(pending)"}
+            </span>
+          </RowDetailItem>
+          <RowDetailItem label="Hub">{row.hubName}</RowDetailItem>
+          <RowDetailItem label="Region">
+            <span className="capitalize">{row.region.replace(/_/g, " ")}</span>
+          </RowDetailItem>
+          <RowDetailItem label="Delegates">{row.quantity}</RowDetailItem>
+          <RowDetailItem label="Unit price">
+            {row.currency} {row.unitPrice}
+          </RowDetailItem>
+          <RowDetailItem label="Total">
+            {row.currency} {row.totalAmount}
+          </RowDetailItem>
+          <RowDetailItem label="Payment mode">
+            <span className="capitalize">
+              {row.paymentMode.replace(/_/g, " ")}
+            </span>
+          </RowDetailItem>
+          <RowDetailItem label="Created">
+            {formatDateTime(row.createdAt)}
+          </RowDetailItem>
+        </RowDetailList>
+      </RowDetailSection>
       {row.offline && (
-        <div className="rounded-lg bg-muted/50 p-3 text-sm">
-          <p>
-            Amount paid:{" "}
-            <strong>
-              {row.currency} {row.offline.amountPaid}
-            </strong>{" "}
-            · {row.offline.method.replace(/_/g, " ")} · {row.offline.paymentDate}
-          </p>
-          <p className="text-muted-foreground">
-            Txn ref: {row.offline.referenceNumber}
-          </p>
-          {row.receiptUrl && (
-            <a
-              href={row.receiptUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-1 inline-block text-primary hover:underline"
-            >
-              View receipt ({row.offline.receiptFileName})
-            </a>
-          )}
-        </div>
+        <RowDetailSection title="Offline payment">
+          <div className="rounded-lg bg-muted/50 p-3 text-sm">
+            <p>
+              Amount paid:{" "}
+              <strong>
+                {row.currency} {row.offline.amountPaid}
+              </strong>{" "}
+              · {row.offline.method.replace(/_/g, " ")} ·{" "}
+              {row.offline.paymentDate}
+            </p>
+            <p className="text-muted-foreground">
+              Txn ref: {row.offline.referenceNumber}
+            </p>
+            {row.receiptUrl && (
+              <a
+                href={row.receiptUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-1 inline-block text-primary hover:underline"
+              >
+                View receipt ({row.offline.receiptFileName})
+              </a>
+            )}
+          </div>
+        </RowDetailSection>
       )}
       {row.adminMessage && (
-        <p className="rounded bg-orange-50 p-2 text-xs text-orange-900 dark:bg-orange-950 dark:text-orange-300">
-          Last message: {row.adminMessage}
-        </p>
+        <RowDetailSection title="Last message">
+          <p className="rounded bg-orange-50 p-2 text-xs text-orange-900 dark:bg-orange-950 dark:text-orange-300">
+            {row.adminMessage}
+          </p>
+        </RowDetailSection>
       )}
-      {/* Decided rows show as confirmed rows — actions only while a payment
-          is awaiting review. */}
-      {row.paymentStatus === "pending_verification" && (
-        <ReviewActions
-          disabled={busyId === row._id}
-          onDecision={(decision, message) => void decide(row, decision, message)}
-        />
-      )}
-    </div>
+    </>
   );
 
   return (
@@ -330,14 +364,9 @@ export default function RegistrationsTab() {
         data={rows ?? []}
         isLoading={rows === undefined}
         emptyMessage="No registrations yet."
-        searchPlaceholder="Search reference, hub…"
-        getRowId={(row) => row._id}
-        onRowClick={(row) =>
-          setExpandedId((prev) => (prev === row._id ? null : row._id))
-        }
-        renderSubRow={renderSubRow}
-        expandedId={expandedId}
-        exportFilename="agc-registrations.csv"
+        searchPlaceholder="Search reference, hub…"          getRowId={(row) => row._id}
+          onRowClick={setDetailRow}
+          exportFilename="agc-registrations.csv"
         exportRow={(row) => ({
           reference: row.referenceNumber,
           hub: row.hubName,
@@ -400,6 +429,43 @@ export default function RegistrationsTab() {
           </Button>
         )}
       />
+
+      <RowDetailDialog
+        open={detailRow !== null}
+        onOpenChange={(open) => {
+          if (!open) setDetailRow(null);
+        }}
+        title={
+          detailRow
+            ? `Registration ${detailRow.referenceNumber || "(pending)"}`
+            : ""
+        }
+        summary={
+          detailRow ? (
+            <span className="flex flex-wrap items-center gap-2">
+              {detailRow.hubName}
+              <Badge
+                variant="outline"
+                className={paymentStatusMeta(detailRow.paymentStatus).className}
+              >
+                {paymentStatusMeta(detailRow.paymentStatus).label}
+              </Badge>
+            </span>
+          ) : null
+        }
+        footer={
+          detailRow?.paymentStatus === "pending_verification" ? (
+            <ReviewActions
+              disabled={busyId === detailRow._id}
+              onDecision={(decision, message) =>
+                void decide(detailRow, decision, message)
+              }
+            />
+          ) : undefined
+        }
+      >
+        {detailRow ? registrationDetail(detailRow) : null}
+      </RowDetailDialog>
 
       <ConfirmDeleteDialog
         open={deleteTarget !== null}

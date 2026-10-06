@@ -13,6 +13,12 @@ import {
   ReviewActions,
   type ReviewDecision,
 } from "@/components/admin/agc/AgcAdminClient";
+import {
+  RowDetailDialog,
+  RowDetailItem,
+  RowDetailList,
+  RowDetailSection,
+} from "@/components/admin/agc/RowDetailDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -86,7 +92,8 @@ export function BookingsTab() {
   const deleteOne = useMutation(api.agcAdminData.deleteAgcBooking);
   const deleteBulk = useMutation(api.agcAdminData.deleteAgcBookingsBulk);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  // Row shown in the detail dialog (opened by clicking a table row).
+  const [detailRow, setDetailRow] = useState<AdminBookingRow | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<BookingDeleteTarget | null>(null);
 
@@ -121,6 +128,7 @@ export function BookingsTab() {
         message,
       });
       toast.success(`Booking ${decision.replace(/_/g, " ")}d`);
+      setDetailRow(null);
     } catch (err) {
       toast.error(...toastFriendlyErrorParts(err, "Review failed"));
     } finally {
@@ -277,9 +285,34 @@ export function BookingsTab() {
     [busyId, sessionToken],
   );
 
-  const renderSubRow = (row: AdminBookingRow) => {
-    return (
-      <div className="space-y-2">
+  /** Everything a booking detail dialog shows for one row. */
+  const bookingDetail = (row: AdminBookingRow) => (
+    <>
+      <RowDetailSection title="Booking">
+        <RowDetailList>
+          <RowDetailItem label="Reference">
+            <span className="font-mono">
+              {row.referenceNumber || "(pending)"}
+            </span>
+          </RowDetailItem>
+          <RowDetailItem label="Hub">{row.hubName}</RowDetailItem>
+          <RowDetailItem label="Region">
+            <span className="capitalize">{row.region.replace(/_/g, " ")}</span>
+          </RowDetailItem>
+          <RowDetailItem label="Total">
+            {row.currency} {row.totalAmount}
+          </RowDetailItem>
+          <RowDetailItem label="Created">
+            {formatDateTime(row.createdAt)}
+          </RowDetailItem>
+          <RowDetailItem label="Hold expires">
+            {row.expiresAt && row.bookingStatus === "reserved"
+              ? new Date(row.expiresAt).toLocaleString()
+              : "—"}
+          </RowDetailItem>
+        </RowDetailList>
+      </RowDetailSection>
+      <RowDetailSection title={`Guests (${row.guests.length})`}>
         <div className="space-y-1 text-xs">
           {row.guests.map((guest) => (
             <p key={guest._id}>
@@ -295,7 +328,7 @@ export function BookingsTab() {
             <p className="text-muted-foreground">No guests recorded.</p>
           )}
         </div>
-        <div>
+        <div className="mt-3">
           <Button
             type="button"
             variant="outline"
@@ -308,7 +341,9 @@ export function BookingsTab() {
             Download guest list
           </Button>
         </div>
-        {row.offline && (
+      </RowDetailSection>
+      {row.offline && (
+        <RowDetailSection title="Offline payment">
           <div className="rounded-lg bg-muted/50 p-3 text-sm">
             <p>
               Amount paid:{" "}
@@ -329,26 +364,17 @@ export function BookingsTab() {
               </a>
             )}
           </div>
-        )}
-        {row.adminMessage && (
+        </RowDetailSection>
+      )}
+      {row.adminMessage && (
+        <RowDetailSection title="Last message">
           <p className="rounded bg-orange-50 p-2 text-xs text-orange-900 dark:bg-orange-950 dark:text-orange-300">
-            Last message: {row.adminMessage}
+            {row.adminMessage}
           </p>
-        )}
-        {row.expiresAt && row.bookingStatus === "reserved" && (
-          <p className="text-xs text-muted-foreground">
-            Hold expires {new Date(row.expiresAt).toLocaleString()}
-          </p>
-        )}
-        {row.paymentStatus === "pending_verification" && (
-          <ReviewActions
-            disabled={busyId === row._id}
-            onDecision={(decision, message) => void decide(row, decision, message)}
-          />
-        )}
-      </div>
-    );
-  };
+        </RowDetailSection>
+      )}
+    </>
+  );
 
   return (
     <div className="space-y-4">
@@ -372,11 +398,7 @@ export function BookingsTab() {
           emptyMessage="No bookings yet."
           searchPlaceholder="Search reference, hub, guest…"
           getRowId={(row) => row._id}
-          onRowClick={(row) =>
-            setExpandedId((prev) => (prev === row._id ? null : row._id))
-          }
-          renderSubRow={renderSubRow}
-          expandedId={expandedId}
+          onRowClick={setDetailRow}
           exportFilename="agc-accommodation-guests.csv"
           // One row per guest (name, gender, accommodation type) — the table
           // itself only shows a count, so the details live in the expanded
@@ -440,6 +462,49 @@ export function BookingsTab() {
           )}
         />
       </Card>
+
+      <RowDetailDialog
+        open={detailRow !== null}
+        onOpenChange={(open) => {
+          if (!open) setDetailRow(null);
+        }}
+        title={
+          detailRow
+            ? `Booking ${detailRow.referenceNumber || "(pending)"}`
+            : ""
+        }
+        summary={
+          detailRow ? (
+            <span className="flex flex-wrap items-center gap-2">
+              {detailRow.hubName}
+              <Badge
+                variant="outline"
+                className={bookingStatusMeta(detailRow.bookingStatus).className}
+              >
+                {bookingStatusMeta(detailRow.bookingStatus).label}
+              </Badge>
+              <Badge
+                variant="outline"
+                className={paymentStatusMeta(detailRow.paymentStatus).className}
+              >
+                {paymentStatusMeta(detailRow.paymentStatus).label}
+              </Badge>
+            </span>
+          ) : null
+        }
+        footer={
+          detailRow?.paymentStatus === "pending_verification" ? (
+            <ReviewActions
+              disabled={busyId === detailRow._id}
+              onDecision={(decision, message) =>
+                void decide(detailRow, decision, message)
+              }
+            />
+          ) : undefined
+        }
+      >
+        {detailRow ? bookingDetail(detailRow) : null}
+      </RowDetailDialog>
 
       <ConfirmDeleteDialog
         open={deleteTarget !== null}
