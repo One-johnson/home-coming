@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { useMutation, useQuery } from "convex/react";
 import {
   AlertTriangle,
   ArrowUpRight,
+  Banknote,
   BedDouble,
   ClipboardList,
   HelpCircle,
@@ -259,16 +261,126 @@ function CurrencyMoneyTiles({
   );
 }
 
+/** Human title for a currency ledger column. */
+function currencyTitle(currency: string): string {
+  if (currency === "GHS") return "Cedis (GHS)";
+  if (currency === "USD") return "Dollars (USD)";
+  return currency;
+}
+
 /**
- * Finance headline: the combined total (registrations + accommodation,
- * confirmed + awaiting) per currency — cedis and dollars always on separate
- * lines — alongside the total number of bookings.
+ * One finance surface (registrations or accommodation) as a stat card:
+ * volume headline and status chips on top, then every money line held per
+ * currency — cedis and dollars are never summed into one number.
  */
-function FinanceTotalsCard({
+function FinanceSurfaceCard({
+  href,
+  accent,
+  icon,
+  title,
+  headline,
+  headlineNote,
+  chips,
+  confirmedByCurrency,
+  awaitingByCurrency,
+}: {
+  href: string;
+  accent: { icon: string; border: string; tint: string };
+  icon: ReactNode;
+  title: string;
+  headline: number;
+  headlineNote: string;
+  chips: ReactNode;
+  confirmedByCurrency: Record<string, number>;
+  awaitingByCurrency: Record<string, number>;
+}) {
+  const surfaceCurrencies = Array.from(
+    new Set([
+      ...Object.keys(confirmedByCurrency),
+      ...Object.keys(awaitingByCurrency),
+    ]),
+  ).sort(byCurrencyDesc);
+
+  const totalsByCurrency = Object.fromEntries(
+    surfaceCurrencies.map((currency) => [
+      currency,
+      (confirmedByCurrency[currency] ?? 0) +
+        (awaitingByCurrency[currency] ?? 0),
+    ]),
+  );
+
+  return (
+    <Link href={href} className="group">
+      <Card
+        className={cn(
+          "h-full overflow-hidden bg-gradient-to-br transition-all group-hover:shadow-sm",
+          accent.tint,
+          accent.border,
+        )}
+      >
+        <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <CardTitle className="text-sm font-medium text-muted-foreground">
+            {title}
+          </CardTitle>
+          <span
+            className={cn(
+              "flex size-9 items-center justify-center rounded-lg",
+              accent.icon,
+            )}
+          >
+            {icon}
+          </span>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-3xl font-semibold tabular-nums text-ink">
+            {headline}
+          </p>
+          <p className="-mt-2 text-xs text-muted-foreground">{headlineNote}</p>
+          <div className="flex flex-wrap gap-1.5">{chips}</div>
+          <div className="space-y-0.5 border-t border-border/70 pt-2 text-xs">
+            <p className="text-muted-foreground">
+              Confirmed:{" "}
+              <span className="font-semibold tabular-nums text-emerald-700">
+                {formatMoneyByCurrency(confirmedByCurrency)}
+              </span>
+            </p>
+            {formatMoneyByCurrency(awaitingByCurrency) !== "—" && (
+              <p className="text-muted-foreground">
+                Awaiting review:{" "}
+                <span className="font-medium tabular-nums text-amber-700">
+                  {formatMoneyByCurrency(awaitingByCurrency)}
+                </span>
+              </p>
+            )}
+            <p className="text-muted-foreground">
+              Total · confirmed + awaiting:{" "}
+              <span className="font-semibold tabular-nums text-ink">
+                {formatMoneyByCurrency(totalsByCurrency)}
+              </span>
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    </Link>
+  );
+}
+
+/**
+ * Finance totals block — stat cards for each money surface (registrations,
+ * accommodation) plus one board per currency (GHS, USD), where every number
+ * stays inside a single currency so nothing is ever summed across cedis and
+ * dollars.
+ */
+function FinanceStatsCards({
   registrations,
   bookings,
 }: {
   registrations: {
+    total: number;
+    delegates: number;
+    confirmed: number;
+    pending: number;
+    rejected: number;
     revenueByCurrency: Record<string, number>;
     awaitingByCurrency: Record<string, number>;
   };
@@ -287,6 +399,7 @@ function FinanceTotalsCard({
     (bookings.revenueByCurrency[currency] ?? 0) +
     (bookings.awaitingByCurrency[currency] ?? 0);
 
+  // GHS and USD always get a board; unknown currencies join in stable order.
   const currencies = Array.from(
     new Set([
       "GHS",
@@ -299,47 +412,136 @@ function FinanceTotalsCard({
   ).sort(byCurrencyDesc);
 
   return (
-    <Card className="overflow-hidden">
-      <div className="h-1 w-full bg-gradient-to-r from-gold via-sky-500 to-emerald-400" />
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base">Finance totals</CardTitle>
-      </CardHeader>
-      <CardContent className="grid gap-3 sm:grid-cols-3">
-        <div className="rounded-lg border border-border/70 bg-muted/30 p-4">
-          <p className="text-xs font-medium text-muted-foreground">
-            Total bookings
-          </p>
-          <p className="text-2xl font-semibold tabular-nums text-ink">
-            {bookings.total}
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {bookings.confirmed} confirmed · {bookings.pending} awaiting review ·{" "}
-            {bookings.activeGuests} active guests
-          </p>
-        </div>
-        {currencies.map((currency) => (
-          <div
-            key={currency}
-            className="rounded-lg border border-border/70 bg-muted/30 p-4"
-          >
-            <p className="text-xs font-medium text-muted-foreground">
-              {currency === "GHS"
-                ? "Cedis (GHS)"
-                : currency === "USD"
-                  ? "Dollars (USD)"
-                  : currency}{" "}
-              · total booked
-            </p>
-            <p className="text-2xl font-semibold tabular-nums text-ink">
-              {formatMoneyByCurrency({ [currency]: totalFor(currency) })}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              registrations + accommodation · confirmed + awaiting
-            </p>
-          </div>
-        ))}
-      </CardContent>
-    </Card>
+    <div className="space-y-4">
+      <div className="grid gap-4 lg:grid-cols-2">
+        <FinanceSurfaceCard
+          href="/admin/registrations"
+          accent={KPI_ACCENTS.registrations}
+          icon={<ClipboardList className="size-4" />}
+          title="Registrations totals"
+          headline={registrations.total}
+          headlineNote={`submission${registrations.total === 1 ? "" : "s"} · ${registrations.delegates} delegate${registrations.delegates === 1 ? "" : "s"}`}
+          chips={
+            <>
+              <StatusChip
+                label="confirmed"
+                value={registrations.confirmed}
+                tone="ok"
+              />
+              <StatusChip
+                label="awaiting review"
+                value={registrations.pending}
+                tone="warn"
+              />
+              {registrations.rejected > 0 && (
+                <StatusChip
+                  label="rejected"
+                  value={registrations.rejected}
+                  tone="danger"
+                />
+              )}
+            </>
+          }
+          confirmedByCurrency={registrations.revenueByCurrency}
+          awaitingByCurrency={registrations.awaitingByCurrency}
+        />
+        <FinanceSurfaceCard
+          href="/admin/finance/accommodations"
+          accent={KPI_ACCENTS.bookings}
+          icon={<BedDouble className="size-4" />}
+          title="Accommodation totals"
+          headline={bookings.total}
+          headlineNote={`booking${bookings.total === 1 ? "" : "s"} · ${bookings.activeGuests} active guest${bookings.activeGuests === 1 ? "" : "s"}`}
+          chips={
+            <>
+              <StatusChip
+                label="confirmed"
+                value={bookings.confirmed}
+                tone="ok"
+              />
+              <StatusChip
+                label="awaiting review"
+                value={bookings.pending}
+                tone="warn"
+              />
+            </>
+          }
+          confirmedByCurrency={bookings.revenueByCurrency}
+          awaitingByCurrency={bookings.awaitingByCurrency}
+        />
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        {currencies.map((currency) => {
+          const rows = [
+            {
+              label: "Registrations · confirmed",
+              value: registrations.revenueByCurrency[currency] ?? 0,
+            },
+            {
+              label: "Registrations · awaiting review",
+              value: registrations.awaitingByCurrency[currency] ?? 0,
+            },
+            {
+              label: "Accommodation · confirmed",
+              value: bookings.revenueByCurrency[currency] ?? 0,
+            },
+            {
+              label: "Accommodation · awaiting review",
+              value: bookings.awaitingByCurrency[currency] ?? 0,
+            },
+          ];
+          return (
+            <Card key={currency} className="overflow-hidden">
+              <div
+                className={cn(
+                  "h-1 w-full",
+                  currency === "GHS"
+                    ? "bg-gradient-to-r from-gold to-amber-400"
+                    : "bg-gradient-to-r from-sky-500 to-emerald-400",
+                )}
+              />
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center justify-between text-sm font-medium text-muted-foreground">
+                  <span>{currencyTitle(currency)}</span>
+                  <span
+                    className={cn(
+                      "flex size-7 items-center justify-center rounded-lg",
+                      currency === "GHS"
+                        ? "bg-gold/15 text-gold-dark"
+                        : "bg-sky-100 text-sky-700",
+                    )}
+                  >
+                    <Banknote className="size-4" />
+                  </span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-1.5 text-sm">
+                {rows.map((row) => (
+                  <p
+                    key={row.label}
+                    className="flex items-center justify-between gap-3"
+                  >
+                    <span className="text-muted-foreground">{row.label}</span>
+                    <span className="font-medium tabular-nums text-ink">
+                      {formatMoneyByCurrency({ [currency]: row.value })}
+                    </span>
+                  </p>
+                ))}
+                <p className="flex items-center justify-between gap-3 border-t border-border/70 pt-2">
+                  <span className="font-medium">
+                    Total · registrations + accommodation
+                  </span>
+                  <span className="font-semibold tabular-nums text-ink">
+                    {formatMoneyByCurrency({ [currency]: totalFor(currency) })}
+                  </span>
+                </p>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -727,7 +929,7 @@ export default function AdminOverviewPage() {
           )}
 
           {isFinanceView && (
-            <FinanceTotalsCard
+            <FinanceStatsCards
               registrations={overview.registrations}
               bookings={overview.bookings}
             />
