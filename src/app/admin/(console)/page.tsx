@@ -2,12 +2,14 @@
 
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import {
   AlertTriangle,
   ArrowUpRight,
   Banknote,
   BedDouble,
+  Layers,
   ClipboardList,
   HelpCircle,
   Info,
@@ -18,6 +20,18 @@ import {
   Video,
 } from "lucide-react";
 import { toast } from "sonner";
+import { ColumnDef } from "@tanstack/react-table";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Legend as RechartsLegend,
+  ResponsiveContainer,
+  Tooltip as RechartsTooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+
 import { api } from "@convex/_generated/api";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { OverviewCharts } from "@/components/admin/OverviewCharts";
@@ -27,9 +41,17 @@ import {
 } from "@/components/admin/AdminSessionProvider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { DataTable } from "@/components/ui/data-table";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  ADMIN_CHART,
   HOUSING_TONE_CLASS,
   KPI_ACCENTS,
   auditActionBadgeClass,
@@ -40,9 +62,19 @@ import { EVENT } from "@/lib/eventConfig";
 import { cleanErrorMessage } from "@/lib/friendlyError";
 import {
   byCurrencyDesc,
+  currencyFilterLabel,
   formatMoneyByCurrency,
+  matchesCurrencyFilter,
+  type CurrencyFilter,
 } from "@/lib/agcPortal";
 import { cn } from "@/lib/utils";
+
+/** One awaiting-review age bucket as delivered by getAgcOverview. */
+type AgeBucket = {
+  label: string;
+  count: number;
+  moneyByCurrency: Record<string, number>;
+};
 
 type AgcOverview = {
   /** True when signed in as finance — the client then hides non-finance widgets. */
@@ -77,6 +109,30 @@ type AgcOverview = {
     revenueLabel: string;
     awaitingLabel: string;
     thisWeek: number;
+  };
+  /** Confirmed revenue per day (per surface, per currency) — last 7 days. */
+  revenueTrend: {
+    label: string;
+    date: string;
+    regs: Record<string, number>;
+    acc: Record<string, number>;
+  }[];
+  /** Money per hub across both surfaces, always per currency. */
+  hubBreakdown: {
+    hubId: string;
+    hubName: string;
+    registrationsCount: number;
+    registrationsRevenueByCurrency: Record<string, number>;
+    registrationsAwaitingByCurrency: Record<string, number>;
+    bookingsCount: number;
+    bookingsRevenueByCurrency: Record<string, number>;
+    bookingsAwaitingByCurrency: Record<string, number>;
+  }[];
+  /** Awaiting-review ageing buckets per surface as delivered by getAgcOverview.
+   */
+  ageing: {
+    registrations: AgeBucket[];
+    bookings: AgeBucket[];
   };
   housing: {
     _id: string;
@@ -173,6 +229,7 @@ function AttentionIcon({ tone }: { tone: "warn" | "danger" | "info" }) {
 function CurrencyMoneyTiles({
   registrations,
   bookings,
+  currencyFilter,
 }: {
   registrations: {
     revenueByCurrency: Record<string, number>;
@@ -182,6 +239,7 @@ function CurrencyMoneyTiles({
     revenueByCurrency: Record<string, number>;
     awaitingByCurrency: Record<string, number>;
   };
+  currencyFilter: CurrencyFilter;
 }) {
   const currencies = Array.from(
     new Set([
@@ -194,9 +252,17 @@ function CurrencyMoneyTiles({
 
   if (currencies.length < 2) return null;
 
+  // Honor the shared currency focus — when a currency is selected, render
+  // only that ledger board (finance surface cards already show headline
+  // numbers filtered the same way).
+  const visibleCurrencies =
+    currencyFilter === "ALL"
+      ? currencies
+      : currencies.filter((currency) => currency === currencyFilter);
+
   return (
     <div className="grid gap-4 sm:grid-cols-2">
-      {currencies.map((currency) => {
+      {visibleCurrencies.map((currency) => {
         const rows = [
           {
             label: "Registrations · confirmed",
@@ -283,6 +349,7 @@ function FinanceSurfaceCard({
   chips,
   confirmedByCurrency,
   awaitingByCurrency,
+  currencyFilter,
 }: {
   href: string;
   accent: { icon: string; border: string; tint: string };
@@ -293,19 +360,35 @@ function FinanceSurfaceCard({
   chips: ReactNode;
   confirmedByCurrency: Record<string, number>;
   awaitingByCurrency: Record<string, number>;
+  currencyFilter: CurrencyFilter;
 }) {
+  // The currency focus is a lens on the ledger maps: rows outside the focus
+  // disappear (ALL shows everything), so a filtered card never sums across
+  // currencies and totals re-derive from only the visible ledgers.
+  const confirmed: Record<string, number> =
+    currencyFilter === "ALL"
+      ? confirmedByCurrency
+      : Object.fromEntries(
+          Object.entries(confirmedByCurrency).filter(([currency]) =>
+            matchesCurrencyFilter(currency, currencyFilter),
+          ),
+        );
+  const awaiting: Record<string, number> =
+    currencyFilter === "ALL"
+      ? awaitingByCurrency
+      : Object.fromEntries(
+          Object.entries(awaitingByCurrency).filter(([currency]) =>
+            matchesCurrencyFilter(currency, currencyFilter),
+          ),
+        );
   const surfaceCurrencies = Array.from(
-    new Set([
-      ...Object.keys(confirmedByCurrency),
-      ...Object.keys(awaitingByCurrency),
-    ]),
+    new Set([...Object.keys(confirmed), ...Object.keys(awaiting)]),
   ).sort(byCurrencyDesc);
 
   const totalsByCurrency = Object.fromEntries(
     surfaceCurrencies.map((currency) => [
       currency,
-      (confirmedByCurrency[currency] ?? 0) +
-        (awaitingByCurrency[currency] ?? 0),
+      (confirmed[currency] ?? 0) + (awaiting[currency] ?? 0),
     ]),
   );
 
@@ -341,14 +424,14 @@ function FinanceSurfaceCard({
             <p className="text-muted-foreground">
               Confirmed:{" "}
               <span className="font-semibold tabular-nums text-emerald-700">
-                {formatMoneyByCurrency(confirmedByCurrency)}
+                {formatMoneyByCurrency(confirmed)}
               </span>
             </p>
-            {formatMoneyByCurrency(awaitingByCurrency) !== "—" && (
+            {formatMoneyByCurrency(awaiting) !== "—" && (
               <p className="text-muted-foreground">
                 Awaiting review:{" "}
                 <span className="font-medium tabular-nums text-amber-700">
-                  {formatMoneyByCurrency(awaitingByCurrency)}
+                  {formatMoneyByCurrency(awaiting)}
                 </span>
               </p>
             )}
@@ -366,6 +449,394 @@ function FinanceSurfaceCard({
 }
 
 /**
+ * All / GHS / USD focus control — one statement of which cedis-and-dollars
+ * lens the finance stat cards read through.
+ */
+function CurrencyFocusToggle({
+  value,
+  onChange,
+}: {
+  value: CurrencyFilter;
+  onChange: (next: CurrencyFilter) => void;
+}) {
+  const options: CurrencyFilter[] = ["ALL", "GHS", "USD"];
+  return (
+    <div
+      role="group"
+      aria-label="Currency focus"
+      className="inline-flex shrink-0 rounded-lg border border-border bg-muted/40 p-0.5"
+    >
+      {options.map((option) => (
+        <Button
+          key={option}
+          type="button"
+          size="sm"
+          variant="ghost"
+          aria-pressed={value === option}
+          onClick={() => onChange(option)}
+          className={cn(
+            "h-7 gap-1 rounded-md px-3 text-xs font-medium",
+            value === option
+              ? "bg-background text-ink shadow-sm"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          {option === "ALL" ? (
+            <>
+              <Layers className="size-3.5" /> All
+            </>
+          ) : (
+            <Banknote className="size-3.5" />
+          )}
+          {option === "ALL" ? null : option}
+        </Button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Per-day confirmed revenue for the last 7 days — two bars per day
+ * (registrations, accommodation), each remaining within one currency.
+ * Chart series resolve from the currency focus: single currencies render one
+ * series against a clean day axis instead of interleaved per-currency rows.
+ */
+function RevenueTrendCard({
+  revenueTrend,
+  currencyFilter,
+}: {
+  revenueTrend: { label: string; date: string; regs: Record<string, number>; acc: Record<string, number> }[];
+  currencyFilter: CurrencyFilter;
+}) {
+  const tags = currencyFilter === "ALL" ? ["GHS", "USD"] as const : [currencyFilter] as const;
+  const surfaceSeriesMode = currencyFilter === "ALL";
+
+  const data = revenueTrend.map((day) => {
+    if (surfaceSeriesMode) {
+      // All currencies: one row per day-and-currency, bars split by surface.
+      return { kind: "interleaved" as const, day };
+    }
+    return { kind: "flat" as const, day };
+  });
+
+  const rows = surfaceSeriesMode
+    ? data.flatMap(({ day }) =>
+        tags.map((tag) => ({
+          key: `${day.date}-${tag}`,
+          label: `${day.label} · ${tag}`,
+          regs: day.regs[tag] ?? 0,
+          acc: day.acc[tag] ?? 0,
+        })),
+      )
+    : data.map(({ day }) => ({
+        key: day.date,
+        label: day.label,
+        regs: day.regs[currencyFilter] ?? 0,
+        acc: day.acc[currencyFilter] ?? 0,
+      }));
+
+  const total = rows.reduce((sum, row) => sum + row.regs + row.acc, 0);
+  const hasAny = total > 0;
+
+  return (
+    <Card className="overflow-hidden">
+      <div className="h-1 w-full bg-gradient-to-r from-emerald-400 to-sky-500" />
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">
+          Confirmed revenue · last 7 days
+        </CardTitle>
+        <CardDescription className="text-xs">
+          {currencyFilter === "ALL"
+            ? "Cedis and dollars stay in separate bar pairs — never summed."
+            : `${currencyFilterLabel(currencyFilter)} · registrations and accommodation bars per day.`}
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {!hasAny ? (
+          <EmptyTrend message={"No confirmed revenue in the last 7 days."} />
+        ) : (
+          <div className="h-[240px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={rows}
+                margin={{ top: 8, right: 8, left: -8, bottom: 0 }}
+              >
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                  vertical={false}
+                  stroke={ADMIN_CHART.grid}
+                />
+                <XAxis
+                  dataKey="label"
+                  tickLine={false}
+                  axisLine={false}
+                  tick={{ fill: ADMIN_CHART.stone, fontSize: 11 }}
+                  interval={0}
+                  height={38}
+                  angle={surfaceSeriesMode ? -35 : 0}
+                  textAnchor={surfaceSeriesMode ? "end" : "middle"}
+                />
+                <YAxis
+                  tickLine={false}
+                  axisLine={false}
+                  tick={{ fill: ADMIN_CHART.stone, fontSize: 11 }}
+                  width={56}
+                  tickFormatter={(v: number) =>
+                    v >= 1000 ? `${(v / 1000).toFixed(v % 1000 === 0 ? 0 : 1)}k` : String(v)
+                  }
+                />
+                <RechartsTooltip
+                  content={(
+                    props: unknown,
+                  ) => {
+                    const {
+                      active,
+                      payload,
+                      label,
+                    } = props as {
+                      active?: boolean;
+                      payload?: readonly {
+                        name?: unknown;
+                        value?: number;
+                        color?: string;
+                        dataKey?: string | number;
+                      }[];
+                      label?: unknown;
+                    };
+                    if (!active || !payload?.length) return null;
+                    const currency =
+                      currencyFilter === "ALL"
+                        ? String(label).split(" · ")[1] ?? ""
+                        : currencyFilter;
+                    return (
+                      <div className="rounded-lg border border-border bg-white px-3 py-2 text-xs shadow-elevate">
+                        <p className="mb-1 font-medium text-ink">{String(label)}</p>
+                        {payload.map((entry) => (
+                          <p
+                            key={entry.dataKey}
+                            className="text-muted-foreground"
+                          >
+                            <span style={{ color: entry.color }}>
+                              {String(entry.name)}
+                            </span>{" "}
+                            <span className="font-medium tabular-nums text-ink">
+                              {currency} {entry.value?.toLocaleString()}
+                            </span>
+                          </p>
+                        ))}
+                      </div>
+                    );
+                  }}
+                />
+                <RechartsLegend
+                  verticalAlign="bottom"
+                  height={28}
+                  formatter={(value) => (
+                    <span className="text-xs font-medium text-ink/80">{value}</span>
+                  )}
+                />
+                <Bar
+                  dataKey="regs"
+                  name="Registrations"
+                  fill={ADMIN_CHART.emerald}
+                  radius={[4, 4, 0, 0]}
+                  maxBarSize={28}
+                />
+                <Bar
+                  dataKey="acc"
+                  name="Accommodation"
+                  fill={ADMIN_CHART.sky}
+                  radius={[4, 4, 0, 0]}
+                  maxBarSize={28}
+                />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function EmptyTrend({ message }: { message: string }) {
+  return (
+    <div className="flex h-[220px] items-center justify-center text-sm text-muted-foreground">
+      {message}
+    </div>
+  );
+}
+
+/**
+ * Awaiting-review ageing — how long money has sat unverified. Every bucket
+ * keeps its money per currency; the 7+ day bucket is the escalator.
+ */
+function AgeingTiles({
+  ageing,
+}: {
+  ageing: {
+    registrations: AgeBucket[];
+    bookings: AgeBucket[];
+  };
+}) {
+  const sections = [
+    { title: "Registrations ageing", buckets: ageing.registrations },
+    { title: "Accommodation ageing", buckets: ageing.bookings },
+  ];
+  return (
+    <Card className="overflow-hidden">
+      <div className="h-1 w-full bg-gradient-to-r from-rose-400 via-amber-400 to-sky-400" />
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Awaiting review ageing</CardTitle>
+        <CardDescription className="text-xs">
+          How long unverified money has been sitting — the 7+ day bucket needs
+          chasing today.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-4 sm:grid-cols-2">
+        {sections.map((section) => (
+          <div key={section.title} className="space-y-2">
+            <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+              {section.title}
+            </p>
+            {section.buckets.map((bucket) => {
+              const stale = bucket.label.startsWith("7+");
+              return (
+                <div
+                  key={bucket.label}
+                  className={cn(
+                    "flex items-center justify-between gap-3 rounded-lg border px-3 py-2",
+                    stale && bucket.count > 0
+                      ? "border-rose-200 bg-rose-50/70"
+                      : "border-border/70 bg-muted/30",
+                  )}
+                >
+                  <div>
+                    <p className="text-sm font-medium">{bucket.label}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {bucket.count} item{bucket.count === 1 ? "" : "s"}
+                    </p>
+                  </div>
+                  <span
+                    className={cn(
+                      "text-right text-sm font-semibold tabular-nums",
+                      stale && bucket.count > 0 ? "text-rose-700" : "text-ink",
+                    )}
+                  >
+                    {bucket.count === 0
+                      ? "—"
+                      : formatMoneyByCurrency(bucket.moneyByCurrency)}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * Per-hub money table — one row per hub across both surfaces, per currency.
+ * USD splits into dedicated columns so cedis and dollar columns are never
+ * forced to share a number; every column stays mono-currency. Exports as
+ * one CSV row per hub and currency.
+ */
+function HubMoneyTable({
+  hubBreakdown,
+  currencyFilter,
+}: {
+  hubBreakdown: {
+    hubId: string;
+    hubName: string;
+    registrationsCount: number;
+    registrationsRevenueByCurrency: Record<string, number>;
+    registrationsAwaitingByCurrency: Record<string, number>;
+    bookingsCount: number;
+    bookingsRevenueByCurrency: Record<string, number>;
+    bookingsAwaitingByCurrency: Record<string, number>;
+  }[];
+  currencyFilter: CurrencyFilter;
+}) {
+  type HubRow = (typeof hubBreakdown)[number];
+
+  const columns = useMemo<ColumnDef<HubRow>[]>(
+    () => [
+      { accessorKey: "hubName", header: "Hub" },
+      { id: "regs", header: "Regs (n)", accessorFn: (h) => h.registrationsCount },
+      { id: "regGhs", header: "Regs GHS total", accessorFn: (h) => h.registrationsRevenueByCurrency.GHS ?? 0 },
+      { id: "regGhsA", header: "Regs GHS awaiting", accessorFn: (h) => h.registrationsAwaitingByCurrency.GHS ?? 0 },
+      { id: "regUsd", header: "Regs USD total", accessorFn: (h) => h.registrationsRevenueByCurrency.USD ?? 0 },
+      { id: "regUsdA", header: "Regs USD awaiting", accessorFn: (h) => h.registrationsAwaitingByCurrency.USD ?? 0 },
+      { id: "accN", header: "Accom (n)", accessorFn: (h) => h.bookingsCount },
+      { id: "accGhs", header: "Accom GHS total", accessorFn: (h) => h.bookingsRevenueByCurrency.GHS ?? 0 },
+      { id: "accGhsA", header: "Accom GHS awaiting", accessorFn: (h) => h.bookingsAwaitingByCurrency.GHS ?? 0 },
+      { id: "accUsd", header: "Accom USD total", accessorFn: (h) => h.bookingsRevenueByCurrency.USD ?? 0 },
+      { id: "accUsdA", header: "Accom USD awaiting", accessorFn: (h) => h.bookingsAwaitingByCurrency.USD ?? 0 },
+    ],
+    [],
+  );
+
+  const hasData = hubBreakdown.length > 0;
+  const selectedCurrencyLabel =
+    currencyFilter === "ALL"
+      ? "all columns (GHS and USD)"
+      : currencyFilterLabel(currencyFilter);
+
+  return (
+    <Card className="overflow-hidden">
+      <div className="h-1 w-full bg-gradient-to-r from-forest via-sky-500 to-gold" />
+      <CardHeader className="pb-1">
+        <CardTitle className="text-base">Money by hub</CardTitle>
+        <CardDescription className="text-xs">
+          Per-hub registrations and accommodation money. Every column stays in
+          one currency — showing {selectedCurrencyLabel}. Use the column picker
+          to focus a currency, and Export CSV for the full sheet.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="p-4 pt-0">
+        {hasData ? (
+          <DataTable
+            columns={columns}
+            data={hubBreakdown}
+            searchPlaceholder="Search hub…"
+            getRowId={(row) => row.hubId}
+            exportFilename="finance-hub-money.csv"
+            exportRow={(row) => ({
+              hub: row.hubName,
+              registrationsCount: row.registrationsCount,
+              registrationsGhsTotal:
+                row.registrationsRevenueByCurrency.GHS ?? 0,
+              registrationsGhsAwaiting:
+                row.registrationsAwaitingByCurrency.GHS ?? 0,
+              registrationsUsdTotal:
+                row.registrationsRevenueByCurrency.USD ?? 0,
+              registrationsUsdAwaiting:
+                row.registrationsAwaitingByCurrency.USD ?? 0,
+              accommodationsCount: row.bookingsCount,
+              accommodationGhsTotal:
+                row.bookingsRevenueByCurrency.GHS ?? 0,
+              accommodationGhsAwaiting:
+                row.bookingsAwaitingByCurrency.GHS ?? 0,
+              accommodationUsdTotal:
+                row.bookingsRevenueByCurrency.USD ?? 0,
+              accommodationUsdAwaiting:
+                row.bookingsAwaitingByCurrency.USD ?? 0,
+            })}
+            emptyMessage="No hub money yet."
+            isLoading={false}
+          />
+        ) : (
+          <p className="rounded-lg border border-dashed border-border px-3 py-8 text-center text-sm text-muted-foreground">
+            No hub money yet.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
  * Finance totals block — stat cards for each money surface (registrations,
  * accommodation) plus one board per currency (GHS, USD), where every number
  * stays inside a single currency so nothing is ever summed across cedis and
@@ -374,6 +845,7 @@ function FinanceSurfaceCard({
 function FinanceStatsCards({
   registrations,
   bookings,
+  currencyFilter,
 }: {
   registrations: {
     total: number;
@@ -392,6 +864,7 @@ function FinanceStatsCards({
     revenueByCurrency: Record<string, number>;
     awaitingByCurrency: Record<string, number>;
   };
+  currencyFilter: CurrencyFilter;
 }) {
   const totalFor = (currency: string) =>
     (registrations.revenueByCurrency[currency] ?? 0) +
@@ -399,7 +872,8 @@ function FinanceStatsCards({
     (bookings.revenueByCurrency[currency] ?? 0) +
     (bookings.awaitingByCurrency[currency] ?? 0);
 
-  // GHS and USD always get a board; unknown currencies join in stable order.
+  // GHS and USD always get a board in the All view; unknown currencies join
+  // in stable order. A focused currency collapses the boards to that ledger.
   const currencies = Array.from(
     new Set([
       "GHS",
@@ -409,7 +883,12 @@ function FinanceStatsCards({
       ...Object.keys(bookings.revenueByCurrency),
       ...Object.keys(bookings.awaitingByCurrency),
     ]),
-  ).sort(byCurrencyDesc);
+  )
+    .sort(byCurrencyDesc)
+    .filter(
+      (currency) =>
+        currencyFilter === "ALL" || currency === currencyFilter,
+    );
 
   return (
     <div className="space-y-4">
@@ -444,6 +923,7 @@ function FinanceStatsCards({
           }
           confirmedByCurrency={registrations.revenueByCurrency}
           awaitingByCurrency={registrations.awaitingByCurrency}
+          currencyFilter={currencyFilter}
         />
         <FinanceSurfaceCard
           href="/admin/finance/accommodations"
@@ -468,6 +948,7 @@ function FinanceStatsCards({
           }
           confirmedByCurrency={bookings.revenueByCurrency}
           awaitingByCurrency={bookings.awaitingByCurrency}
+          currencyFilter={currencyFilter}
         />
       </div>
 
@@ -597,6 +1078,8 @@ export default function AdminOverviewPage() {
   // Server truth once loaded; role check before then avoids flashing
   // non-finance widgets for the finance role.
   const isFinanceView = overview ? overview.financeView : role === "finance";
+  // Finance currency focus — All / GHS / USD lens for every finance widget.
+  const [currencyFilter, setCurrencyFilter] = useState<CurrencyFilter>("ALL");
   const firstName = user?.name?.split(" ")[0];
 
   return (
@@ -644,7 +1127,7 @@ export default function AdminOverviewPage() {
       ) : (
         <>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            {canRegistration && (
+            {canRegistration && !isFinanceView && (
               <Link href="/admin/registrations" className="group">
                 <Card
                   className={cn(
@@ -925,14 +1408,36 @@ export default function AdminOverviewPage() {
             <CurrencyMoneyTiles
               registrations={overview.registrations}
               bookings={overview.bookings}
+              currencyFilter={currencyFilter}
             />
           )}
 
           {isFinanceView && (
-            <FinanceStatsCards
-              registrations={overview.registrations}
-              bookings={overview.bookings}
-            />
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 className="text-sm font-semibold tracking-wide text-muted-foreground uppercase">
+                  Money overview
+                </h2>
+                <CurrencyFocusToggle
+                  value={currencyFilter}
+                  onChange={setCurrencyFilter}
+                />
+              </div>
+              <FinanceStatsCards
+                registrations={overview.registrations}
+                bookings={overview.bookings}
+                currencyFilter={currencyFilter}
+              />
+              <RevenueTrendCard
+                revenueTrend={overview.revenueTrend}
+                currencyFilter={currencyFilter}
+              />
+              <AgeingTiles ageing={overview.ageing} />
+              <HubMoneyTable
+                hubBreakdown={overview.hubBreakdown}
+                currencyFilter={currencyFilter}
+              />
+            </div>
           )}
 
           {!isFinanceView && (

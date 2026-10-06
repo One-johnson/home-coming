@@ -421,6 +421,104 @@ test("registration role sees registration money but no accommodation totals", as
   expect(overview.bookings.revenueByCurrency).toEqual({});
 });
 
+test("overview delivers per-day revenue trend, hub money and ageing buckets", async () => {
+  const t = createTestConvex();
+  const token = await seedSessionToken(t, "finance", "finance-trend@example.com");
+
+  const accra = await seedHubWithRep(t, {
+    name: "Accra Central",
+    region: "ghana",
+    country: "Ghana",
+  });
+  const london = await seedHubWithRep(t, {
+    name: "London Central",
+    region: "england",
+    country: "United Kingdom",
+  });
+
+  // Confirmed today: GHS 3,000 registration + USD 900 booking revenue.
+  await seedRegistration(t, {
+    hubId: accra.hubId,
+    repId: accra.repId,
+    region: "ghana",
+    quantity: 2,
+    unitPrice: 1_500,
+    currency: "GHS",
+    paymentStatus: "confirmed",
+  });
+  await seedBooking(t, {
+    hubId: london.hubId,
+    repId: london.repId,
+    region: "england",
+    currency: "USD",
+    totalAmount: 900,
+    paymentStatus: "confirmed",
+    bookingStatus: "confirmed",
+  });
+  // Pending for ageing: a 10-day-old registration (7+ bucket) and a fresh
+  // booking (0–2 day bucket).
+  const staleRegId = await seedRegistration(t, {
+    hubId: accra.hubId,
+    repId: accra.repId,
+    region: "ghana",
+    quantity: 1,
+    unitPrice: 700,
+    currency: "GHS",
+    paymentStatus: "pending_verification",
+  });
+  await t.run(async (ctx) => {
+    await ctx.db.patch(staleRegId, { createdAt: Date.now() - 10 * 86_400_000 });
+  });
+  await seedBooking(t, {
+    hubId: london.hubId,
+    repId: london.repId,
+    region: "england",
+    currency: "USD",
+    totalAmount: 300,
+    paymentStatus: "pending_verification",
+    bookingStatus: "pending_verification",
+  });
+
+  const overview = await t.query(api.agcAdminData.getAgcOverview, {
+    sessionToken: token,
+  });
+
+  // Per-day per-currency revenue trend — surface maps stay separated.
+  expect(overview.revenueTrend).toHaveLength(7);
+  const today = overview.revenueTrend[6];
+  expect(today.regs).toEqual({ GHS: 3_000 });
+  expect(today.acc).toEqual({ USD: 900 });
+  expect(overview.revenueTrend[0].regs).toEqual({});
+
+  // Per-hub money — one bucket per hub with each surface's ledgers.
+  const accraBucket = overview.hubBreakdown.find(
+    (hub) => hub.hubName === "Accra Central",
+  );
+  const londonBucket = overview.hubBreakdown.find(
+    (hub) => hub.hubName === "London Central",
+  );
+  expect(accraBucket).toBeDefined();
+  expect(accraBucket!.registrationsRevenueByCurrency).toEqual({ GHS: 3_000 });
+  expect(accraBucket!.registrationsAwaitingByCurrency).toEqual({ GHS: 700 });
+  expect(accraBucket!.bookingsRevenueByCurrency).toEqual({});
+  expect(londonBucket!.bookingsRevenueByCurrency).toEqual({ USD: 900 });
+  expect(londonBucket!.bookingsAwaitingByCurrency).toEqual({ USD: 300 });
+
+  // Ageing buckets — the stale registration lands in the 7+ day bucket.
+  const regBuckets = overview.ageing.registrations;
+  expect(regBuckets.map((b) => b.label)).toEqual([
+    "0–2 days",
+    "3–7 days",
+    "7+ days",
+  ]);
+  expect(regBuckets[2].count).toBe(1);
+  expect(regBuckets[2].moneyByCurrency).toEqual({ GHS: 700 });
+  expect(regBuckets[0].count).toBe(0);
+  const bookingBuckets = overview.ageing.bookings;
+  expect(bookingBuckets[0].count).toBe(1);
+  expect(bookingBuckets[0].moneyByCurrency).toEqual({ USD: 300 });
+});
+
 test("finance role is read-only: review and delete mutations reject it", async () => {
   const t = createTestConvex();
   const financeToken = await seedSessionToken(

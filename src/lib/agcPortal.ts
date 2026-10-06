@@ -134,6 +134,25 @@ export function byCurrencyDesc(a: string, b: string): number {
   return a.localeCompare(b);
 }
 
+export type CurrencyFilter = "ALL" | "GHS" | "USD";
+
+/** Currency focus toggles show a friendly "All" and fall back to the code. */
+export function currencyFilterLabel(currency: CurrencyFilter): string {
+  return currency === "ALL"
+    ? "All currencies"
+    : currency === "GHS"
+      ? "Cedis (GHS)"
+      : "Dollars (USD)";
+}
+
+/** True when a row's currency matches the current finance currency filter. */
+export function matchesCurrencyFilter(
+  currency: string,
+  filter: CurrencyFilter,
+): boolean {
+  return filter === "ALL" || currency === filter;
+}
+
 /** "GHS 12,500 · USD 3,400" (or "—" when there is nothing to show). */
 export function formatMoneyByCurrency(
   byCurrency: Record<string, number>,

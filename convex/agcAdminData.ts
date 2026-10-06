@@ -1976,13 +1976,14 @@ export const getAgcOverview = query({
       (row) => row.paymentStatus === "confirmed",
     );
     // Money in review: receipts awaiting finance verification, plus booking
-    // holds that are still occupying inventory before confirmation.
-    const pendingBookings = bookings.filter(
-      (row) =>
-        row.paymentStatus === "pending_verification" ||
-        row.bookingStatus === "reserved" ||
-        row.bookingStatus === "pending_verification",
-    );
+    // holds that are still occupying inventory before confirmation. The
+    // predicate is shared because the per-hub and ageing breakdowns must
+    // agree on which bookings count as money awaiting review.
+    const isPendingBooking = (row: (typeof bookings)[number]) =>
+      row.paymentStatus === "pending_verification" ||
+      row.bookingStatus === "reserved" ||
+      row.bookingStatus === "pending_verification";
+    const pendingBookings = bookings.filter(isPendingBooking);
     const bookingRevenueByCurrency: Record<string, number> = {};
     for (const row of confirmedBookings) {
       bookingRevenueByCurrency[row.currency] =
@@ -2041,6 +2042,123 @@ export const getAgcOverview = query({
         count,
       };
     });
+
+    // Per-day confirmed revenue for the last 7 days, per currency — each day
+    // keeps registrations and accommodation money in separate maps so no
+    // chart series ever sums cedis and dollars together.
+    const revenueTrend = Array.from({ length: 7 }, (_, i) => {
+      const start = now - (6 - i) * dayMs;
+      const dayStart = new Date(start);
+      dayStart.setHours(0, 0, 0, 0);
+      const dayEnd = dayStart.getTime() + dayMs;
+      const regs: Record<string, number> = {};
+      for (const row of confirmedRegistrations) {
+        if (row.createdAt >= dayStart.getTime() && row.createdAt < dayEnd) {
+          regs[row.currency] = (regs[row.currency] ?? 0) + row.totalAmount;
+        }
+      }
+      const accommodation: Record<string, number> = {};
+      for (const row of confirmedBookings) {
+        if (row.createdAt >= dayStart.getTime() && row.createdAt < dayEnd) {
+          accommodation[row.currency] =
+            (accommodation[row.currency] ?? 0) + row.totalAmount;
+        }
+      }
+      return {
+        label: dayStart.toLocaleDateString(undefined, { weekday: "short" }),
+        date: dayStart.toISOString().slice(0, 10),
+        regs,
+        acc: accommodation,
+      };
+    });
+
+    // Awaiting-review ageing — how long money has sat unverified. Buckets are
+    // fixed so the finance overview can show workload age at a glance; every
+    // bucket keeps its money per currency (never mixed).
+    const ageBuckets = [
+      { label: "0–2 days", minDays: 0, maxDays: 2 },
+      { label: "3–7 days", minDays: 3, maxDays: 7 },
+      { label: "7+ days", minDays: 7.5, maxDays: Infinity },
+    ] as const;
+    const bucketize = (
+      rows: readonly { createdAt: number; currency: string; totalAmount: number }[],
+    ) =>
+      ageBuckets.map(({ label, minDays, maxDays }) => {
+        const inBucket = rows.filter((row) => {
+          const ageDays = Math.floor((now - row.createdAt) / dayMs);
+          return ageDays >= minDays && ageDays <= maxDays;
+        });
+        const moneyByCurrency: Record<string, number> = {};
+        for (const row of inBucket) {
+          moneyByCurrency[row.currency] =
+            (moneyByCurrency[row.currency] ?? 0) + row.totalAmount;
+        }
+        return { label, count: inBucket.length, moneyByCurrency };
+      });
+    const ageing = {
+      registrations: bucketize(pendingRegistrations),
+      bookings: bucketize(pendingBookings),
+    };
+
+    // Per-hub money — which hub carries the most confirmed revenue and which
+    // holds the most unverified money, per currency, across both surfaces.
+    type HubMoney = {
+      hubId: string;
+      hubName: string;
+      registrationsCount: number;
+      registrationsRevenueByCurrency: Record<string, number>;
+      registrationsAwaitingByCurrency: Record<string, number>;
+      bookingsCount: number;
+      bookingsRevenueByCurrency: Record<string, number>;
+      bookingsAwaitingByCurrency: Record<string, number>;
+    };
+    const hubMoney = new Map<string, HubMoney>();
+    const hubBucket = (hubKey: string): HubMoney => {
+      let bucket = hubMoney.get(hubKey);
+      if (!bucket) {
+        bucket = {
+          hubId: hubKey,
+          hubName: hubName.get(hubKey) ?? "Unknown hub",
+          registrationsCount: 0,
+          registrationsRevenueByCurrency: {},
+          registrationsAwaitingByCurrency: {},
+          bookingsCount: 0,
+          bookingsRevenueByCurrency: {},
+          bookingsAwaitingByCurrency: {},
+        };
+        hubMoney.set(hubKey, bucket);
+      }
+      return bucket;
+    };
+    for (const row of bookings) {
+      const bucket = hubBucket(String(row.hubId));
+      bucket.bookingsCount += 1;
+      if (row.paymentStatus === "confirmed") {
+        bucket.bookingsRevenueByCurrency[row.currency] =
+          (bucket.bookingsRevenueByCurrency[row.currency] ?? 0) +
+          row.totalAmount;
+      } else if (isPendingBooking(row)) {
+        bucket.bookingsAwaitingByCurrency[row.currency] =
+          (bucket.bookingsAwaitingByCurrency[row.currency] ?? 0) +
+          row.totalAmount;
+      }
+    }
+    for (const row of registrations) {
+      const bucket = hubBucket(String(row.hubId));
+      bucket.registrationsCount += 1;
+      if (row.paymentStatus === "confirmed") {
+        bucket.registrationsRevenueByCurrency[row.currency] =
+          (bucket.registrationsRevenueByCurrency[row.currency] ?? 0) +
+          row.totalAmount;
+      } else if (row.paymentStatus === "pending_verification") {
+        bucket.registrationsAwaitingByCurrency[row.currency] =
+          (bucket.registrationsAwaitingByCurrency[row.currency] ?? 0) +
+          row.totalAmount;
+      }
+    }
+    const hubBreakdown = [...hubMoney.values()].sort((a, b) =>
+      a.hubName.localeCompare(b.hubName),
+    );
 
     // Each currency renders with its own code — GHS first, then USD, then
     // anything unexpected in stable order. Currencies are never summed.
@@ -2178,6 +2296,9 @@ export const getAgcOverview = query({
         awaitingLabel: formatMoney(bookingAwaitingByCurrency),
         thisWeek: bookingsThisWeek,
       },
+      revenueTrend,
+      hubBreakdown,
+      ageing,
       housing: isFinanceView ? [] : housing,
       content: {
         faqs: canContent
