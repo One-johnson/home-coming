@@ -14,6 +14,7 @@ import {
   YAxis,
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { formatMoneyByCurrency } from "@/lib/agcPortal";
 import {
   ADMIN_CHART,
   ADMIN_PIE_PALETTE,
@@ -25,7 +26,10 @@ type OverviewChartsProps = {
     paid: number;
     pending: number;
     failed: number;
-    revenue: number;
+    /** Confirmed revenue per currency, e.g. { GHS: 12500, USD: 3400 }. */
+    revenueByCurrency?: Record<string, number>;
+    /** Money awaiting finance review, per currency. */
+    awaitingByCurrency?: Record<string, number>;
     regionBreakdown: Record<string, number>;
     gatewayBreakdown: Record<string, number>;
     last7Days: { label: string; count: number }[];
@@ -34,7 +38,10 @@ type OverviewChartsProps = {
     total: number;
     paid: number;
     pending: number;
-    revenue: number;
+    /** Confirmed revenue per currency — never summed across currencies. */
+    revenueByCurrency?: Record<string, number>;
+    /** Money awaiting finance review, per currency. */
+    awaitingByCurrency?: Record<string, number>;
   };
   housing: {
     type: string;
@@ -51,6 +58,8 @@ type OverviewChartsProps = {
   showRegistrations: boolean;
   showAccommodation: boolean;
   showEmails: boolean;
+  /** Hide the occupancy chart (finance view sees the money, not the beds). */
+  showHousing?: boolean;
 };
 
 function ChartTooltip({
@@ -119,6 +128,7 @@ export function OverviewCharts({
   showRegistrations,
   showAccommodation,
   showEmails,
+  showHousing = true,
 }: OverviewChartsProps) {
   const statusData = [
     { name: "Confirmed", value: registrations.paid },
@@ -266,12 +276,26 @@ export function OverviewCharts({
                 </ResponsiveContainer>
               </div>
             )}
-            <p className="mt-1 text-center text-sm text-muted-foreground">
-              Revenue (paid):{" "}
-              <span className="font-semibold tabular-nums text-emerald-700">
-                {registrations.revenue.toLocaleString()}
-              </span>
-            </p>
+            <div className="mt-1 space-y-0.5 text-center text-sm text-muted-foreground">
+              <p>
+                Revenue (confirmed):{" "}
+                <span className="font-semibold tabular-nums text-emerald-700">
+                  {registrations.revenueByCurrency
+                    ? formatMoneyByCurrency(registrations.revenueByCurrency)
+                    : "—"}
+                </span>
+              </p>
+              {registrations.awaitingByCurrency &&
+                formatMoneyByCurrency(registrations.awaitingByCurrency) !==
+                  "—" && (
+                  <p>
+                    Awaiting review:{" "}
+                    <span className="font-medium tabular-nums text-amber-700">
+                      {formatMoneyByCurrency(registrations.awaitingByCurrency)}
+                    </span>
+                  </p>
+                )}
+            </div>
           </ChartCard>
 
           <ChartCard title="By region" accent={ADMIN_CHART.forest}>
@@ -369,9 +393,9 @@ export function OverviewCharts({
         </div>
       )}
 
-      {(showAccommodation || showEmails) && (
+      {((showAccommodation && showHousing) || showEmails) && (
         <div className="grid gap-4 lg:grid-cols-2">
-          {showAccommodation && (
+          {showAccommodation && showHousing && (
             <ChartCard title="Housing occupancy" accent={ADMIN_CHART.amber}>
               {housingData.length === 0 ? (
                 <EmptyChart message="No housing inventory yet" />
@@ -426,17 +450,38 @@ export function OverviewCharts({
                 </div>
               )}
               {bookings.total > 0 && (
-                <p className="mt-1 text-center text-sm text-muted-foreground">
-                  Bookings:{" "}
-                  <span className="font-medium text-emerald-700">
-                    {bookings.paid} paid
-                  </span>{" "}
-                  ·{" "}
-                  <span className="font-medium text-amber-700">
-                    {bookings.pending} pending
-                  </span>{" "}
-                  · ${bookings.revenue.toLocaleString()} revenue
-                </p>
+                <div className="mt-1 space-y-0.5 text-center text-sm text-muted-foreground">
+                  <p>
+                    Bookings:{" "}
+                    <span className="font-medium text-emerald-700">
+                      {bookings.paid} paid
+                    </span>{" "}
+                    ·{" "}
+                    <span className="font-medium text-amber-700">
+                      {bookings.pending} pending
+                    </span>
+                  </p>
+                  {bookings.revenueByCurrency &&
+                    formatMoneyByCurrency(bookings.revenueByCurrency) !==
+                      "—" && (
+                      <p>
+                        Confirmed revenue:{" "}
+                        <span className="font-medium tabular-nums text-emerald-700">
+                          {formatMoneyByCurrency(bookings.revenueByCurrency)}
+                        </span>
+                      </p>
+                    )}
+                  {bookings.awaitingByCurrency &&
+                    formatMoneyByCurrency(bookings.awaitingByCurrency) !==
+                      "—" && (
+                      <p>
+                        Awaiting review:{" "}
+                        <span className="font-medium tabular-nums text-amber-700">
+                          {formatMoneyByCurrency(bookings.awaitingByCurrency)}
+                        </span>
+                      </p>
+                    )}
+                </div>
               )}
             </ChartCard>
           )}

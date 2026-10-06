@@ -121,3 +121,27 @@ export function bookingStatusMeta(status: string): {
       };
   }
 }
+
+/**
+ * Money is held per currency — cedis and dollars are never summed, so every
+ * finance surface renders one line per currency code (GHS first, then USD,
+ * then anything unexpected in stable order).
+ */
+export function byCurrencyDesc(a: string, b: string): number {
+  if (a === b) return 0;
+  if (a === "GHS") return -1;
+  if (b === "GHS") return 1;
+  return a.localeCompare(b);
+}
+
+/** "GHS 12,500 · USD 3,400" (or "—" when there is nothing to show). */
+export function formatMoneyByCurrency(
+  byCurrency: Record<string, number>,
+): string {
+  return (
+    Object.keys(byCurrency)
+      .sort(byCurrencyDesc)
+      .map((currency) => `${currency} ${byCurrency[currency].toLocaleString()}`)
+      .join(" · ") || "—"
+  );
+}

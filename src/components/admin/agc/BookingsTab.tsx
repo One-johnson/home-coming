@@ -83,7 +83,10 @@ function formatDateTime(ts: number) {
 }
 
 export function BookingsTab() {
-  const { sessionToken } = useAdminSession();
+  const { user, sessionToken } = useAdminSession();
+  // Finance sees bookings read-only (financial data only) — approvals and
+  // deletions stay with admin/accommodation (enforced server-side too).
+  const canManage = user?.role === "admin" || user?.role === "accommodation";
   const bookings = useQuery(
     api.agcAdminData.listAgcBookingsAdmin,
     sessionToken ? { sessionToken } : "skip",
@@ -267,22 +270,26 @@ export function BookingsTab() {
           </span>
         ),
       },
-      createActionsColumn<AdminBookingRow>((row) => (
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-          disabled={busyId === row._id}
-          aria-label={`Delete booking ${row.referenceNumber || row.hubName}`}
-          onClick={() => void handleDeleteOne(row)}
-        >
-          <Trash2 className="size-4" />
-        </Button>
-      )),
+      ...(canManage
+        ? [
+            createActionsColumn<AdminBookingRow>((row) => (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                disabled={busyId === row._id}
+                aria-label={`Delete booking ${row.referenceNumber || row.hubName}`}
+                onClick={() => void handleDeleteOne(row)}
+              >
+                <Trash2 className="size-4" />
+              </Button>
+            )),
+          ]
+        : []),
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps -- handlers close over stable session/mutations
-    [busyId, sessionToken],
+    [busyId, sessionToken, canManage],
   );
 
   /** Everything a booking detail dialog shows for one row. */
@@ -391,6 +398,12 @@ export function BookingsTab() {
       </div>
 
       <Card className={cn("p-4")}>
+        {!canManage && (
+          <p className="mb-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
+            Finance view — read-only. Approvals and deletions are handled by the
+            accommodation team.
+          </p>
+        )}
         <DataTable
           columns={columns}
           data={list}
@@ -449,17 +462,23 @@ export function BookingsTab() {
               })),
             },
           ]}
-          bulkActions={({ selectedRows, clearSelection }) => (
-            <Button
-              type="button"
-              variant="destructive"
-              size="sm"
-              onClick={() => void handleBulkDelete(selectedRows, clearSelection)}
-            >
-              <Trash2 className="size-4" />
-              Delete selected
-            </Button>
-          )}
+          bulkActions={
+            canManage
+              ? ({ selectedRows, clearSelection }) => (
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    onClick={() =>
+                      void handleBulkDelete(selectedRows, clearSelection)
+                    }
+                  >
+                    <Trash2 className="size-4" />
+                    Delete selected
+                  </Button>
+                )
+              : undefined
+          }
         />
       </Card>
 
@@ -493,7 +512,7 @@ export function BookingsTab() {
           ) : null
         }
         footer={
-          detailRow?.paymentStatus === "pending_verification" ? (
+          canManage && detailRow?.paymentStatus === "pending_verification" ? (
             <ReviewActions
               disabled={busyId === detailRow._id}
               onDecision={(decision, message) =>

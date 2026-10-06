@@ -36,16 +36,27 @@ import {
 import { canAccessArea } from "@/lib/adminRoles";
 import { EVENT } from "@/lib/eventConfig";
 import { cleanErrorMessage } from "@/lib/friendlyError";
+import {
+  byCurrencyDesc,
+  formatMoneyByCurrency,
+} from "@/lib/agcPortal";
 import { cn } from "@/lib/utils";
 
 type AgcOverview = {
+  /** True when signed in as finance — the client then hides non-finance widgets. */
+  financeView: boolean;
   registrations: {
     total: number;
     delegates: number;
     confirmed: number;
     pending: number;
     rejected: number;
+    /** Confirmed revenue per currency — cedis and dollars are never summed. */
+    revenueByCurrency: Record<string, number>;
+    /** Money awaiting finance review, per currency. */
+    awaitingByCurrency: Record<string, number>;
     revenueLabel: string;
+    awaitingLabel: string;
     thisWeek: number;
     lastWeek: number;
     regionBreakdown: Record<string, number>;
@@ -57,7 +68,12 @@ type AgcOverview = {
     activeGuests: number;
     confirmed: number;
     pending: number;
+    /** Confirmed revenue per currency — cedis and dollars are never summed. */
+    revenueByCurrency: Record<string, number>;
+    /** Money awaiting finance review, per currency. */
+    awaitingByCurrency: Record<string, number>;
     revenueLabel: string;
+    awaitingLabel: string;
     thisWeek: number;
   };
   housing: {
@@ -147,6 +163,186 @@ function AttentionIcon({ tone }: { tone: "warn" | "danger" | "info" }) {
   );
 }
 
+/**
+ * One tile per currency when both cedis and dollars are in play, so a finance
+ * admin can read each ledger side without cross-currency arithmetic. Each row
+ * stays within one currency.
+ */
+function CurrencyMoneyTiles({
+  registrations,
+  bookings,
+}: {
+  registrations: {
+    revenueByCurrency: Record<string, number>;
+    awaitingByCurrency: Record<string, number>;
+  };
+  bookings: {
+    revenueByCurrency: Record<string, number>;
+    awaitingByCurrency: Record<string, number>;
+  };
+}) {
+  const currencies = Array.from(
+    new Set([
+      ...Object.keys(registrations.revenueByCurrency),
+      ...Object.keys(registrations.awaitingByCurrency),
+      ...Object.keys(bookings.revenueByCurrency),
+      ...Object.keys(bookings.awaitingByCurrency),
+    ]),
+  ).sort(byCurrencyDesc);
+
+  if (currencies.length < 2) return null;
+
+  return (
+    <div className="grid gap-4 sm:grid-cols-2">
+      {currencies.map((currency) => {
+        const rows = [
+          {
+            label: "Registrations · confirmed",
+            value: registrations.revenueByCurrency[currency] ?? 0,
+          },
+          {
+            label: "Registrations · awaiting review",
+            value: registrations.awaitingByCurrency[currency] ?? 0,
+          },
+          {
+            label: "Accommodation · confirmed",
+            value: bookings.revenueByCurrency[currency] ?? 0,
+          },
+          {
+            label: "Accommodation · awaiting review",
+            value: bookings.awaitingByCurrency[currency] ?? 0,
+          },
+        ];
+        const total = rows.reduce((sum, row) => sum + row.value, 0);
+        return (
+          <Card key={currency} className="overflow-hidden">
+            <div
+              className={cn(
+                "h-1 w-full",
+                currency === "GHS"
+                  ? "bg-gradient-to-r from-gold to-amber-400"
+                  : "bg-gradient-to-r from-sky-500 to-emerald-400",
+              )}
+            />
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">
+                {currency === "GHS"
+                  ? "Cedis (GHS)"
+                  : currency === "USD"
+                    ? "Dollars (USD)"
+                    : currency}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-1.5 text-sm">
+              {rows.map((row) => (
+                <p
+                  key={row.label}
+                  className="flex items-center justify-between gap-3"
+                >
+                  <span className="text-muted-foreground">{row.label}</span>
+                  <span className="font-medium tabular-nums text-ink">
+                    {formatMoneyByCurrency({ [currency]: row.value })}
+                  </span>
+                </p>
+              ))}
+              <p className="flex items-center justify-between gap-3 border-t border-border/70 pt-2">
+                <span className="font-medium">Total · confirmed + awaiting</span>
+                <span className="font-semibold tabular-nums text-ink">
+                  {formatMoneyByCurrency({ [currency]: total })}
+                </span>
+              </p>
+            </CardContent>
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Finance headline: the combined total (registrations + accommodation,
+ * confirmed + awaiting) per currency — cedis and dollars always on separate
+ * lines — alongside the total number of bookings.
+ */
+function FinanceTotalsCard({
+  registrations,
+  bookings,
+}: {
+  registrations: {
+    revenueByCurrency: Record<string, number>;
+    awaitingByCurrency: Record<string, number>;
+  };
+  bookings: {
+    total: number;
+    confirmed: number;
+    pending: number;
+    activeGuests: number;
+    revenueByCurrency: Record<string, number>;
+    awaitingByCurrency: Record<string, number>;
+  };
+}) {
+  const totalFor = (currency: string) =>
+    (registrations.revenueByCurrency[currency] ?? 0) +
+    (registrations.awaitingByCurrency[currency] ?? 0) +
+    (bookings.revenueByCurrency[currency] ?? 0) +
+    (bookings.awaitingByCurrency[currency] ?? 0);
+
+  const currencies = Array.from(
+    new Set([
+      "GHS",
+      "USD",
+      ...Object.keys(registrations.revenueByCurrency),
+      ...Object.keys(registrations.awaitingByCurrency),
+      ...Object.keys(bookings.revenueByCurrency),
+      ...Object.keys(bookings.awaitingByCurrency),
+    ]),
+  ).sort(byCurrencyDesc);
+
+  return (
+    <Card className="overflow-hidden">
+      <div className="h-1 w-full bg-gradient-to-r from-gold via-sky-500 to-emerald-400" />
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Finance totals</CardTitle>
+      </CardHeader>
+      <CardContent className="grid gap-3 sm:grid-cols-3">
+        <div className="rounded-lg border border-border/70 bg-muted/30 p-4">
+          <p className="text-xs font-medium text-muted-foreground">
+            Total bookings
+          </p>
+          <p className="text-2xl font-semibold tabular-nums text-ink">
+            {bookings.total}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {bookings.confirmed} confirmed · {bookings.pending} awaiting review ·{" "}
+            {bookings.activeGuests} active guests
+          </p>
+        </div>
+        {currencies.map((currency) => (
+          <div
+            key={currency}
+            className="rounded-lg border border-border/70 bg-muted/30 p-4"
+          >
+            <p className="text-xs font-medium text-muted-foreground">
+              {currency === "GHS"
+                ? "Cedis (GHS)"
+                : currency === "USD"
+                  ? "Dollars (USD)"
+                  : currency}{" "}
+              · total booked
+            </p>
+            <p className="text-2xl font-semibold tabular-nums text-ink">
+              {formatMoneyByCurrency({ [currency]: totalFor(currency) })}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              registrations + accommodation · confirmed + awaiting
+            </p>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
 function formatBytes(bytes: number): string {
   if (bytes <= 0) return "0 MB";
   const mb = bytes / (1024 * 1024);
@@ -196,6 +392,9 @@ export default function AdminOverviewPage() {
   const canContent = canAccessArea(role, "content");
   const canEmails = canAccessArea(role, "emails");
   const canSeed = canAccessArea(role, "seed");
+  // Server truth once loaded; role check before then avoids flashing
+  // non-finance widgets for the finance role.
+  const isFinanceView = overview ? overview.financeView : role === "finance";
   const firstName = user?.name?.split(" ")[0];
 
   return (
@@ -292,6 +491,24 @@ export default function AdminOverviewPage() {
                         />
                       )}
                     </div>
+                    <div className="space-y-0.5 text-xs">
+                      <p className="text-muted-foreground">
+                        Confirmed revenue:{" "}
+                        <span className="font-semibold tabular-nums text-emerald-700">
+                          {formatMoneyByCurrency(
+                            overview.registrations.revenueByCurrency,
+                          )}
+                        </span>
+                      </p>
+                      {overview.registrations.awaitingLabel !== "—" && (
+                        <p className="text-muted-foreground">
+                          Awaiting review:{" "}
+                          <span className="font-medium tabular-nums text-amber-700">
+                            {overview.registrations.awaitingLabel}
+                          </span>
+                        </p>
+                      )}
+                    </div>
                     <WeekDelta
                       thisWeek={overview.registrations.thisWeek}
                       lastWeek={overview.registrations.lastWeek}
@@ -337,10 +554,25 @@ export default function AdminOverviewPage() {
                         tone="warn"
                       />
                     </div>
-                    <p className="text-xs font-medium text-muted-foreground">
-                      {overview.bookings.revenueLabel} confirmed · +
-                      {overview.bookings.thisWeek} this week
-                    </p>
+                    <div className="space-y-0.5 text-xs">
+                      <p className="font-medium text-muted-foreground">
+                        Confirmed:{" "}
+                        <span className="font-semibold tabular-nums text-emerald-700">
+                          {formatMoneyByCurrency(
+                            overview.bookings.revenueByCurrency,
+                          )}
+                        </span>{" "}
+                        · +{overview.bookings.thisWeek} this week
+                      </p>
+                      {overview.bookings.awaitingLabel !== "—" && (
+                        <p className="text-muted-foreground">
+                          Awaiting review:{" "}
+                          <span className="font-medium tabular-nums text-amber-700">
+                            {overview.bookings.awaitingLabel}
+                          </span>
+                        </p>
+                      )}
+                    </div>
                   </CardContent>
                 </Card>
               </Link>
@@ -487,12 +719,27 @@ export default function AdminOverviewPage() {
             )}
           </div>
 
-          <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-            <Card className="overflow-hidden">
-              <div className="h-1 w-full bg-gradient-to-r from-amber-400 via-rose-400 to-sky-400" />
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">Needs attention</CardTitle>
-              </CardHeader>
+          {canRegistration && !isFinanceView && (
+            <CurrencyMoneyTiles
+              registrations={overview.registrations}
+              bookings={overview.bookings}
+            />
+          )}
+
+          {isFinanceView && (
+            <FinanceTotalsCard
+              registrations={overview.registrations}
+              bookings={overview.bookings}
+            />
+          )}
+
+          {!isFinanceView && (
+            <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+              <Card className="overflow-hidden">
+                <div className="h-1 w-full bg-gradient-to-r from-amber-400 via-rose-400 to-sky-400" />
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Needs attention</CardTitle>
+                </CardHeader>
               <CardContent className="space-y-2">
                 {overview.attention.length === 0 ? (
                   <p className="rounded-lg border border-dashed border-emerald-200 bg-emerald-50/50 px-3 py-6 text-center text-sm text-emerald-800">
@@ -576,8 +823,9 @@ export default function AdminOverviewPage() {
                   ))
                 )}
               </CardContent>
-            </Card>
-          </div>
+              </Card>
+            </div>
+          )}
 
           {canRegistration && (
             <OverviewCharts
@@ -585,7 +833,8 @@ export default function AdminOverviewPage() {
                 paid: overview.registrations.confirmed,
                 pending: overview.registrations.pending,
                 failed: overview.registrations.rejected,
-                revenue: 0,
+                revenueByCurrency: overview.registrations.revenueByCurrency,
+                awaitingByCurrency: overview.registrations.awaitingByCurrency,
                 regionBreakdown: overview.registrations.regionBreakdown,
                 gatewayBreakdown: overview.registrations.modeBreakdown,
                 last7Days: overview.registrations.last7Days,
@@ -594,7 +843,8 @@ export default function AdminOverviewPage() {
                 total: overview.bookings.total,
                 paid: overview.bookings.confirmed,
                 pending: overview.bookings.pending,
-                revenue: 0,
+                revenueByCurrency: overview.bookings.revenueByCurrency,
+                awaitingByCurrency: overview.bookings.awaitingByCurrency,
               }}
               housing={overview.housing}
               emails={
@@ -610,10 +860,11 @@ export default function AdminOverviewPage() {
               showRegistrations={canRegistration}
               showAccommodation={canAccommodation}
               showEmails={false}
+              showHousing={!isFinanceView}
             />
           )}
 
-          {canAccommodation && overview.housing.length > 0 && (
+          {canAccommodation && !isFinanceView && overview.housing.length > 0 && (
             <Card className="overflow-hidden">
               <div className="h-1 w-full bg-gradient-to-r from-amber-400 to-emerald-500" />
               <CardHeader className="flex flex-row items-center justify-between">

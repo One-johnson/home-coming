@@ -120,7 +120,10 @@ function formatDateTime(ts: number) {
 
 /** Registrations review table for the Registrations admin page. */
 export default function RegistrationsTab() {
-  const { sessionToken } = useAdminSession();
+  const { user, sessionToken } = useAdminSession();
+  // Finance holds a read-only financial view — approvals and deletions stay
+  // with admin/registration (enforced server-side too).
+  const canManage = user?.role === "admin" || user?.role === "registration";
   const rows = useQuery(
     api.agcAdminData.listAgcRegistrationsAdmin,
     sessionToken ? { sessionToken } : "skip",
@@ -271,22 +274,26 @@ export default function RegistrationsTab() {
           </span>
         ),
       },
-      createActionsColumn<AdminRegistrationRow>((row) => (
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-          disabled={busyId === row._id}
-          aria-label={`Delete registration ${row.referenceNumber || row.hubName}`}
-          onClick={() => void handleDeleteOne(row)}
-        >
-          <Trash2 className="size-4" />
-        </Button>
-      )),
+      ...(canManage
+        ? [
+            createActionsColumn<AdminRegistrationRow>((row) => (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                disabled={busyId === row._id}
+                aria-label={`Delete registration ${row.referenceNumber || row.hubName}`}
+                onClick={() => void handleDeleteOne(row)}
+              >
+                <Trash2 className="size-4" />
+              </Button>
+            )),
+          ]
+        : []),
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps -- handlers close over stable session/mutations
-    [busyId, sessionToken],
+    [busyId, sessionToken, canManage],
   );
 
   /** Everything a registration detail dialog shows for one row. */
@@ -359,6 +366,12 @@ export default function RegistrationsTab() {
 
   return (
     <Card className="p-4">
+      {!canManage && (
+        <p className="mb-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
+          Finance view — read-only. Approvals and deletions are handled by the
+          registration team.
+        </p>
+      )}
       <DataTable
         columns={columns}
         data={rows ?? []}
@@ -417,17 +430,23 @@ export default function RegistrationsTab() {
             })),
           },
         ]}
-        bulkActions={({ selectedRows, clearSelection }) => (
-          <Button
-            type="button"
-            variant="destructive"
-            size="sm"
-            onClick={() => void handleBulkDelete(selectedRows, clearSelection)}
-          >
-            <Trash2 className="size-4" />
-            Delete selected
-          </Button>
-        )}
+        bulkActions={
+          canManage
+            ? ({ selectedRows, clearSelection }) => (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  onClick={() =>
+                    void handleBulkDelete(selectedRows, clearSelection)
+                  }
+                >
+                  <Trash2 className="size-4" />
+                  Delete selected
+                </Button>
+              )
+            : undefined
+        }
       />
 
       <RowDetailDialog
@@ -454,7 +473,7 @@ export default function RegistrationsTab() {
           ) : null
         }
         footer={
-          detailRow?.paymentStatus === "pending_verification" ? (
+          canManage && detailRow?.paymentStatus === "pending_verification" ? (
             <ReviewActions
               disabled={busyId === detailRow._id}
               onDecision={(decision, message) =>

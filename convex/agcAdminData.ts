@@ -1497,6 +1497,8 @@ function reviewEmailBody(args: {
   return lines.join("\n");
 }
 
+// Finance holds a read-only financial view (SRS §58): approvals stay with the
+// super admin. listAgcRegistrationsAdmin remains finance-readable.
 export const reviewAgcRegistration = mutation({
   args: {
     sessionToken: sessionTokenValidator,
@@ -1505,10 +1507,7 @@ export const reviewAgcRegistration = mutation({
     message: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const actor = await requireRole(ctx, args.sessionToken, [
-      "admin",
-      "finance",
-    ]);
+    const actor = await requireRole(ctx, args.sessionToken, ["admin"]);
     const record = await ctx.db.get(args.registrationId);
     if (!record) throw new ConvexError("Registration not found");
 
@@ -1571,7 +1570,6 @@ export const reviewAgcBooking = mutation({
     const actor = await requireRole(ctx, args.sessionToken, [
       "admin",
       "accommodation",
-      "finance",
     ]);
     const booking = await ctx.db.get(args.bookingId);
     if (!booking) throw new ConvexError("Booking not found");
@@ -1693,7 +1691,6 @@ export const deleteAgcRegistration = mutation({
     const actor = await requireRole(ctx, args.sessionToken, [
       "admin",
       "registration",
-      "finance",
     ]);
     const record = await ctx.db.get(args.registrationId);
     if (!record) throw new ConvexError("Registration not found");
@@ -1721,7 +1718,6 @@ export const deleteAgcRegistrationsBulk = mutation({
     const actor = await requireRole(ctx, args.sessionToken, [
       "admin",
       "registration",
-      "finance",
     ]);
     if (args.ids.length === 0) {
       throw new ConvexError("Select at least one registration");
@@ -1759,7 +1755,6 @@ export const deleteAgcBooking = mutation({
     const actor = await requireRole(ctx, args.sessionToken, [
       "admin",
       "accommodation",
-      "finance",
     ]);
     const booking = await ctx.db.get(args.bookingId);
     if (!booking) throw new ConvexError("Booking not found");
@@ -1787,7 +1782,6 @@ export const deleteAgcBookingsBulk = mutation({
     const actor = await requireRole(ctx, args.sessionToken, [
       "admin",
       "accommodation",
-      "finance",
     ]);
     if (args.ids.length === 0) {
       throw new ConvexError("Select at least one booking");
@@ -1907,12 +1901,22 @@ export const getAgcOverview = query({
       "content",
     ]);
 
+    // §58: finance reviews offline payments alongside the super admin, so the
+    // overview must surface the same registration + accommodation payment data
+    // the console review queues already show the finance role.
     const canRegistration =
-      user.role === "admin" || user.role === "registration";
+      user.role === "admin" ||
+      user.role === "registration" ||
+      user.role === "finance";
     const canAccommodation =
-      user.role === "admin" || user.role === "accommodation";
+      user.role === "admin" ||
+      user.role === "accommodation" ||
+      user.role === "finance";
     const canContent = user.role === "admin" || user.role === "content";
     const canEmails = user.role === "admin";
+    // Finance gets a finance-only surface — the client hides non-finance
+    // widgets (content, emails, housing capacity) when this flag is set.
+    const isFinanceView = user.role === "finance";
 
     const registrations = canRegistration
       ? await ctx.db.query("agcRegistrations").collect()
@@ -1971,9 +1975,12 @@ export const getAgcOverview = query({
     const confirmedBookings = bookings.filter(
       (row) => row.paymentStatus === "confirmed",
     );
+    // Money in review: receipts awaiting finance verification, plus booking
+    // holds that are still occupying inventory before confirmation.
     const pendingBookings = bookings.filter(
       (row) =>
         row.paymentStatus === "pending_verification" ||
+        row.bookingStatus === "reserved" ||
         row.bookingStatus === "pending_verification",
     );
     const bookingRevenueByCurrency: Record<string, number> = {};
@@ -2006,6 +2013,21 @@ export const getAgcOverview = query({
       (row) => row.createdAt >= thisWeekStart,
     ).length;
 
+    // Awaiting-review money, kept per currency so no total ever mixes cedis
+    // and dollars. Unpaid (awaiting_payment) rows carry no money yet.
+    const registrationAwaitingByCurrency: Record<string, number> = {};
+    for (const row of pendingRegistrations) {
+      registrationAwaitingByCurrency[row.currency] =
+        (registrationAwaitingByCurrency[row.currency] ?? 0) + row.totalAmount;
+    }
+    const bookingAwaitingByCurrency: Record<string, number> = {};
+    for (const row of pendingBookings) {
+      bookingAwaitingByCurrency[row.currency] =
+        (bookingAwaitingByCurrency[row.currency] ?? 0) + row.totalAmount;
+    }
+    const byCurrencyDesc = (a: string, b: string) =>
+      a === b ? 0 : a === "GHS" ? -1 : b === "GHS" ? 1 : a.localeCompare(b);
+
     const last7Days = Array.from({ length: 7 }, (_, i) => {
       const start = now - (6 - i) * dayMs;
       const dayStart = new Date(start);
@@ -2020,9 +2042,14 @@ export const getAgcOverview = query({
       };
     });
 
+    // Each currency renders with its own code — GHS first, then USD, then
+    // anything unexpected in stable order. Currencies are never summed.
     const formatMoney = (byCurrency: Record<string, number>) =>
-      Object.entries(byCurrency)
-        .map(([currency, amount]) => `${currency} ${amount.toLocaleString()}`)
+      Object.keys(byCurrency)
+        .sort(byCurrencyDesc)
+        .map(
+          (currency) => `${currency} ${byCurrency[currency].toLocaleString()}`,
+        )
         .join(" · ") || "—";
 
     // Capacity from the AGC inventory pools (the source the booking flow uses).
@@ -2061,8 +2088,8 @@ export const getAgcOverview = query({
       attention.push({
         id: "agc-reg-pending",
         label: "Registrations awaiting review",
-        detail: `${pendingRegistrations.length} payment receipt${pendingRegistrations.length === 1 ? "" : "s"} to verify`,
-        href: "/admin/agc",
+        detail: `${pendingRegistrations.length} payment receipt${pendingRegistrations.length === 1 ? "" : "s"} to verify · ${formatMoney(registrationAwaitingByCurrency)}`,
+        href: "/admin/registrations",
         tone: "warn",
       });
     }
@@ -2070,8 +2097,8 @@ export const getAgcOverview = query({
       attention.push({
         id: "agc-booking-pending",
         label: "Bookings awaiting review",
-        detail: `${pendingBookings.length} accommodation payment${pendingBookings.length === 1 ? "" : "s"} to verify`,
-        href: "/admin/agc",
+        detail: `${pendingBookings.length} accommodation payment${pendingBookings.length === 1 ? "" : "s"} to verify · ${formatMoney(bookingAwaitingByCurrency)}`,
+        href: "/admin/accommodation",
         tone: "warn",
       });
     }
@@ -2080,12 +2107,13 @@ export const getAgcOverview = query({
         id: "agc-reg-rejected",
         label: "Rejected registrations",
         detail: `${rejectedRegistrations.length} submission${rejectedRegistrations.length === 1 ? "" : "s"} were rejected`,
-        href: "/admin/agc",
+        href: "/admin/registrations",
         tone: "info",
       });
     }
     if (
       canAccommodation &&
+      !isFinanceView &&
       housing.some((row) => row.capacityLimit > 0 && row.remaining <= 5)
     ) {
       attention.push({
@@ -2095,7 +2123,7 @@ export const getAgcOverview = query({
           .filter((row) => row.capacityLimit > 0 && row.remaining <= 5)
           .map((row) => `${row.type}: ${row.remaining} left`)
           .join(" · "),
-        href: "/admin/agc",
+        href: "/admin/accommodation",
         tone: "info",
       });
     }
@@ -2122,6 +2150,7 @@ export const getAgcOverview = query({
     }
 
     return {
+      financeView: isFinanceView,
       registrations: {
         total: registrations.length,
         delegates: registrations.reduce((sum, row) => sum + row.quantity, 0),
@@ -2129,7 +2158,9 @@ export const getAgcOverview = query({
         pending: pendingRegistrations.length,
         rejected: rejectedRegistrations.length,
         revenueByCurrency: registrationRevenueByCurrency,
+        awaitingByCurrency: registrationAwaitingByCurrency,
         revenueLabel: formatMoney(registrationRevenueByCurrency),
+        awaitingLabel: formatMoney(registrationAwaitingByCurrency),
         thisWeek: registrationsThisWeek,
         lastWeek: registrationsLastWeek,
         regionBreakdown,
@@ -2141,10 +2172,13 @@ export const getAgcOverview = query({
         activeGuests: guests.filter((guest) => guest.status === "active").length,
         confirmed: confirmedBookings.length,
         pending: pendingBookings.length,
+        revenueByCurrency: bookingRevenueByCurrency,
+        awaitingByCurrency: bookingAwaitingByCurrency,
         revenueLabel: formatMoney(bookingRevenueByCurrency),
+        awaitingLabel: formatMoney(bookingAwaitingByCurrency),
         thisWeek: bookingsThisWeek,
       },
-      housing,
+      housing: isFinanceView ? [] : housing,
       content: {
         faqs: canContent
           ? (await ctx.db.query("faqs").collect()).length

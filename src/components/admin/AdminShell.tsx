@@ -291,9 +291,12 @@ function AdminSidebar({
   const pathname = usePathname();
   const groups = ADMIN_NAV_GROUPS.map((group) => ({
     ...group,
-    items: group.items.filter(
-      (item) => !item.area || canAccessArea(role, item.area),
-    ),
+    items: group.items.filter((item) => {
+      if (item.area && !canAccessArea(role, item.area)) return false;
+      if (item.visibleTo && !item.visibleTo.includes(role)) return false;
+      if (item.hiddenFrom?.includes(role)) return false;
+      return true;
+    }),
   })).filter((group) => group.items.length > 0);
 
   return (
