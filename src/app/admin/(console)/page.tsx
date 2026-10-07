@@ -61,10 +61,12 @@ import { canAccessArea } from "@/lib/adminRoles";
 import { EVENT } from "@/lib/eventConfig";
 import { cleanErrorMessage } from "@/lib/friendlyError";
 import {
+  AGEING_BUCKET_LABELS,
   byCurrencyDesc,
   currencyFilterLabel,
   formatMoneyByCurrency,
   matchesCurrencyFilter,
+  type AgeingBucketKey,
   type CurrencyFilter,
 } from "@/lib/agcPortal";
 import { cn } from "@/lib/utils";
@@ -337,7 +339,9 @@ function currencyTitle(currency: string): string {
 /**
  * One finance surface (registrations or accommodation) as a stat card:
  * volume headline and status chips on top, then every money line held per
- * currency — cedis and dollars are never summed into one number.
+ * currency — cedis and dollars are never summed into one number. The
+ * headline opens the surface's console; drill-down links open the review
+ * queues pre-filtered (drill-downs can't nest inside the card link).
  */
 function FinanceSurfaceCard({
   href,
@@ -350,6 +354,7 @@ function FinanceSurfaceCard({
   confirmedByCurrency,
   awaitingByCurrency,
   currencyFilter,
+  links,
 }: {
   href: string;
   accent: { icon: string; border: string; tint: string };
@@ -361,6 +366,8 @@ function FinanceSurfaceCard({
   confirmedByCurrency: Record<string, number>;
   awaitingByCurrency: Record<string, number>;
   currencyFilter: CurrencyFilter;
+  /** Pre-filtered review-queue links, rendered under the money lines. */
+  links?: { label: string; href: string }[];
 }) {
   // The currency focus is a lens on the ledger maps: rows outside the focus
   // disappear (ALL shows everything), so a filtered card never sums across
@@ -393,7 +400,7 @@ function FinanceSurfaceCard({
   );
 
   return (
-    <Link href={href} className="group">
+    <div className="group">
       <Card
         className={cn(
           "h-full overflow-hidden bg-gradient-to-br transition-all group-hover:shadow-sm",
@@ -415,9 +422,12 @@ function FinanceSurfaceCard({
           </span>
         </CardHeader>
         <CardContent className="space-y-3">
-          <p className="text-3xl font-semibold tabular-nums text-ink">
+          <Link
+            href={href}
+            className="block w-fit text-3xl font-semibold tabular-nums text-ink underline-offset-4 hover:underline"
+          >
             {headline}
-          </p>
+          </Link>
           <p className="-mt-2 text-xs text-muted-foreground">{headlineNote}</p>
           <div className="flex flex-wrap gap-1.5">{chips}</div>
           <div className="space-y-0.5 border-t border-border/70 pt-2 text-xs">
@@ -442,9 +452,26 @@ function FinanceSurfaceCard({
               </span>
             </p>
           </div>
+          {links && links.length > 0 && (
+            <div className="flex flex-wrap gap-2 border-t border-border/70 pt-2">
+              {links.map((link) => (
+                <Button
+                  key={link.href}
+                  size="sm"
+                  variant="outline"
+                  className="h-7 gap-1 px-2.5 text-xs"
+                  nativeButton={false}
+                  render={<Link href={link.href} />}
+                >
+                  {link.label}
+                  <ArrowUpRight className="size-3.5" />
+                </Button>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
-    </Link>
+    </div>
   );
 }
 
@@ -496,11 +523,15 @@ function CurrencyFocusToggle({
 }
 
 /**
- * Per-day confirmed revenue for the last 7 days — two bars per day
- * (registrations, accommodation), each remaining within one currency.
- * Chart series resolve from the currency focus: single currencies render one
- * series against a clean day axis instead of interleaved per-currency rows.
+ * Per-day confirmed revenue trend — Registrations and Accommodation bars
+ * per day, every series held inside one currency. In the All view the
+ * currency segments stack within each surface's bar so cedis and dollars
+ * are visibly separate; a focused currency renders two plain bars. The
+ * range picker slices the same 30-day server payload to 7 / 14 / 30 days.
  */
+const TREND_RANGES = [7, 14, 30] as const;
+type TrendRange = (typeof TREND_RANGES)[number];
+
 function RevenueTrendCard({
   revenueTrend,
   currencyFilter,
@@ -508,52 +539,95 @@ function RevenueTrendCard({
   revenueTrend: { label: string; date: string; regs: Record<string, number>; acc: Record<string, number> }[];
   currencyFilter: CurrencyFilter;
 }) {
-  const tags = currencyFilter === "ALL" ? ["GHS", "USD"] as const : [currencyFilter] as const;
-  const surfaceSeriesMode = currencyFilter === "ALL";
+  const [rangeDays, setRangeDays] = useState<TrendRange>(7);
+  const days = revenueTrend.slice(-rangeDays);
+  const allMode = currencyFilter === "ALL";
 
-  const data = revenueTrend.map((day) => {
-    if (surfaceSeriesMode) {
-      // All currencies: one row per day-and-currency, bars split by surface.
-      return { kind: "interleaved" as const, day };
+  const series: {
+    key: string;
+    label: string;
+    color: string;
+    stackId?: string;
+  }[] = allMode
+    ? [
+        { key: "regsGhs", label: "Regs · GHS", color: ADMIN_CHART.gold, stackId: "regs" },
+        { key: "regsUsd", label: "Regs · USD", color: ADMIN_CHART.sky, stackId: "regs" },
+        { key: "accGhs", label: "Accom · GHS", color: ADMIN_CHART.forest, stackId: "acc" },
+        { key: "accUsd", label: "Accom · USD", color: ADMIN_CHART.violet, stackId: "acc" },
+      ]
+    : currencyFilter === "GHS"
+      ? [
+          { key: "regs", label: "Registrations", color: ADMIN_CHART.gold },
+          { key: "acc", label: "Accommodation", color: ADMIN_CHART.forest },
+        ]
+      : [
+          { key: "regs", label: "Registrations", color: ADMIN_CHART.sky },
+          { key: "acc", label: "Accommodation", color: ADMIN_CHART.violet },
+        ];
+
+  const rows = days.map((day) => {
+    const row: Record<string, string | number> = {
+      label: rangeDays <= 7 ? day.label : day.date.slice(5).replace("-", "/"),
+      date: day.date,
+    };
+    if (allMode) {
+      row.regsGhs = day.regs.GHS ?? 0;
+      row.regsUsd = day.regs.USD ?? 0;
+      row.accGhs = day.acc.GHS ?? 0;
+      row.accUsd = day.acc.USD ?? 0;
+    } else {
+      row.regs = day.regs[currencyFilter] ?? 0;
+      row.acc = day.acc[currencyFilter] ?? 0;
     }
-    return { kind: "flat" as const, day };
+    return row;
   });
 
-  const rows = surfaceSeriesMode
-    ? data.flatMap(({ day }) =>
-        tags.map((tag) => ({
-          key: `${day.date}-${tag}`,
-          label: `${day.label} · ${tag}`,
-          regs: day.regs[tag] ?? 0,
-          acc: day.acc[tag] ?? 0,
-        })),
-      )
-    : data.map(({ day }) => ({
-        key: day.date,
-        label: day.label,
-        regs: day.regs[currencyFilter] ?? 0,
-        acc: day.acc[currencyFilter] ?? 0,
-      }));
-
-  const total = rows.reduce((sum, row) => sum + row.regs + row.acc, 0);
-  const hasAny = total > 0;
+  const hasAny = rows.some((row) =>
+    series.some((s) => (row[s.key] as number) > 0),
+  );
 
   return (
     <Card className="overflow-hidden">
       <div className="h-1 w-full bg-gradient-to-r from-emerald-400 to-sky-500" />
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base">
-          Confirmed revenue · last 7 days
-        </CardTitle>
-        <CardDescription className="text-xs">
-          {currencyFilter === "ALL"
-            ? "Cedis and dollars stay in separate bar pairs — never summed."
-            : `${currencyFilterLabel(currencyFilter)} · registrations and accommodation bars per day.`}
-        </CardDescription>
+      <CardHeader className="flex flex-row items-start justify-between gap-3 pb-2">
+        <div className="space-y-1">
+          <CardTitle className="text-base">
+            Confirmed revenue · last {rangeDays} days
+          </CardTitle>
+          <CardDescription className="text-xs">
+            {allMode
+              ? "Currency segments stay separate inside each bar — never summed."
+              : `${currencyFilterLabel(currencyFilter)} · registrations and accommodation bars per day.`}
+          </CardDescription>
+        </div>
+        <div
+          role="group"
+          aria-label="Trend range"
+          className="inline-flex shrink-0 rounded-lg border border-border bg-muted/40 p-0.5"
+        >
+          {TREND_RANGES.map((range) => (
+            <Button
+              key={range}
+              type="button"
+              size="sm"
+              variant="ghost"
+              aria-pressed={rangeDays === range}
+              onClick={() => setRangeDays(range)}
+              className={cn(
+                "h-7 rounded-md px-2.5 text-xs font-medium",
+                rangeDays === range
+                  ? "bg-background text-ink shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {range}d
+            </Button>
+          ))}
+        </div>
       </CardHeader>
       <CardContent>
         {!hasAny ? (
-          <EmptyTrend message={"No confirmed revenue in the last 7 days."} />
+          <EmptyTrend message={`No confirmed revenue in the last ${rangeDays} days.`} />
         ) : (
           <div className="h-[240px] w-full">
             <ResponsiveContainer width="100%" height="100%">
@@ -573,8 +647,8 @@ function RevenueTrendCard({
                   tick={{ fill: ADMIN_CHART.stone, fontSize: 11 }}
                   interval={0}
                   height={38}
-                  angle={surfaceSeriesMode ? -35 : 0}
-                  textAnchor={surfaceSeriesMode ? "end" : "middle"}
+                  angle={rangeDays > 7 ? -35 : 0}
+                  textAnchor={rangeDays > 7 ? "end" : "middle"}
                 />
                 <YAxis
                   tickLine={false}
@@ -604,23 +678,19 @@ function RevenueTrendCard({
                       label?: unknown;
                     };
                     if (!active || !payload?.length) return null;
-                    const currency =
-                      currencyFilter === "ALL"
-                        ? String(label).split(" · ")[1] ?? ""
-                        : currencyFilter;
                     return (
                       <div className="rounded-lg border border-border bg-white px-3 py-2 text-xs shadow-elevate">
                         <p className="mb-1 font-medium text-ink">{String(label)}</p>
                         {payload.map((entry) => (
                           <p
-                            key={entry.dataKey}
+                            key={String(entry.dataKey)}
                             className="text-muted-foreground"
                           >
                             <span style={{ color: entry.color }}>
                               {String(entry.name)}
                             </span>{" "}
                             <span className="font-medium tabular-nums text-ink">
-                              {currency} {entry.value?.toLocaleString()}
+                              {entry.value?.toLocaleString()}
                             </span>
                           </p>
                         ))}
@@ -635,20 +705,17 @@ function RevenueTrendCard({
                     <span className="text-xs font-medium text-ink/80">{value}</span>
                   )}
                 />
-                <Bar
-                  dataKey="regs"
-                  name="Registrations"
-                  fill={ADMIN_CHART.emerald}
-                  radius={[4, 4, 0, 0]}
-                  maxBarSize={28}
-                />
-                <Bar
-                  dataKey="acc"
-                  name="Accommodation"
-                  fill={ADMIN_CHART.sky}
-                  radius={[4, 4, 0, 0]}
-                  maxBarSize={28}
-                />
+                {series.map((s) => (
+                  <Bar
+                    key={s.key}
+                    dataKey={s.key}
+                    name={s.label}
+                    fill={s.color}
+                    stackId={s.stackId}
+                    radius={s.stackId ? undefined : [4, 4, 0, 0]}
+                    maxBarSize={rangeDays > 14 ? 12 : rangeDays > 7 ? 18 : 28}
+                  />
+                ))}
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -668,7 +735,8 @@ function EmptyTrend({ message }: { message: string }) {
 
 /**
  * Awaiting-review ageing — how long money has sat unverified. Every bucket
- * keeps its money per currency; the 7+ day bucket is the escalator.
+ * keeps its money per currency; the 7+ day bucket is the escalator. Buckets
+ * with money deep-link into the review queue pre-filtered to that age span.
  */
 function AgeingTiles({
   ageing,
@@ -679,8 +747,16 @@ function AgeingTiles({
   };
 }) {
   const sections = [
-    { title: "Registrations ageing", buckets: ageing.registrations },
-    { title: "Accommodation ageing", buckets: ageing.bookings },
+    {
+      title: "Registrations ageing",
+      buckets: ageing.registrations,
+      queueHref: "/admin/registrations",
+    },
+    {
+      title: "Accommodation ageing",
+      buckets: ageing.bookings,
+      queueHref: "/admin/finance/accommodations",
+    },
   ];
   return (
     <Card className="overflow-hidden">
@@ -700,16 +776,23 @@ function AgeingTiles({
             </p>
             {section.buckets.map((bucket) => {
               const stale = bucket.label.startsWith("7+");
-              return (
-                <div
-                  key={bucket.label}
-                  className={cn(
-                    "flex items-center justify-between gap-3 rounded-lg border px-3 py-2",
-                    stale && bucket.count > 0
-                      ? "border-rose-200 bg-rose-50/70"
-                      : "border-border/70 bg-muted/30",
-                  )}
-                >
+              const bucketKey = (
+                Object.entries(AGEING_BUCKET_LABELS) as [
+                  AgeingBucketKey,
+                  string,
+                ][]
+              ).find(([, label]) => label === bucket.label)?.[0];
+              const rowClasses = cn(
+                "flex items-center justify-between gap-3 rounded-lg border px-3 py-2",
+                stale && bucket.count > 0
+                  ? "border-rose-200 bg-rose-50/70"
+                  : "border-border/70 bg-muted/30",
+                bucketKey &&
+                  bucket.count > 0 &&
+                  "transition-colors hover:brightness-[0.98]",
+              );
+              const inner = (
+                <>
                   <div>
                     <p className="text-sm font-medium">{bucket.label}</p>
                     <p className="text-xs text-muted-foreground">
@@ -726,7 +809,23 @@ function AgeingTiles({
                       ? "—"
                       : formatMoneyByCurrency(bucket.moneyByCurrency)}
                   </span>
-                </div>
+                </>
+              );
+              if (!bucketKey || bucket.count === 0) {
+                return (
+                  <div key={bucket.label} className={rowClasses}>
+                    {inner}
+                  </div>
+                );
+              }
+              return (
+                <Link
+                  key={bucket.label}
+                  href={`${section.queueHref}?age=${bucketKey}`}
+                  className={rowClasses}
+                >
+                  {inner}
+                </Link>
               );
             })}
           </div>
@@ -924,6 +1023,16 @@ function FinanceStatsCards({
           confirmedByCurrency={registrations.revenueByCurrency}
           awaitingByCurrency={registrations.awaitingByCurrency}
           currencyFilter={currencyFilter}
+          links={[
+            {
+              label: "Review awaiting",
+              href: "/admin/registrations?status=pending_verification",
+            },
+            {
+              label: "Confirmed",
+              href: "/admin/registrations?status=confirmed",
+            },
+          ]}
         />
         <FinanceSurfaceCard
           href="/admin/finance/accommodations"
@@ -949,6 +1058,16 @@ function FinanceStatsCards({
           confirmedByCurrency={bookings.revenueByCurrency}
           awaitingByCurrency={bookings.awaitingByCurrency}
           currencyFilter={currencyFilter}
+          links={[
+            {
+              label: "Review awaiting",
+              href: "/admin/finance/accommodations?paymentStatus=pending_verification",
+            },
+            {
+              label: "Confirmed",
+              href: "/admin/finance/accommodations?paymentStatus=confirmed",
+            },
+          ]}
         />
       </div>
 

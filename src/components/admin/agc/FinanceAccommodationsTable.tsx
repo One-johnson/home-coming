@@ -2,7 +2,10 @@
 
 import { useMemo } from "react";
 import { useQuery } from "convex/react";
-import { ColumnDef } from "@tanstack/react-table";
+import {
+  ColumnDef,
+  type ColumnFiltersState,
+} from "@tanstack/react-table";
 import { api } from "@convex/_generated/api";
 import { useAdminSession } from "@/components/admin/AdminSessionProvider";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +14,10 @@ import { DataTable } from "@/components/ui/data-table";
 import { StatTile } from "@/components/portal/StatTile";
 import { multiSelectFilter } from "@/components/admin/columns";
 import {
+  AGEING_BUCKET_KEYS,
+  AGEING_BUCKET_LABELS,
+  ageingBadgeClass,
+  ageingBucketKey,
   bookingStatusMeta,
   formatMoneyByCurrency,
   paymentStatusMeta,
@@ -66,7 +73,25 @@ function formatDateTime(ts: number) {
   });
 }
 
-export default function FinanceAccommodationsTable() {
+/**
+ * A booking counts as money awaiting review on the same terms the finance
+ * overview ageing uses (pending verification, or a reserved hold that still
+ * occupies inventory).
+ */
+function isAwaitingBooking(row: FinanceBookingRow) {
+  return (
+    row.paymentStatus === "pending_verification" ||
+    row.bookingStatus === "reserved" ||
+    row.bookingStatus === "pending_verification"
+  );
+}
+
+export default function FinanceAccommodationsTable({
+  initialFilters,
+}: {
+  /** Column filters seeded from drill-down URLs (paymentStatus / age). */
+  initialFilters?: ColumnFiltersState;
+}) {
   const { sessionToken } = useAdminSession();
   const bookings = useQuery(
     api.agcAdminData.listAgcBookingsAdmin,
@@ -147,6 +172,24 @@ export default function FinanceAccommodationsTable() {
         },
       },
       {
+        id: "ageing",
+        header: "Ageing",
+        filterFn: multiSelectFilter,
+        accessorFn: (row) =>
+          isAwaitingBooking(row) ? ageingBucketKey(row.createdAt) : "",
+        cell: ({ row }) => {
+          if (!isAwaitingBooking(row.original)) {
+            return <span className="text-muted-foreground">—</span>;
+          }
+          const key = ageingBucketKey(row.original.createdAt);
+          return (
+            <Badge variant="outline" className={ageingBadgeClass(key)}>
+              {AGEING_BUCKET_LABELS[key]}
+            </Badge>
+          );
+        },
+      },
+      {
         id: "guests",
         accessorFn: (row) =>
           row.guests.filter((guest) => guest.status === "active").length,
@@ -199,6 +242,7 @@ export default function FinanceAccommodationsTable() {
         <DataTable
           columns={columns}
           data={list}
+          initialColumnFilters={initialFilters}
           isLoading={bookings === undefined}
           emptyMessage="No bookings yet."
           searchPlaceholder="Search reference, hub, guest…"
@@ -244,6 +288,14 @@ export default function FinanceAccommodationsTable() {
               ].map((value) => ({
                 value,
                 label: paymentStatusMeta(value).label,
+              })),
+            },
+            {
+              columnId: "ageing",
+              title: "Ageing",
+              options: AGEING_BUCKET_KEYS.map((key) => ({
+                value: key,
+                label: AGEING_BUCKET_LABELS[key],
               })),
             },
           ]}

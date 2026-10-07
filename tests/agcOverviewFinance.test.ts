@@ -483,12 +483,26 @@ test("overview delivers per-day revenue trend, hub money and ageing buckets", as
     sessionToken: token,
   });
 
-  // Per-day per-currency revenue trend — surface maps stay separated.
-  expect(overview.revenueTrend).toHaveLength(7);
-  const today = overview.revenueTrend[6];
-  expect(today.regs).toEqual({ GHS: 3_000 });
-  expect(today.acc).toEqual({ USD: 900 });
+  // Per-day per-currency revenue trend — 30 days of payload, surface maps
+  // stay separated; the client slices to the picked 7/14/30-day range.
+  // (Asserted by sum + unique-day, not by index, so a midnight rollover
+  // between seeding and querying can't flake the test.)
+  expect(overview.revenueTrend).toHaveLength(30);
   expect(overview.revenueTrend[0].regs).toEqual({});
+  const regsGhsTotal = overview.revenueTrend.reduce(
+    (sum, day) => sum + (day.regs.GHS ?? 0),
+    0,
+  );
+  expect(regsGhsTotal).toBe(3_000);
+  const accUsdTotal = overview.revenueTrend.reduce(
+    (sum, day) => sum + (day.acc.USD ?? 0),
+    0,
+  );
+  expect(accUsdTotal).toBe(900);
+  const seededDays = overview.revenueTrend.filter(
+    (day) => (day.regs.GHS ?? 0) === 3_000,
+  );
+  expect(seededDays).toHaveLength(1);
 
   // Per-hub money — one bucket per hub with each surface's ledgers.
   const accraBucket = overview.hubBreakdown.find(

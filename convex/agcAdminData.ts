@@ -2043,10 +2043,11 @@ export const getAgcOverview = query({
       };
     });
 
-    // Per-day confirmed revenue for the last 7 days, per currency — each day
-    // keeps registrations and accommodation money in separate maps so no
-    // chart series ever sums cedis and dollars together.
-    const revenueTrend = Array.from({ length: 7 }, (_, i) => {
+    // Per-day confirmed revenue for the last 30 days, per currency — the
+    // client slices to the picked range (7/14/30). Each day keeps
+    // registrations and accommodation money in separate maps so no chart
+    // series ever sums cedis and dollars together.
+    const revenueTrend = Array.from({ length: 30 }, (_, i) => {
       const start = now - (6 - i) * dayMs;
       const dayStart = new Date(start);
       dayStart.setHours(0, 0, 0, 0);

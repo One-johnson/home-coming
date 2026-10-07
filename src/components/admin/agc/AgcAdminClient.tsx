@@ -2,7 +2,10 @@
 
 import { useMemo, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
-import { ColumnDef } from "@tanstack/react-table";
+import {
+  ColumnDef,
+  type ColumnFiltersState,
+} from "@tanstack/react-table";
 import { DownloadIcon, Loader2Icon, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
@@ -22,7 +25,13 @@ import {
   RowDetailSection,
 } from "@/components/admin/agc/RowDetailDialog";
 import { toastFriendlyErrorParts } from "@/lib/friendlyError";
-import { paymentStatusMeta } from "@/lib/agcPortal";
+import {
+  AGEING_BUCKET_KEYS,
+  AGEING_BUCKET_LABELS,
+  ageingBadgeClass,
+  ageingBucketKey,
+  paymentStatusMeta,
+} from "@/lib/agcPortal";
 
 type AdminRegistrationRow = {
   _id: string;
@@ -119,11 +128,19 @@ function formatDateTime(ts: number) {
 }
 
 /** Registrations review table for the Registrations admin page. */
-export default function RegistrationsTab() {
+export default function RegistrationsTab({
+  initialFilters,
+}: {
+  /** Column filters seeded from drill-down URLs (status / ageing params). */
+  initialFilters?: ColumnFiltersState;
+}) {
   const { user, sessionToken } = useAdminSession();
   // Finance holds a read-only financial view — approvals and deletions stay
   // with admin/registration (enforced server-side too).
   const canManage = user?.role === "admin" || user?.role === "registration";
+  // Ageing badges + facet are part of the finance read-only lens — the
+  // finance overview tiles deep-link into this table pre-filtered by them.
+  const showAgeing = user?.role === "finance";
   const rows = useQuery(
     api.agcAdminData.listAgcRegistrationsAdmin,
     sessionToken ? { sessionToken } : "skip",
@@ -265,6 +282,30 @@ export default function RegistrationsTab() {
           );
         },
       },
+      ...(showAgeing
+        ? [
+            {
+              id: "ageing",
+              header: "Ageing",
+              filterFn: multiSelectFilter,
+              accessorFn: (row: AdminRegistrationRow) =>
+                row.paymentStatus === "pending_verification"
+                  ? ageingBucketKey(row.createdAt)
+                  : "",
+              cell: ({ row }: { row: { original: AdminRegistrationRow } }) => {
+                if (row.original.paymentStatus !== "pending_verification") {
+                  return <span className="text-muted-foreground">—</span>;
+                }
+                const key = ageingBucketKey(row.original.createdAt);
+                return (
+                  <Badge variant="outline" className={ageingBadgeClass(key)}>
+                    {AGEING_BUCKET_LABELS[key]}
+                  </Badge>
+                );
+              },
+            } as ColumnDef<AdminRegistrationRow>,
+          ]
+        : []),
       {
         accessorKey: "createdAt",
         header: "Created",
@@ -293,7 +334,7 @@ export default function RegistrationsTab() {
         : []),
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps -- handlers close over stable session/mutations
-    [busyId, sessionToken, canManage],
+    [busyId, sessionToken, canManage, showAgeing],
   );
 
   /** Everything a registration detail dialog shows for one row. */
@@ -364,6 +405,18 @@ export default function RegistrationsTab() {
     </>
   );
 
+  // Drill-down URLs can only target columns this viewer actually has, so a
+  // shared link never applies a filter against a hidden column.
+  const safeInitialFilters = useMemo(
+    () =>
+      (initialFilters ?? []).filter(
+        (filter) =>
+          filter.id === "paymentStatus" ||
+          (showAgeing && filter.id === "ageing"),
+      ),
+    [initialFilters, showAgeing],
+  );
+
   return (
     <Card className="p-4">
       {!canManage && (
@@ -375,6 +428,7 @@ export default function RegistrationsTab() {
       <DataTable
         columns={columns}
         data={rows ?? []}
+        initialColumnFilters={safeInitialFilters}
         isLoading={rows === undefined}
         emptyMessage="No registrations yet."
         searchPlaceholder="Search reference, hub…"          getRowId={(row) => row._id}
@@ -429,6 +483,18 @@ export default function RegistrationsTab() {
               label: paymentStatusMeta(value).label,
             })),
           },
+          ...(showAgeing
+            ? [
+                {
+                  columnId: "ageing",
+                  title: "Ageing",
+                  options: AGEING_BUCKET_KEYS.map((key) => ({
+                    value: key,
+                    label: AGEING_BUCKET_LABELS[key],
+                  })),
+                },
+              ]
+            : []),
         ]}
         bulkActions={
           canManage

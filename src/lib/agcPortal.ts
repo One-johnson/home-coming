@@ -164,3 +164,49 @@ export function formatMoneyByCurrency(
       .join(" · ") || "—"
   );
 }
+
+/**
+ * Awaiting-review ageing buckets — shared by the finance overview tiles and
+ * the finance tables so a bucket always means the same age span everywhere.
+ * Mirrors the server-side bucketize() in getAgcOverview: full-day floors,
+ * so a 7-day-old payment still sits in "3–7 days".
+ */
+export type AgeingBucketKey = "0-2" | "3-7" | "7plus";
+
+export const AGEING_BUCKET_KEYS: AgeingBucketKey[] = [
+  "0-2",
+  "3-7",
+  "7plus",
+];
+
+export const AGEING_BUCKET_LABELS: Record<AgeingBucketKey, string> = {
+  "0-2": "0–2 days",
+  "3-7": "3–7 days",
+  "7plus": "7+ days",
+};
+
+export function isAgeingBucketKey(value: string): value is AgeingBucketKey {
+  return (AGEING_BUCKET_KEYS as string[]).includes(value);
+}
+
+export function ageingBucketKey(
+  createdAt: number,
+  now: number = Date.now(),
+): AgeingBucketKey {
+  const ageDays = Math.floor((now - createdAt) / 86_400_000);
+  if (ageDays <= 2) return "0-2";
+  if (ageDays <= 7) return "3-7";
+  return "7plus";
+}
+
+/** Badge tone per bucket — fresh is calm, 7+ days shouts. */
+export function ageingBadgeClass(key: AgeingBucketKey): string {
+  switch (key) {
+    case "0-2":
+      return "border-sky-200 bg-sky-50 text-sky-800";
+    case "3-7":
+      return "border-amber-200 bg-amber-50 text-amber-900";
+    case "7plus":
+      return "border-rose-200 bg-rose-50 text-rose-800";
+  }
+}

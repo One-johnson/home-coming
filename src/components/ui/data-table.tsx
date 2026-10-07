@@ -69,6 +69,8 @@ export type FacetFilter = {
 type DataTableProps<TData, TValue> = {
   columns: ColumnDef<TData, TValue>[];
   data: TData[];
+  /** Column filters applied on first render (e.g. from drill-down URLs). */
+  initialColumnFilters?: ColumnFiltersState;
   searchPlaceholder?: string;
   exportFilename?: string;
   exportRow?: (row: TData) => Record<string, unknown>;
@@ -121,6 +123,7 @@ function SortHeader({
 export function DataTable<TData, TValue>({
   columns,
   data,
+  initialColumnFilters,
   searchPlaceholder = "Search...",
   exportFilename = "export.csv",
   exportRow,
@@ -135,7 +138,9 @@ export function DataTable<TData, TValue>({
   expandedId,
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = useState<SortingState>([]);
-  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
+  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>(
+    initialColumnFilters ?? [],
+  );
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [globalFilter, setGlobalFilter] = useState("");
