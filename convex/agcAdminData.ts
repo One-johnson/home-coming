@@ -561,6 +561,81 @@ export const requireAdminSession = internalQuery({
   },
 });
 
+/**
+ * Venue cash-collection data: every unconfirmed POA record (registration or
+ * booking) with its hub, units and amount, so the desk knows what to collect
+ * at check-in. One row per record; the Excel action groups sheets per hub.
+ */
+export const listPoaCollectionData = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const hubs = new Map(
+      (await ctx.db.query("agcHubs").collect()).map((hub) => [hub._id, hub.name]),
+    );
+    const rows: Array<{
+      kind: "registration" | "booking";
+      referenceNumber: string;
+      hubName: string;
+      region: string;
+      units: number;
+      currency: string;
+      totalAmount: number;
+      poaStatus: string;
+      evidenceFileName: string | null;
+      paymentStatus: string;
+      bookingStatus: string | null;
+      createdAt: number;
+    }> = [];
+
+    for (const record of await ctx.db.query("agcRegistrations").collect()) {
+      if (record.deletedAt || !record.poa || record.poa.status === "confirmed") {
+        continue;
+      }
+      rows.push({
+        kind: "registration",
+        referenceNumber: record.referenceNumber ?? "",
+        hubName: hubs.get(record.hubId) ?? "(unknown)",
+        region: record.region,
+        units: record.quantity,
+        currency: record.currency,
+        totalAmount: record.totalAmount,
+        poaStatus: record.poa.status,
+        evidenceFileName: record.poa.evidenceFileName ?? null,
+        paymentStatus: record.paymentStatus,
+        bookingStatus: null,
+        createdAt: record.createdAt,
+      });
+    }
+    for (const booking of await ctx.db.query("agcBookings").collect()) {
+      if (booking.deletedAt || !booking.poa || booking.poa.status === "confirmed") {
+        continue;
+      }
+      const guests = await ctx.db
+        .query("agcGuests")
+        .withIndex("by_booking", (q) => q.eq("bookingId", booking._id))
+        .collect();
+      rows.push({
+        kind: "booking",
+        referenceNumber: booking.referenceNumber ?? "",
+        hubName: hubs.get(booking.hubId) ?? "(unknown)",
+        region: booking.region,
+        units: guests.filter((guest) => guest.status === "active").length,
+        currency: booking.currency,
+        totalAmount: booking.totalAmount,
+        poaStatus: booking.poa.status,
+        evidenceFileName: booking.poa.evidenceFileName ?? null,
+        paymentStatus: booking.paymentStatus,
+        bookingStatus: booking.bookingStatus,
+        createdAt: booking.createdAt,
+      });
+    }
+    rows.sort((a, b) =>
+      a.hubName.localeCompare(b.hubName) || a.createdAt - b.createdAt,
+    );
+    return rows;
+  },
+});
+
 export const listBookingExportData = internalQuery({
   args: {},
   handler: async (ctx) => {
@@ -2525,11 +2600,14 @@ export const getAgcOverview = query({
     // Money in review: receipts awaiting finance verification, plus booking
     // holds that are still occupying inventory before confirmation. The
     // predicate is shared because the per-hub and ageing breakdowns must
-    // agree on which bookings count as money awaiting review.
+    // agree on which bookings count as money awaiting review. POA bookings
+    // are excluded — they are not receipt-verification money; the venue
+    // collects their cash on arrival (tracked in the `poa` block below).
     const isPendingBooking = (row: (typeof bookings)[number]) =>
-      row.paymentStatus === "pending_verification" ||
+      !row.poa &&
+      (row.paymentStatus === "pending_verification" ||
       row.bookingStatus === "reserved" ||
-      row.bookingStatus === "pending_verification";
+      row.bookingStatus === "pending_verification");
     const pendingBookings = bookings.filter(isPendingBooking);
     const bookingRevenueByCurrency: Record<string, number> = {};
     for (const row of confirmedBookings) {
@@ -2575,6 +2653,22 @@ export const getAgcOverview = query({
     }
     const byCurrencyDesc = (a: string, b: string) =>
       a === b ? 0 : a === "GHS" ? -1 : b === "GHS" ? 1 : a.localeCompare(b);
+
+    // Payment-on-arrival cash the venue desk must still collect at check-in:
+    // every POA registration/booking whose payment is not yet confirmed.
+    // Confirmed POA rows are revenue like any other and stay in the main
+    // revenue sums; only the uncollected part is broken out here.
+    const poaOutstandingRegistrations = registrations.filter(
+      (row) => row.poa && row.poa.status !== "confirmed",
+    );
+    const poaOutstandingBookings = bookings.filter(
+      (row) => row.poa && row.poa.status !== "confirmed",
+    );
+    const poaOutstandingByCurrency: Record<string, number> = {};
+    for (const row of [...poaOutstandingRegistrations, ...poaOutstandingBookings]) {
+      poaOutstandingByCurrency[row.currency] =
+        (poaOutstandingByCurrency[row.currency] ?? 0) + row.totalAmount;
+    }
 
     const last7Days = Array.from({ length: 7 }, (_, i) => {
       const start = now - (6 - i) * dayMs;
@@ -2768,6 +2862,18 @@ export const getAgcOverview = query({
         tone: "warn",
       });
     }
+    if (
+      canRegistration &&
+      poaOutstandingRegistrations.length + poaOutstandingBookings.length > 0
+    ) {
+      attention.push({
+        id: "agc-poa-outstanding",
+        label: "Payment on arrival outstanding",
+        detail: `${poaOutstandingRegistrations.length + poaOutstandingBookings.length} IOU record${poaOutstandingRegistrations.length + poaOutstandingBookings.length === 1 ? "" : "s"} · ${formatMoney(poaOutstandingByCurrency)} to collect at check-in`,
+        href: "/admin/registrations?tab=poa",
+        tone: "warn",
+      });
+    }
     if (canRegistration && rejectedRegistrations.length > 0) {
       attention.push({
         id: "agc-reg-rejected",
@@ -2847,6 +2953,14 @@ export const getAgcOverview = query({
       revenueTrend,
       hubBreakdown,
       ageing,
+      poa: {
+        outstandingRegistrations: poaOutstandingRegistrations.length,
+        outstandingBookings: poaOutstandingBookings.length,
+        outstandingCount:
+          poaOutstandingRegistrations.length + poaOutstandingBookings.length,
+        outstandingByCurrency: poaOutstandingByCurrency,
+        outstandingLabel: formatMoney(poaOutstandingByCurrency),
+      },
       housing: isFinanceView ? [] : housing,
       expiringHolds:
         canAccommodation

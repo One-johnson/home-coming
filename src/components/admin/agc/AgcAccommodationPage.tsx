@@ -23,9 +23,14 @@ const SECTIONS: Array<{
 ];
 
 /** Accommodation page content: bookings review + capacity pools. */
-export function AgcAccommodationPage() {
+export function AgcAccommodationPage({
+  initialSection = "bookings",
+}: {
+  /** Deep link support — e.g. /admin/accommodation?tab=poa opens the POA tab. */
+  initialSection?: AccommodationSection;
+} = {}) {
   const { user } = useAdminSession();
-  const [section, setSection] = useState<AccommodationSection>("bookings");
+  const [section, setSection] = useState<AccommodationSection>(initialSection);
   // The POA booking queue is for admin + finance; accommodation staff get the
   // standard tabs only (matches the registration page's role gating).
   const showPoa = user?.role === "admin" || user?.role === "finance";

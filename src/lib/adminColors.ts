@@ -121,6 +121,11 @@ export const KPI_ACCENTS = {
     border: "group-hover:border-emerald-300",
     tint: "from-emerald-50/80 to-white",
   },
+  poa: {
+    icon: "bg-violet-100 text-violet-700",
+    border: "group-hover:border-violet-300",
+    tint: "from-violet-50/80 to-white",
+  },
   bookings: {
     icon: "bg-amber-100 text-amber-800",
     border: "group-hover:border-amber-300",

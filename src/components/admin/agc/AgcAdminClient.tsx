@@ -596,7 +596,7 @@ export function downloadBase64(
   URL.revokeObjectURL(url);
 }
 
-type AgcExportKind = "bookings" | "registrations";
+type AgcExportKind = "bookings" | "registrations" | "poa-collections";
 
 /** Shared export-button wiring for the Registrations and Accommodation pages. */
 export function AgcExcelExportButton({
@@ -611,6 +611,9 @@ export function AgcExcelExportButton({
   const exportRegistrationsAction = useAction(
     api.agcExcel.exportRegistrationsExcel,
   );
+  const exportPoaCollectionsAction = useAction(
+    api.agcExcel.exportPoaCollectionExcel,
+  );
   const [exporting, setExporting] = useState(false);
 
   const runExport = async () => {
@@ -620,7 +623,9 @@ export function AgcExcelExportButton({
       const result =
         which === "bookings"
           ? await exportBookingsAction({ sessionToken })
-          : await exportRegistrationsAction({ sessionToken });
+          : which === "poa-collections"
+            ? await exportPoaCollectionsAction({ sessionToken })
+            : await exportRegistrationsAction({ sessionToken });
       downloadBase64(result.filename, result.contentBase64);
     } catch (err) {
       toast.error(...toastFriendlyErrorParts(err, "Export failed"));

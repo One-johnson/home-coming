@@ -11,6 +11,7 @@ import {
   BedDouble,
   Layers,
   ClipboardList,
+  HandCoins,
   HelpCircle,
   Info,
   Mail,
@@ -111,6 +112,14 @@ type AgcOverview = {
     revenueLabel: string;
     awaitingLabel: string;
     thisWeek: number;
+  };
+  /** Payment-on-arrival cash still to collect at check-in (IOU records). */
+  poa: {
+    outstandingRegistrations: number;
+    outstandingBookings: number;
+    outstandingCount: number;
+    outstandingByCurrency: Record<string, number>;
+    outstandingLabel: string;
   };
   /** Confirmed revenue per day (per surface, per currency) — last 7 days. */
   revenueTrend: {
@@ -343,6 +352,118 @@ function currencyTitle(currency: string): string {
  * headline opens the surface's console; drill-down links open the review
  * queues pre-filtered (drill-downs can't nest inside the card link).
  */
+/**
+ * Payment-on-arrival cash the venue desk must still collect at check-in.
+ * Kept out of the registrations/accommodation "awaiting review" boards —
+ * POA money is IOU cash on the day, not receipt-verification workload.
+ */
+function PoaOutstandingCard({
+  poa,
+  currencyFilter,
+}: {
+  poa: {
+    outstandingRegistrations: number;
+    outstandingBookings: number;
+    outstandingCount: number;
+    outstandingByCurrency: Record<string, number>;
+  };
+  currencyFilter: CurrencyFilter;
+}) {
+  const outstanding: Record<string, number> =
+    currencyFilter === "ALL"
+      ? poa.outstandingByCurrency
+      : Object.fromEntries(
+          Object.entries(poa.outstandingByCurrency).filter(([currency]) =>
+            matchesCurrencyFilter(currency, currencyFilter),
+          ),
+        );
+  const accent = KPI_ACCENTS.poa;
+  return (
+    <div className="group">
+      <Card
+        className={cn(
+          "h-full overflow-hidden bg-gradient-to-br transition-all group-hover:shadow-sm",
+          accent.tint,
+          accent.border,
+        )}
+      >
+        <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <CardTitle className="text-sm font-medium text-muted-foreground">
+            Payment on arrival · outstanding
+          </CardTitle>
+          <span
+            className={cn(
+              "flex size-9 items-center justify-center rounded-lg",
+              accent.icon,
+            )}
+          >
+            <HandCoins className="size-4" />
+          </span>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Link
+            href="/admin/registrations?tab=poa"
+            className="block w-fit text-3xl font-semibold tabular-nums text-ink underline-offset-4 hover:underline"
+          >
+            {poa.outstandingCount}
+          </Link>
+          <p className="-mt-2 text-xs text-muted-foreground">
+            IOU record{poa.outstandingCount === 1 ? "" : "s"} · cash to collect
+            at check-in
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            <StatusChip
+              label="registrations"
+              value={poa.outstandingRegistrations}
+              tone="warn"
+            />
+            <StatusChip
+              label="bookings"
+              value={poa.outstandingBookings}
+              tone="warn"
+            />
+          </div>
+          <div className="space-y-0.5 border-t border-border/70 pt-2 text-xs">
+            <p className="text-muted-foreground">
+              Uncollected:{" "}
+              <span
+                className={cn(
+                  "font-semibold tabular-nums",
+                  poa.outstandingCount > 0 ? "text-violet-700" : "text-emerald-700",
+                )}
+              >
+                {formatMoneyByCurrency(outstanding)}
+              </span>
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2 border-t border-border/70 pt-2">
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 gap-1 px-2.5 text-xs"
+              nativeButton={false}
+              render={<Link href="/admin/registrations?tab=poa" />}
+            >
+              Registrations POA
+              <ArrowUpRight className="size-3.5" />
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 gap-1 px-2.5 text-xs"
+              nativeButton={false}
+              render={<Link href="/admin/accommodation?tab=poa" />}
+            >
+              Accommodation POA
+              <ArrowUpRight className="size-3.5" />
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 function FinanceSurfaceCard({
   href,
   accent,
@@ -944,6 +1065,7 @@ function HubMoneyTable({
 function FinanceStatsCards({
   registrations,
   bookings,
+  poa,
   currencyFilter,
 }: {
   registrations: {
@@ -962,6 +1084,12 @@ function FinanceStatsCards({
     activeGuests: number;
     revenueByCurrency: Record<string, number>;
     awaitingByCurrency: Record<string, number>;
+  };
+  poa: {
+    outstandingRegistrations: number;
+    outstandingBookings: number;
+    outstandingCount: number;
+    outstandingByCurrency: Record<string, number>;
   };
   currencyFilter: CurrencyFilter;
 }) {
@@ -1069,6 +1197,7 @@ function FinanceStatsCards({
             },
           ]}
         />
+        <PoaOutstandingCard poa={poa} currencyFilter={currencyFilter} />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
@@ -1545,6 +1674,7 @@ export default function AdminOverviewPage() {
               <FinanceStatsCards
                 registrations={overview.registrations}
                 bookings={overview.bookings}
+                poa={overview.poa}
                 currencyFilter={currencyFilter}
               />
               <RevenueTrendCard

@@ -32,7 +32,11 @@ type PageSection = "registrations" | "poa";
 function AdminRegistrationsInner() {
   const { user } = useAdminSession();
   const searchParams = useSearchParams();
-  const [section, setSection] = useState<PageSection>("registrations");
+  const showPoa = user?.role === "admin" || user?.role === "finance";
+  // ?tab=poa deep link (finance overview card / attention banner).
+  const [section, setSection] = useState<PageSection>(
+    searchParams.get("tab") === "poa" && showPoa ? "poa" : "registrations",
+  );
 
   const initialFilters = useMemo<ColumnFiltersState>(() => {
     const filters: ColumnFiltersState = [];
@@ -54,8 +58,6 @@ function AdminRegistrationsInner() {
       </p>
     );
   }
-
-  const showPoa = user?.role === "admin" || user?.role === "finance";
 
   return (
     <div className="space-y-4">

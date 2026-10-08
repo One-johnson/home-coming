@@ -656,6 +656,154 @@ export const exportHubsRepsExcel = action({
   },
 });
 
+/**
+ * Venue cash-collection sheet: one workbook with a summary plus one sheet per
+ * hub listing every unconfirmed POA record (registration or booking) with the
+ * amount the desk must collect at check-in. Printable — the desk ticks rows
+ * off as cash arrives and the admin confirms each payment in the POA tables.
+ */
+export const exportPoaCollectionExcel = action({
+  args: { sessionToken: v.string() },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ filename: string; contentBase64: string }> => {
+    await ctx.runQuery(internal.agcAdminData.requireAdminSession, {
+      sessionToken: args.sessionToken,
+    });
+
+    type CollectionRow = {
+      kind: "registration" | "booking";
+      referenceNumber: string;
+      hubName: string;
+      region: string;
+      units: number;
+      currency: string;
+      totalAmount: number;
+      poaStatus: string;
+      evidenceFileName: string | null;
+      paymentStatus: string;
+      bookingStatus: string | null;
+      createdAt: number;
+    };
+    const rows: CollectionRow[] = await ctx.runQuery(
+      internal.agcAdminData.listPoaCollectionData,
+      {},
+    );
+
+    const workbook = new ExcelJS.Workbook();
+    // Summary sheet is added last but must appear first when printed.
+    const summary = workbook.addWorksheet("Summary", {
+      properties: { tabColor: { argb: "FFB8860B" } },
+    });
+    const columns: Array<{ header: string; key: string; width: number }> = [
+      { header: "Reference", key: "reference", width: 14 },
+      { header: "Type", key: "kind", width: 14 },
+      { header: "Delegates/Guests", key: "units", width: 16 },
+      { header: "Amount Due", key: "amount", width: 12 },
+      { header: "Currency", key: "currency", width: 10 },
+      { header: "POA Status", key: "poaStatus", width: 20 },
+      { header: "Evidence", key: "evidence", width: 24 },
+      { header: "Created", key: "createdAt", width: 20 },
+      { header: "Collected? (tick)", key: "collected", width: 16 },
+    ];
+    const addRows = (sheet: ExcelJS.Worksheet, entries: CollectionRow[]) => {
+      sheet.getRow(1).font = { bold: true };
+      for (const row of entries) {
+        sheet.addRow({
+          reference: row.referenceNumber || "(pending)",
+          kind: row.kind === "registration" ? "Registration" : "Accommodation",
+          units: row.units,
+          amount: row.totalAmount,
+          currency: row.currency,
+          poaStatus: row.poaStatus.replace(/_/g, " "),
+          evidence: row.evidenceFileName ?? "not submitted",
+          createdAt: new Date(row.createdAt).toISOString().slice(0, 16).replace("T", " "),
+          collected: "",
+        });
+      }
+      sheet.autoFilter = { from: "A1", to: "I1" };
+    };
+
+    // Per-hub sheets, alphabetically — the desk works hub by hub.
+    const hubNames = [...new Set(rows.map((row) => row.hubName))];
+    for (const hubName of hubNames) {
+      const hubRows = rows.filter((row) => row.hubName === hubName);
+      const sheet = workbook.addWorksheet(
+        hubSheetName(hubName, new Set(["summary"])),
+      );
+      sheet.columns = columns;
+      addRows(sheet, hubRows);
+      const totalsByCurrency: Record<string, number> = {};
+      for (const row of hubRows) {
+        totalsByCurrency[row.currency] =
+          (totalsByCurrency[row.currency] ?? 0) + row.totalAmount;
+      }
+      const totalRow = sheet.addRow({
+        reference: "TOTAL",
+        kind: `${hubRows.length} record(s)`,
+        amount: "",
+        currency: Object.keys(totalsByCurrency)
+          .sort()
+          .map((c) => `${c} ${totalsByCurrency[c].toLocaleString()}`)
+          .join(" + "),
+      });
+      totalRow.font = { bold: true };
+    }
+
+    // Summary: grand totals per currency.
+    summary.columns = [
+      { header: "Hub", key: "hub", width: 30 },
+      { header: "Records", key: "records", width: 10 },
+      { header: "Delegates/Guests", key: "units", width: 16 },
+      { header: "Total Due", key: "total", width: 22 },
+      { header: "Collected? (tick)", key: "collected", width: 16 },
+    ];
+    summary.getRow(1).font = { bold: true };
+    const grandByCurrency: Record<string, number> = {};
+    for (const hubName of hubNames) {
+      const hubRows = rows.filter((row) => row.hubName === hubName);
+      const totalsByCurrency: Record<string, number> = {};
+      for (const row of hubRows) {
+        totalsByCurrency[row.currency] =
+          (totalsByCurrency[row.currency] ?? 0) + row.totalAmount;
+        grandByCurrency[row.currency] =
+          (grandByCurrency[row.currency] ?? 0) + row.totalAmount;
+      }
+      summary.addRow({
+        hub: hubName,
+        records: hubRows.length,
+        units: hubRows.reduce((sum, row) => sum + row.units, 0),
+        total: Object.keys(totalsByCurrency)
+          .sort()
+          .map((c) => `${c} ${totalsByCurrency[c].toLocaleString()}`)
+          .join(" + "),
+        collected: "",
+      });
+    }
+    const grand = summary.addRow({
+      hub: "GRAND TOTAL",
+      records: rows.length,
+      units: rows.reduce((sum, row) => sum + row.units, 0),
+      total: Object.keys(grandByCurrency)
+        .sort()
+        .map((c) => `${c} ${grandByCurrency[c].toLocaleString()}`)
+        .join(" + "),
+    });
+    grand.font = { bold: true };
+    summary.addRow([""]);
+    summary.addRow([
+      "Payment on arrival — collect cash at check-in. Tick each row as it is paid, then confirm the payment in the admin POA table so the IOU becomes a paid receipt.",
+    ]);
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    return {
+      filename: `homecoming-2026-poa-collections-${new Date().toISOString().slice(0, 10)}.xlsx`,
+      contentBase64: Buffer.from(buffer as ArrayBuffer).toString("base64"),
+    };
+  },
+});
+
 export const exportRegistrationsExcel = action({
   args: { sessionToken: v.string() },
   handler: async (

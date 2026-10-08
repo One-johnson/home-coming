@@ -6,6 +6,7 @@ import { BadgeCheckIcon, HandCoins, LinkIcon } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import { useAdminSession } from "@/components/admin/AdminSessionProvider";
+import { AgcExcelExportButton } from "@/components/admin/agc/AgcAdminClient";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -150,6 +151,14 @@ export function PoaTab({ kind = "all" }: { kind?: "all" | "registration" | "book
 
   return (
     <div className="space-y-4">
+      {user?.role === "admin" && (
+        <div className="flex justify-end">
+          <AgcExcelExportButton
+            which="poa-collections"
+            label="Cash-collection sheet (.xlsx)"
+          />
+        </div>
+      )}
       <div className="grid gap-4 sm:grid-cols-3">
         <Stat label="POA records" value={counts.total} />
         <Stat label="Awaiting payment" value={counts.outstanding} tone="warning" />
