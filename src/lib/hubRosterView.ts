@@ -9,6 +9,8 @@ export type HubRosterRow = {
   hubName: string;
   region: string;
   active: boolean;
+  /** Admin-granted payment on arrival: rep registers/books without prepaying. */
+  poaEnabled: boolean;
   rep: {
     _id: string;
     username: string;
@@ -92,13 +94,17 @@ export const HUB_FILTERS = [
   { id: "active", label: "Active reps" },
   { id: "disabled", label: "Disabled" },
   { id: "no_rep", label: "No rep" },
+  { id: "pay_on_arrival", label: "Pay on arrival" },
 ] as const;
 
 export type HubFilterId = (typeof HUB_FILTERS)[number]["id"];
 
 export function matchesHubFilter(
   filter: HubFilterId,
-  hub: Pick<HubRosterRow, "rep" | "needsAttention" | "active">,
+  hub: Pick<
+    HubRosterRow,
+    "rep" | "needsAttention" | "active" | "poaEnabled"
+  >,
 ): boolean {
   switch (filter) {
     case "attention":
@@ -111,6 +117,8 @@ export function matchesHubFilter(
       return hub.rep?.status === "disabled";
     case "no_rep":
       return hub.rep === null;
+    case "pay_on_arrival":
+      return hub.poaEnabled;
     default:
       return true;
   }

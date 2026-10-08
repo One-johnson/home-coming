@@ -2906,6 +2906,9 @@ export const getHubRoster = query({
     );
     const registrations = await ctx.db.query("agcRegistrations").collect();
     const bookings = await ctx.db.query("agcBookings").collect();
+    // Payment-on-arrival grants live in their own table (agcPoa).
+    const poaGrants = await ctx.db.query("agcPoaHubs").collect();
+    const poaHubIds = new Set(poaGrants.map((grant) => grant.hubId));
 
     const repByHub = new Map<string, Doc<"agcRepresentatives">>();
     for (const rep of reps) {
@@ -2951,6 +2954,7 @@ export const getHubRoster = query({
           region: hub.region,
           country: hub.country,
           active: hub.active !== false,
+          poaEnabled: poaHubIds.has(hub._id),
           rep: rep
             ? {
                 _id: rep._id,

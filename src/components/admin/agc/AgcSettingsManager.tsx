@@ -105,14 +105,42 @@ type SettingsDraft = {
 /** In-page section anchors. Operations and POA are instant — never part of a save. */
 type SectionId = "general" | "payments" | "accommodation" | "titles" | "poa" | "operations";
 
-const SECTIONS: Array<{ id: SectionId; label: string }> = [
-  { id: "general", label: "General" },
-  { id: "payments", label: "Payments" },
-  { id: "accommodation", label: "Accommodation" },
-  { id: "titles", label: "Guest titles" },
-  { id: "poa", label: "Payment on arrival" },
-  { id: "operations", label: "Operations" },
+const SECTIONS: Array<{ id: SectionId; label: string; href: string }> = [
+  { id: "general", label: "General", href: "/admin/settings/general" },
+  { id: "payments", label: "Payments", href: "/admin/settings/payments" },
+  {
+    id: "accommodation",
+    label: "Accommodation",
+    href: "/admin/settings/accommodation",
+  },
+  { id: "titles", label: "Guest titles", href: "/admin/settings/titles" },
+  {
+    id: "poa",
+    label: "Payment on arrival",
+    href: "/admin/settings/poa",
+  },
+  {
+    id: "operations",
+    label: "Operations",
+    href: "/admin/settings/operations",
+  },
 ];
+
+/** Per-page header copy — each section is now its own route. */
+const SECTION_DESCRIPTIONS: Record<SectionId, string> = {
+  general:
+    "Registration & accommodation deadline and the offline payment hold window. Edits apply to new bookings only, and only once saved.",
+  payments:
+    "Bank payment details shown to representatives on the offline registration and accommodation forms. Edits apply once saved.",
+  accommodation:
+    "Per-bed pricing, display labels and inventory capacity for every accommodation type. Price, label, and capacity changes apply to new bookings only, and only once saved.",
+  titles:
+    "Title options offered for each guest on the accommodation forms. Edits apply once saved.",
+  poa:
+    "Hubs granted payment on arrival register delegates and book accommodation without paying up front — grant or revoke hubs from the Hubs & reps table.",
+  operations:
+    "Live switches that apply instantly — no save needed.",
+};
 
 /** ISO timestamp → value accepted by <input type="datetime-local"> (local time). */
 function toLocalInput(iso: string): string {
@@ -311,7 +339,11 @@ function SampleBookingPreview({
 /** The exact keyword required to arm the lockdown switch. */
 const LOCKDOWN_KEYWORD = "LOCKDOWN";
 
-export function AgcSettingsManager() {
+export function AgcSettingsManager({
+  section = "general",
+}: {
+  section?: SectionId;
+}) {
   const { sessionToken } = useAdminSession();
   const settings = useQuery(
     api.agcAdminData.getAgcSettings,
@@ -334,6 +366,7 @@ export function AgcSettingsManager() {
 
   return (
     <AgcSettingsForm
+      section={section}
       settings={settings}
       systemStatus={systemStatus}
       sessionToken={sessionToken}
@@ -342,10 +375,12 @@ export function AgcSettingsManager() {
 }
 
 function AgcSettingsForm({
+  section,
   settings,
   systemStatus,
   sessionToken,
 }: {
+  section: SectionId;
   settings: AgcSettings;
   systemStatus: AgcSystemStatus | undefined;
   sessionToken: string | null;
@@ -386,7 +421,6 @@ function AgcSettingsForm({
 
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
-  const [activeSection, setActiveSection] = useState<SectionId>("general");
   // Local edits keyed to the server snapshot they started from. With no
   // edits yet (or fresh data after a save) the draft derives directly from
   // `settings` — no state-sync effect needed.
@@ -726,33 +760,6 @@ function AgcSettingsForm({
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [isDirty]);
 
-  // Scroll-spy for the section nav (the console header is h-16, so sections
-  // count as active once their top passes ~140px).
-  useEffect(() => {
-    const onScroll = () => {
-      let current: SectionId = "general";
-      for (const section of SECTIONS) {
-        const el = document.getElementById(`agc-section-${section.id}`);
-        if (el && el.getBoundingClientRect().top <= 140) current = section.id;
-      }
-      setActiveSection(current);
-    };
-    const frame = requestAnimationFrame(onScroll);
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => {
-      cancelAnimationFrame(frame);
-      window.removeEventListener("scroll", onScroll);
-    };
-  }, []);
-
-  const scrollToSection = (id: SectionId) => {
-    const el = document.getElementById(`agc-section-${id}`);
-    if (!el) return;
-    const top = el.getBoundingClientRect().top + window.scrollY - 88;
-    window.scrollTo({ top, behavior: "smooth" });
-    setActiveSection(id);
-  };
-
   const discard = () => {
     setEdit(null);
     toast.info("Unsaved changes discarded");
@@ -800,7 +807,7 @@ function AgcSettingsForm({
     <div className={cn("space-y-5", isDirty && "pb-28")}>
       {/* Page header: context, live status, and links to the operational tabs. */}
       <AdminPageHeader
-        description="Deadline, bank details, per-bed pricing and capacity, guest titles, and operational controls. Edits apply to new bookings only, and only once saved."
+        description={SECTION_DESCRIPTIONS[section]}
         actions={
           <>
             {systemStatus?.locked && (
@@ -834,30 +841,31 @@ function AgcSettingsForm({
         }
       />
 
-      {/* Section navigation with scroll-spy and unsaved-edit dots. */}
+      {/* Section navigation — each section is its own page. Unsaved-edit
+          dots can only appear for the section on screen. */}
       <nav
         aria-label="Settings sections"
         className="flex gap-1 overflow-x-auto rounded-xl border bg-card p-1"
       >
-        {SECTIONS.map((section) => (
-          <button
-            key={section.id}
-            type="button"
-            aria-current={activeSection === section.id ? "true" : undefined}
-            onClick={() => scrollToSection(section.id)}
+        {SECTIONS.map((s) => (
+          <Link
+            key={s.id}
+            href={s.href}
+            aria-current={section === s.id ? "page" : undefined}
             className={cn(
               "flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm transition-colors",
-              activeSection === section.id
+              section === s.id
                 ? "bg-accent font-medium text-accent-foreground"
                 : "text-muted-foreground hover:bg-muted hover:text-foreground",
             )}
           >
-            {section.label}
-            {dirtySections[section.id] && <DirtyDot />}
-          </button>
+            {s.label}
+            {dirtySections[s.id] && <DirtyDot />}
+          </Link>
         ))}
       </nav>
 
+      {section === "general" && (
       <Card id="agc-section-general" data-agc-section="general" className="scroll-mt-24">
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-base">
@@ -900,7 +908,9 @@ function AgcSettingsForm({
           </div>
         </CardContent>
       </Card>
+      )}
 
+      {section === "payments" && (
       <Card id="agc-section-payments" data-agc-section="payments" className="scroll-mt-24">
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-base">
@@ -937,8 +947,10 @@ function AgcSettingsForm({
           </div>
         </CardContent>
       </Card>
+      )}
 
       {/* Pricing + capacity merged: one row per accommodation type. */}
+      {section === "accommodation" && (
       <Card id="agc-section-accommodation" data-agc-section="accommodation" className="scroll-mt-24">
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-base">
@@ -1156,7 +1168,9 @@ function AgcSettingsForm({
           </div>
         </CardContent>
       </Card>
+      )}
 
+      {section === "titles" && (
       <Card id="agc-section-titles" data-agc-section="titles" className="scroll-mt-24">
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-base">
@@ -1213,8 +1227,10 @@ function AgcSettingsForm({
           </Button>
         </CardContent>
       </Card>
+      )}
 
       {/* Payment-on-arrival hub grants — instant, audit-logged toggles. */}
+      {section === "poa" && (
       <Card id="agc-section-poa" data-agc-section="poa" className="scroll-mt-24">
         <CardHeader className="pb-3">
           <CardTitle className="flex flex-wrap items-center gap-2 text-base">
@@ -1230,10 +1246,18 @@ function AgcSettingsForm({
             </Badge>
           </CardTitle>
           <CardDescription>
-            Grant hubs permission to register delegates and book accommodation
-            without paying up front. Their reps get an IOU receipt they can
-            upload payment evidence against; totals are only credited once you
-            or finance confirm the payment in the payment-on-arrival table.
+            Hubs granted payment on arrival register delegates and book
+            accommodation without paying up front. Their reps get an IOU
+            receipt they can upload payment evidence against; totals are only
+            credited once you or finance confirm the payment in the
+            payment-on-arrival table. Grant new hubs from the{" "}
+            <Link
+              href="/admin/hubs-reps"
+              className="font-medium text-primary underline underline-offset-2"
+            >
+              Hubs &amp; reps table
+            </Link>
+            .
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -1245,13 +1269,14 @@ function AgcSettingsForm({
             </div>
           ) : (
             <div className="space-y-1.5">
-              {poaHubs.filter((hub) => hub.active || hub.poaEnabled).length === 0 ? (
+              {poaHubs.filter((hub) => hub.poaEnabled).length === 0 ? (
                 <p className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
-                  No hubs yet — create hubs under Hubs &amp; representatives.
+                  No hubs are granted payment on arrival yet — open Hubs &amp;
+                  reps and flip the switch on a hub row.
                 </p>
               ) : (
                 poaHubs
-                  .filter((hub) => hub.active || hub.poaEnabled)
+                  .filter((hub) => hub.poaEnabled)
                   .map((hub) => (
                     <div
                       key={hub._id}
@@ -1299,8 +1324,10 @@ function AgcSettingsForm({
           )}
         </CardContent>
       </Card>
+      )}
 
       {/* Instant controls — deliberately separate from the saved settings. */}
+      {section === "operations" && (
       <Card
         id="agc-section-operations"
         data-agc-section="operations"
@@ -1408,6 +1435,7 @@ function AgcSettingsForm({
           </div>
         </CardContent>
       </Card>
+      )}
 
       {/* Floating unsaved-changes bar: only present when there is work to
           commit, anchored bottom-right so it never covers the sidebar. */}

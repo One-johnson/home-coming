@@ -282,6 +282,71 @@ function HubAvatar({ hubName, large = false }: { hubName: string; large?: boolea
   );
 }
 
+/**
+ * Per-hub "pay on arrival" switch (Hubs & Reps table, admin only). While
+ * enabled, the hub's rep can register delegates and book accommodation
+ * without prepaying — cash is settled via the payment-on-arrival review flow.
+ */
+function PayOnArrivalSwitch({ hub, disabled }: { hub: HubRow; disabled: boolean }) {
+  const { sessionToken } = useAdminSession();
+  const setHubPoa = useMutation(api.agcPoa.setHubPoa);
+  const [busy, setBusy] = useState(false);
+  const enabled = hub.poaEnabled;
+
+  const toggle = async () => {
+    if (!sessionToken || busy || disabled) return;
+    setBusy(true);
+    try {
+      await setHubPoa({
+        sessionToken,
+        hubId: hub._id as Id<"agcHubs">,
+        enabled: !enabled,
+      });
+      toast.success(
+        enabled
+          ? `Pay on arrival revoked for ${hub.hubName}`
+          : `Pay on arrival granted to ${hub.hubName} — reps can register and book without prepaying`,
+      );
+    } catch (err) {
+      toast.error(...toastFriendlyErrorParts(err, "Failed to update pay on arrival"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={enabled}
+      aria-label={`Pay on arrival for ${hub.hubName}`}
+      title={
+        disabled
+          ? "Only admins can change this"
+          : enabled
+            ? "Enabled — click to revoke"
+            : "Click to let this hub pay on arrival"
+      }
+      disabled={busy || disabled}
+      onClick={(e) => {
+        e.stopPropagation();
+        void toggle();
+      }}
+      className={cn(
+        "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors disabled:opacity-50",
+        enabled ? "bg-emerald-600" : "border border-border bg-muted",
+      )}
+    >
+      <span
+        className={cn(
+          "pointer-events-none block size-3.5 rounded-full bg-white shadow transition-transform",
+          enabled ? "translate-x-[1.15rem]" : "translate-x-0.5",
+        )}
+      />
+    </button>
+  );
+}
+
 function QuietBadge({ hub }: { hub: HubRow }) {
   const hasActivity =
     hub.registrations.lastActivityAt > 0 || hub.bookings.lastActivityAt > 0;
@@ -985,6 +1050,11 @@ function HubDetailDialog({
                 {!hub.active && (
                   <Badge variant="outline" className="text-[10px]">inactive</Badge>
                 )}
+                {hub.poaEnabled && (
+                  <Badge variant="outline" className="text-[10px]">
+                    pay on arrival
+                  </Badge>
+                )}
                 {isAdmin && (
                   <button
                     type="button"
@@ -1581,6 +1651,11 @@ export function HubsRepsManager() {
                       <div className="mt-2 flex flex-wrap items-center gap-1.5">
                         {hub.rep && <RepStatusBadge status={hub.rep.status} />}
                         <QuietBadge hub={hub} />
+                        {hub.poaEnabled && (
+                          <Badge variant="outline" className="text-[10px]">
+                            pay on arrival
+                          </Badge>
+                        )}
                       </div>
                     </div>
                   </li>
@@ -1596,6 +1671,9 @@ export function HubsRepsManager() {
                       <TableHead>Hub</TableHead>
                       <TableHead>Region</TableHead>
                       <TableHead>Representative</TableHead>
+                      <TableHead className="text-center" title="Pay on arrival instead of prepaying">
+                        Pay on arrival
+                      </TableHead>
                       <TableHead className="text-right">Delegates</TableHead>
                       <TableHead className="text-right">Registrations</TableHead>
                       <TableHead className="text-right">Bookings</TableHead>
@@ -1662,6 +1740,9 @@ export function HubsRepsManager() {
                                 no rep account
                               </span>
                             )}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <PayOnArrivalSwitch hub={hub} disabled={!isAdmin} />
                           </TableCell>
                           <TableCell className="text-right">
                             <StatCell

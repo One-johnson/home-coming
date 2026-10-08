@@ -18,6 +18,7 @@ const row = (overrides: Partial<HubRosterRow>): HubRosterRow => ({
   hubName: "Ashanti Mampong",
   region: "ghana",
   active: true,
+  poaEnabled: false,
   rep: { _id: "r1", username: "ashanti_mampong",
     email: "rep@example.com",
     status: "active",
