@@ -19,6 +19,7 @@ import {
   SearchIcon,
   TableIcon,
   Trash2Icon,
+  UploadIcon,
   UserPlusIcon,
   UsersIcon,
 } from "lucide-react";
@@ -81,6 +82,10 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { uploadFileToConvex } from "@/lib/galleryUpload";
+import {
+  PoaEvidenceDialog,
+  PoaIouDialog,
+} from "@/components/portal/PoaReceiptDialogs";
 import { compressImageForUpload } from "@/lib/imageCompress";
 import { downloadBase64File } from "@/lib/downloadFile";
 import { friendlyError } from "@/lib/friendlyError";
@@ -976,6 +981,8 @@ function BookingCard({
   onCancel,
   onDelete,
   onSubstitute,
+  onIou,
+  onEvidence,
 }: {
   booking: RepBooking;
   locked: boolean;
@@ -985,6 +992,8 @@ function BookingCard({
   onCancel: (booking: RepBooking) => void;
   onDelete: (booking: RepBooking) => void;
   onSubstitute: (guest: RepBooking["guests"][number]) => void;
+  onIou: (booking: RepBooking) => void;
+  onEvidence: (booking: RepBooking) => void;
 }) {
   const status = bookingStatusMeta(booking.bookingStatus);
   const payStatus = displayPaymentStatus(booking);
@@ -1021,6 +1030,11 @@ function BookingCard({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
+          {booking.paymentMode === "payment_on_arrival" && (
+            <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
+              Pay on arrival
+            </Badge>
+          )}
           <Badge variant="outline" className={status.className}>
             {status.label}
           </Badge>
@@ -1039,7 +1053,11 @@ function BookingCard({
         </p>
         <p className="text-xs text-muted-foreground">
           {activeGuests.length} guest{activeGuests.length === 1 ? "" : "s"} ·{" "}
-          {booking.paymentMode === "offline" ? "offline" : "online"}
+          {booking.paymentMode === "payment_on_arrival"
+            ? "pay on arrival"
+            : booking.paymentMode === "offline"
+              ? "offline"
+              : "online"}
         </p>
       </div>
 
@@ -1090,6 +1108,35 @@ function BookingCard({
       </ul>
 
       <div className="mt-auto flex flex-wrap items-center gap-2 pt-3">
+        {booking.paymentMode === "payment_on_arrival" && !isClosedBooking(booking) ? (
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => onIou(booking)}
+            >
+              <ReceiptTextIcon className="size-4" />{" "}
+              {booking.poa?.status === "confirmed"
+                ? "View paid receipt"
+                : "View IOU receipt"}
+            </Button>
+            {booking.paymentStatus !== "confirmed" && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={loading}
+                onClick={() => onEvidence(booking)}
+              >
+                <UploadIcon className="size-4" />{" "}
+                {booking.poa?.status === "evidence_submitted"
+                  ? "Replace evidence"
+                  : "Upload payment evidence"}
+              </Button>
+            )}
+          </>
+        ) : null}
         {canPayOffline ? (
           <Button
             type="button"
@@ -1409,6 +1456,25 @@ export function RepAccommodationTab() {
   const submitOffline = useMutation(api.agcBookings.submitOfflineBookingPayment);
   const substitute = useMutation(api.agcBookings.substituteGuest);
   const generateUploadUrl = useMutation(api.agcPortal.generateReceiptUploadUrl);
+  const submitPoaEvidence = useMutation(api.agcPoa.submitPoaEvidence);
+  // Payment-on-arrival (hub-enrolled): book now, pay on arrival, IOU receipt.
+  const [usePoa, setUsePoa] = useState(false);
+  const [poaIouTarget, setPoaIouTarget] = useState<{
+    kind: "registration" | "booking";
+    recordId: string;
+  } | null>(null);
+  const [evidenceTarget, setEvidenceTarget] = useState<string | null>(null);
+  const [poaBusy, setPoaBusy] = useState(false);
+  const iouDoc = useQuery(
+    api.agcPoa.getPoaIou,
+    poaIouTarget && sessionToken
+      ? {
+          sessionToken,
+          kind: poaIouTarget.kind,
+          recordId: poaIouTarget.recordId,
+        }
+      : "skip",
+  );
   const downloadTemplate = useAction(api.agcExcel.downloadBookingTemplate);
   const createFromExcel = useAction(api.agcExcel.createBookingFromExcel);
   const previewExcelAction = useAction(api.agcExcel.previewBookingExcel);
@@ -1560,6 +1626,7 @@ export function RepAccommodationTab() {
           accommodationType: draft.accommodationType,
           isBishopRate: draft.isBishopRate,
         })),
+        paymentOnArrival: usePoa || undefined,
       });
       setLastBooking({
         bookingId: result.bookingId,
@@ -1570,9 +1637,16 @@ export function RepAccommodationTab() {
       });
       setDrafts([]);
       setExpandedGuest(null);
-      toast.success(
-        `Reservation held until ${new Date(result.expiresAt).toLocaleString()}`,
-      );
+      if (result.paymentOnArrival) {
+        setPoaIouTarget({ kind: "booking", recordId: result.bookingId });
+        toast.success(
+          `Booking ${result.referenceNumber} created on payment-on-arrival terms — IOU receipt generated.`,
+        );
+      } else {
+        toast.success(
+          `Reservation held until ${new Date(result.expiresAt).toLocaleString()}`,
+        );
+      }
     } catch (err) {
       // Expired/revoked session → bounce to sign-in with a friendly toast.
       if (handleSessionError(err)) return;
@@ -1838,6 +1912,7 @@ export function RepAccommodationTab() {
       const result = await createFromExcel({
         sessionToken,
         storageId: excelStorageId as Id<"_storage">,
+        paymentOnArrival: usePoa || undefined,
       });
       setLastBooking({
         bookingId: result.bookingId,
@@ -1860,6 +1935,39 @@ export function RepAccommodationTab() {
       toast.error(friendly.title, { description: friendly.detail });
     } finally {
       setLoading(false);
+    }
+  };
+
+  /** Upload POA payment evidence for a booking (IOU stays until confirmed). */
+  const handlePoaEvidence = async (file: File, note: string) => {
+    if (!sessionToken || !evidenceTarget) return;
+    setPoaBusy(true);
+    try {
+      const { file: uploadFile } = await compressImageForUpload(file);
+      const storageId = await uploadFileToConvex(uploadFile, () =>
+        generateUploadUrl({ sessionToken }),
+      );
+      await submitPoaEvidence({
+        sessionToken,
+        kind: "booking",
+        recordId: evidenceTarget,
+        evidence: {
+          storageId,
+          fileName: uploadFile.name,
+          contentType: uploadFile.type || undefined,
+          note: note.trim() || undefined,
+        },
+      });
+      setEvidenceTarget(null);
+      toast.success(
+        "Payment evidence uploaded — the accommodation desk will confirm your payment.",
+      );
+    } catch (err) {
+      if (handleSessionError(err)) return;
+      const friendly = friendlyError(err);
+      toast.error(friendly.title, { description: friendly.detail });
+    } finally {
+      setPoaBusy(false);
     }
   };
 
@@ -2552,6 +2660,10 @@ export function RepAccommodationTab() {
                 onCancel={setCancelTarget}
                 onDelete={setDeleteTarget}
                 onSubstitute={openSubstitution}
+                onIou={(target) =>
+                  setPoaIouTarget({ kind: "booking", recordId: target._id })
+                }
+                onEvidence={(target) => setEvidenceTarget(target._id)}
               />
             ))}
               </div>
@@ -2560,6 +2672,29 @@ export function RepAccommodationTab() {
         </CardContent>
       </Card>
       </section>
+
+      {/* Payment-on-arrival toggle (hubs enrolled by the admin) */}
+      {overview?.paymentOnArrival && drafts.length > 0 && (
+        <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-amber-300 bg-amber-50/60 p-4 text-sm dark:border-amber-900 dark:bg-amber-950/40">
+          <input
+            type="checkbox"
+            checked={usePoa}
+            onChange={(e) => setUsePoa(e.target.checked)}
+            className="mt-0.5 size-4 accent-amber-600"
+          />
+          <span>
+            <span className="font-semibold text-amber-900 dark:text-amber-200">
+              Book without paying — payment on arrival
+            </span>
+            <span className="mt-0.5 block text-xs text-amber-800/90 dark:text-amber-300/90">
+              Your hub is enrolled: reserve these beds now, pay on arrival, and
+              upload your payment evidence here when you pay. An IOU receipt is
+              generated automatically; the total is only credited once the desk
+              confirms your payment. Applies to the Excel flow too.
+            </span>
+          </span>
+        </label>
+      )}
 
       {/* Room for the fixed summary bar so content never hides behind it. */}
       {drafts.length > 0 && <div className="h-36 md:h-40" aria-hidden />}
@@ -2603,6 +2738,15 @@ export function RepAccommodationTab() {
           submitting={loading}
         />
       )}
+
+      {/* Payment-on-arrival: IOU / paid receipt + evidence upload */}
+      <PoaIouDialog doc={iouDoc ?? null} onClose={() => setPoaIouTarget(null)} />
+      <PoaEvidenceDialog
+        open={!!evidenceTarget}
+        submitting={poaBusy}
+        onClose={() => setEvidenceTarget(null)}
+        onSubmit={(file, note) => void handlePoaEvidence(file, note)}
+      />
 
       {/* Excel preview dialog */}
       {excelPreview && (

@@ -384,7 +384,7 @@ export async function createBookingWithGuests(
     hub: Doc<"agcHubs">;
     rep: Doc<"agcRepresentatives">;
     guests: BookingGuestInput[];
-    paymentMode: "offline";
+    paymentMode: "offline" | "payment_on_arrival";
     referenceNumber: string;
   },
 ): Promise<CreateBookingResult> {
@@ -406,7 +406,12 @@ export async function createBookingWithGuests(
   const lines = computeBookingLines(guests, hub.region, typesConfig, bishopRate);
   const total = bookingTotal(lines);
   const currency = bookingCurrency(hub.region);
-  const expiresAt = await computeHoldExpiry(ctx);
+  // POA bookings hold their beds until the event deadline instead of the
+  // short offline hold window — there is no receipt deadline to chase.
+  const expiresAt =
+    args.paymentMode === "payment_on_arrival"
+      ? await getDeadlineMs(ctx)
+      : await computeHoldExpiry(ctx);
 
   const bookingId: Id<"agcBookings"> = await ctx.db.insert("agcBookings", {
     hubId: hub._id,
@@ -419,6 +424,10 @@ export async function createBookingWithGuests(
     paymentMode: args.paymentMode,
     paymentStatus: "awaiting_payment",
     bookingStatus: "reserved",
+    poa:
+      args.paymentMode === "payment_on_arrival"
+        ? { status: "pending" }
+        : undefined,
     referenceNumber: args.referenceNumber,
     expiresAt,
     createdAt: Date.now(),

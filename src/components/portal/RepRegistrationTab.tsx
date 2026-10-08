@@ -34,6 +34,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { StatTile } from "@/components/portal/StatTile";
+import {
+  PoaEvidenceDialog,
+  PoaIouDialog,
+} from "@/components/portal/PoaReceiptDialogs";
 import { cn } from "@/lib/utils";
 import {
   Select,
@@ -68,6 +72,14 @@ type RegistrationRow = {
   totalAmount: number;
   paymentMode: string;
   paymentStatus: string;
+  /** Payment-on-arrival lifecycle; null for non-POA registrations. */
+  poa: {
+    status: "pending" | "evidence_submitted" | "confirmed";
+    note?: string;
+    evidenceFileName?: string;
+    submittedAt?: number;
+    confirmedAt?: number;
+  } | null;
   /** Legacy Stripe-era online purchases awaiting payment (informational). */
   canResumePayment: boolean;
   adminMessage: string | null;
@@ -237,6 +249,18 @@ export function RepRegistrationTab() {
   );
   const submitOffline = useMutation(api.agcPortal.submitOfflineRegistration);
   const generateUploadUrl = useMutation(api.agcPortal.generateReceiptUploadUrl);
+  // Payment-on-arrival flow (only offered when the hub is enrolled).
+  const submitPoa = useMutation(api.agcPoa.submitPoaRegistration);
+  const submitPoaEvidence = useMutation(api.agcPoa.submitPoaEvidence);
+  const [poaIouTarget, setPoaIouTarget] = useState<{
+    kind: "registration" | "booking";
+    recordId: string;
+  } | null>(null);
+  const [evidenceTarget, setEvidenceTarget] = useState<{
+    kind: "registration" | "booking";
+    recordId: string;
+  } | null>(null);
+  const [poaBusy, setPoaBusy] = useState(false);
   const exportRegistrations = useAction(
     api.agcExcel.exportRepRegistrationsExcel,
   );
@@ -257,6 +281,18 @@ export function RepRegistrationTab() {
   const [search, setSearch] = useState("");
   // Post-submit success panel (reference number of the new purchase).
   const [lastSubmitted, setLastSubmitted] = useState<string | null>(null);
+
+  // IOU receipt is fetched on demand and never stored server-side.
+  const iouDoc = useQuery(
+    api.agcPoa.getPoaIou,
+    poaIouTarget && sessionToken
+      ? {
+          sessionToken,
+          kind: poaIouTarget.kind,
+          recordId: poaIouTarget.recordId,
+        }
+      : "skip",
+  );
 
   const regionPricing = portalConfig?.regions.find(
     (entry: { region: string; price: number; currency: string }) =>
@@ -328,6 +364,62 @@ export function RepRegistrationTab() {
   const daysLeft = portalConfig?.deadline
     ? Math.max(0, Math.ceil((Date.parse(portalConfig.deadline) - now) / 86_400_000))
     : null;
+
+  // Register delegates without paying (payment-on-arrival hubs only).
+  const handlePoaSubmit = async () => {
+    if (!sessionToken) return;
+    setPoaBusy(true);
+    setError("");
+    try {
+      const result = await submitPoa({ sessionToken, quantity: qty });
+      setLastSubmitted(result.referenceNumber);
+      setPoaIouTarget({ kind: "registration", recordId: result.registrationId });
+      toast.success(
+        `Registered ${qty} delegate(s) on payment-on-arrival terms — your IOU receipt is ready.`,
+      );
+    } catch (err) {
+      if (handleSessionError(err)) return;
+      const friendly = friendlyError(err);
+      setError(
+        friendly.detail ? `${friendly.title}: ${friendly.detail}` : friendly.title,
+      );
+      toast.error(friendly.title, { description: friendly.detail });
+    } finally {
+      setPoaBusy(false);
+    }
+  };
+
+  const handlePoaEvidence = async (file: File, note: string) => {
+    if (!sessionToken || !evidenceTarget) return;
+    setPoaBusy(true);
+    try {
+      const { file: uploadFile } = await compressImageForUpload(file);
+      const storageId = await uploadFileToConvex(uploadFile, () =>
+        generateUploadUrl({ sessionToken }),
+      );
+      await submitPoaEvidence({
+        sessionToken,
+        kind: evidenceTarget.kind,
+        recordId: evidenceTarget.recordId,
+        evidence: {
+          storageId,
+          fileName: uploadFile.name,
+          contentType: uploadFile.type || undefined,
+          note: note.trim() || undefined,
+        },
+      });
+      setEvidenceTarget(null);
+      toast.success(
+        "Payment evidence uploaded — the desk will confirm your payment.",
+      );
+    } catch (err) {
+      if (handleSessionError(err)) return;
+      const friendly = friendlyError(err);
+      toast.error(friendly.title, { description: friendly.detail });
+    } finally {
+      setPoaBusy(false);
+    }
+  };
 
   const handleDownloadExcel = async () => {
     if (!sessionToken) return;
@@ -686,6 +778,39 @@ export function RepRegistrationTab() {
                   {loading ? "Submitting…" : "Submit for review"}
                 </Button>
               </form>
+
+            {rep?.paymentOnArrival && (
+              <div className="rounded-xl border border-amber-300 bg-amber-50/60 p-4 dark:border-amber-900 dark:bg-amber-950/40">
+                <p className="flex items-center gap-2 text-xs font-semibold tracking-wide text-amber-800 uppercase dark:text-amber-300">
+                  <ReceiptTextIcon className="size-4" />
+                  Payment on arrival
+                </p>
+                <p className="mt-1 text-xs text-amber-800/90 dark:text-amber-300/90">
+                  Your hub is enrolled in payment on arrival. Register your
+                  delegates now without paying — an IOU receipt for{" "}
+                  <strong>
+                    {currency} {unitPrice * qty}
+                  </strong>{" "}
+                  is generated automatically, and you upload payment evidence
+                  here when you pay. Room/bed allocations stay reserved but the
+                  total is only credited once the desk confirms your payment.
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="mt-3 w-full border-amber-400"
+                  disabled={poaBusy || portalConfig?.locked === true}
+                  onClick={() => void handlePoaSubmit()}
+                >
+                  {poaBusy ? (
+                    <Loader2Icon className="size-4 animate-spin" />
+                  ) : (
+                    <ReceiptTextIcon className="size-4" />
+                  )}
+                  Register {qty} delegate{qty === 1 ? "" : "s"} — pay on arrival
+                </Button>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -782,9 +907,16 @@ export function RepRegistrationTab() {
                       <span className="font-mono text-xs tracking-wider">
                         {row.referenceNumber || "(pending)"}
                       </span>
-                      <Badge variant="outline" className={status.className}>
-                        {status.label}
-                      </Badge>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {row.poa && (
+                          <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                            Pay on arrival
+                          </Badge>
+                        )}
+                        <Badge variant="outline" className={status.className}>
+                          {status.label}
+                        </Badge>
+                      </div>
                     </div>
                     <div className="mt-2">
                       <StatusTimeline status={row.paymentStatus} />
@@ -816,6 +948,50 @@ export function RepRegistrationTab() {
                       View submitted receipt ({row.offline?.receiptFileName})
                     </a>
                   )}
+                  {row.poa && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          setPoaIouTarget({
+                            kind: "registration",
+                            recordId: row._id,
+                          })
+                        }
+                      >
+                        <ReceiptTextIcon className="size-4" />
+                        {row.poa.status === "confirmed"
+                          ? "View paid receipt"
+                          : "View IOU receipt"}
+                      </Button>
+                      {row.poa.status !== "confirmed" && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={poaBusy}
+                          onClick={() =>
+                            setEvidenceTarget({
+                              kind: "registration",
+                              recordId: row._id,
+                            })
+                          }
+                        >
+                          <UploadIcon className="size-4" />
+                          {row.poa.status === "evidence_submitted"
+                            ? "Replace evidence"
+                            : "Upload payment evidence"}
+                        </Button>
+                      )}
+                      {row.poa.evidenceFileName && (
+                        <p className="w-full text-xs text-muted-foreground">
+                          Evidence on file: {row.poa.evidenceFileName}
+                        </p>
+                      )}
+                    </div>
+                  )}
                   {row.canResumePayment && (
                     <p className="mt-3 inline-flex items-center gap-1 text-xs text-muted-foreground">
                       <ReceiptTextIcon className="size-3" />
@@ -830,6 +1006,14 @@ export function RepRegistrationTab() {
           </CardContent>
         </Card>
       </div>
+
+      <PoaIouDialog doc={iouDoc ?? null} onClose={() => setPoaIouTarget(null)} />
+      <PoaEvidenceDialog
+        open={!!evidenceTarget}
+        submitting={poaBusy}
+        onClose={() => setEvidenceTarget(null)}
+        onSubmit={(file, note) => void handlePoaEvidence(file, note)}
+      />
     </div>
   );
 }

@@ -68,6 +68,8 @@ describe("accommodationExportRows", () => {
       firstName: "Kwame",
       lastName: "Mensah",
       gender: "male",
+      phone: "",
+      email: "",
       accommodationType: "Dormitory (Mighty Fortress)",
       bishopRate: "no",
       guestStatus: "active",
@@ -90,6 +92,20 @@ describe("accommodationExportRows", () => {
     });
   });
 
+  test("guest contact info flows into the export when present", () => {
+    const rows = accommodationExportRows(
+      booking({
+        guests: [
+          guest({ phone: "+233 24 000 0000", email: "kwame@example.com" }),
+        ],
+      }),
+    );
+    expect(rows[0]).toMatchObject({
+      phone: "+233 24 000 0000",
+      email: "kwame@example.com",
+    });
+  });
+
   test("a booking with no guests still exports one row", () => {
     const rows = accommodationExportRows(booking());
     expect(rows).toHaveLength(1);
@@ -97,6 +113,8 @@ describe("accommodationExportRows", () => {
       reference: "AGC-0001",
       firstName: "",
       gender: "",
+      phone: "",
+      email: "",
       accommodationType: "",
       bookingStatus: "confirmed",
     });

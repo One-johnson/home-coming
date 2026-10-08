@@ -9,6 +9,7 @@ import {
   agcOfflinePayment,
   agcPaymentMode,
   agcPaymentStatus,
+  agcPoaRecord,
   agcRegion,
 } from "./schemaTypes";
 
@@ -416,6 +417,10 @@ export default defineSchema({
     paidAt: v.optional(v.number()),
     confirmedAt: v.optional(v.number()),
     referenceNumber: v.optional(v.string()),
+    /** Payment-on-arrival lifecycle (IOU) — present only for POA records. */
+    poa: v.optional(agcPoaRecord),
+    /** Soft delete: set when removed; purged 30 days later. */
+    deletedAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -423,7 +428,8 @@ export default defineSchema({
     .index("by_rep", ["repId"])
     .index("by_payment_status", ["paymentStatus"])
     .index("by_created_at", ["createdAt"])
-    .index("by_reference_number", ["referenceNumber"]),
+    .index("by_reference_number", ["referenceNumber"])
+    .index("by_deleted_at", ["deletedAt"]),
 
   /** Accommodation transaction (SRS §22, §38, §49). */
   agcBookings: defineTable({
@@ -444,6 +450,10 @@ export default defineSchema({
     paidAt: v.optional(v.number()),
     confirmedAt: v.optional(v.number()),
     referenceNumber: v.optional(v.string()),
+    /** Payment-on-arrival lifecycle (IOU) — present only for POA records. */
+    poa: v.optional(agcPoaRecord),
+    /** Soft delete: set when removed; purged 30 days later. */
+    deletedAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -453,7 +463,8 @@ export default defineSchema({
     .index("by_booking_status", ["bookingStatus"])
     .index("by_expires_at", ["expiresAt"])
     .index("by_created_at", ["createdAt"])
-    .index("by_reference_number", ["referenceNumber"]),
+    .index("by_reference_number", ["referenceNumber"])
+    .index("by_deleted_at", ["deletedAt"]),
 
   /** Named guests attached to a booking (SRS §37). */
   agcGuests: defineTable({
@@ -557,4 +568,35 @@ export default defineSchema({
     note: v.optional(v.string()),
     createdAt: v.number(),
   }).index("by_created_at", ["createdAt"]),
+
+  /** Physical room within an accommodation type (room-assignment workflow). */
+  agcRooms: defineTable({
+    accommodationType: agcAccommodationType,
+    name: v.string(),
+    gender: v.optional(agcGender),
+    capacity: v.number(),
+    note: v.optional(v.string()),
+    deletedAt: v.optional(v.number()),
+  }).index("by_type", ["accommodationType"]),
+
+  /** Hubs allowed to register/book with "payment on arrival" (IOU) terms. */
+  agcPoaHubs: defineTable({
+    hubId: v.id("agcHubs"),
+    note: v.optional(v.string()),
+    assignedBy: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_hub", ["hubId"]),
+
+  /** A guest checked into a room — one row per occupied bed. */
+  agcRoomAssignments: defineTable({
+    roomId: v.id("agcRooms"),
+    guestId: v.id("agcGuests"),
+    bookingId: v.id("agcBookings"),
+    assignedBy: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_room", ["roomId"])
+    .index("by_guest", ["guestId"])
+    .index("by_booking", ["bookingId"]),
 });

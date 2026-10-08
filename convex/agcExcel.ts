@@ -294,6 +294,7 @@ export const createBookingFromExcel = action({
   args: {
     sessionToken: v.string(),
     storageId: v.id("_storage"),
+    paymentOnArrival: v.optional(v.boolean()),
   },
   handler: async (
     ctx,
@@ -346,6 +347,7 @@ export const createBookingFromExcel = action({
           isBishopRate: row.isBishopRate,
         })),
         rowErrors: errors,
+        paymentOnArrival: args.paymentOnArrival,
       },
     );
     return result;

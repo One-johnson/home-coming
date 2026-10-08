@@ -33,6 +33,7 @@ import {
   type BookingGuestInput,
 } from "./agcAccommodation";
 import { requireRep } from "./agcPortal";
+import { isHubPoaEnabled } from "./lib/agcPoaRuntime";
 import {
   getAccommodationTypesConfig,
   getBishopRate,
@@ -89,6 +90,8 @@ export const getAccommodationOverview = query({
           .withIndex("by_key", (q) => q.eq("key", AGC_SETTING_KEYS.accommodationBank))
           .unique()
       )?.value,
+      // Payment-on-arrival feature flag for this hub (drives the rep UI).
+      paymentOnArrival: await isHubPoaEnabled(ctx, hub._id),
     };
   },
 });
@@ -103,6 +106,7 @@ export const createBookingFromExcelInternal = internalMutation({
     sessionToken: v.string(),
     guests: v.array(guestValidator),
     rowErrors: v.array(v.string()),
+    paymentOnArrival: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     await assertBeforeDeadline(ctx);
@@ -112,6 +116,11 @@ export const createBookingFromExcelInternal = internalMutation({
     }
     if (args.guests.length === 0) {
       throw new ConvexError("The uploaded file has no valid guest rows");
+    }
+    if (args.paymentOnArrival && !(await isHubPoaEnabled(ctx, hub._id))) {
+      throw new ConvexError(
+        "Your hub is not enrolled in payment on arrival — please pay by bank transfer or mobile money.",
+      );
     }
 
     const referenceNumber = await createUniqueReferenceNumber(
@@ -123,8 +132,9 @@ export const createBookingFromExcelInternal = internalMutation({
       hub,
       rep,
       guests: args.guests as BookingGuestInput[],
-      // Stripe removed — every region pays offline with receipt verification.
-      paymentMode: "offline",
+      // Stripe removed — every region pays offline with receipt verification,
+      // except hubs enrolled in payment on arrival.
+      paymentMode: args.paymentOnArrival ? "payment_on_arrival" : "offline",
       referenceNumber,
     });
 
@@ -152,6 +162,7 @@ export const createBooking = mutation({
   args: {
     sessionToken: v.string(),
     guests: v.array(guestValidator),
+    paymentOnArrival: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     await assertBeforeDeadline(ctx);
@@ -162,6 +173,13 @@ export const createBooking = mutation({
     if (args.guests.length === 0) {
       throw new ConvexError("Add at least one guest");
     }
+    // Server-side feature gate — only hubs granted the POA feature can use it.
+    if (args.paymentOnArrival && !(await isHubPoaEnabled(ctx, hub._id))) {
+      throw new ConvexError(
+        "Your hub is not enrolled in payment on arrival — please pay by bank transfer or mobile money.",
+      );
+    }
+    const isPoa = args.paymentOnArrival === true;
 
     const referenceNumber = await createUniqueReferenceNumber(
       ctx,
@@ -173,8 +191,9 @@ export const createBooking = mutation({
       hub,
       rep,
       guests: args.guests as BookingGuestInput[],
-      // Stripe removed — every region pays offline with receipt verification.
-      paymentMode: "offline",
+      // Stripe removed — every region pays offline with receipt verification,
+      // except hubs enrolled in payment on arrival.
+      paymentMode: isPoa ? "payment_on_arrival" : "offline",
       referenceNumber,
     });
 
@@ -190,22 +209,32 @@ export const createBooking = mutation({
       },
     });
 
-    // §50 acknowledgment: hold window + payment instructions.
+    // §50 acknowledgment: hold window + payment instructions (or POA terms).
     const status = isSmtpConfigured() ? ("pending" as const) : ("stub" as const);
     if (rep.email) {
       const emailLogId: Id<"emailLogs"> = await ctx.db.insert("emailLogs", {
         to: rep.email,
         subject: `Homecoming 2026 — accommodation reserved (${referenceNumber})`,
-        body: [
-          `Hello ${rep.firstName ?? rep.username},`,
-          "",
-          `Your accommodation reservation ${referenceNumber} for ${args.guests.length} guest(s) is held until`,
-          new Date(result.expiresAt).toUTCString(),
-          `Total: ${result.totalAmount} ${result.currency}`,
-          "Pay by bank transfer or mobile money, then upload your receipt in the portal.",
-          "",
-          "— Homecoming 2026 Accommodation Desk",
-        ].join("\n"),
+        body: isPoa
+          ? [
+              `Hello ${rep.firstName ?? rep.username},`,
+              "",
+              `Your accommodation reservation ${referenceNumber} for ${args.guests.length} guest(s) was created on payment-on-arrival terms.`,
+              `Total due on arrival: ${result.totalAmount} ${result.currency}.`,
+              "Your IOU receipt is available in the portal. When you pay, upload",              "your payment evidence there and the desk will confirm it.",
+              "",
+              "— Homecoming 2026 Accommodation Desk",
+            ].join("\n")
+          : [
+              `Hello ${rep.firstName ?? rep.username},`,
+              "",
+              `Your accommodation reservation ${referenceNumber} for ${args.guests.length} guest(s) is held until`,
+              new Date(result.expiresAt).toUTCString(),
+              `Total: ${result.totalAmount} ${result.currency}`,
+              "Pay by bank transfer or mobile money, then upload your receipt in the portal.",
+              "",
+              "— Homecoming 2026 Accommodation Desk",
+            ].join("\n"),
         type: "agc_booking_reserved",
         referenceId: result.bookingId,
         status,
@@ -224,6 +253,7 @@ export const createBooking = mutation({
       expiresAt: result.expiresAt,
       totalAmount: result.totalAmount,
       currency: result.currency,
+      paymentOnArrival: isPoa,
       lines: result.lines,
     };
   },
@@ -577,6 +607,7 @@ export const listRepBookings = query({
         expiresAt: booking.expiresAt ?? null,
         adminMessage: booking.adminMessage ?? null,
         offline: booking.offline ?? null,
+        poa: booking.poa ?? null,
         createdAt: booking.createdAt,
         confirmedAt: booking.confirmedAt ?? null,
         guests: guests.map((guest) => ({

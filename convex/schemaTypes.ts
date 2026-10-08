@@ -41,6 +41,7 @@ export const agcPaymentMode = v.union(
   v.literal("offline"),
   v.literal("stripe"),
   v.literal("paypal"),
+  v.literal("payment_on_arrival"),
 );
 
 export const agcPaymentStatus = v.union(
@@ -82,6 +83,32 @@ export const agcOfflinePayment = v.object({
   ),
 });
 
+// ------------------------------------------------------------------
+// POA (payment on arrival) — per-record lifecycle. The IOU receipt itself is
+// never stored in the database: it is generated on demand from the record +
+// config, and only becomes a stored "paid receipt" fact via `status: "confirmed"`.
+// ------------------------------------------------------------------
+
+export const agcPoaStatus = v.union(
+  v.literal("pending"),
+  v.literal("evidence_submitted"),
+  v.literal("confirmed"),
+);
+
+export const agcPoaRecord = v.object({
+  status: agcPoaStatus,
+  /** Rep's note when uploading payment evidence. */
+  note: v.optional(v.string()),
+  evidenceStorageId: v.optional(v.id("_storage")),
+  evidenceFileName: v.optional(v.string()),
+  evidenceContentType: v.optional(v.string()),
+  /** Server clock at evidence submission. */
+  submittedAt: v.optional(v.number()),
+  /** Set only when an admin/finance confirms the payment. */
+  confirmedAt: v.optional(v.number()),
+  confirmedBy: v.optional(v.string()),
+});
+
 export const agcBishopReview = v.object({
   status: v.union(
     v.literal("pending"),
@@ -107,3 +134,5 @@ export type AgcBookingStatus = Infer<typeof agcBookingStatus>;
 export type AgcGender = Infer<typeof agcGender>;
 export type AgcOfflinePayment = Infer<typeof agcOfflinePayment>;
 export type AgcBishopReview = Infer<typeof agcBishopReview>;
+export type AgcPoaStatus = Infer<typeof agcPoaStatus>;
+export type AgcPoaRecord = Infer<typeof agcPoaRecord>;

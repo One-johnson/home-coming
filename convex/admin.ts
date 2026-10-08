@@ -202,7 +202,8 @@ export const searchQuick = query({
 
     const pages = [
       { href: "/admin", label: "Overview" },
-      { href: "/admin/agc", label: "AGC console" },
+      { href: "/admin/registrations", label: "Registrations" },
+      { href: "/admin/accommodation", label: "Accommodation" },
       { href: "/admin/tours", label: "Tours" },
       { href: "/admin/hotels", label: "Hotels" },
       { href: "/admin/content", label: "Content" },

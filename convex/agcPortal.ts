@@ -15,6 +15,7 @@ import {
 } from "./lib/agcConfig";
 import { agcOfflinePayment } from "./schemaTypes";
 import { amountsMatch } from "./agcAccommodation";
+import { isHubPoaEnabled } from "./lib/agcPoaRuntime";
 import { isSmtpConfigured } from "./lib/smtpConfig";
 import { writeAuditLog } from "./lib/audit";
 import { createUniqueReferenceNumber } from "./lib/referenceNumbers";
@@ -122,6 +123,8 @@ export const getRepProfile = query({
       email: rep.email ?? "",
       phone: rep.phone ?? "",
       profileComplete: rep.profileComplete,
+      // Payment-on-arrival feature flag for this hub (drives the rep UI).
+      paymentOnArrival: await isHubPoaEnabled(ctx, rep.hubId),
       createdAt: rep.createdAt,
     };
   },
@@ -213,9 +216,11 @@ export const listRepRegistrations = query({
         totalAmount: record.totalAmount,
         paymentMode: record.paymentMode,
         paymentStatus: record.paymentStatus,
+        poa: record.poa ?? null,
         // Online registrations can be abandoned mid-checkout — offer a way to
         // resume payment for them instead of forcing a new registration.
-        canResumePayment: record.paymentStatus === "awaiting_payment",
+        canResumePayment:
+          record.paymentStatus === "awaiting_payment" && !record.poa,
         adminMessage: record.adminMessage ?? null,
         offline: record.offline ?? null,
         receiptUrl,

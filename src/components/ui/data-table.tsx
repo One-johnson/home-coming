@@ -15,7 +15,8 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowDown,
   ArrowUp,
@@ -91,7 +92,16 @@ type DataTableProps<TData, TValue> = {
   /** Rendered as a full-width row directly under a row whose id matches expandedId. */
   renderSubRow?: (row: TData) => React.ReactNode;
   expandedId?: string | null;
+  /**
+   * Human-readable names for the Columns dropdown (raw ids like "total"
+   * otherwise). Keys are column ids; missing ids fall back to the id text.
+   */
+  columnLabels?: Record<string, string>;
+  /** Persist search/filters/pagination in the URL query string (shareable views). */
+  persistStateKey?: string;
 };
+
+const URL_STATE_PREFIX = "t";
 
 function SortHeader({
   label,
@@ -136,6 +146,8 @@ export function DataTable<TData, TValue>({
   onRowClick,
   renderSubRow,
   expandedId,
+  columnLabels = {},
+  persistStateKey,
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>(
@@ -144,6 +156,11 @@ export function DataTable<TData, TValue>({
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [globalFilter, setGlobalFilter] = useState("");
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  // Restore persisted table state (search/filters/page) from the URL once.
+  // Runs after useReactTable (below) so the table instance exists.
+  const restoredRef = useRef(false);
 
   const tableColumns = useMemo<ColumnDef<TData, TValue>[]>(() => {
     const selectColumn: ColumnDef<TData, TValue> = {
@@ -225,6 +242,62 @@ export function DataTable<TData, TValue>({
     getRowId,
     initialState: { pagination: { pageSize: 10 } },
   });
+
+  // Restore persisted table state (search/filters/page) from the URL once.
+  useEffect(() => {
+    if (!persistStateKey || restoredRef.current) return;
+    restoredRef.current = true;
+    const raw = searchParams.get(URL_STATE_PREFIX);
+    if (!raw) return;
+    try {
+      const saved: unknown = JSON.parse(decodeURIComponent(raw));
+      if (typeof saved !== "object" || saved === null) return;
+      const state = saved as {
+        q?: string;
+        f?: Record<string, unknown[]>;
+        p?: number;
+      };
+      if (typeof state.q === "string") setGlobalFilter(state.q);
+      if (state.f && typeof state.f === "object") {
+        setColumnFilters(
+          Object.entries(state.f).map(([id, value]) => ({
+            id,
+            value,
+          })),
+        );
+      }
+      if (typeof state.p === "number") table.setPageIndex(state.p);
+    } catch {
+      // Ignore malformed URL state.
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount
+  }, [persistStateKey]);
+  // Mirror state changes back into the URL (debounced ~400ms).
+  useEffect(() => {
+    if (!persistStateKey || !restoredRef.current) return;
+    const timer = window.setTimeout(() => {
+      const filters: Record<string, unknown[]> = {};
+      for (const f of columnFilters) {
+        if (Array.isArray(f.value)) filters[f.id] = f.value as unknown[];
+      }
+      const encoded = encodeURIComponent(
+        JSON.stringify({
+          q: globalFilter || undefined,
+          f: Object.keys(filters).length ? filters : undefined,
+          p: table.getState().pagination.pageIndex || undefined,
+        }),
+      );
+      const next = new URLSearchParams(searchParams.toString());
+      if (encoded === encodeURIComponent("{}")) next.delete(URL_STATE_PREFIX);
+      else next.set(URL_STATE_PREFIX, encoded);
+      if (next.toString() === searchParams.toString()) return;
+      router.replace(
+        `${window.location.pathname}?${next.toString()}${window.location.hash}`,
+        { scroll: false },
+      );
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [persistStateKey, columnFilters, globalFilter, router, searchParams, table]);
 
   const handleExport = (onlySelected: boolean) => {
     const rows = onlySelected
@@ -354,7 +427,7 @@ export function DataTable<TData, TValue>({
                       }
                       className="capitalize"
                     >
-                      {column.id}
+                      {columnLabels[column.id] ?? column.id}
                     </DropdownMenuCheckboxItem>
                   ))}
               </DropdownMenuGroup>

@@ -25,6 +25,7 @@ const baseBooking = (overrides: Partial<RepBooking>): RepBooking => ({
   expiresAt: null,
   adminMessage: null,
   offline: null,
+  poa: null,
   createdAt: 0,
   confirmedAt: null,
   guests: [],

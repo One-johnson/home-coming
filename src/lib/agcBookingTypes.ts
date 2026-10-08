@@ -33,6 +33,8 @@ export type AccommodationOverview = {
   holdHours: number;
   deadline: number;
   accommodationBankDetails: string | undefined;
+  /** Hub is enrolled in payment-on-arrival (POA) — rep may book without paying. */
+  paymentOnArrival: boolean;
 };
 
 export type BookingGuest = {
@@ -69,6 +71,14 @@ export type RepBooking = {
     paymentDate?: string;
     method?: string;
     receiptFileName?: string;
+  } | null;
+  /** Payment-on-arrival lifecycle; null for non-POA bookings. */
+  poa: {
+    status: "pending" | "evidence_submitted" | "confirmed";
+    note?: string;
+    evidenceFileName?: string;
+    submittedAt?: number;
+    confirmedAt?: number;
   } | null;
   createdAt: number;
   confirmedAt: number | null;

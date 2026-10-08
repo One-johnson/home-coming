@@ -14,6 +14,8 @@ export type BookingExportGuest = {
   firstName: string;
   lastName: string;
   gender: string;
+  phone?: string | null;
+  email?: string | null;
   accommodationType: string;
   isBishopRate: boolean;
   status: string;
@@ -71,6 +73,8 @@ export function accommodationExportRows(
         firstName: "",
         lastName: "",
         gender: "",
+        phone: "",
+        email: "",
         accommodationType: "",
         bishopRate: "",
         guestStatus: "",
@@ -85,6 +89,8 @@ export function accommodationExportRows(
     firstName: guest.firstName,
     lastName: guest.lastName,
     gender: guest.gender,
+    phone: guest.phone ?? "",
+    email: guest.email ?? "",
     accommodationType: accommodationTypeLabel(guest.accommodationType),
     bishopRate: guest.isBishopRate ? "yes" : "no",
     guestStatus: guest.status,

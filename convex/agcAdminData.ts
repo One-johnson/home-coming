@@ -307,6 +307,62 @@ export const setPoolTotal = mutation({
   },
 });
 
+/**
+ * Add extra capacity (rooms/beds) to an accommodation pool. Unlike
+ * reallocation (which moves units between pools), a top-up increases the
+ * pool's total. The new total is persisted in the pool_totals override so
+ * lazy seeding/imports reproduce it, and a ledger entry + audit log record
+ * the change.
+ */
+export const addPoolCapacity = mutation({
+  args: {
+    sessionToken: sessionTokenValidator,
+    poolId: v.id("agcInventoryPools"),
+    quantity: v.number(),
+    note: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireRole(ctx, args.sessionToken, [
+      "admin",
+      "accommodation",
+    ]);
+    if (!Number.isInteger(args.quantity) || args.quantity <= 0) {
+      throw new ConvexError("Quantity must be a whole number of at least 1");
+    }
+    const pool = await ctx.db.get(args.poolId);
+    if (!pool) throw new ConvexError("Pool not found");
+
+    const newTotal = pool.total + args.quantity;
+    await ctx.db.patch(pool._id, { total: newTotal });
+
+    // Persist the override so lazy seeding/imports reproduce this capacity.
+    const overrides = await getPoolTotalOverrides(ctx);
+    overrides[`${String(pool.accommodationType)}|${pool.scope}`] = newTotal;
+    await upsertSetting(ctx, AGC_SETTING_KEYS.poolTotals, JSON.stringify(overrides));
+
+    await ctx.db.insert("agcInventoryLedger", {
+      poolId: pool._id,
+      accommodationType: pool.accommodationType,
+      scope: pool.scope,
+      action: "reallocate",
+      delta: args.quantity,
+      actorEmail: actor.email,
+      note: `capacity top-up +${args.quantity}${args.note ? `: ${args.note}` : ""}`,
+      createdAt: Date.now(),
+    });
+    await writeAuditLog(ctx, {
+      actorUserId: actor._id,
+      actorEmail: actor.email,
+      action: "agc_pool.capacity_added",
+      entityType: "agcInventoryPools",
+      entityId: pool._id,
+      summary: `Added ${args.quantity} unit(s) to ${pool.accommodationType} (${pool.scope}) pool — total now ${newTotal}`,
+      metadata: { note: args.note },
+    });
+    return { success: true as const, newTotal };
+  },
+});
+
 // ------------------------------------------------------------------
 // Seeds — idempotent defaults for settings + inventory pools
 // ------------------------------------------------------------------
@@ -1342,10 +1398,12 @@ export const listAgcRegistrationsAdmin = query({
       "registration",
       "finance",
     ]);
-    const registrations = await ctx.db
-      .query("agcRegistrations")
-      .withIndex("by_created_at")
-      .collect();
+    const registrations = (
+      await ctx.db
+        .query("agcRegistrations")
+        .withIndex("by_created_at")
+        .collect()
+    ).filter((row) => !row.deletedAt);
     const hubs = new Map(
       (await ctx.db.query("agcHubs").collect()).map((hub) => [hub._id, hub.name]),
     );
@@ -1384,10 +1442,12 @@ export const listAgcBookingsAdmin = query({
       "accommodation",
       "finance",
     ]);
-    const bookings = await ctx.db
-      .query("agcBookings")
-      .withIndex("by_created_at")
-      .collect();
+    const bookings = (
+      await ctx.db
+        .query("agcBookings")
+        .withIndex("by_created_at")
+        .collect()
+    ).filter((row) => !row.deletedAt);
     const hubs = new Map(
       (await ctx.db.query("agcHubs").collect()).map((hub) => [hub._id, hub.name]),
     );
@@ -1424,6 +1484,8 @@ export const listAgcBookingsAdmin = query({
           lastName: guest.lastName,
           gender: guest.gender,
           title: guest.title,
+          phone: guest.phone ?? null,
+          email: guest.email ?? null,
           accommodationType: guest.accommodationType,
           isBishopRate: guest.isBishopRate,
           status: guest.status,
@@ -1517,6 +1579,12 @@ export const reviewAgcRegistration = mutation({
         adminMessage: args.message || undefined,
         paidAt: record.paidAt ?? Date.now(),
         confirmedAt: Date.now(),
+        // Keep the POA lifecycle in sync when approving a POA record here.
+        poa: record.poa
+          ? record.poa.status === "confirmed"
+            ? record.poa
+            : { ...record.poa, status: "confirmed", confirmedAt: Date.now(), confirmedBy: actor.email }
+          : undefined,
         updatedAt: Date.now(),
       });
     } else if (args.decision === "reject") {
@@ -1585,6 +1653,12 @@ export const reviewAgcBooking = mutation({
         paidAt: booking.paidAt ?? Date.now(),
         confirmedAt: Date.now(),
         expiresAt: undefined,
+        // Keep the POA lifecycle in sync when approving a POA record here.
+        poa: booking.poa
+          ? booking.poa.status === "confirmed"
+            ? booking.poa
+            : { ...booking.poa, status: "confirmed", confirmedAt: Date.now(), confirmedBy: actor.email }
+          : undefined,
         updatedAt: Date.now(),
       });
       await confirmBookingInventory(ctx, args.bookingId);
@@ -1641,8 +1715,57 @@ export const reviewAgcBooking = mutation({
 // ------------------------------------------------------------------
 
 const MAX_BULK_DELETE = 200;
+const MAX_BULK_REVIEW = 200;
+/** Soft-deleted rows are purged (and unrestorable) after this long. */
+const AGC_TRASH_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
+/**
+ * Soft delete: rows stay queryable for 30 days and can be restored.
+ * Receipts are kept (they belong to the record); reserved inventory is
+ * released immediately so trashed bookings don't hold rooms — a restored
+ * booking that was on hold comes back as expired and would need re-booking.
+ */
 async function deleteRegistrationRecord(
+  ctx: MutationCtx,
+  record: Doc<"agcRegistrations">,
+) {
+  await ctx.db.patch(record._id, {
+    deletedAt: Date.now(),
+    updatedAt: Date.now(),
+  });
+}
+
+async function deleteBookingRecord(
+  ctx: MutationCtx,
+  booking: Doc<"agcBookings">,
+) {
+  // Held rooms must return to the pool the moment a booking is trashed.
+  if (booking.bookingStatus === "reserved") {
+    await releaseBookingInventory(ctx, booking, "cancel");
+    await ctx.db.patch(booking._id, {
+      bookingStatus: "expired",
+      expiresAt: undefined,
+    });
+  }
+  // Frees room assignments while guests stay intact for a possible restore.
+  for (const guest of await ctx.db
+    .query("agcGuests")
+    .withIndex("by_booking", (q) => q.eq("bookingId", booking._id))
+    .collect()) {
+    for (const assignment of await ctx.db
+      .query("agcRoomAssignments")
+      .withIndex("by_guest", (q) => q.eq("guestId", guest._id))
+      .collect()) {
+      await ctx.db.delete(assignment._id);
+    }
+  }
+  await ctx.db.patch(booking._id, {
+    deletedAt: Date.now(),
+    updatedAt: Date.now(),
+  });
+}
+
+async function purgeRegistrationRecord(
   ctx: MutationCtx,
   record: Doc<"agcRegistrations">,
 ) {
@@ -1652,14 +1775,10 @@ async function deleteRegistrationRecord(
   await ctx.db.delete(record._id);
 }
 
-async function deleteBookingRecord(
+async function purgeBookingRecord(
   ctx: MutationCtx,
   booking: Doc<"agcBookings">,
 ) {
-  // Reserved holds return their units before the lines disappear.
-  if (booking.bookingStatus === "reserved") {
-    await releaseBookingInventory(ctx, booking, "cancel");
-  }
   for (const line of await ctx.db
     .query("agcBookingLines")
     .withIndex("by_booking", (q) => q.eq("bookingId", booking._id))
@@ -1670,6 +1789,13 @@ async function deleteBookingRecord(
     .query("agcGuests")
     .withIndex("by_booking", (q) => q.eq("bookingId", booking._id))
     .collect()) {
+    // Drop any room assignment first so room occupancy stays consistent.
+    for (const assignment of await ctx.db
+      .query("agcRoomAssignments")
+      .withIndex("by_guest", (q) => q.eq("guestId", guest._id))
+      .collect()) {
+      await ctx.db.delete(assignment._id);
+    }
     await ctx.db.delete(guest._id);
   }
   // Ledger has no booking index; sweep by bookingId.
@@ -1703,7 +1829,7 @@ export const deleteAgcRegistration = mutation({
       action: "agc_registration.deleted",
       entityType: "agcRegistrations",
       entityId: args.registrationId,
-      summary: `Deleted registration ${record.referenceNumber ?? ""} by ${actor.email}`,
+      summary: `Moved registration ${record.referenceNumber ?? ""} to trash by ${actor.email}`,
     });
     return { success: true as const };
   },
@@ -1729,7 +1855,7 @@ export const deleteAgcRegistrationsBulk = mutation({
     let deleted = 0;
     for (const id of args.ids) {
       const record = await ctx.db.get(id);
-      if (!record) continue;
+      if (!record || record.deletedAt) continue;
       await deleteRegistrationRecord(ctx, record);
       deleted += 1;
     }
@@ -1739,7 +1865,7 @@ export const deleteAgcRegistrationsBulk = mutation({
       actorEmail: actor.email,
       action: "agc_registration.bulk_deleted",
       entityType: "agcRegistrations",
-      summary: `Bulk deleted ${deleted} registration(s) by ${actor.email}`,
+      summary: `Moved ${deleted} registration(s) to trash by ${actor.email}`,
       metadata: { count: deleted },
     });
     return { deleted };
@@ -1767,7 +1893,7 @@ export const deleteAgcBooking = mutation({
       action: "agc_booking.deleted",
       entityType: "agcBookings",
       entityId: args.bookingId,
-      summary: `Deleted booking ${booking.referenceNumber ?? ""} by ${actor.email}`,
+      summary: `Moved booking ${booking.referenceNumber ?? ""} to trash by ${actor.email}`,
     });
     return { success: true as const };
   },
@@ -1793,7 +1919,7 @@ export const deleteAgcBookingsBulk = mutation({
     let deleted = 0;
     for (const id of args.ids) {
       const booking = await ctx.db.get(id);
-      if (!booking) continue;
+      if (!booking || booking.deletedAt) continue;
       await deleteBookingRecord(ctx, booking);
       deleted += 1;
     }
@@ -1803,10 +1929,418 @@ export const deleteAgcBookingsBulk = mutation({
       actorEmail: actor.email,
       action: "agc_booking.bulk_deleted",
       entityType: "agcBookings",
-      summary: `Bulk deleted ${deleted} booking(s) by ${actor.email}`,
+      summary: `Moved ${deleted} booking(s) to trash by ${actor.email}`,
       metadata: { count: deleted },
     });
     return { deleted };
+  },
+});
+
+// ------------------------------------------------------------------
+// Trash — soft-deleted registrations & bookings (30-day restore window)
+// ------------------------------------------------------------------
+
+async function assertTrashPurgeAccess(ctx: MutationCtx, sessionToken: string) {
+  // Purge is irreversible — full admins only. Restore is permitted for the
+  // same roles that could delete in the first place.
+  return await requireRole(ctx, sessionToken, ["admin"]);
+}
+
+export const listAgcTrash = query({
+  args: { sessionToken: sessionTokenValidator },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, args.sessionToken, ["admin", "registration", "finance", "accommodation"]);
+    const [registrations, bookings, hubs] = await Promise.all([
+      ctx.db
+        .query("agcRegistrations")
+        .withIndex("by_deleted_at")
+        .filter((q) => q.neq("deletedAt", undefined))
+        .collect(),
+      ctx.db
+        .query("agcBookings")
+        .withIndex("by_deleted_at")
+        .filter((q) => q.neq("deletedAt", undefined))
+        .collect(),
+      ctx.db.query("agcHubs").collect(),
+    ]);
+    const hubName = new Map(hubs.map((hub) => [hub._id, hub.name]));
+    const now = Date.now();
+    const purgeAfter = (deletedAt: number) => deletedAt + AGC_TRASH_TTL_MS;
+    return {
+      registrations: registrations.map((record) => ({
+        _id: record._id,
+        referenceNumber: record.referenceNumber ?? "",
+        hubName: hubName.get(record.hubId) ?? "(unknown)",
+        quantity: record.quantity,
+        totalAmount: record.totalAmount,
+        currency: record.currency,
+        deletedAt: record.deletedAt ?? now,
+        purgeAt: purgeAfter(record.deletedAt ?? now),
+      })),
+      bookings: bookings.map((booking) => ({
+        _id: booking._id,
+        referenceNumber: booking.referenceNumber ?? "",
+        hubName: hubName.get(booking.hubId) ?? "(unknown)",
+        bookingStatus: booking.bookingStatus,
+        totalAmount: booking.totalAmount,
+        currency: booking.currency,
+        deletedAt: booking.deletedAt ?? now,
+        purgeAt: purgeAfter(booking.deletedAt ?? now),
+      })),
+      ttlDays: AGC_TRASH_TTL_MS / (24 * 60 * 60 * 1000),
+    };
+  },
+});
+
+export const restoreAgcRegistration = mutation({
+  args: {
+    sessionToken: sessionTokenValidator,
+    registrationId: v.id("agcRegistrations"),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireRole(ctx, args.sessionToken, ["admin", "registration", "finance"]);
+    const record = await ctx.db.get(args.registrationId);
+    if (!record) throw new ConvexError("Registration not found");
+    if (!record.deletedAt) throw new ConvexError("Registration is not deleted");
+    await ctx.db.patch(record._id, {
+      deletedAt: undefined,
+      updatedAt: Date.now(),
+    });
+    await writeAuditLog(ctx, {
+      actorUserId: actor._id,
+      actorEmail: actor.email,
+      action: "agc_registration.restored",
+      entityType: "agcRegistrations",
+      entityId: record._id,
+      summary: `Restored registration ${record.referenceNumber ?? ""} from trash by ${actor.email}`,
+    });
+    return { success: true as const };
+  },
+});
+
+export const restoreAgcBooking = mutation({
+  args: {
+    sessionToken: sessionTokenValidator,
+    bookingId: v.id("agcBookings"),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireRole(ctx, args.sessionToken, ["admin", "accommodation", "finance"]);
+    const booking = await ctx.db.get(args.bookingId);
+    if (!booking) throw new ConvexError("Booking not found");
+    if (!booking.deletedAt) throw new ConvexError("Booking is not deleted");
+    await ctx.db.patch(booking._id, {
+      deletedAt: undefined,
+      updatedAt: Date.now(),
+    });
+    await writeAuditLog(ctx, {
+      actorUserId: actor._id,
+      actorEmail: actor.email,
+      action: "agc_booking.restored",
+      entityType: "agcBookings",
+      entityId: booking._id,
+      summary: `Restored booking ${booking.referenceNumber ?? ""} from trash by ${actor.email}`,
+    });
+    return { success: true as const };
+  },
+});
+
+/** Restore everything deleted more than TTL days ago. Returns rows purged. */
+export const purgeExpiredTrash = mutation({
+  args: { sessionToken: sessionTokenValidator },
+  handler: async (ctx, args) => {
+    const actor = await assertTrashPurgeAccess(ctx, args.sessionToken);
+    const purged = await purgeExpiredTrashForCtx(ctx);
+    if (purged > 0) {
+      await writeAuditLog(ctx, {
+        actorUserId: actor._id,
+        actorEmail: actor.email,
+        action: "agc_trash.purged",
+        entityType: "agcTrash",
+        summary: `Purged ${purged} expired record(s) from trash by ${actor.email}`,
+        metadata: { count: purged },
+      });
+    }
+    return { purged };
+  },
+});
+
+/** Cron variant — same purge, no audit actor. */
+export const purgeExpiredTrashInternal = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    return { purged: await purgeExpiredTrashForCtx(ctx) };
+  },
+});
+
+async function purgeExpiredTrashForCtx(ctx: MutationCtx): Promise<number> {
+  const now = Date.now();
+    let purged = 0;
+    for (const record of await ctx.db
+      .query("agcRegistrations")
+      .withIndex("by_deleted_at")
+      .collect()) {
+      if (!record.deletedAt) continue;
+      if (now - record.deletedAt < AGC_TRASH_TTL_MS) continue;
+      await purgeRegistrationRecord(ctx, record);
+      purged += 1;
+    }
+    for (const booking of await ctx.db
+      .query("agcBookings")
+      .withIndex("by_deleted_at")
+      .collect()) {
+      if (!booking.deletedAt) continue;
+      if (now - booking.deletedAt < AGC_TRASH_TTL_MS) continue;
+      await purgeBookingRecord(ctx, booking);
+      purged += 1;
+    }
+    return purged;
+}
+
+// ------------------------------------------------------------------
+// Bulk review — approve / request correction over many rows at once.
+// Mirrors reviewAgcRegistration / reviewAgcBooking but skips per-row
+// email queuing: bulk messages go out in one summary email per rep
+// instead of one email per row (SRS §50). Confirmed payments notify.
+// ------------------------------------------------------------------
+
+export const bulkReviewAgcRegistrations = mutation({
+  args: {
+    sessionToken: sessionTokenValidator,
+    ids: v.array(v.id("agcRegistrations")),
+    decision: v.union(v.literal("approve"), v.literal("request_correction")),
+    message: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireRole(ctx, args.sessionToken, [
+      "admin",
+      "registration",
+      "finance",
+    ]);
+    if (args.ids.length === 0) {
+      throw new ConvexError("Select at least one registration");
+    }
+    if (args.ids.length > MAX_BULK_REVIEW) {
+      throw new ConvexError(`Review at most ${MAX_BULK_REVIEW} registrations at a time`);
+    }
+    if (args.decision === "request_correction" && !args.message?.trim()) {
+      throw new ConvexError("A message is required when requesting corrections");
+    }
+
+    const now = Date.now();
+    const reps = new Map<Id<"agcRepresentatives">, number>();
+    let approved = 0;
+    let skipped = 0;
+    for (const id of args.ids) {
+      const record = await ctx.db.get(id);
+      if (!record || record.deletedAt) {
+        skipped += 1;
+        continue;
+      }
+      // Only rows actually awaiting verification are reviewable.
+      if (record.paymentStatus !== "pending_verification") {
+        skipped += 1;
+        continue;
+      }
+      await ctx.db.patch(id, {
+        paymentStatus: args.decision === "approve" ? "confirmed" : "correction_requested",
+        adminMessage: args.message || undefined,
+        paidAt: args.decision === "approve" ? (record.paidAt ?? now) : record.paidAt,
+        confirmedAt: args.decision === "approve" ? now : record.confirmedAt,
+        updatedAt: now,
+      });
+      reps.set(record.repId, (reps.get(record.repId) ?? 0) + 1);
+      approved += 1;
+    }
+
+    await writeAuditLog(ctx, {
+      actorUserId: actor._id,
+      actorEmail: actor.email,
+      action: `agc_registration.bulk_${args.decision}`,
+      entityType: "agcRegistrations",
+      summary: `Bulk ${args.decision.replace(/_/g, " ")} on ${approved} registration(s) by ${actor.email}`,
+      metadata: { count: approved, skipped, message: args.message },
+    });
+
+    // One summary email per affected rep (never per row).
+    for (const [repId, count] of reps) {
+      await queueReviewEmail(ctx, {
+        repId,
+        subject: `Homecoming 2026 — ${count} registration${count === 1 ? "" : "s"} ${args.decision === "approve" ? "approved" : "need correction"}`,
+        body: bulkReviewEmailBody({
+          what: "registration",
+          count,
+          decision: args.decision,
+          message: args.message,
+        }),
+        referenceId: args.ids[0],
+        type: "agc_registration_review",
+      });
+    }
+    return { updated: approved, skipped };
+  },
+});
+
+export const bulkReviewAgcBookings = mutation({
+  args: {
+    sessionToken: sessionTokenValidator,
+    ids: v.array(v.id("agcBookings")),
+    decision: v.union(v.literal("approve"), v.literal("request_correction")),
+    message: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireRole(ctx, args.sessionToken, [
+      "admin",
+      "accommodation",
+      "finance",
+    ]);
+    if (args.ids.length === 0) {
+      throw new ConvexError("Select at least one booking");
+    }
+    if (args.ids.length > MAX_BULK_REVIEW) {
+      throw new ConvexError(`Review at most ${MAX_BULK_REVIEW} bookings at a time`);
+    }
+    if (args.decision === "request_correction" && !args.message?.trim()) {
+      throw new ConvexError("A message is required when requesting corrections");
+    }
+
+    const now = Date.now();
+    const reps = new Map<Id<"agcRepresentatives">, number>();
+    let updated = 0;
+    let skipped = 0;
+    for (const id of args.ids) {
+      const booking = await ctx.db.get(id);
+      if (!booking || booking.deletedAt) {
+        skipped += 1;
+        continue;
+      }
+      if (
+        booking.paymentStatus !== "pending_verification" ||
+        booking.bookingStatus === "expired" ||
+        booking.bookingStatus === "cancelled"
+      ) {
+        skipped += 1;
+        continue;
+      }
+      if (args.decision === "approve") {
+        await ctx.db.patch(id, {
+          paymentStatus: "confirmed",
+          bookingStatus: "confirmed",
+          adminMessage: args.message || undefined,
+          paidAt: booking.paidAt ?? now,
+          confirmedAt: now,
+          expiresAt: undefined,
+          updatedAt: now,
+        });
+        await confirmBookingInventory(ctx, id);
+      } else {
+        await ctx.db.patch(id, {
+          paymentStatus: "correction_requested",
+          bookingStatus: "correction_requested",
+          adminMessage: args.message || undefined,
+          updatedAt: now,
+        });
+      }
+      reps.set(booking.repId, (reps.get(booking.repId) ?? 0) + 1);
+      updated += 1;
+    }
+
+    await writeAuditLog(ctx, {
+      actorUserId: actor._id,
+      actorEmail: actor.email,
+      action: `agc_booking.bulk_${args.decision}`,
+      entityType: "agcBookings",
+      summary: `Bulk ${args.decision.replace(/_/g, " ")} on ${updated} booking(s) by ${actor.email}`,
+      metadata: { count: updated, skipped, message: args.message },
+    });
+
+    for (const [repId, count] of reps) {
+      await queueReviewEmail(ctx, {
+        repId,
+        subject: `Homecoming 2026 — ${count} accommodation booking${count === 1 ? "" : "s"} ${args.decision === "approve" ? "approved" : "need correction"}`,
+        body: bulkReviewEmailBody({
+          what: "accommodation booking",
+          count,
+          decision: args.decision,
+          message: args.message,
+        }),
+        referenceId: args.ids[0],
+        type: "agc_booking_review",
+      });
+    }
+    return { updated, skipped };
+  },
+});
+
+function bulkReviewEmailBody(args: {
+  what: string;
+  count: number;
+  decision: "approve" | "request_correction";
+  message?: string;
+}) {
+  const lines = [`Hello,`, ""];
+  if (args.decision === "approve") {
+    lines.push(
+      `${args.count} of your ${args.what}s ${args.count === 1 ? "has" : "have"} been reviewed and confirmed. Thank you.`,
+    );
+  } else {
+    lines.push(
+      `${args.count} of your ${args.what}s ${args.count === 1 ? "needs" : "need"} a correction before ${args.count === 1 ? "it" : "they"} can be approved.`,
+    );
+    if (args.message) lines.push("", `Message from the review team: ${args.message}`);
+  }
+  lines.push(
+    "",
+    "Open the representative portal to see each item's status.",
+    "",
+    "— Homecoming 2026 Registration Desk",
+  );
+  return lines.join("\n");
+}
+
+/**
+ * Review history for one record — a compact timeline from the audit log
+ * (the log already records every review decision with actor + message).
+ */
+export const listAgcRecordHistory = query({
+  args: {
+    sessionToken: sessionTokenValidator,
+    entityType: v.union(v.literal("agcRegistrations"), v.literal("agcBookings")),
+    entityId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, args.sessionToken, [
+      "admin",
+      "registration",
+      "accommodation",
+      "finance",
+    ]);
+    const events = await ctx.db
+      .query("auditLogs")
+      .withIndex("by_entity", (q) =>
+        q.eq("entityType", args.entityType).eq("entityId", args.entityId),
+      )
+      .collect();
+    return events
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, 20)
+      .map((log) => ({
+        _id: log._id,
+        action: log.action,
+        summary: log.summary,
+        actorEmail: log.actorEmail ?? null,
+        createdAt: log.createdAt,
+        message: (() => {
+          if (!log.metadata) return null;
+          try {
+            const parsed: unknown = JSON.parse(log.metadata);
+            return typeof parsed === "object" && parsed !== null && "message" in parsed
+              ? ((parsed as { message?: unknown }).message ?? null)
+              : null;
+          } catch {
+            return null;
+          }
+        })(),
+      }));
   },
 });
 
@@ -1919,10 +2453,10 @@ export const getAgcOverview = query({
     const isFinanceView = user.role === "finance";
 
     const registrations = canRegistration
-      ? await ctx.db.query("agcRegistrations").collect()
+      ? (await ctx.db.query("agcRegistrations").collect()).filter((row) => !row.deletedAt)
       : [];
     const bookings = canAccommodation
-      ? await ctx.db.query("agcBookings").collect()
+      ? (await ctx.db.query("agcBookings").collect()).filter((row) => !row.deletedAt)
       : [];
     const guests = canAccommodation
       ? await ctx.db.query("agcGuests").collect()
@@ -2301,6 +2835,30 @@ export const getAgcOverview = query({
       hubBreakdown,
       ageing,
       housing: isFinanceView ? [] : housing,
+      expiringHolds:
+        canAccommodation
+          ? bookings
+              .filter(
+                (row) =>
+                  !row.deletedAt &&
+                  row.bookingStatus === "reserved" &&
+                  row.expiresAt !== undefined &&
+                  row.expiresAt - now < 48 * 60 * 60 * 1000,
+              )
+              .sort((a, b) => (a.expiresAt ?? 0) - (b.expiresAt ?? 0))
+              .slice(0, 8)
+              .map((row) => ({
+                _id: row._id,
+                referenceNumber: row.referenceNumber ?? "",
+                hubName: hubName.get(row.hubId) ?? "(unknown)",
+                guests: guests.filter(
+                  (g) => g.bookingId === row._id && g.status === "active",
+                ).length,
+                totalAmount: row.totalAmount,
+                currency: row.currency,
+                expiresAt: row.expiresAt ?? now,
+              }))
+          : [],
       content: {
         faqs: canContent
           ? (await ctx.db.query("faqs").collect()).length
@@ -2443,6 +3001,67 @@ export const getHubRoster = query({
           b.registrations.delegates - a.registrations.delegates ||
           a.hubName.localeCompare(b.hubName),
       );
+  },
+});
+
+/**
+ * Reserved holds that lapse within 48 hours — surfaced above the pools
+ * grid so admins can see what's about to free up without digging.
+ */
+export const listExpiringHoldsAdmin = query({
+  args: { sessionToken: sessionTokenValidator },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, args.sessionToken, ["admin", "accommodation", "finance"]);
+    const now = Date.now();
+    const cutoff = now + 48 * 60 * 60 * 1000;
+    const [holds, hubs] = await Promise.all([
+      ctx.db
+        .query("agcBookings")
+        .withIndex("by_expires_at", (q) =>
+          q.lte("expiresAt", cutoff),
+        )
+        .collect(),
+      ctx.db.query("agcHubs").collect(),
+    ]);
+    const hubName = new Map(hubs.map((hub) => [hub._id, hub.name]));
+    return holds
+      .filter(
+        (row) =>
+          !row.deletedAt && row.bookingStatus === "reserved" && (row.expiresAt ?? 0) >= now,
+      )
+      .sort((a, b) => (a.expiresAt ?? 0) - (b.expiresAt ?? 0))
+      .slice(0, 10)
+      .map((row) => ({
+        _id: row._id,
+        referenceNumber: row.referenceNumber ?? "",
+        hubName: hubName.get(row.hubId) ?? "(unknown)",
+        totalAmount: row.totalAmount,
+        currency: row.currency,
+        expiresAt: row.expiresAt ?? now,
+      }));
+  },
+});
+
+/** Recent pool reallocation history (already recorded server-side per move). */
+export const listReallocationsAdmin = query({
+  args: { sessionToken: sessionTokenValidator },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, args.sessionToken, ["admin", "accommodation", "finance"]);
+    const rows = await ctx.db
+      .query("agcReallocations")
+      .withIndex("by_created_at")
+      .order("desc")
+      .take(10);
+    return rows.map((row) => ({
+      _id: row._id,
+      accommodationType: row.accommodationType,
+      fromScope: row.fromScope,
+      toScope: row.toScope,
+      quantity: row.quantity,
+      actorEmail: row.actorEmail,
+      note: row.note ?? null,
+      createdAt: row.createdAt,
+    }));
   },
 });
 

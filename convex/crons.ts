@@ -47,4 +47,26 @@ crons.interval(
   {},
 );
 
+/**
+ * Permanently purge AGC registrations/bookings soft-deleted more than 30
+ * days ago (AGC_TRASH_TTL_MS). Runs hourly; idempotent.
+ */
+export const purgeAgcTrashTick = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const result: { purged: number } = await ctx.runMutation(
+      internal.agcAdminData.purgeExpiredTrashInternal,
+      {},
+    );
+    return result;
+  },
+});
+
+crons.interval(
+  "purge soft-deleted AGC registrations and bookings",
+  { hours: 1 },
+  internal.crons.purgeAgcTrashTick,
+  {},
+);
+
 export default crons;

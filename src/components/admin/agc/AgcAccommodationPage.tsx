@@ -1,12 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { Boxes, ClipboardList } from "lucide-react";
+import { BedDouble, Boxes, ClipboardList } from "lucide-react";
 import { BookingsTab } from "@/components/admin/agc/BookingsTab";
 import { PoolsTab } from "@/components/admin/agc/PoolsTab";
+import { RoomsTab } from "@/components/admin/agc/RoomsTab";
 import { cn } from "@/lib/utils";
 
-type AccommodationSection = "bookings" | "pools";
+type AccommodationSection = "bookings" | "pools" | "rooms";
 
 const SECTIONS: Array<{
   id: AccommodationSection;
@@ -15,6 +16,7 @@ const SECTIONS: Array<{
 }> = [
   { id: "bookings", label: "Bookings", icon: ClipboardList },
   { id: "pools", label: "Pools", icon: Boxes },
+  { id: "rooms", label: "Rooms", icon: BedDouble },
 ];
 
 /** Accommodation page content: bookings review + capacity pools. */
@@ -48,7 +50,13 @@ export function AgcAccommodationPage() {
         ))}
       </div>
 
-      {section === "bookings" ? <BookingsTab /> : <PoolsTab />}
+      {section === "bookings" ? (
+        <BookingsTab />
+      ) : section === "pools" ? (
+        <PoolsTab />
+      ) : (
+        <RoomsTab />
+      )}
     </div>
   );
 }

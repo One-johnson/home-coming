@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery } from "convex/react";
 import {
+  HandCoins,
   Loader2Icon,
   Plus,
   Save,
@@ -13,6 +14,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
+import type { Id } from "@convex/_generated/dataModel";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { useAdminSession } from "@/components/admin/AdminSessionProvider";
 import { Badge } from "@/components/ui/badge";
@@ -100,14 +102,15 @@ type SettingsDraft = {
   poolTotals: Record<string, string>; // pool _id → text
 };
 
-/** In-page section anchors. Operations is instant — never part of a save. */
-type SectionId = "general" | "payments" | "accommodation" | "titles" | "operations";
+/** In-page section anchors. Operations and POA are instant — never part of a save. */
+type SectionId = "general" | "payments" | "accommodation" | "titles" | "poa" | "operations";
 
 const SECTIONS: Array<{ id: SectionId; label: string }> = [
   { id: "general", label: "General" },
   { id: "payments", label: "Payments" },
   { id: "accommodation", label: "Accommodation" },
   { id: "titles", label: "Guest titles" },
+  { id: "poa", label: "Payment on arrival" },
   { id: "operations", label: "Operations" },
 ];
 
@@ -350,6 +353,36 @@ function AgcSettingsForm({
   const setSetting = useMutation(api.agcAdminData.setAgcSetting);
   const setPoolTotal = useMutation(api.agcAdminData.setPoolTotal);
   const setLockdown = useMutation(api.agcAdminData.setRegistrationLockdown);
+  // Payment-on-arrival hub grants (instant, not part of the save workflow).
+  const poaHubs = useQuery(
+    api.agcPoa.listPoaHubsAdmin,
+    sessionToken ? { sessionToken } : "skip",
+  );
+  const setHubPoa = useMutation(api.agcPoa.setHubPoa);
+  const [poaBusyHub, setPoaBusyHub] = useState<string | null>(null);
+
+  const toggleHubPoa = async (
+    hub: { _id: string; name: string; poaEnabled: boolean },
+  ) => {
+    if (!sessionToken || poaBusyHub) return;
+    setPoaBusyHub(hub._id);
+    try {
+      await setHubPoa({
+        sessionToken,
+        hubId: hub._id as Id<"agcHubs">,
+        enabled: !hub.poaEnabled,
+      });
+      toast.success(
+        hub.poaEnabled
+          ? `Payment on arrival revoked for ${hub.name}`
+          : `Payment on arrival granted to ${hub.name}`,
+      );
+    } catch (err) {
+      toast.error(...toastFriendlyErrorParts(err, "Failed to update hub"));
+    } finally {
+      setPoaBusyHub(null);
+    }
+  };
 
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -373,6 +406,8 @@ function AgcSettingsForm({
 
   // --- Unsaved-change tracking (drives the action bar + section dots) ---
   const dirtySections: Record<SectionId, boolean> = {
+    // POA hub grants are instant (no save workflow) — never dirty.
+    poa: false,
     general:
       draft.deadline !== savedDraft.deadline ||
       draft.holdHoursText !== savedDraft.holdHoursText,
@@ -1176,6 +1211,92 @@ function AgcSettingsForm({
             <Plus className="size-4" />
             Add title
           </Button>
+        </CardContent>
+      </Card>
+
+      {/* Payment-on-arrival hub grants — instant, audit-logged toggles. */}
+      <Card id="agc-section-poa" data-agc-section="poa" className="scroll-mt-24">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex flex-wrap items-center gap-2 text-base">
+            <span className="flex items-center gap-2">
+              <HandCoins className="size-4 text-amber-600" />
+              Payment on arrival hubs
+            </span>
+            <Badge
+              variant="outline"
+              className="text-[11px] font-normal text-muted-foreground"
+            >
+              Applies instantly — no save needed
+            </Badge>
+          </CardTitle>
+          <CardDescription>
+            Grant hubs permission to register delegates and book accommodation
+            without paying up front. Their reps get an IOU receipt they can
+            upload payment evidence against; totals are only credited once you
+            or finance confirm the payment in the payment-on-arrival table.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {poaHubs === undefined ? (
+            <div className="space-y-2">
+              <Skeleton className="h-10 rounded-lg" />
+              <Skeleton className="h-10 rounded-lg" />
+              <Skeleton className="h-10 rounded-lg" />
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              {poaHubs.filter((hub) => hub.active || hub.poaEnabled).length === 0 ? (
+                <p className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
+                  No hubs yet — create hubs under Hubs &amp; representatives.
+                </p>
+              ) : (
+                poaHubs
+                  .filter((hub) => hub.active || hub.poaEnabled)
+                  .map((hub) => (
+                    <div
+                      key={hub._id}
+                      className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">
+                          {hub.name}
+                          {!hub.active && (
+                            <Badge variant="outline" className="ml-2 text-[10px]">
+                              inactive
+                            </Badge>
+                          )}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {hub.region.replace(/_/g, " ")} · {hub.country}
+                          {hub.repUsername ? ` · rep: ${hub.repUsername}` : ""}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={hub.poaEnabled}
+                        aria-label={`Payment on arrival for ${hub.name}`}
+                        disabled={poaBusyHub === hub._id}
+                        onClick={() => void toggleHubPoa(hub)}
+                        className={cn(
+                          "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50",
+                          hub.poaEnabled
+                            ? "bg-emerald-600"
+                            : "border border-border bg-muted",
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "pointer-events-none block size-4 rounded-full bg-white shadow transition-transform",
+                            hub.poaEnabled ? "translate-x-6" : "translate-x-1",
+                          )}
+                        />
+                      </button>
+                    </div>
+                  ))
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
 
