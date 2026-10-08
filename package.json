@@ -17,7 +17,7 @@
     "tours:sync": "node scripts/tours-manifest.mjs sync",
     "tours:check": "node scripts/tours-manifest.mjs check",
     "backup:content": "node scripts/backup-content.mjs",
-    "build": "node scripts/gallery-manifest.mjs check && node scripts/tours-manifest.mjs check && next build"
+    "build": "node scripts/check-convex-env.mjs && node scripts/gallery-manifest.mjs check && node scripts/tours-manifest.mjs check && next build"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",

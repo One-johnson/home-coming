@@ -14,6 +14,7 @@ import {
   BANNER_CID,
   BANNER_CONTENT_TYPE,
 } from "./lib/bannerImage";
+import { assertEmailTransportAllowed } from "./lib/emailSafety";
 import { getSmtpSettings } from "./lib/smtpConfig";
 
 const BANNER_SRC = `cid:${BANNER_CID}`;
@@ -95,6 +96,12 @@ export const sendEmail = internalAction({
       }
 
       const smtp = getSmtpSettings();
+      // Never let a non-production deployment send through the real mailbox.
+      assertEmailTransportAllowed({
+        appEnv: process.env.APP_ENV,
+        host: smtp.host,
+        user: smtp.auth.user,
+      });
       const transporter = nodemailer.createTransport({
         host: smtp.host,
         port: smtp.port,
