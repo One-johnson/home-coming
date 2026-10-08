@@ -34,6 +34,7 @@ import type * as lib_agcPoaRuntime from "../lib/agcPoaRuntime.js";
 import type * as lib_agcSettingsRuntime from "../lib/agcSettingsRuntime.js";
 import type * as lib_audit from "../lib/audit.js";
 import type * as lib_bannerImage from "../lib/bannerImage.js";
+import type * as lib_emailSafety from "../lib/emailSafety.js";
 import type * as lib_emailTemplates from "../lib/emailTemplates.js";
 import type * as lib_eventConfig from "../lib/eventConfig.js";
 import type * as lib_hotelConfig from "../lib/hotelConfig.js";
@@ -89,6 +90,7 @@ declare const fullApi: ApiFromModules<{
   "lib/agcSettingsRuntime": typeof lib_agcSettingsRuntime;
   "lib/audit": typeof lib_audit;
   "lib/bannerImage": typeof lib_bannerImage;
+  "lib/emailSafety": typeof lib_emailSafety;
   "lib/emailTemplates": typeof lib_emailTemplates;
   "lib/eventConfig": typeof lib_eventConfig;
   "lib/hotelConfig": typeof lib_hotelConfig;

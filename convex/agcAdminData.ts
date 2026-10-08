@@ -564,7 +564,11 @@ export const requireAdminSession = internalQuery({
 export const listBookingExportData = internalQuery({
   args: {},
   handler: async (ctx) => {
-    const bookings = await ctx.db.query("agcBookings").collect();
+    // POA bookings are excluded — they are tracked on the POA terms and must
+    // not inflate the paid/awaiting totals of the standard booking report.
+    const bookings = (await ctx.db.query("agcBookings").collect()).filter(
+      (row) => !row.poa,
+    );
     bookings.sort((a, b) => a.createdAt - b.createdAt);
     const hubs = new Map(
       (await ctx.db.query("agcHubs").collect()).map((hub) => [hub._id, hub.name]),
@@ -610,7 +614,11 @@ export const listBookingExportData = internalQuery({
 export const listRegistrationExportData = internalQuery({
   args: {},
   handler: async (ctx) => {
-    const registrations = await ctx.db.query("agcRegistrations").collect();
+    // POA registrations are excluded — they are tracked on the POA terms and
+    // must not inflate the standard registration report totals.
+    const registrations = (await ctx.db.query("agcRegistrations").collect()).filter(
+      (row) => !row.poa,
+    );
     registrations.sort((a, b) => a.createdAt - b.createdAt);
     return registrations.map((record) => ({
       referenceNumber: record.referenceNumber,
@@ -1398,12 +1406,15 @@ export const listAgcRegistrationsAdmin = query({
       "registration",
       "finance",
     ]);
+    // Payment-on-arrival records are reviewed in their own table
+    // (agcPoa.listPoaRecordsAdmin, shown on the POA tab) — keep them out of
+    // the main registrations queue so pending-verification counts stay honest.
     const registrations = (
       await ctx.db
         .query("agcRegistrations")
         .withIndex("by_created_at")
         .collect()
-    ).filter((row) => !row.deletedAt);
+    ).filter((row) => !row.deletedAt && !row.poa);
     const hubs = new Map(
       (await ctx.db.query("agcHubs").collect()).map((hub) => [hub._id, hub.name]),
     );
@@ -1442,12 +1453,14 @@ export const listAgcBookingsAdmin = query({
       "accommodation",
       "finance",
     ]);
+    // Payment-on-arrival bookings are reviewed in their own table
+    // (agcPoa.listPoaRecordsAdmin) — keep them out of the main bookings queue.
     const bookings = (
       await ctx.db
         .query("agcBookings")
         .withIndex("by_created_at")
         .collect()
-    ).filter((row) => !row.deletedAt);
+    ).filter((row) => !row.deletedAt && !row.poa);
     const hubs = new Map(
       (await ctx.db.query("agcHubs").collect()).map((hub) => [hub._id, hub.name]),
     );

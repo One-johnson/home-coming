@@ -32,10 +32,13 @@ import { cn } from "@/lib/utils";
 import { poaStatusMeta } from "@/lib/agcPoa";
 
 /**
- * Combined payment-on-arrival status table for admin + finance: one row per
- * POA registration or accommodation booking, with the evidence link and the
+ * Payment-on-arrival status table for admin + finance: one row per POA
+ * registration or accommodation booking, with the evidence link and the
  * "confirm payment" action that credits the total and converts the IOU
  * receipt into a paid receipt.
+ *
+ * `kind` scopes the table: the registrations page shows registrations, the
+ * accommodation page shows bookings, and "all" (default) shows both.
  */
 
 type PoaRow = {
@@ -70,13 +73,17 @@ function formatWhen(ts: number | null) {
   return ts ? new Date(ts).toLocaleString() : "—";
 }
 
-export function PoaTab() {
+export function PoaTab({ kind = "all" }: { kind?: "all" | "registration" | "booking" }) {
   const { sessionToken, user } = useAdminSession();
-  const rows = useQuery(
+  const allRows = useQuery(
     api.agcPoa.listPoaRecordsAdmin,
     sessionToken ? { sessionToken } : "skip",
   );
   const confirmPoa = useMutation(api.agcPoa.confirmPoaPayment);
+  const rows = useMemo(
+    () => (kind === "all" ? allRows : allRows?.filter((row) => row.kind === kind)),
+    [allRows, kind],
+  );
 
   const [filter, setFilter] = useState<FilterId>("all");
   const [search, setSearch] = useState("");

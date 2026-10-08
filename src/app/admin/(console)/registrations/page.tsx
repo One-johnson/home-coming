@@ -118,7 +118,7 @@ function AdminRegistrationsInner() {
       {section === "registrations" || !showPoa ? (
         <RegistrationsTab initialFilters={initialFilters} />
       ) : (
-        <PoaTab />
+        <PoaTab kind="registration" />
       )}
     </div>
   );

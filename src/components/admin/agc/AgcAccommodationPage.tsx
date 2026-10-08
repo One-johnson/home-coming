@@ -1,13 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { BedDouble, Boxes, ClipboardList } from "lucide-react";
+import { BedDouble, Boxes, ClipboardList, HandCoins } from "lucide-react";
 import { BookingsTab } from "@/components/admin/agc/BookingsTab";
 import { PoolsTab } from "@/components/admin/agc/PoolsTab";
+import { PoaTab } from "@/components/admin/agc/PoaTab";
 import { RoomsTab } from "@/components/admin/agc/RoomsTab";
+import { useAdminSession } from "@/components/admin/AdminSessionProvider";
 import { cn } from "@/lib/utils";
 
-type AccommodationSection = "bookings" | "pools" | "rooms";
+type AccommodationSection = "bookings" | "poa" | "pools" | "rooms";
 
 const SECTIONS: Array<{
   id: AccommodationSection;
@@ -15,13 +17,18 @@ const SECTIONS: Array<{
   icon: React.ComponentType<{ className?: string }>;
 }> = [
   { id: "bookings", label: "Bookings", icon: ClipboardList },
+  { id: "poa", label: "Payment on arrival", icon: HandCoins },
   { id: "pools", label: "Pools", icon: Boxes },
   { id: "rooms", label: "Rooms", icon: BedDouble },
 ];
 
 /** Accommodation page content: bookings review + capacity pools. */
 export function AgcAccommodationPage() {
+  const { user } = useAdminSession();
   const [section, setSection] = useState<AccommodationSection>("bookings");
+  // The POA booking queue is for admin + finance; accommodation staff get the
+  // standard tabs only (matches the registration page's role gating).
+  const showPoa = user?.role === "admin" || user?.role === "finance";
 
   return (
     <div className="space-y-4">
@@ -30,7 +37,7 @@ export function AgcAccommodationPage() {
         aria-label="Accommodation sections"
         className="flex w-fit items-center gap-1 rounded-full border p-1"
       >
-        {SECTIONS.map(({ id, label, icon: Icon }) => (
+        {SECTIONS.filter(({ id }) => showPoa || id !== "poa").map(({ id, label, icon: Icon }) => (
           <button
             key={id}
             type="button"
@@ -52,6 +59,8 @@ export function AgcAccommodationPage() {
 
       {section === "bookings" ? (
         <BookingsTab />
+      ) : section === "poa" ? (
+        <PoaTab kind="booking" />
       ) : section === "pools" ? (
         <PoolsTab />
       ) : (
