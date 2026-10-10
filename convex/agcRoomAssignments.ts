@@ -382,6 +382,101 @@ export const unassignGuest = mutation({
 });
 
 /**
+ * Core of the one-click rooming routine: fills every room bed-for-bed from
+ * the matching unassigned queue (type + gender; rooms with a gender lock
+ * only take that gender). Never steers guests into a room whose type
+ * differs, so pool accounting stays untouched.
+ *
+ * Called directly by `autoAssignGuests` (admin button) and by POA payment
+ * confirmation in agcPoa.ts, so confirming a payment-on-arrival booking at
+ * the venue desk places its guests into rooms automatically.
+ */
+export async function runAutoAssignment(
+  ctx: MutationCtx,
+  actorEmail: string,
+): Promise<{ placed: number; remaining: number; perRoom: { room: string; filled: number }[] }> {
+  const [rooms, guests] = await Promise.all([
+    ctx.db
+      .query("agcRooms")
+      .withIndex("by_type")
+      .collect(),
+    ctx.db.query("agcGuests").collect(),
+  ]);
+  const activeRooms = rooms.filter((room) => !room.deletedAt);
+
+  const bookings = await ctx.db.query("agcBookings").collect();
+  const bookingById = new Map(bookings.map((b) => [b._id as string, b]));
+  const assignedGuestIds = new Set(
+    (await ctx.db.query("agcRoomAssignments").collect()).map((a) => a.guestId),
+  );
+
+  type Candidate = Doc<"agcGuests">;
+  const unassigned = guests.filter((guest): guest is Candidate => {
+    if (guest.status !== "active") return false;
+    if (assignedGuestIds.has(guest._id)) return false;
+    const booking = bookingById.get(guest.bookingId);
+    return !!booking && isRoomableBooking(booking);
+  });
+
+  // Occupancy snapshot (mutable working copy per room).
+  const occupancy = new Map<string, Set<string>>();
+  const existingAssignments = await ctx.db.query("agcRoomAssignments").collect();
+  for (const room of activeRooms) {
+    occupancy.set(room._id, new Set());
+  }
+  for (const assignment of existingAssignments) {
+    occupancy.get(assignment.roomId)?.add(assignment.guestId);
+  }
+
+  const pending = new Set(unassigned.map((g) => g._id));
+  const perRoom: { room: string; filled: number }[] = [];
+
+  for (const room of activeRooms.sort((a, b) => a.name.localeCompare(b.name))) {
+    const taken = new Set(occupancy.get(room._id) ?? []);
+    const bedsBefore = taken.size;
+    while (taken.size < room.capacity) {
+      const pick = unassigned
+        .filter(
+          (guest) =>
+            pending.has(guest._id) &&
+            guest.accommodationType === room.accommodationType &&
+            (!room.gender || guest.gender === room.gender),
+        )
+        // Prefer guests from the same booking to keep hubs together.
+        .sort(
+          (a, b) =>
+            a.bookingId.localeCompare(b.bookingId) ||
+            a.lastName.localeCompare(b.lastName),
+        )[0];
+      if (!pick) break;
+      await ctx.db.insert("agcRoomAssignments", {
+        roomId: room._id,
+        guestId: pick._id,
+        bookingId: pick.bookingId,
+        assignedBy: actorEmail,
+        createdAt: Date.now(),
+      });
+      pending.delete(pick._id);
+      taken.add(pick._id);
+    }
+    const filled = taken.size - bedsBefore;
+    if (filled > 0) perRoom.push({ room: room.name, filled });
+  }
+
+  await writeAuditLog(ctx, {
+    actorEmail,
+    action: "agc_room.auto_assigned",
+    entityType: "agcRooms",
+    summary: `Auto room assignment by ${actorEmail}: ${perRoom.reduce((sum, r) => sum + r.filled, 0)} guest(s) placed`,
+  });
+  return {
+    placed: perRoom.reduce((sum, r) => sum + r.filled, 0),
+    remaining: [...pending].length,
+    perRoom,
+  };
+}
+
+/**
  * One-click rooming: fills every room bed-for-bed from the matching
  * unassigned queue (type + gender, bishops kept together where flagged).
  * Rooms with a gender lock only take that gender. Never steers guests into
@@ -392,87 +487,7 @@ export const autoAssignGuests = mutation({
   args: { sessionToken: v.string() },
   handler: async (ctx, args) => {
     const actor = await requireArea(ctx, args.sessionToken);
-
-    const [rooms, guests] = await Promise.all([
-      ctx.db
-        .query("agcRooms")
-        .withIndex("by_type")
-        .collect(),
-      ctx.db.query("agcGuests").collect(),
-    ]);
-    const activeRooms = rooms.filter((room) => !room.deletedAt);
-
-    const bookings = await ctx.db.query("agcBookings").collect();
-    const bookingById = new Map(bookings.map((b) => [b._id as string, b]));
-    const assignedGuestIds = new Set(
-      (await ctx.db.query("agcRoomAssignments").collect()).map((a) => a.guestId),
-    );
-
-    type Candidate = Doc<"agcGuests">;
-    const unassigned = guests.filter((guest): guest is Candidate => {
-      if (guest.status !== "active") return false;
-      if (assignedGuestIds.has(guest._id)) return false;
-      const booking = bookingById.get(guest.bookingId);
-      return !!booking && isRoomableBooking(booking);
-    });
-
-    // Occupancy snapshot (mutable working copy per room).
-    const occupancy = new Map<string, Set<string>>();
-    const existingAssignments = await ctx.db.query("agcRoomAssignments").collect();
-    for (const room of activeRooms) {
-      occupancy.set(room._id, new Set());
-    }
-    for (const assignment of existingAssignments) {
-      occupancy.get(assignment.roomId)?.add(assignment.guestId);
-    }
-
-    const pending = new Set(unassigned.map((g) => g._id));
-    const perRoom: { room: string; filled: number }[] = [];
-
-    for (const room of activeRooms.sort((a, b) => a.name.localeCompare(b.name))) {
-      const taken = new Set(occupancy.get(room._id) ?? []);
-      const bedsBefore = taken.size;
-      while (taken.size < room.capacity) {
-        const pick = unassigned
-          .filter(
-            (guest) =>
-              pending.has(guest._id) &&
-              guest.accommodationType === room.accommodationType &&
-              (!room.gender || guest.gender === room.gender),
-          )
-          // Prefer guests from the same booking to keep hubs together.
-          .sort(
-            (a, b) =>
-              a.bookingId.localeCompare(b.bookingId) ||
-              a.lastName.localeCompare(b.lastName),
-          )[0];
-        if (!pick) break;
-        await ctx.db.insert("agcRoomAssignments", {
-          roomId: room._id,
-          guestId: pick._id,
-          bookingId: pick.bookingId,
-          assignedBy: actor.email,
-          createdAt: Date.now(),
-        });
-        pending.delete(pick._id);
-        taken.add(pick._id);
-      }
-      const filled = taken.size - bedsBefore;
-      if (filled > 0) perRoom.push({ room: room.name, filled });
-    }
-
-    await writeAuditLog(ctx, {
-      actorUserId: actor._id,
-      actorEmail: actor.email,
-      action: "agc_room.auto_assigned",
-      entityType: "agcRooms",
-      summary: `Auto room assignment by ${actor.email}: ${perRoom.reduce((sum, r) => sum + r.filled, 0)} guest(s) placed`,
-    });
-    return {
-      placed: perRoom.reduce((sum, r) => sum + r.filled, 0),
-      remaining: [...pending].length,
-      perRoom,
-    };
+    return await runAutoAssignment(ctx, actor.email);
   },
 });
 

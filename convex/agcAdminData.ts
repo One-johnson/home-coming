@@ -562,6 +562,136 @@ export const requireAdminSession = internalQuery({
 });
 
 /**
+ * End-of-day POA reconciliation math, shared by the admin desk query
+ * (agcPoa.getPoaDailyReconciliation) and the nightly Excel export
+ * (agcExcel.exportPoaReconciliationExcel). Collected cash confirmed today is
+ * split desk (no evidence) vs pre-paid online (evidence present) against the
+ * IOUs still outstanding, grouped per hub + currency.
+ */
+export async function buildPoaReconciliation(
+  ctx: QueryCtx,
+  dayStart: number,
+): Promise<{
+  dayStart: number;
+  rows: Array<{
+    hubId: string;
+    hubName: string;
+    currency: string;
+    collectedCount: number;
+    collectedAmount: number;
+    collectedDeskCount: number;
+    collectedOnlineCount: number;
+    outstandingCount: number;
+    outstandingAmount: number;
+    units: number;
+  }>;
+  byCurrency: Record<string, { collected: number; outstanding: number }>;
+}> {
+  const dayEnd = dayStart + 24 * 60 * 60 * 1000;
+  const hubs = await ctx.db.query("agcHubs").collect();
+  const hubById = new Map(hubs.map((hub) => [hub._id, hub.name]));
+
+  type Line = {
+    hubId: string;
+    hubName: string;
+    currency: string;
+    collectedCount: number;
+    collectedAmount: number;
+    collectedDeskCount: number;
+    collectedOnlineCount: number;
+    outstandingCount: number;
+    outstandingAmount: number;
+    units: number;
+  };
+  const lines = new Map<string, Line>();
+  const line = (hubId: string, currency: string): Line => {
+    const key = `${hubId}::${currency}`;
+    let entry = lines.get(key);
+    if (!entry) {
+      entry = {
+        hubId,
+        hubName: hubById.get(hubId as Id<"agcHubs">) ?? "(unknown)",
+        currency,
+        collectedCount: 0,
+        collectedAmount: 0,
+        collectedDeskCount: 0,
+        collectedOnlineCount: 0,
+        outstandingCount: 0,
+        outstandingAmount: 0,
+        units: 0,
+      };
+      lines.set(key, entry);
+    }
+    return entry;
+  };
+
+  const inDay = (ts: number | undefined) =>
+    ts !== undefined && ts >= dayStart && ts < dayEnd;
+
+  const registrations = (
+    await ctx.db.query("agcRegistrations").collect()
+  ).filter((row) => !row.deletedAt && row.poa);
+  for (const record of registrations) {
+    if (record.poa!.status === "confirmed" && inDay(record.poa!.confirmedAt)) {
+      const entry = line(record.hubId, record.currency);
+      entry.collectedCount += 1;
+      entry.collectedAmount += record.totalAmount;
+      if (record.poa!.evidenceStorageId) entry.collectedOnlineCount += 1;
+      else entry.collectedDeskCount += 1;
+      entry.units += record.quantity;
+    } else if (record.poa!.status !== "confirmed") {
+      const entry = line(record.hubId, record.currency);
+      entry.outstandingCount += 1;
+      entry.outstandingAmount += record.totalAmount;
+    }
+  }
+
+  const bookings = (await ctx.db.query("agcBookings").collect()).filter(
+    (row) => !row.deletedAt && row.poa,
+  );
+  for (const booking of bookings) {
+    if (booking.poa!.status === "confirmed" && inDay(booking.poa!.confirmedAt)) {
+      const entry = line(booking.hubId, booking.currency);
+      entry.collectedCount += 1;
+      entry.collectedAmount += booking.totalAmount;
+      if (booking.poa!.evidenceStorageId) entry.collectedOnlineCount += 1;
+      else entry.collectedDeskCount += 1;
+      const guests = await ctx.db
+        .query("agcGuests")
+        .withIndex("by_booking", (q) => q.eq("bookingId", booking._id))
+        .collect();
+      entry.units += guests.filter((g) => g.status === "active").length;
+    } else if (booking.poa!.status !== "confirmed") {
+      const entry = line(booking.hubId, booking.currency);
+      entry.outstandingCount += 1;
+      entry.outstandingAmount += booking.totalAmount;
+    }
+  }
+
+  const rows = [...lines.values()].sort(
+    (a, b) =>
+      a.hubName.localeCompare(b.hubName) || a.currency.localeCompare(b.currency),
+  );
+  const byCurrency: Record<string, { collected: number; outstanding: number }> = {};
+  for (const row of rows) {
+    const agg = (byCurrency[row.currency] ??= { collected: 0, outstanding: 0 });
+    agg.collected += row.collectedAmount;
+    agg.outstanding += row.outstandingAmount;
+  }
+  return { dayStart, rows, byCurrency };
+}
+
+/** Internal action-side consumer of the reconciliation math. */
+export const listPoaReconciliationInternal = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const dayStart = new Date();
+    dayStart.setHours(0, 0, 0, 0);
+    return buildPoaReconciliation(ctx, dayStart.getTime());
+  },
+});
+
+/**
  * Venue cash-collection data: every unconfirmed POA record (registration or
  * booking) with its hub, units and amount, so the desk knows what to collect
  * at check-in. One row per record; the Excel action groups sheets per hub.

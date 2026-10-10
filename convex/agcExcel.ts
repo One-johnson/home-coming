@@ -833,6 +833,162 @@ export const exportPoaCollectionExcel = action({
   },
 });
 
+/**
+ * End-of-day reconciliation workbook: what was collected today (desk cash vs
+ * pre-paid online with evidence) against the IOUs still outstanding — one
+ * sheet per hub, plus a Summary with per-currency totals. Finance files
+ * this nightly alongside the cash-collection sheet.
+ */
+export const exportPoaReconciliationExcel = action({
+  args: { sessionToken: v.string() },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ filename: string; contentBase64: string }> => {
+    await ctx.runQuery(internal.agcAdminData.requireAdminSession, {
+      sessionToken: args.sessionToken,
+    });
+
+    type ReconciliationRow = {
+      hubId: string;
+      hubName: string;
+      currency: string;
+      collectedCount: number;
+      collectedAmount: number;
+      collectedDeskCount: number;
+      collectedOnlineCount: number;
+      outstandingCount: number;
+      outstandingAmount: number;
+      units: number;
+    };
+    // Reuse the live reconciliation math for the current local day.
+    const report = await ctx.runQuery(
+      internal.agcAdminData.listPoaReconciliationInternal,
+      {},
+    );
+    const rows = report.rows as ReconciliationRow[];
+
+    const workbook = new ExcelJS.Workbook();
+    const summary = workbook.addWorksheet("Summary", {
+      properties: { tabColor: { argb: "FF1F6E43" } },
+    });
+
+    const setupPrint = (sheet: ExcelJS.Worksheet) => {
+      sheet.pageSetup = {
+        orientation: "landscape",
+        fitToPage: true,
+        fitToWidth: 1,
+        fitToHeight: 0,
+        margins: {
+          left: 0.4,
+          right: 0.4,
+          top: 0.6,
+          bottom: 0.6,
+          header: 0.2,
+          footer: 0.2,
+        },
+        printTitlesRow: "1:1",
+        horizontalCentered: true,
+      };
+      sheet.views = [
+        { state: "frozen", xSplit: 0, ySplit: 1, activeCell: "A2" },
+      ];
+      for (let i = 2; i <= sheet.rowCount; i += 1) {
+        sheet.getRow(i).height = 22;
+      }
+    };
+
+    const dayLabel = new Date(report.dayStart)
+      .toISOString()
+      .slice(0, 10);
+
+    // Per-hub sheets, alphabetically.
+    const hubNames = [...new Set(rows.map((row) => row.hubName))];
+    for (const hubName of hubNames) {
+      const sheet = workbook.addWorksheet(hubSheetName(hubName, new Set(["summary"])));
+      sheet.columns = [
+        { header: "Metric", key: "metric", width: 30 },
+        { header: "Currency", key: "currency", width: 12 },
+        { header: "Count", key: "count", width: 10 },
+        { header: "Amount", key: "amount", width: 14 },
+      ];
+      sheet.getRow(1).font = { bold: true };
+      const hubRows = rows.filter((row) => row.hubName === hubName);
+      for (const row of hubRows) {
+        sheet.addRow({
+          metric: "Collected — desk cash",
+          currency: row.currency,
+          count: row.collectedDeskCount,
+          amount: row.collectedAmount,
+        });
+        if (row.collectedOnlineCount > 0) {
+          sheet.addRow({
+            metric: "Collected — pre-paid online (evidence)",
+            currency: row.currency,
+            count: row.collectedOnlineCount,
+            amount: "",
+          });
+        }
+        sheet.addRow({
+          metric: "Still outstanding (IOUs)",
+          currency: row.currency,
+          count: row.outstandingCount,
+          amount: row.outstandingAmount,
+        });
+      }
+      setupPrint(sheet);
+    }
+
+    // Summary: one row per hub+currency plus per-currency totals.
+    summary.columns = [
+      { header: "Hub", key: "hub", width: 30 },
+      { header: "Currency", key: "currency", width: 10 },
+      { header: "Desk Cash", key: "desk", width: 14 },
+      { header: "Desk Count", key: "deskCount", width: 12 },
+      { header: "Pre-paid Online", key: "online", width: 16 },
+      { header: "Collected Total", key: "collected", width: 16 },
+      { header: "Outstanding", key: "outstanding", width: 14 },
+      { header: "Outstanding Count", key: "outstandingCount", width: 16 },
+    ];
+    summary.getRow(1).font = { bold: true };
+    for (const row of rows) {
+      summary.addRow({
+        hub: row.hubName,
+        currency: row.currency,
+        desk: row.currency + " " + row.collectedAmount.toLocaleString(),
+        deskCount: row.collectedDeskCount,
+        online: row.collectedOnlineCount,
+        collected: row.currency + " " + row.collectedAmount.toLocaleString(),
+        outstanding: row.currency + " " + row.outstandingAmount.toLocaleString(),
+        outstandingCount: row.outstandingCount,
+      });
+    }
+    for (const [currency, agg] of Object.entries(
+      report.byCurrency as Record<string, { collected: number; outstanding: number }>,
+    )) {
+      const totalRow = summary.addRow({
+        hub: `TOTAL (${currency})`,
+        currency,
+        desk: `${currency} ${agg.collected.toLocaleString()}`,
+        collected: `${currency} ${agg.collected.toLocaleString()}`,
+        outstanding: `${currency} ${agg.outstanding.toLocaleString()}`,
+      });
+      totalRow.font = { bold: true };
+    }
+    summary.addRow([""]);
+    summary.addRow([
+      `End-of-day reconciliation for ${dayLabel} — compare “Desk Cash” with the drawer before closing the shift. “Pre-paid Online” rows were already paid by bank/MoMo and only confirmed today; they are not in the drawer.`,
+    ]);
+    setupPrint(summary);
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    return {
+      filename: `homecoming-2026-poa-reconciliation-${dayLabel}.xlsx`,
+      contentBase64: Buffer.from(buffer as ArrayBuffer).toString("base64"),
+    };
+  },
+});
+
 export const exportRegistrationsExcel = action({
   args: { sessionToken: v.string() },
   handler: async (

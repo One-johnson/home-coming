@@ -152,10 +152,14 @@ export function PoaTab({ kind = "all" }: { kind?: "all" | "registration" | "book
   return (
     <div className="space-y-4">
       {user?.role === "admin" && (
-        <div className="flex justify-end">
+        <div className="flex flex-wrap justify-end gap-2">
           <AgcExcelExportButton
             which="poa-collections"
             label="Cash-collection sheet (.xlsx)"
+          />
+          <AgcExcelExportButton
+            which="poa-reconciliation"
+            label="End-of-day reconciliation (.xlsx)"
           />
         </div>
       )}

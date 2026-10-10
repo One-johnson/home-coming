@@ -6,11 +6,13 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { requireRole, sessionTokenValidator } from "./users";
 import { requireRep, assertBeforeDeadline } from "./agcPortal";
 import { isHubPoaEnabled } from "./lib/agcPoaRuntime";
+import { buildPoaReconciliation } from "./agcAdminData";
 import { regionPricing } from "./lib/agcConfig";
 import { createUniqueReferenceNumber } from "./lib/referenceNumbers";
 import { writeAuditLog } from "./lib/audit";
 import { isSmtpConfigured } from "./lib/smtpConfig";
 import { confirmBookingInventory } from "./agcAccommodation";
+import { runAutoAssignment } from "./agcRoomAssignments";
 import { AGC_ACCOMMODATION_LABELS } from "../src/lib/agcPortal";
 
 /**
@@ -230,6 +232,25 @@ export const confirmPoaPayment = mutation({
       summary: `Confirmed POA payment for booking ${booking.referenceNumber ?? ""} (${booking.totalAmount} ${booking.currency}) by ${actor.email}`,
       metadata: { note: args.note },
     });
+
+    // With the beds confirmed, run the rooming routine so the booking's
+    // guests land in rooms right away — the venue desk should not need a
+    // separate accommodation step per payment. Best-effort: a full-house
+    // assignment failure must never roll back the payment confirmation.
+    let roomsAutoAssigned: number | null = null;
+    try {
+      const rooming = await runAutoAssignment(ctx, actor.email);
+      roomsAutoAssigned = rooming.placed;
+    } catch (err) {
+      await writeAuditLog(ctx, {
+        actorEmail: actor.email,
+        action: "agc_room.auto_assign_failed",
+        entityType: "agcBookings",
+        entityId: booking._id,
+        summary: `Auto room assignment after POA confirm of ${booking.referenceNumber ?? "booking"} failed (payment still confirmed): ${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
+
     await queuePoaEmail(ctx, {
       repId: booking.repId,
       subject: `Homecoming 2026 — payment confirmed (${booking.referenceNumber ?? ""})`,
@@ -244,7 +265,7 @@ export const confirmPoaPayment = mutation({
       referenceId: booking._id,
       type: "agc_poa_confirmed",
     });
-    return { success: true as const };
+    return { success: true as const, roomsAutoAssigned };
   },
 });
 
@@ -573,106 +594,10 @@ export const getPoaDailyReconciliation = query({
     const day = args.dayTs ?? Date.now();
     const dayStart = new Date(day);
     dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = dayStart.getTime() + 24 * 60 * 60 * 1000;
-
-    const hubs = await ctx.db.query("agcHubs").collect();
-    const hubById = new Map(hubs.map((hub) => [hub._id, hub.name]));
-
-    type Line = {
-      hubId: string;
-      hubName: string;
-      currency: string;
-      collectedCount: number;
-      collectedAmount: number;
-      collectedDeskCount: number;
-      collectedOnlineCount: number;
-      outstandingCount: number;
-      outstandingAmount: number;
-      units: number;
-    };
-    const lines = new Map<string, Line>();
-    const line = (
-      hubId: string,
-      currency: string,
-    ): Line => {
-      const key = `${hubId}::${currency}`;
-      let entry = lines.get(key);
-      if (!entry) {
-        entry = {
-          hubId,
-          hubName: hubById.get(hubId as Id<"agcHubs">) ?? "(unknown)",
-          currency,
-          collectedCount: 0,
-          collectedAmount: 0,
-          collectedDeskCount: 0,
-          collectedOnlineCount: 0,
-          outstandingCount: 0,
-          outstandingAmount: 0,
-          units: 0,
-        };
-        lines.set(key, entry);
-      }
-      return entry;
-    };
-
-    const inDay = (ts: number | undefined) =>
-      ts !== undefined && ts >= dayStart.getTime() && ts < dayEnd;
-
-    const registrations = (
-      await ctx.db.query("agcRegistrations").collect()
-    ).filter((row) => !row.deletedAt && row.poa);
-    for (const record of registrations) {
-      if (record.poa!.status === "confirmed" && inDay(record.poa!.confirmedAt)) {
-        const entry = line(record.hubId, record.currency);
-        entry.collectedCount += 1;
-        entry.collectedAmount += record.totalAmount;
-        // Evidence present → paid offline elsewhere (bank/MoMo) and confirmed
-        // here; no evidence → cash handed over at the venue desk.
-        if (record.poa!.evidenceStorageId) entry.collectedOnlineCount += 1;
-        else entry.collectedDeskCount += 1;
-        entry.units += record.quantity;
-      } else if (record.poa!.status !== "confirmed") {
-        const entry = line(record.hubId, record.currency);
-        entry.outstandingCount += 1;
-        entry.outstandingAmount += record.totalAmount;
-      }
-    }
-
-    const bookings = (
-      await ctx.db.query("agcBookings").collect()
-    ).filter((row) => !row.deletedAt && row.poa);
-    for (const booking of bookings) {
-      if (booking.poa!.status === "confirmed" && inDay(booking.poa!.confirmedAt)) {
-        const entry = line(booking.hubId, booking.currency);
-        entry.collectedCount += 1;
-        entry.collectedAmount += booking.totalAmount;
-        if (booking.poa!.evidenceStorageId) entry.collectedOnlineCount += 1;
-        else entry.collectedDeskCount += 1;
-        const guests = await ctx.db
-          .query("agcGuests")
-          .withIndex("by_booking", (q) => q.eq("bookingId", booking._id))
-          .collect();
-        entry.units += guests.filter((g) => g.status === "active").length;
-      } else if (booking.poa!.status !== "confirmed") {
-        const entry = line(booking.hubId, booking.currency);
-        entry.outstandingCount += 1;
-        entry.outstandingAmount += booking.totalAmount;
-      }
-    }
-
-    const rows = [...lines.values()].sort(
-      (a, b) =>
-        a.hubName.localeCompare(b.hubName) || a.currency.localeCompare(b.currency),
-    );
-    const byCurrency: Record<string, { collected: number; outstanding: number }> = {};
-    for (const row of rows) {
-      const agg = (byCurrency[row.currency] ??= { collected: 0, outstanding: 0 });
-      agg.collected += row.collectedAmount;
-      agg.outstanding += row.outstandingAmount;
-    }
-    return { dayStart: dayStart.getTime(), rows, byCurrency };
+    return buildPoaReconciliation(ctx, dayStart.getTime());
   },
 });
+
 
 // ------------------------------------------------------------------
 // Admin/finance: combined POA status table (registrations + bookings)

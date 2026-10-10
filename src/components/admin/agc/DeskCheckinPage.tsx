@@ -15,6 +15,7 @@ import {
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import { useAdminSession } from "@/components/admin/AdminSessionProvider";
+import { AgcExcelExportButton } from "@/components/admin/agc/AgcAdminClient";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -172,6 +173,10 @@ export function DeskCheckinPage() {
             autoFocus
           />
         </div>
+        <AgcExcelExportButton
+          which="poa-reconciliation"
+          label="End-of-day reconciliation (.xlsx)"
+        />
         <Button variant="outline" onClick={() => window.print()}>
           <Printer className="size-4" /> Print sheet
         </Button>

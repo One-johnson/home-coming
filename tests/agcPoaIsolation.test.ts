@@ -453,3 +453,72 @@ test("reconciliation splits confirmed-today cash from outstanding IOUs", async (
     outstanding: 150,
   });
 });
+
+test("confirming a POA booking payment auto-assigns its guests into rooms", async () => {
+  const t = createTestConvex();
+  const { token, hubId, repId } = await seedAdminAndHub(t);
+  const now = Date.now();
+  const ids = await t.run(async (ctx) => {
+    const bookingId = await ctx.db.insert("agcBookings", {
+      hubId,
+      repId,
+      region: "ghana",
+      currency: "GHS",
+      totalAmount: 450,
+      paymentMode: "payment_on_arrival",
+      paymentStatus: "awaiting_payment",
+      bookingStatus: "reserved",
+      poa: { status: "pending" },
+      referenceNumber: "STY-AUTO-1",
+      createdAt: now,
+      updatedAt: now,
+    });
+    // One dorm room with 2 beds, and two active guests from the booking.
+    const roomId = await ctx.db.insert("agcRooms", {
+      accommodationType: "dormitory",
+      name: "Review Dorm A",
+      gender: "male",
+      capacity: 2,
+    });
+    for (const name of ["Ama Auto", "Kofi Auto"]) {
+      await ctx.db.insert("agcGuests", {
+        bookingId,
+        hubId,
+        region: "ghana",
+        country: "Ghana",
+        firstName: name.split(" ")[0],
+        lastName: name.split(" ")[1],
+        gender: "male",
+        title: "Member",
+        accommodationType: "dormitory",
+        pool: "africa",
+        isBishopRate: false,
+        status: "active",
+        createdAt: now,
+      });
+    }
+    return { bookingId, roomId };
+  });
+
+  const result = await t.mutation(api.agcPoa.confirmPoaPayment, {
+    sessionToken: token,
+    kind: "booking",
+    recordId: ids.bookingId,
+  });
+  expect(result.success).toBe(true);
+
+  // The booking is confirmed AND both guests are placed in the only room.
+  const data = await t.run(async (ctx) => ({
+    booking: await ctx.db.get(ids.bookingId),
+    assignments: await ctx.db.query("agcRoomAssignments").collect(),
+  }));
+  expect(data.booking?.bookingStatus).toBe("confirmed");
+  expect(data.booking?.paymentStatus).toBe("confirmed");
+  expect(result.roomsAutoAssigned).toBe(2);
+  expect(data.assignments).toHaveLength(2);
+  expect(
+    data.assignments.every(
+      (a) => a.roomId === ids.roomId && a.bookingId === ids.bookingId,
+    ),
+  ).toBe(true);
+});
