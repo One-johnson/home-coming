@@ -269,3 +269,187 @@ test("collection data lists only unconfirmed POA records with per-hub units", as
   expect(outstanding).toHaveLength(1);
   expect(outstanding[0].totalAmount).toBe(1500);
 });
+
+test("POA holds are never on a timer — expiry leaves POA reservations untouched", async () => {
+  const t = createTestConvex();
+  const { hubId, repId } = await seedAdminAndHub(t);
+  const now = Date.now();
+  await t.run(async (ctx) => {
+    // POA booking long overdue (no expiresAt set — as created since the
+    // no-timer change). The expiry cron must skip it entirely.
+    await ctx.db.insert("agcBookings", {
+      hubId,
+      repId,
+      region: "ghana",
+      currency: "GHS",
+      totalAmount: 300,
+      paymentMode: "payment_on_arrival",
+      paymentStatus: "awaiting_payment",
+      bookingStatus: "reserved",
+      poa: { status: "pending" },
+      createdAt: now,
+      updatedAt: now,
+    });
+    // Ordinary offline booking with a lapsed hold — still expires.
+    await ctx.db.insert("agcBookings", {
+      hubId,
+      repId,
+      region: "ghana",
+      currency: "GHS",
+      totalAmount: 200,
+      paymentMode: "offline",
+      paymentStatus: "awaiting_payment",
+      bookingStatus: "reserved",
+      expiresAt: now - 1_000,
+      createdAt: now,
+      updatedAt: now,
+    });
+  });
+
+  // The cron tick is an internal mutation — run the same helper it wraps.
+  await t.run(async (ctx) => {
+    const { expireOverdueHolds } = await import("../convex/agcAccommodation");
+    await expireOverdueHolds(ctx);
+  });
+
+  const bookings = await t.run((ctx) =>
+    ctx.db.query("agcBookings").collect(),
+  );
+  const poa = bookings.find((b) => b.poa);
+  const offline = bookings.find((b) => !b.poa);
+  // The POA hold survives; the offline hold expired.
+  expect(poa?.bookingStatus).toBe("reserved");
+  expect(offline?.bookingStatus).toBe("expired");
+});
+
+test("desk data lists unconfirmed POA records with guest rosters", async () => {
+  const t = createTestConvex();
+  const { token, hubId, repId } = await seedAdminAndHub(t);
+  const now = Date.now();
+  await t.run(async (ctx) => {
+    await ctx.db.insert("agcRegistrations", {
+      hubId,
+      repId,
+      region: "ghana",
+      quantity: 2,
+      unitPrice: 30,
+      currency: "GHS",
+      totalAmount: 60,
+      paymentMode: "payment_on_arrival",
+      paymentStatus: "awaiting_payment",
+      poa: { status: "pending" },
+      referenceNumber: "REG-DESK-1",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await ctx.db.insert("agcRegistrations", {
+      hubId,
+      repId,
+      region: "ghana",
+      quantity: 1,
+      unitPrice: 30,
+      currency: "GHS",
+      totalAmount: 30,
+      paymentMode: "payment_on_arrival",
+      paymentStatus: "confirmed",
+      poa: { status: "confirmed", confirmedAt: now, confirmedBy: "a@b.c" },
+      createdAt: now,
+      updatedAt: now,
+    });
+    await ctx.db.insert("agcBookings", {
+      hubId,
+      repId,
+      region: "ghana",
+      currency: "GHS",
+      totalAmount: 150,
+      paymentMode: "payment_on_arrival",
+      paymentStatus: "awaiting_payment",
+      bookingStatus: "reserved",
+      poa: { status: "evidence_submitted" },
+      referenceNumber: "STY-DESK-2",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const booking = (await ctx.db.query("agcBookings").collect()).find(
+      (b) => b.referenceNumber === "STY-DESK-2",
+    );
+    await ctx.db.insert("agcGuests", {
+      bookingId: booking!._id,
+      hubId,
+      region: "ghana",
+      country: "Ghana",
+      firstName: "Kofi",
+      lastName: "Desk",
+      gender: "male",
+      title: "Member",
+      accommodationType: "dormitory",
+      pool: "africa",
+      isBishopRate: false,
+      status: "active",
+      createdAt: now,
+    });
+  });
+
+  const rows = await t.query(api.agcPoa.listPoaDeskData, { sessionToken: token });
+  expect(rows).toHaveLength(2);
+  const rego = rows.find((row) => row.kind === "registration");
+  const booking = rows.find((row) => row.kind === "booking");
+  expect(rego?.referenceNumber).toBe("REG-DESK-1");
+  expect(rego?.poaStatus).toBe("pending");
+  expect(booking?.referenceNumber).toBe("STY-DESK-2");
+  expect(booking?.poaStatus).toBe("evidence_submitted");
+  expect(booking?.guests[0]?.name).toBe("Kofi Desk");
+});
+
+test("reconciliation splits confirmed-today cash from outstanding IOUs", async () => {
+  const t = createTestConvex();
+  const { token, hubId, repId } = await seedAdminAndHub(t);
+  const now = Date.now();
+  await t.run(async (ctx) => {
+    // Collected at the desk TODAY (no evidence → desk cash).
+    await ctx.db.insert("agcRegistrations", {
+      hubId,
+      repId,
+      region: "ghana",
+      quantity: 2,
+      unitPrice: 30,
+      currency: "GHS",
+      totalAmount: 60,
+      paymentMode: "payment_on_arrival",
+      paymentStatus: "confirmed",
+      poa: { status: "confirmed", confirmedAt: now, confirmedBy: "a@b.c" },
+      createdAt: now,
+      updatedAt: now,
+    });
+    // Still outstanding.
+    await ctx.db.insert("agcBookings", {
+      hubId,
+      repId,
+      region: "ghana",
+      currency: "GHS",
+      totalAmount: 150,
+      paymentMode: "payment_on_arrival",
+      paymentStatus: "awaiting_payment",
+      bookingStatus: "reserved",
+      poa: { status: "pending" },
+      createdAt: now,
+      updatedAt: now,
+    });
+  });
+
+  const report = await t.query(api.agcPoa.getPoaDailyReconciliation, {
+    sessionToken: token,
+  });
+  expect(report.rows).toHaveLength(1);
+  expect(report.rows[0].hubName).toBe("Ashanti Mampong");
+  expect(report.rows[0].currency).toBe("GHS");
+  expect(report.rows[0].collectedDeskCount).toBe(1);
+  expect(report.rows[0].collectedAmount).toBe(60);
+  expect(report.rows[0].collectedOnlineCount).toBe(0);
+  expect(report.rows[0].outstandingCount).toBe(1);
+  expect(report.rows[0].outstandingAmount).toBe(150);
+  expect(report.byCurrency["GHS"]).toEqual({
+    collected: 60,
+    outstanding: 150,
+  });
+});

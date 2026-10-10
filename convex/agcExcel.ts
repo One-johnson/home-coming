@@ -725,6 +725,37 @@ export const exportPoaCollectionExcel = action({
       sheet.autoFilter = { from: "A1", to: "I1" };
     };
 
+    /** Landscape, fit-to-width print setup for the venue desk printer. */
+    const setupPrint = (sheet: ExcelJS.Worksheet) => {
+      sheet.pageSetup = {
+        orientation: "landscape",
+        fitToPage: true,
+        fitToWidth: 1,
+        fitToHeight: 0,
+        margins: {
+          left: 0.4,
+          right: 0.4,
+          top: 0.6,
+          bottom: 0.6,
+          header: 0.2,
+          footer: 0.2,
+        },
+        printTitlesRow: "1:1",
+        horizontalCentered: true,
+      };
+      sheet.headerFooter = {
+        oddFooter:
+          "&LCollected cash must match the end-of-day reconciliation&RPage &P of &N",
+      };
+      sheet.views = [
+        { state: "frozen", xSplit: 0, ySplit: 1, activeCell: "A2" },
+      ];
+      // Comfortable row height so the desk can tick rows with a pen on paper.
+      for (let i = 2; i <= sheet.rowCount; i += 1) {
+        sheet.getRow(i).height = 22;
+      }
+    };
+
     // Per-hub sheets, alphabetically — the desk works hub by hub.
     const hubNames = [...new Set(rows.map((row) => row.hubName))];
     for (const hubName of hubNames) {
@@ -749,6 +780,7 @@ export const exportPoaCollectionExcel = action({
           .join(" + "),
       });
       totalRow.font = { bold: true };
+      setupPrint(sheet);
     }
 
     // Summary: grand totals per currency.
@@ -791,10 +823,7 @@ export const exportPoaCollectionExcel = action({
         .join(" + "),
     });
     grand.font = { bold: true };
-    summary.addRow([""]);
-    summary.addRow([
-      "Payment on arrival — collect cash at check-in. Tick each row as it is paid, then confirm the payment in the admin POA table so the IOU becomes a paid receipt.",
-    ]);
+    setupPrint(summary);
 
     const buffer = await workbook.xlsx.writeBuffer();
     return {

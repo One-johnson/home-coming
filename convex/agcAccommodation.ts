@@ -372,7 +372,8 @@ export function validateGuestInput(
 export type CreateBookingResult = {
   bookingId: Id<"agcBookings">;
   referenceNumber: string;
-  expiresAt: number;
+  /** `undefined` for POA bookings — their holds are never on a timer. */
+  expiresAt: number | undefined;
   currency: string;
   totalAmount: number;
   lines: ComputedLine[];
@@ -406,11 +407,12 @@ export async function createBookingWithGuests(
   const lines = computeBookingLines(guests, hub.region, typesConfig, bishopRate);
   const total = bookingTotal(lines);
   const currency = bookingCurrency(hub.region);
-  // POA bookings hold their beds until the event deadline instead of the
-  // short offline hold window — there is no receipt deadline to chase.
+  // POA bookings are never on a timer: their beds stay held until either the
+  // payment is confirmed or the hub cancels the booking. No expiresAt means
+  // the expiry cron has nothing to release, and the portal shows no countdown.
   const expiresAt =
     args.paymentMode === "payment_on_arrival"
-      ? await getDeadlineMs(ctx)
+      ? undefined
       : await computeHoldExpiry(ctx);
 
   const bookingId: Id<"agcBookings"> = await ctx.db.insert("agcBookings", {
@@ -516,6 +518,8 @@ export async function expireOverdueHolds(ctx: MutationCtx): Promise<number> {
 
   let expired = 0;
   for (const booking of reserved) {
+    // POA holds are never on a timer — they expire only when the hub cancels.
+    if (booking.poa) continue;
     if (!booking.expiresAt || booking.expiresAt >= now) continue;
     await releaseBookingInventory(ctx, booking, "expire");
     await ctx.db.patch(booking._id, {

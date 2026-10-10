@@ -438,6 +438,243 @@ export const submitPoaEvidence = mutation({
 });
 
 // ------------------------------------------------------------------
+// Venue desk: check-in sheet for payment-on-arrival collection.
+// One row per unconfirmed POA record — registrations plus accommodation
+// bookings with their guest roster — so the desk can search by reference,
+// hub, or guest name, tick rows off as cash arrives, and confirm payments
+// in one tap. Same authorization as the POA tables (admin + finance).
+// ------------------------------------------------------------------
+
+export const listPoaDeskData = query({
+  args: { sessionToken: sessionTokenValidator },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, args.sessionToken, ["admin", "finance"]);
+    const hubs = new Map(
+      (await ctx.db.query("agcHubs").collect()).map((hub) => [hub._id, hub.name]),
+    );
+
+    type DeskRow = {
+      kind: "registration" | "booking";
+      recordId: string;
+      referenceNumber: string;
+      hubId: string;
+      hubName: string;
+      region: string;
+      currency: string;
+      totalAmount: number;
+      units: number;
+      poaStatus: string;
+      paymentStatus: string;
+      bookingStatus: string | null;
+      evidenceFileName: string | null;
+      note: string | null;
+      guests: Array<{ name: string; type: string; gender: string }>;
+      createdAt: number;
+    };
+
+    const rows: DeskRow[] = [];
+
+    const guestName = (
+      guest: Doc<"agcGuests"> | { firstName: string; lastName: string },
+    ) => `${guest.firstName} ${guest.lastName}`.trim();
+    const typeLabel = (
+      type: string,
+    ) =>
+      AGC_ACCOMMODATION_LABELS[type as keyof typeof AGC_ACCOMMODATION_LABELS] ??
+      type;
+
+    for (const record of (
+      await ctx.db.query("agcRegistrations").withIndex("by_created_at").collect()
+    ).filter((row) => !row.deletedAt && row.poa)) {
+      if (record.poa!.status === "confirmed") continue;
+      const rep = await ctx.db.get(record.repId);
+      rows.push({
+        kind: "registration",
+        recordId: record._id,
+        referenceNumber: record.referenceNumber ?? "",
+        hubId: record.hubId,
+        hubName: hubs.get(record.hubId) ?? "(unknown)",
+        region: record.region,
+        currency: record.currency,
+        totalAmount: record.totalAmount,
+        units: record.quantity,
+        poaStatus: record.poa!.status,
+        paymentStatus: record.paymentStatus,
+        bookingStatus: null,
+        evidenceFileName: record.poa!.evidenceFileName ?? null,
+        note: record.poa!.note ?? null,
+        guests: [
+          {
+            name: rep ? `${rep.username} (rep)` : "—",
+            type: `Registration × ${record.quantity}`,
+            gender: "—",
+          },
+        ],
+        createdAt: record.createdAt,
+      });
+    }
+
+    for (const booking of (
+      await ctx.db.query("agcBookings").withIndex("by_created_at").collect()
+    ).filter((row) => !row.deletedAt && row.poa)) {
+      if (booking.poa!.status === "confirmed") continue;
+      const guests = (
+        await ctx.db
+          .query("agcGuests")
+          .withIndex("by_booking", (q) => q.eq("bookingId", booking._id))
+          .collect()
+      ).filter((guest) => guest.status === "active");
+      rows.push({
+        kind: "booking",
+        recordId: booking._id,
+        referenceNumber: booking.referenceNumber ?? "",
+        hubId: booking.hubId,
+        hubName: hubs.get(booking.hubId) ?? "(unknown)",
+        region: booking.region,
+        currency: booking.currency,
+        totalAmount: booking.totalAmount,
+        units: guests.length,
+        poaStatus: booking.poa!.status,
+        paymentStatus: booking.paymentStatus,
+        bookingStatus: booking.bookingStatus,
+        evidenceFileName: booking.poa!.evidenceFileName ?? null,
+        note: booking.poa!.note ?? null,
+        guests: guests.map((guest) => ({
+          name: guestName(guest),
+          type: typeLabel(guest.accommodationType),
+          gender: guest.gender,
+        })),
+        createdAt: booking.createdAt,
+      });
+    }
+
+    // Newest first — the desk usually handles records created last.
+    rows.sort((a, b) => b.createdAt - a.createdAt);
+    return rows;
+  },
+});
+
+// ------------------------------------------------------------------
+// Venue desk: end-of-day reconciliation for payment-on-arrival cash.
+// Compares the cash actually confirmed at the desk (confirmed POA records
+// with no uploaded evidence — money handed over at check-in) against the
+// outstanding IOUs still uncollected. Grouped per hub + currency so the
+// finance officer can cash-up the drawer against the books.
+// ------------------------------------------------------------------
+
+export const getPoaDailyReconciliation = query({
+  args: {
+    sessionToken: sessionTokenValidator,
+    /** Local calendar day (ms since epoch for any instant in that day). */
+    dayTs: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, args.sessionToken, ["admin", "finance"]);
+    const day = args.dayTs ?? Date.now();
+    const dayStart = new Date(day);
+    dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = dayStart.getTime() + 24 * 60 * 60 * 1000;
+
+    const hubs = await ctx.db.query("agcHubs").collect();
+    const hubById = new Map(hubs.map((hub) => [hub._id, hub.name]));
+
+    type Line = {
+      hubId: string;
+      hubName: string;
+      currency: string;
+      collectedCount: number;
+      collectedAmount: number;
+      collectedDeskCount: number;
+      collectedOnlineCount: number;
+      outstandingCount: number;
+      outstandingAmount: number;
+      units: number;
+    };
+    const lines = new Map<string, Line>();
+    const line = (
+      hubId: string,
+      currency: string,
+    ): Line => {
+      const key = `${hubId}::${currency}`;
+      let entry = lines.get(key);
+      if (!entry) {
+        entry = {
+          hubId,
+          hubName: hubById.get(hubId as Id<"agcHubs">) ?? "(unknown)",
+          currency,
+          collectedCount: 0,
+          collectedAmount: 0,
+          collectedDeskCount: 0,
+          collectedOnlineCount: 0,
+          outstandingCount: 0,
+          outstandingAmount: 0,
+          units: 0,
+        };
+        lines.set(key, entry);
+      }
+      return entry;
+    };
+
+    const inDay = (ts: number | undefined) =>
+      ts !== undefined && ts >= dayStart.getTime() && ts < dayEnd;
+
+    const registrations = (
+      await ctx.db.query("agcRegistrations").collect()
+    ).filter((row) => !row.deletedAt && row.poa);
+    for (const record of registrations) {
+      if (record.poa!.status === "confirmed" && inDay(record.poa!.confirmedAt)) {
+        const entry = line(record.hubId, record.currency);
+        entry.collectedCount += 1;
+        entry.collectedAmount += record.totalAmount;
+        // Evidence present → paid offline elsewhere (bank/MoMo) and confirmed
+        // here; no evidence → cash handed over at the venue desk.
+        if (record.poa!.evidenceStorageId) entry.collectedOnlineCount += 1;
+        else entry.collectedDeskCount += 1;
+        entry.units += record.quantity;
+      } else if (record.poa!.status !== "confirmed") {
+        const entry = line(record.hubId, record.currency);
+        entry.outstandingCount += 1;
+        entry.outstandingAmount += record.totalAmount;
+      }
+    }
+
+    const bookings = (
+      await ctx.db.query("agcBookings").collect()
+    ).filter((row) => !row.deletedAt && row.poa);
+    for (const booking of bookings) {
+      if (booking.poa!.status === "confirmed" && inDay(booking.poa!.confirmedAt)) {
+        const entry = line(booking.hubId, booking.currency);
+        entry.collectedCount += 1;
+        entry.collectedAmount += booking.totalAmount;
+        if (booking.poa!.evidenceStorageId) entry.collectedOnlineCount += 1;
+        else entry.collectedDeskCount += 1;
+        const guests = await ctx.db
+          .query("agcGuests")
+          .withIndex("by_booking", (q) => q.eq("bookingId", booking._id))
+          .collect();
+        entry.units += guests.filter((g) => g.status === "active").length;
+      } else if (booking.poa!.status !== "confirmed") {
+        const entry = line(booking.hubId, booking.currency);
+        entry.outstandingCount += 1;
+        entry.outstandingAmount += booking.totalAmount;
+      }
+    }
+
+    const rows = [...lines.values()].sort(
+      (a, b) =>
+        a.hubName.localeCompare(b.hubName) || a.currency.localeCompare(b.currency),
+    );
+    const byCurrency: Record<string, { collected: number; outstanding: number }> = {};
+    for (const row of rows) {
+      const agg = (byCurrency[row.currency] ??= { collected: 0, outstanding: 0 });
+      agg.collected += row.collectedAmount;
+      agg.outstanding += row.outstandingAmount;
+    }
+    return { dayStart: dayStart.getTime(), rows, byCurrency };
+  },
+});
+
+// ------------------------------------------------------------------
 // Admin/finance: combined POA status table (registrations + bookings)
 // ------------------------------------------------------------------
 

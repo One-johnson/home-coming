@@ -1041,7 +1041,7 @@ function BookingCard({
           <Badge variant="outline" className={payStatus.className}>
             {payStatus.label}
           </Badge>
-          {isReserved && booking.expiresAt ? (
+          {isReserved && booking.expiresAt && booking.paymentMode !== "payment_on_arrival" ? (
             <HoldCountdown expiresAt={booking.expiresAt} />
           ) : null}
         </div>
@@ -1490,7 +1490,7 @@ export function RepAccommodationTab() {
     referenceNumber: string;
     totalAmount: number;
     currency: string;
-    expiresAt: number;
+    expiresAt: number | null;
   } | null>(null);
 
   // Payment dialog (per-booking; null = closed)
@@ -1633,16 +1633,16 @@ export function RepAccommodationTab() {
         referenceNumber: result.referenceNumber,
         totalAmount: result.totalAmount,
         currency: result.currency,
-        expiresAt: result.expiresAt,
+        expiresAt: result.expiresAt ?? null,
       });
       setDrafts([]);
       setExpandedGuest(null);
       if (result.paymentOnArrival) {
         setPoaIouTarget({ kind: "booking", recordId: result.bookingId });
         toast.success(
-          `Booking ${result.referenceNumber} created on payment-on-arrival terms — IOU receipt generated.`,
+          `Booking ${result.referenceNumber} created on payment-on-arrival terms — IOU receipt generated. Your beds are held until payment is confirmed at the venue desk.`,
         );
-      } else {
+      } else if (result.expiresAt) {
         toast.success(
           `Reservation held until ${new Date(result.expiresAt).toLocaleString()}`,
         );
@@ -2471,9 +2471,18 @@ export function RepAccommodationTab() {
                 Reservation {lastBooking.referenceNumber} created
               </AlertTitle>
               <AlertDescription>
-                {lastBooking.currency} {lastBooking.totalAmount} — held until{" "}
-                {new Date(lastBooking.expiresAt).toLocaleString()}. Pay by bank
-                transfer/MoMo and submit your receipt on the booking below.
+                {lastBooking.currency} {lastBooking.totalAmount} —{" "}
+                {lastBooking.expiresAt ? (
+                  <>
+                    held until {new Date(lastBooking.expiresAt).toLocaleString()}. Pay by
+                    bank transfer/MoMo and submit your receipt on the booking
+                    below.
+                  </>
+                ) : (
+                  <>held on payment-on-arrival terms — no expiry. Pay at the
+                    venue desk during check-in (bank transfer/MoMo receipts can
+                    still be submitted on the booking below).</>
+                )}
               </AlertDescription>
             </Alert>
           )}
@@ -2593,9 +2602,11 @@ export function RepAccommodationTab() {
                               </Badge>
                             </TableCell>
                             <TableCell className="text-xs whitespace-nowrap text-muted-foreground">
-                              {booking.bookingStatus === "reserved" && booking.expiresAt
+                              {booking.bookingStatus === "reserved" && booking.expiresAt && booking.paymentMode !== "payment_on_arrival"
                                 ? new Date(booking.expiresAt).toLocaleString()
-                                : "—"}
+                                : booking.bookingStatus === "reserved" && booking.paymentMode === "payment_on_arrival"
+                                  ? "Held for desk check-in"
+                                  : "—"}
                             </TableCell>
                             <TableCell className="text-right">
                               {canPay ? (
