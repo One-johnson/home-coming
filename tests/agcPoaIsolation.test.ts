@@ -204,6 +204,36 @@ test("overview reports POA outstanding separately from awaiting-review money", a
       createdAt: now,
       updatedAt: now,
     });
+    // Second currency surface: EUR registration + USD booking so the
+    // per-currency breakout is actually exercised.
+    await ctx.db.insert("agcRegistrations", {
+      hubId,
+      repId,
+      region: "rest_of_europe",
+      quantity: 1,
+      unitPrice: 20,
+      currency: "EUR",
+      totalAmount: 20,
+      paymentMode: "payment_on_arrival",
+      paymentStatus: "awaiting_payment",
+      poa: { status: "pending" },
+      createdAt: now,
+      updatedAt: now,
+    });
+    await ctx.db.insert("agcBookings", {
+      hubId,
+      repId,
+      region: "ghana",
+      currency: "USD",
+      totalAmount: 15,
+      paymentMode: "payment_on_arrival",
+      paymentStatus: "awaiting_payment",
+      bookingStatus: "reserved",
+      expiresAt: now + 86_400_000,
+      poa: { status: "pending" },
+      createdAt: now,
+      updatedAt: now,
+    });
   });
 
   const overview = await t.query(api.agcAdminData.getAgcOverview, {
@@ -211,10 +241,25 @@ test("overview reports POA outstanding separately from awaiting-review money", a
   });
 
   // POA cash is its own ledger: GHS 800 across 2 records.
-  expect(overview.poa.outstandingCount).toBe(2);
-  expect(overview.poa.outstandingRegistrations).toBe(1);
-  expect(overview.poa.outstandingBookings).toBe(1);
+  expect(overview.poa.outstandingCount).toBe(4);
+  expect(overview.poa.outstandingRegistrations).toBe(2);
+  expect(overview.poa.outstandingBookings).toBe(2);
   expect(overview.poa.outstandingByCurrency["GHS"]).toBe(800);
+  expect(overview.poa.outstandingByCurrency["EUR"]).toBe(20);
+  expect(overview.poa.outstandingByCurrency["USD"]).toBe(15);
+  // Per-currency split by surface — registrations vs accommodation never mix.
+  expect(overview.poa.outstandingSurfacesByCurrency["GHS"]).toEqual({
+    registrations: 500,
+    bookings: 300,
+  });
+  expect(overview.poa.outstandingSurfacesByCurrency["EUR"]).toEqual({
+    registrations: 20,
+    bookings: 0,
+  });
+  expect(overview.poa.outstandingSurfacesByCurrency["USD"]).toEqual({
+    registrations: 0,
+    bookings: 15,
+  });
 
   // The bookings awaiting-review board must not absorb the POA booking.
   expect(overview.bookings.pending).toBe(0);

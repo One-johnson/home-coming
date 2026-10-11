@@ -119,6 +119,11 @@ type AgcOverview = {
     outstandingBookings: number;
     outstandingCount: number;
     outstandingByCurrency: Record<string, number>;
+    /** Per-currency outstanding split by surface — regs vs accommodation each stay inside one currency. */
+    outstandingSurfacesByCurrency: Record<
+      string,
+      { registrations: number; bookings: number }
+    >;
     outstandingLabel: string;
   };
   /** Confirmed revenue per day (per surface, per currency) — last 7 days. */
@@ -135,9 +140,13 @@ type AgcOverview = {
     registrationsCount: number;
     registrationsRevenueByCurrency: Record<string, number>;
     registrationsAwaitingByCurrency: Record<string, number>;
+    /** Uncollected POA registration money per currency. */
+    registrationsPoaOutstandingByCurrency: Record<string, number>;
     bookingsCount: number;
     bookingsRevenueByCurrency: Record<string, number>;
     bookingsAwaitingByCurrency: Record<string, number>;
+    /** Uncollected POA booking money per currency. */
+    bookingsPoaOutstandingByCurrency: Record<string, number>;
   }[];
   /** Awaiting-review ageing buckets per surface as delivered by getAgcOverview.
    */
@@ -366,6 +375,10 @@ function PoaOutstandingCard({
     outstandingBookings: number;
     outstandingCount: number;
     outstandingByCurrency: Record<string, number>;
+    outstandingSurfacesByCurrency: Record<
+      string,
+      { registrations: number; bookings: number }
+    >;
   };
   currencyFilter: CurrencyFilter;
 }) {
@@ -374,6 +387,14 @@ function PoaOutstandingCard({
       ? poa.outstandingByCurrency
       : Object.fromEntries(
           Object.entries(poa.outstandingByCurrency).filter(([currency]) =>
+            matchesCurrencyFilter(currency, currencyFilter),
+          ),
+        );
+  const outstandingSurfaces =
+    currencyFilter === "ALL"
+      ? poa.outstandingSurfacesByCurrency
+      : Object.fromEntries(
+          Object.entries(poa.outstandingSurfacesByCurrency).filter(([currency]) =>
             matchesCurrencyFilter(currency, currencyFilter),
           ),
         );
@@ -423,18 +444,41 @@ function PoaOutstandingCard({
               tone="warn"
             />
           </div>
-          <div className="space-y-0.5 border-t border-border/70 pt-2 text-xs">
-            <p className="text-muted-foreground">
-              Uncollected:{" "}
-              <span
-                className={cn(
-                  "font-semibold tabular-nums",
-                  poa.outstandingCount > 0 ? "text-violet-700" : "text-emerald-700",
-                )}
-              >
-                {formatMoneyByCurrency(outstanding)}
-              </span>
-            </p>
+          <div className="space-y-1.5 border-t border-border/70 pt-2 text-xs">
+            {Object.keys(outstandingSurfaces)
+              .sort(byCurrencyDesc)
+              .map((currency) => {
+                const split = outstandingSurfaces[currency];
+                if (split.registrations <= 0 && split.bookings <= 0) return null;
+                return (
+                  <div
+                    key={currency}
+                    className="rounded-lg border border-border/70 bg-background/60 px-2.5 py-1.5"
+                  >
+                    <p className="flex items-center justify-between gap-3">
+                      <span className="font-medium text-foreground/80">
+                        {currencyTitle(currency)}
+                      </span>
+                      <span className="font-semibold tabular-nums text-violet-700">
+                        {formatMoneyByCurrency({ [currency]: poa.outstandingByCurrency[currency] ?? 0 })}
+                      </span>
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-muted-foreground tabular-nums">
+                      Registrations {formatMoneyByCurrency({ [currency]: split.registrations })}
+                      {" · "}
+                      Accommodation {formatMoneyByCurrency({ [currency]: split.bookings })}
+                    </p>
+                  </div>
+                );
+              })}
+            {Object.keys(outstandingSurfaces).length === 0 && (
+              <p className="text-muted-foreground">
+                Uncollected:{" "}
+                <span className="font-semibold tabular-nums text-emerald-700">
+                  {formatMoneyByCurrency(outstanding)}
+                </span>
+              </p>
+            )}
           </div>
           <div className="flex flex-wrap gap-2 border-t border-border/70 pt-2">
             <Button
@@ -972,9 +1016,11 @@ function HubMoneyTable({
     registrationsCount: number;
     registrationsRevenueByCurrency: Record<string, number>;
     registrationsAwaitingByCurrency: Record<string, number>;
+    registrationsPoaOutstandingByCurrency: Record<string, number>;
     bookingsCount: number;
     bookingsRevenueByCurrency: Record<string, number>;
     bookingsAwaitingByCurrency: Record<string, number>;
+    bookingsPoaOutstandingByCurrency: Record<string, number>;
   }[];
   currencyFilter: CurrencyFilter;
 }) {
@@ -986,13 +1032,23 @@ function HubMoneyTable({
       { id: "regs", header: "Regs (n)", accessorFn: (h) => h.registrationsCount },
       { id: "regGhs", header: "Regs GHS total", accessorFn: (h) => h.registrationsRevenueByCurrency.GHS ?? 0 },
       { id: "regGhsA", header: "Regs GHS awaiting", accessorFn: (h) => h.registrationsAwaitingByCurrency.GHS ?? 0 },
+      { id: "regGhsPoa", header: "Regs GHS POA out.", accessorFn: (h) => h.registrationsPoaOutstandingByCurrency.GHS ?? 0 },
       { id: "regUsd", header: "Regs USD total", accessorFn: (h) => h.registrationsRevenueByCurrency.USD ?? 0 },
       { id: "regUsdA", header: "Regs USD awaiting", accessorFn: (h) => h.registrationsAwaitingByCurrency.USD ?? 0 },
+      { id: "regUsdPoa", header: "Regs USD POA out.", accessorFn: (h) => h.registrationsPoaOutstandingByCurrency.USD ?? 0 },
+      { id: "regEur", header: "Regs EUR total", accessorFn: (h) => h.registrationsRevenueByCurrency.EUR ?? 0 },
+      { id: "regEurA", header: "Regs EUR awaiting", accessorFn: (h) => h.registrationsAwaitingByCurrency.EUR ?? 0 },
+      { id: "regEurPoa", header: "Regs EUR POA out.", accessorFn: (h) => h.registrationsPoaOutstandingByCurrency.EUR ?? 0 },
       { id: "accN", header: "Accom (n)", accessorFn: (h) => h.bookingsCount },
       { id: "accGhs", header: "Accom GHS total", accessorFn: (h) => h.bookingsRevenueByCurrency.GHS ?? 0 },
       { id: "accGhsA", header: "Accom GHS awaiting", accessorFn: (h) => h.bookingsAwaitingByCurrency.GHS ?? 0 },
+      { id: "accGhsPoa", header: "Accom GHS POA out.", accessorFn: (h) => h.bookingsPoaOutstandingByCurrency.GHS ?? 0 },
       { id: "accUsd", header: "Accom USD total", accessorFn: (h) => h.bookingsRevenueByCurrency.USD ?? 0 },
       { id: "accUsdA", header: "Accom USD awaiting", accessorFn: (h) => h.bookingsAwaitingByCurrency.USD ?? 0 },
+      { id: "accUsdPoa", header: "Accom USD POA out.", accessorFn: (h) => h.bookingsPoaOutstandingByCurrency.USD ?? 0 },
+      { id: "accEur", header: "Accom EUR total", accessorFn: (h) => h.bookingsRevenueByCurrency.EUR ?? 0 },
+      { id: "accEurA", header: "Accom EUR awaiting", accessorFn: (h) => h.bookingsAwaitingByCurrency.EUR ?? 0 },
+      { id: "accEurPoa", header: "Accom EUR POA out.", accessorFn: (h) => h.bookingsPoaOutstandingByCurrency.EUR ?? 0 },
     ],
     [],
   );
@@ -1029,19 +1085,39 @@ function HubMoneyTable({
                 row.registrationsRevenueByCurrency.GHS ?? 0,
               registrationsGhsAwaiting:
                 row.registrationsAwaitingByCurrency.GHS ?? 0,
+              registrationsGhsPoaOutstanding:
+                row.registrationsPoaOutstandingByCurrency.GHS ?? 0,
               registrationsUsdTotal:
                 row.registrationsRevenueByCurrency.USD ?? 0,
               registrationsUsdAwaiting:
                 row.registrationsAwaitingByCurrency.USD ?? 0,
+              registrationsUsdPoaOutstanding:
+                row.registrationsPoaOutstandingByCurrency.USD ?? 0,
+              registrationsEurTotal:
+                row.registrationsRevenueByCurrency.EUR ?? 0,
+              registrationsEurAwaiting:
+                row.registrationsAwaitingByCurrency.EUR ?? 0,
+              registrationsEurPoaOutstanding:
+                row.registrationsPoaOutstandingByCurrency.EUR ?? 0,
               accommodationsCount: row.bookingsCount,
               accommodationGhsTotal:
                 row.bookingsRevenueByCurrency.GHS ?? 0,
               accommodationGhsAwaiting:
                 row.bookingsAwaitingByCurrency.GHS ?? 0,
+              accommodationGhsPoaOutstanding:
+                row.bookingsPoaOutstandingByCurrency.GHS ?? 0,
               accommodationUsdTotal:
                 row.bookingsRevenueByCurrency.USD ?? 0,
               accommodationUsdAwaiting:
                 row.bookingsAwaitingByCurrency.USD ?? 0,
+              accommodationUsdPoaOutstanding:
+                row.bookingsPoaOutstandingByCurrency.USD ?? 0,
+              accommodationEurTotal:
+                row.bookingsRevenueByCurrency.EUR ?? 0,
+              accommodationEurAwaiting:
+                row.bookingsAwaitingByCurrency.EUR ?? 0,
+              accommodationEurPoaOutstanding:
+                row.bookingsPoaOutstandingByCurrency.EUR ?? 0,
             })}
             emptyMessage="No hub money yet."
             isLoading={false}
@@ -1090,6 +1166,10 @@ function FinanceStatsCards({
     outstandingBookings: number;
     outstandingCount: number;
     outstandingByCurrency: Record<string, number>;
+    outstandingSurfacesByCurrency: Record<
+      string,
+      { registrations: number; bookings: number }
+    >;
   };
   currencyFilter: CurrencyFilter;
 }) {

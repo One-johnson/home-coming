@@ -108,14 +108,21 @@ export function PoaTab({ kind = "all" }: { kind?: "all" | "registration" | "book
 
   const counts = useMemo(() => {
     const all = rows ?? [];
+    const outstanding = all.filter((row: PoaRow) => row.poaStatus !== "confirmed");
+    const byCurrency: Record<string, number> = {};
+    // Per-currency sums only — cedis, dollars and euros are never added together.
+    for (const row of outstanding) {
+      byCurrency[row.currency] = (byCurrency[row.currency] ?? 0) + row.totalAmount;
+    }
     return {
       total: all.length,
-      outstanding: all.filter(
-        (row: PoaRow) => row.poaStatus !== "confirmed",
-      ).length,
-      outstandingAmount: all
-        .filter((row: PoaRow) => row.poaStatus !== "confirmed")
-        .reduce((sum, row: PoaRow) => sum + row.totalAmount, 0),
+      outstanding: outstanding.length,
+      outstandingByCurrency: byCurrency,
+      outstandingLabel:
+        Object.entries(byCurrency)
+          .sort(([a], [b]) => (a === b ? 0 : a === "GHS" ? -1 : b === "GHS" ? 1 : a.localeCompare(b)))
+          .map(([currency, value]) => `${currency} ${value.toLocaleString()}`)
+          .join(" · ") || "0",
     };
   }, [rows]);
 
@@ -168,8 +175,8 @@ export function PoaTab({ kind = "all" }: { kind?: "all" | "registration" | "book
         <Stat label="Awaiting payment" value={counts.outstanding} tone="warning" />
         <Stat
           label="Outstanding total"
-          value={counts.outstandingAmount.toLocaleString()}
-          hint="not credited until confirmed"
+          value={counts.outstandingLabel}
+          hint="not credited until confirmed — per currency"
           tone="info"
         />
       </div>

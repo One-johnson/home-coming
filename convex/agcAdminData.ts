@@ -2795,10 +2795,30 @@ export const getAgcOverview = query({
       (row) => row.poa && row.poa.status !== "confirmed",
     );
     const poaOutstandingByCurrency: Record<string, number> = {};
-    for (const row of [...poaOutstandingRegistrations, ...poaOutstandingBookings]) {
-      poaOutstandingByCurrency[row.currency] =
-        (poaOutstandingByCurrency[row.currency] ?? 0) + row.totalAmount;
-    }
+    // Per-currency POA outstanding split by surface, so the overview card
+    // can show each ledger side (registrations vs accommodation) inside one
+    // currency — cedis, dollars and euros are never summed together.
+    const poaOutstandingSurfaces: Record<
+      string,
+      { registrations: number; bookings: number }
+    > = {};
+    const addPoaOutstanding = (
+      rows: (typeof poaOutstandingRegistrations)[number][] | (typeof poaOutstandingBookings)[number][],
+      surface: "registrations" | "bookings",
+    ) => {
+      for (const row of rows) {
+        const entry = poaOutstandingSurfaces[row.currency] ?? {
+          registrations: 0,
+          bookings: 0,
+        };
+        entry[surface] += row.totalAmount;
+        poaOutstandingSurfaces[row.currency] = entry;
+        poaOutstandingByCurrency[row.currency] =
+          (poaOutstandingByCurrency[row.currency] ?? 0) + row.totalAmount;
+      }
+    };
+    addPoaOutstanding(poaOutstandingRegistrations, "registrations");
+    addPoaOutstanding(poaOutstandingBookings, "bookings");
 
     const last7Days = Array.from({ length: 7 }, (_, i) => {
       const start = now - (6 - i) * dayMs;
@@ -2880,9 +2900,13 @@ export const getAgcOverview = query({
       registrationsCount: number;
       registrationsRevenueByCurrency: Record<string, number>;
       registrationsAwaitingByCurrency: Record<string, number>;
+      /** Uncollected POA registration money per currency (poa not confirmed). */
+      registrationsPoaOutstandingByCurrency: Record<string, number>;
       bookingsCount: number;
       bookingsRevenueByCurrency: Record<string, number>;
       bookingsAwaitingByCurrency: Record<string, number>;
+      /** Uncollected POA booking money per currency (poa not confirmed). */
+      bookingsPoaOutstandingByCurrency: Record<string, number>;
     };
     const hubMoney = new Map<string, HubMoney>();
     const hubBucket = (hubKey: string): HubMoney => {
@@ -2894,9 +2918,11 @@ export const getAgcOverview = query({
           registrationsCount: 0,
           registrationsRevenueByCurrency: {},
           registrationsAwaitingByCurrency: {},
+          registrationsPoaOutstandingByCurrency: {},
           bookingsCount: 0,
           bookingsRevenueByCurrency: {},
           bookingsAwaitingByCurrency: {},
+          bookingsPoaOutstandingByCurrency: {},
         };
         hubMoney.set(hubKey, bucket);
       }
@@ -2914,6 +2940,11 @@ export const getAgcOverview = query({
           (bucket.bookingsAwaitingByCurrency[row.currency] ?? 0) +
           row.totalAmount;
       }
+      if (row.poa && row.poa.status !== "confirmed") {
+        bucket.bookingsPoaOutstandingByCurrency[row.currency] =
+          (bucket.bookingsPoaOutstandingByCurrency[row.currency] ?? 0) +
+          row.totalAmount;
+      }
     }
     for (const row of registrations) {
       const bucket = hubBucket(String(row.hubId));
@@ -2925,6 +2956,11 @@ export const getAgcOverview = query({
       } else if (row.paymentStatus === "pending_verification") {
         bucket.registrationsAwaitingByCurrency[row.currency] =
           (bucket.registrationsAwaitingByCurrency[row.currency] ?? 0) +
+          row.totalAmount;
+      }
+      if (row.poa && row.poa.status !== "confirmed") {
+        bucket.registrationsPoaOutstandingByCurrency[row.currency] =
+          (bucket.registrationsPoaOutstandingByCurrency[row.currency] ?? 0) +
           row.totalAmount;
       }
     }
@@ -3089,6 +3125,7 @@ export const getAgcOverview = query({
         outstandingCount:
           poaOutstandingRegistrations.length + poaOutstandingBookings.length,
         outstandingByCurrency: poaOutstandingByCurrency,
+        outstandingSurfacesByCurrency: poaOutstandingSurfaces,
         outstandingLabel: formatMoney(poaOutstandingByCurrency),
       },
       housing: isFinanceView ? [] : housing,
