@@ -586,8 +586,10 @@ export function downloadBase64(
 type AgcExportKind =
   | "bookings"
   | "registrations"
+  | "poa-bookings"
   | "poa-collections"
-  | "poa-reconciliation";
+  | "poa-reconciliation"
+  | "inventory";
 
 /** Shared export-button wiring for the Registrations and Accommodation pages. */
 export function AgcExcelExportButton({
@@ -602,12 +604,16 @@ export function AgcExcelExportButton({
   const exportRegistrationsAction = useAction(
     api.agcExcel.exportRegistrationsExcel,
   );
+  const exportPoaBookingsAction = useAction(
+    api.agcExcel.exportPoaBookingsExcel,
+  );
   const exportPoaCollectionsAction = useAction(
     api.agcExcel.exportPoaCollectionExcel,
   );
   const exportPoaReconciliationAction = useAction(
     api.agcExcel.exportPoaReconciliationExcel,
   );
+  const exportInventoryAction = useAction(api.agcExcel.exportInventoryExcel);
   const [exporting, setExporting] = useState(false);
 
   const runExport = async () => {
@@ -617,11 +623,15 @@ export function AgcExcelExportButton({
       const result =
         which === "bookings"
           ? await exportBookingsAction({ sessionToken })
-          : which === "poa-collections"
-            ? await exportPoaCollectionsAction({ sessionToken })
-            : which === "poa-reconciliation"
-              ? await exportPoaReconciliationAction({ sessionToken })
-              : await exportRegistrationsAction({ sessionToken });
+          : which === "poa-bookings"
+            ? await exportPoaBookingsAction({ sessionToken })
+            : which === "poa-collections"
+              ? await exportPoaCollectionsAction({ sessionToken })
+              : which === "poa-reconciliation"
+                ? await exportPoaReconciliationAction({ sessionToken })
+                : which === "inventory"
+                  ? await exportInventoryAction({ sessionToken })
+                  : await exportRegistrationsAction({ sessionToken });
       downloadBase64(result.filename, result.contentBase64);
     } catch (err) {
       toast.error(...toastFriendlyErrorParts(err, "Export failed"));

@@ -272,6 +272,12 @@ export function PoaTab({ kind = "all" }: { kind?: "all" | "registration" | "book
     <div className="space-y-4">
       {user?.role === "admin" && (
         <div className="flex flex-wrap justify-end gap-2">
+          {kind !== "registration" && (
+            <AgcExcelExportButton
+              which="poa-bookings"
+              label="Accommodation bookings (.xlsx)"
+            />
+          )}
           <AgcExcelExportButton
             which="poa-collections"
             label="Cash-collection sheet (.xlsx)"

@@ -30,6 +30,10 @@ import { agcRegion, type AgcAccommodationType } from "./schemaTypes";
 import { getSmtpSettings, isSmtpConfigured } from "./lib/smtpConfig";
 import {
   confirmBookingInventory,
+  getHoldHours,
+  holdDeadline,
+  holdsReservedUnits,
+  livePoolCounts,
   reconcileExpiredBookingInventory,
   releaseBookingInventory,
 } from "./agcAccommodation";
@@ -881,6 +885,177 @@ export const listRegistrationExportData = internalQuery({
       paymentDate: record.offline?.paymentDate ?? "",
       createdAt: record.createdAt,
     }));
+  },
+});
+
+/**
+ * Inventory workbook feed — one row per pool counted from the reservations
+ * (see `livePoolCounts`), plus the live holds behind the Held number and the
+ * finished bookings whose beds were released instead of staying held.
+ */
+export const listInventoryReportData = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const [pools, bookings, lines, hubs, holdHours] = await Promise.all([
+      livePoolCounts(ctx),
+      ctx.db.query("agcBookings").collect(),
+      ctx.db.query("agcBookingLines").collect(),
+      ctx.db.query("agcHubs").collect(),
+      getHoldHours(ctx),
+    ]);
+    const hubName = new Map(hubs.map((hub) => [hub._id, hub.name]));
+    const linesByBooking = new Map<string, Doc<"agcBookingLines">[]>();
+    for (const line of lines) {
+      const list = linesByBooking.get(line.bookingId);
+      if (list) list.push(line);
+      else linesByBooking.set(line.bookingId, [line]);
+    }
+
+    const now = Date.now();
+    const held: Array<{
+      referenceNumber: string;
+      hubName: string;
+      region: string;
+      accommodationType: string;
+      quantity: number;
+      bookingStatus: string;
+      paymentStatus: string;
+      paymentMode: string;
+      expiresAt: number | null;
+      hoursLeft: number;
+    }> = [];
+    const released: Array<{
+      referenceNumber: string;
+      hubName: string;
+      region: string;
+      bookingStatus: string;
+      units: number;
+      closedAt: number;
+    }> = [];
+
+    for (const booking of bookings) {
+      if (booking.deletedAt) continue;
+      const bookingLines = linesByBooking.get(booking._id) ?? [];
+      const units = bookingLines.reduce((sum, line) => sum + line.quantity, 0);
+      if (units === 0) continue;
+
+      if (booking.bookingStatus === "expired" || booking.bookingStatus === "cancelled") {
+        released.push({
+          referenceNumber: booking.referenceNumber ?? "(pending)",
+          hubName: hubName.get(booking.hubId) ?? "(unknown)",
+          region: booking.region,
+          bookingStatus: booking.bookingStatus,
+          units,
+          closedAt: booking.updatedAt,
+        });
+        continue;
+      }
+      if (booking.bookingStatus === "confirmed") continue;
+      if (!holdsReservedUnits(booking.bookingStatus)) continue;
+      const deadline = holdDeadline(booking, holdHours);
+      // A lapsed hold is not held inventory any more, even before the sweep
+      // flips it to `expired`.
+      if (deadline !== undefined && deadline <= now) continue;
+
+      for (const line of bookingLines) {
+        held.push({
+          referenceNumber: booking.referenceNumber ?? "(pending)",
+          hubName: hubName.get(booking.hubId) ?? "(unknown)",
+          region: booking.region,
+          accommodationType: line.accommodationType,
+          quantity: line.quantity,
+          bookingStatus: booking.bookingStatus,
+          paymentStatus: booking.paymentStatus,
+          paymentMode: booking.paymentMode,
+          expiresAt: deadline ?? null,
+          hoursLeft:
+            deadline === undefined
+              ? 0
+              : Math.max(0, Math.round((deadline - now) / (60 * 60 * 1000))),
+        });
+      }
+    }
+
+    held.sort(
+      (a, b) =>
+        a.accommodationType.localeCompare(b.accommodationType) ||
+        a.referenceNumber.localeCompare(b.referenceNumber),
+    );
+    released.sort((a, b) => b.closedAt - a.closedAt);
+
+    return { pools, held, released, generatedAt: now };
+  },
+});
+
+/**
+ * Payment-on-arrival accommodation feed for the dedicated booking report.
+ *
+ * The standard booking report deliberately excludes POA rows, so this is the
+ * only place the beds reserved on payment-on-arrival terms are itemised — with
+ * the guests and the pricing lines (accommodation type + quantity) behind them.
+ */
+export const listPoaBookingExportData = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const bookings = (await ctx.db.query("agcBookings").collect()).filter(
+      (row) =>
+        !row.deletedAt &&
+        (row.paymentMode === "payment_on_arrival" || row.poa !== undefined),
+    );
+    bookings.sort((a, b) => a.createdAt - b.createdAt);
+    const hubs = new Map(
+      (await ctx.db.query("agcHubs").collect()).map((hub) => [hub._id, hub.name]),
+    );
+
+    const out = [];
+    for (const booking of bookings) {
+      const [guests, lines] = await Promise.all([
+        ctx.db
+          .query("agcGuests")
+          .withIndex("by_booking", (q) => q.eq("bookingId", booking._id))
+          .collect(),
+        ctx.db
+          .query("agcBookingLines")
+          .withIndex("by_booking", (q) => q.eq("bookingId", booking._id))
+          .collect(),
+      ]);
+      out.push({
+        booking: {
+          _id: booking._id,
+          referenceNumber: booking.referenceNumber,
+          region: booking.region,
+          bookingStatus: booking.bookingStatus,
+          paymentStatus: booking.paymentStatus,
+          paymentMode: booking.paymentMode,
+          totalAmount: booking.totalAmount,
+          currency: booking.currency,
+          expiresAt: booking.expiresAt,
+          createdAt: booking.createdAt,
+          confirmedAt: booking.confirmedAt ?? null,
+          poaStatus: booking.poa?.status ?? "pending",
+          poaConfirmedAt: booking.poa?.confirmedAt ?? null,
+          hubName: hubs.get(booking.hubId) ?? "(unknown)",
+        },
+        guests: guests.map((guest) => ({
+          title: guest.title,
+          firstName: guest.firstName,
+          lastName: guest.lastName,
+          gender: guest.gender,
+          accommodationType: guest.accommodationType,
+          pool: guest.pool,
+          isBishopRate: guest.isBishopRate,
+          status: guest.status,
+          country: guest.country,
+        })),
+        lines: lines.map((line) => ({
+          accommodationType: line.accommodationType,
+          quantity: line.quantity,
+          unitPrice: line.unitPrice,
+          isBishopRate: line.isBishopRate,
+        })),
+      });
+    }
+    return out;
   },
 });
 
@@ -3619,6 +3794,14 @@ export const listReallocationsAdmin = query({
 // Pool overview + reallocation (SRS §29)
 // ------------------------------------------------------------------
 
+/**
+ * Pool grid: capacity plus live counts.
+ *
+ * `reserved`/`confirmed`/`available` are counted from the reservations, so an
+ * expired hold can never be reported as Held inventory; `ledgerReserved` is
+ * what the pool counter still says, which lets the desk spot (and repair) a
+ * ledger that never released a finished booking.
+ */
 export const listPoolsAdmin = query({
   args: { sessionToken: sessionTokenValidator },
   handler: async (ctx, args) => {
@@ -3627,16 +3810,17 @@ export const listPoolsAdmin = query({
       "accommodation",
       "finance",
     ]);
-    const pools = await ctx.db.query("agcInventoryPools").collect();
+    const pools = await livePoolCounts(ctx);
     return pools
       .map((pool) => ({
         _id: pool._id,
         accommodationType: pool.accommodationType,
         scope: pool.scope,
         total: pool.total,
-        reserved: pool.reserved,
+        reserved: pool.held,
         confirmed: pool.confirmed,
-        available: pool.total - pool.reserved - pool.confirmed,
+        available: pool.available,
+        ledgerReserved: pool.ledgerReserved,
       }))
       .sort(
         (a, b) =>

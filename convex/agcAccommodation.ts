@@ -19,8 +19,10 @@ import {
 } from "./lib/agcSettingsRuntime";
 import type {
   AgcAccommodationType,
+  AgcBookingStatus,
   AgcGender,
   AgcInventoryScope,
+  AgcRegion,
 } from "./schemaTypes";
 import { writeAuditLog } from "./lib/audit";
 
@@ -65,6 +67,47 @@ export async function computeHoldExpiry(ctx: QueryCtx): Promise<number> {
   const holdHours = await getHoldHours(ctx);
   const deadline = await getDeadlineMs(ctx);
   return Math.min(Date.now() + holdHours * 60 * 60 * 1000, deadline);
+}
+
+/**
+ * Booking states whose beds still sit in a pool's `reserved` counter.
+ *
+ * A reservation awaiting payment does not have to be in `reserved`: a receipt
+ * under review (`pending_verification`) or one the desk sent back
+ * (`correction_requested`) still occupies beds, so every release and expiry
+ * path must treat those as holding too — otherwise their beds are held forever.
+ */
+export function holdsReservedUnits(status: AgcBookingStatus): boolean {
+  return (
+    status === "reserved" ||
+    status === "pending_verification" ||
+    status === "correction_requested"
+  );
+}
+
+/**
+ * When a booking's hold lapses. Payment-on-arrival rows created before the
+ * hold timer existed carry no `expiresAt`; their fallback is the creation time
+ * plus the current hold window, so they expire instead of holding beds forever.
+ */
+export function holdDeadline(
+  booking: Pick<Doc<"agcBookings">, "expiresAt" | "poa" | "createdAt">,
+  holdHours: number,
+): number | undefined {
+  return (
+    booking.expiresAt ??
+    (booking.poa ? booking.createdAt + holdHours * 60 * 60 * 1000 : undefined)
+  );
+}
+
+/** The pool a line of `type` booked from `region` draws its beds from (§28). */
+export function poolScopeFor(
+  type: AgcAccommodationType,
+  region: AgcRegion,
+): AgcInventoryScope {
+  return AGC_ACCOMMODATION_TYPES[type].poolScope === "global"
+    ? "global"
+    : scopeForRegion(region);
 }
 
 export async function assertBeforeDeadline(ctx: MutationCtx) {
@@ -143,11 +186,7 @@ export async function getPoolForRegion(
   type: AgcAccommodationType,
   region: Doc<"agcHubs">["region"],
 ): Promise<Doc<"agcInventoryPools">> {
-  const scope: AgcInventoryScope =
-    AGC_ACCOMMODATION_TYPES[type].poolScope === "global"
-      ? "global"
-      : scopeForRegion(region);
-  return await loadPoolMutable(ctx, type, scope);
+  return await loadPoolMutable(ctx, type, poolScopeFor(type, region));
 }
 
 /** Read-only pool loader — falls back to seed defaults without writing. */
@@ -521,7 +560,9 @@ export async function releaseBookingInventory(
   action: "release" | "expire" | "cancel",
 ) {
   const isConfirmed = booking.bookingStatus === "confirmed";
-  if (!isConfirmed && booking.bookingStatus !== "reserved") return;
+  // Closed bookings (expired/cancelled) have already handed their beds back —
+  // releasing again would drive the counter below reality.
+  if (!isConfirmed && !holdsReservedUnits(booking.bookingStatus)) return;
 
   const lines = await ctx.db
     .query("agcBookingLines")
@@ -635,7 +676,8 @@ async function notifyPoaHoldReleased(
 /**
  * Scheduled job: expire bookings whose hold has lapsed (§32–34) — including
  * payment-on-arrival holds, which are on the same 72h window. Expiring returns
- * the held beds to their pools and flips the booking to `expired`.
+ * the held beds to their pools and flips the booking to `expired`, so an
+ * expired reservation never keeps counting as held inventory.
  *
  * POA reservations created before the hold timer existed carry no `expiresAt`;
  * for those the fallback deadline is their creation time plus the current hold
@@ -644,18 +686,26 @@ async function notifyPoaHoldReleased(
 export async function expireOverdueHolds(ctx: MutationCtx): Promise<number> {
   const now = Date.now();
   const holdHours = await getHoldHours(ctx);
-  const legacyWindow = holdHours * 60 * 60 * 1000;
-  const reserved = await ctx.db
-    .query("agcBookings")
-    .withIndex("by_booking_status", (q) => q.eq("bookingStatus", "reserved"))
-    .collect();
+  // Every open state holds beds, so every open state expires: a reservation
+  // awaiting payment, one whose receipt is in review, and one bounced back to
+  // the hub for a correction. Only `reserved` was swept before, which left
+  // rows sent back for correction holding their beds indefinitely.
+  const open = (
+    await Promise.all(
+      (["reserved", "pending_verification", "correction_requested"] as const).map(
+        (status) =>
+          ctx.db
+            .query("agcBookings")
+            .withIndex("by_booking_status", (q) => q.eq("bookingStatus", status))
+            .collect(),
+      ),
+    )
+  ).flat();
 
   let expired = 0;
-  for (const booking of reserved) {
+  for (const booking of open) {
     if (booking.deletedAt) continue;
-    const deadline =
-      booking.expiresAt ??
-      (booking.poa ? booking.createdAt + legacyWindow : undefined);
+    const deadline = holdDeadline(booking, holdHours);
     if (!deadline || deadline >= now) continue;
     await releaseBookingInventory(ctx, booking, "expire");
     await ctx.db.patch(booking._id, {
@@ -795,6 +845,100 @@ export async function reconcileExpiredBookingInventory(
   }
 
   return { expiredHolds, bookings, units };
+}
+
+// ------------------------------------------------------------------
+// Live inventory (counted from reservations, not just the pool counters)
+// ------------------------------------------------------------------
+
+export type PoolCounts = {
+  _id: Id<"agcInventoryPools">;
+  accommodationType: AgcAccommodationType;
+  scope: AgcInventoryScope;
+  total: number;
+  /** Beds locked in by confirmed bookings. */
+  confirmed: number;
+  /** Beds reserved by active, unexpired reservations still awaiting payment. */
+  held: number;
+  /** `total - confirmed - held` — expired reservations never reduce this. */
+  available: number;
+  /** What the pool's own `reserved` counter says (ledger drift included). */
+  ledgerReserved: number;
+};
+
+/**
+ * Inventory counted from the reservations themselves.
+ *
+ * A bed is `confirmed` while its booking is confirmed, and `held` while its
+ * booking is an open reservation (awaiting payment, in review, or sent back
+ * for correction) that has not passed its hold deadline. Expired and cancelled
+ * reservations hold nothing, and a lapsed hold stops counting even before the
+ * expiry sweep flips it — so a stale pool counter can never show up as Held.
+ *
+ * The pool's stored counters stay the booking gate; `ledgerReserved` exposes
+ * any difference so the desk can see and repair drift.
+ */
+export async function livePoolCounts(ctx: QueryCtx): Promise<PoolCounts[]> {
+  const [pools, bookings, lines, holdHours] = await Promise.all([
+    ctx.db.query("agcInventoryPools").collect(),
+    ctx.db.query("agcBookings").collect(),
+    ctx.db.query("agcBookingLines").collect(),
+    getHoldHours(ctx),
+  ]);
+
+  const linesByBooking = new Map<string, Doc<"agcBookingLines">[]>();
+  for (const line of lines) {
+    const list = linesByBooking.get(line.bookingId);
+    if (list) list.push(line);
+    else linesByBooking.set(line.bookingId, [line]);
+  }
+
+  const now = Date.now();
+  const counts = new Map<string, { confirmed: number; held: number }>();
+  const entryFor = (type: AgcAccommodationType, scope: AgcInventoryScope) => {
+    const key = `${type}|${scope}`;
+    let entry = counts.get(key);
+    if (!entry) {
+      entry = { confirmed: 0, held: 0 };
+      counts.set(key, entry);
+    }
+    return entry;
+  };
+
+  for (const booking of bookings) {
+    if (booking.deletedAt) continue;
+    const isConfirmed = booking.bookingStatus === "confirmed";
+    if (!isConfirmed) {
+      if (!holdsReservedUnits(booking.bookingStatus)) continue;
+      const deadline = holdDeadline(booking, holdHours);
+      if (deadline !== undefined && deadline <= now) continue;
+    }
+    for (const line of linesByBooking.get(booking._id) ?? []) {
+      const entry = entryFor(
+        line.accommodationType,
+        poolScopeFor(line.accommodationType, booking.region),
+      );
+      if (isConfirmed) entry.confirmed += line.quantity;
+      else entry.held += line.quantity;
+    }
+  }
+
+  return pools.map((pool) => {
+    const entry = counts.get(`${pool.accommodationType}|${pool.scope}`) ?? {
+      confirmed: 0,
+      held: 0,
+    };
+    return {
+      _id: pool._id,
+      accommodationType: pool.accommodationType,
+      scope: pool.scope,
+      total: pool.total,
+      confirmed: entry.confirmed,
+      held: entry.held,
+      available: pool.total - entry.confirmed - entry.held,
+      ledgerReserved: pool.reserved,
+    };
+  });
 }
 
 // ------------------------------------------------------------------

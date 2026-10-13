@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import { useAdminSession } from "@/components/admin/AdminSessionProvider";
+import { AgcExcelExportButton } from "@/components/admin/agc/AgcAdminClient";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -36,9 +37,15 @@ type PoolRow = {
   accommodationType: string;
   scope: string;
   total: number;
+  /** Live held beds: active reservations that have not expired. */
   reserved: number;
   confirmed: number;
   available: number;
+  /**
+   * What the pool's own counter still says. Larger than `reserved` when the
+   * ledger has not released a finished booking yet (the repair fixes it).
+   */
+  ledgerReserved: number;
 };
 
 type ExpiringHold = {
@@ -180,6 +187,13 @@ export function PoolsTab() {
   };
 
   const list = pools ?? [];
+  // Beds the pool counters still hold that no live reservation occupies —
+  // expired reservations nobody released. Surfaced instead of hidden so the
+  // desk knows the repair is worth running.
+  const ledgerDrift = list.reduce(
+    (sum, p: PoolRow) => sum + Math.max(0, p.ledgerReserved - p.reserved),
+    0,
+  );
   const totals = list.reduce(
     (acc, p: PoolRow) => ({
       total: acc.total + p.total,
@@ -231,12 +245,33 @@ export function PoolsTab() {
 
   return (
     <div className="space-y-4">
+      <div className="flex justify-end">
+        <AgcExcelExportButton
+          which="inventory"
+          label="Export inventory (.xlsx)"
+        />
+      </div>
+
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatTile label="Total capacity" value={totals.total} />
         <StatTile label="Available" value={totals.available} tone="info" />
         <StatTile label="On hold" value={totals.held} tone="warning" />
         <StatTile label="Confirmed" value={totals.confirmed} tone="positive" />
       </div>
+
+      {ledgerDrift > 0 && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-3 text-xs dark:border-amber-900 dark:bg-amber-950/40">
+          <p className="font-semibold text-amber-800 dark:text-amber-300">
+            {ledgerDrift} bed(s) still counted as held for finished bookings
+          </p>
+          <p className="mt-0.5 text-muted-foreground">
+            Expired and cancelled reservations do not count towards On hold or
+            Available here. The pool ledger has not released them yet — run
+            <span className="font-medium"> Move expired bookings back to pools</span>{" "}
+            below (the nightly check does it on its own).
+          </p>
+        </div>
+      )}
 
       {expiring && expiring.length > 0 && (
         <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-3 dark:border-amber-900 dark:bg-amber-950/40">
@@ -303,7 +338,9 @@ export function PoolsTab() {
                   <p className="text-sm font-semibold tabular-nums">{pool.available}</p>
                   <p className="text-[10px] text-muted-foreground">left</p>
                 </div>
-                <div>
+                <div
+                  title={`${pool.reserved} active · ${pool.ledgerReserved} in the pool ledger`}
+                >
                   <p className="text-sm font-semibold tabular-nums text-amber-700 dark:text-amber-400">{pool.reserved}</p>
                   <p className="text-[10px] text-muted-foreground">held</p>
                 </div>

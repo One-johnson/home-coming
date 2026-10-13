@@ -2,7 +2,12 @@ import { expect, test } from "vitest";
 import ExcelJS from "exceljs";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
-import type { AgcRegion } from "../convex/schemaTypes";
+import type {
+  AgcBookingStatus,
+  AgcPaymentMode,
+  AgcPaymentStatus,
+  AgcRegion,
+} from "../convex/schemaTypes";
 import { createTestConvex } from "./testUtils";
 
 /**
@@ -370,6 +375,309 @@ test("per-hub sheets sanitize hub names for Excel, stay unique and cap at 31 cha
   expect(longSheet).toBeDefined();
   expect(longSheet!.length).toBeLessThanOrEqual(31);
   expect(sheetRecords(workbook.getWorksheet(longSheet!)!)).toHaveLength(1);
+});
+
+type LineSeed = {
+  accommodationType: GuestSeed["accommodationType"];
+  quantity: number;
+  unitPrice: number;
+};
+
+/**
+ * A booking with its priced lines (and optional guests) — the shape the
+ * inventory counters and both reports read.
+ */
+async function seedBookingRow(
+  t: TestConvex,
+  args: {
+    hubId: HubId;
+    repId: RepId;
+    region: AgcRegion;
+    referenceNumber: string;
+    bookingStatus: AgcBookingStatus;
+    paymentStatus: AgcPaymentStatus;
+    paymentMode?: AgcPaymentMode;
+    expiresAt?: number;
+    poa?: boolean;
+    lines: LineSeed[];
+    guests?: GuestSeed[];
+  },
+): Promise<BookingId> {
+  return t.run(async (ctx) => {
+    const now = Date.now();
+    const bookingId = await ctx.db.insert("agcBookings", {
+      hubId: args.hubId,
+      repId: args.repId,
+      region: args.region,
+      currency: args.region === "ghana" ? "GHS" : "USD",
+      totalAmount: args.lines.reduce(
+        (sum, line) => sum + line.quantity * line.unitPrice,
+        0,
+      ),
+      paymentMode: args.paymentMode ?? "offline",
+      paymentStatus: args.paymentStatus,
+      bookingStatus: args.bookingStatus,
+      poa: args.poa ? { status: "pending" } : undefined,
+      referenceNumber: args.referenceNumber,
+      expiresAt: args.expiresAt,
+      createdAt: now,
+      updatedAt: now,
+    });
+    for (const line of args.lines) {
+      await ctx.db.insert("agcBookingLines", {
+        bookingId,
+        accommodationType: line.accommodationType,
+        quantity: line.quantity,
+        unitPrice: line.unitPrice,
+        isBishopRate: false,
+      });
+    }
+    for (const guest of args.guests ?? []) {
+      await ctx.db.insert("agcGuests", {
+        bookingId,
+        hubId: args.hubId,
+        region: args.region,
+        country: guest.country,
+        firstName: guest.firstName,
+        lastName: guest.lastName,
+        gender: guest.gender,
+        title: guest.title,
+        accommodationType: guest.accommodationType,
+        pool: guest.pool,
+        isBishopRate: false,
+        status: "active",
+        createdAt: now,
+      });
+    }
+    return bookingId;
+  });
+}
+
+test("the payment-on-arrival report itemises the POA beds and keeps them out of the booking report", async () => {
+  const t = createTestConvex();
+  const adminToken = await seedAdminToken(t);
+  const ghana = await seedHubWithRep(t, {
+    name: "Accra Central",
+    region: "ghana",
+    country: "Ghana",
+  });
+
+  await seedBookingRow(t, {
+    hubId: ghana.hubId,
+    repId: ghana.repId,
+    region: "ghana",
+    referenceNumber: "HC-POA-001",
+    bookingStatus: "reserved",
+    paymentStatus: "awaiting_payment",
+    paymentMode: "payment_on_arrival",
+    poa: true,
+    expiresAt: Date.now() + 3_600_000,
+    lines: [
+      { accommodationType: "dormitory", quantity: 1, unitPrice: 150 },
+      { accommodationType: "hostel", quantity: 2, unitPrice: 450 },
+    ],
+    guests: [
+      {
+        title: "Mr.",
+        firstName: "Kojo",
+        lastName: "Adjei",
+        gender: "male",
+        accommodationType: "dormitory",
+        pool: "africa",
+        country: "Ghana",
+      },
+      {
+        title: "Mrs.",
+        firstName: "Adwoa",
+        lastName: "Adjei",
+        gender: "female",
+        accommodationType: "hostel",
+        pool: "africa",
+        country: "Ghana",
+      },
+    ],
+  });
+  // An ordinary booking belongs to the standard report, not this one.
+  await seedBookingRow(t, {
+    hubId: ghana.hubId,
+    repId: ghana.repId,
+    region: "ghana",
+    referenceNumber: "HC-ACC-001",
+    bookingStatus: "pending_verification",
+    paymentStatus: "pending_verification",
+    lines: [{ accommodationType: "dormitory", quantity: 1, unitPrice: 150 }],
+    guests: [
+      {
+        title: "Mr.",
+        firstName: "Yaw",
+        lastName: "Owusu",
+        gender: "male",
+        accommodationType: "dormitory",
+        pool: "africa",
+        country: "Ghana",
+      },
+    ],
+  });
+
+  const result = await t.action(api.agcExcel.exportPoaBookingsExcel, {
+    sessionToken: adminToken,
+  });
+  expect(result.filename).toMatch(
+    /^homecoming-2026-poa-accommodation-\d{4}-\d{2}-\d{2}\.xlsx$/,
+  );
+
+  const workbook = await loadWorkbook(result);
+  // Same sheet structure as the accommodation booking report, plus the beds.
+  expect(workbook.worksheets.map((sheet) => sheet.name)).toEqual([
+    "Guests",
+    "Accra Central",
+    "Bookings",
+    "Inventory",
+  ]);
+
+  const guests = sheetRecords(workbook.getWorksheet("Guests")!);
+  expect(guests).toHaveLength(2);
+  expect(guests[0]).toMatchObject({
+    "Booking Reference": "HC-POA-001",
+    Hub: "Accra Central",
+    "Accommodation Type": "dormitory",
+    "Booking Status": "reserved",
+    "Payment Status": "awaiting_payment",
+  });
+
+  const inventory = sheetRecords(workbook.getWorksheet("Inventory")!);
+  expect(inventory.slice(0, 2)).toEqual([
+    expect.objectContaining({
+      "Booking Reference": "HC-POA-001",
+      "Accommodation Type": "dormitory",
+      Beds: "1",
+      Guests: "2",
+      "POA Status": "pending",
+    }),
+    expect.objectContaining({
+      "Accommodation Type": "hostel",
+      Beds: "2",
+      "Payment Status": "awaiting_payment",
+    }),
+  ]);
+  expect(inventory[2]).toMatchObject({ "Booking Reference": "TOTAL", Beds: "3" });
+
+  // The standard booking report still leaves POA rows out entirely.
+  const standard = await loadWorkbook(
+    await t.action(api.agcExcel.exportBookingsExcel, { sessionToken: adminToken }),
+  );
+  expect(
+    sheetRecords(standard.getWorksheet("Bookings")!).map((row) => row.Reference),
+  ).toEqual(["HC-ACC-001"]);
+});
+
+test("the inventory report counts held from live reservations and excludes expired ones", async () => {
+  const t = createTestConvex();
+  const adminToken = await seedAdminToken(t);
+  const ghana = await seedHubWithRep(t, {
+    name: "Accra Central",
+    region: "ghana",
+    country: "Ghana",
+  });
+  const now = Date.now();
+
+  await seedBookingRow(t, {
+    hubId: ghana.hubId,
+    repId: ghana.repId,
+    region: "ghana",
+    referenceNumber: "HC-INV-CONFIRMED",
+    bookingStatus: "confirmed",
+    paymentStatus: "confirmed",
+    lines: [{ accommodationType: "dormitory", quantity: 2, unitPrice: 150 }],
+  });
+  await seedBookingRow(t, {
+    hubId: ghana.hubId,
+    repId: ghana.repId,
+    region: "ghana",
+    referenceNumber: "HC-INV-HELD",
+    bookingStatus: "reserved",
+    paymentStatus: "awaiting_payment",
+    expiresAt: now + 3_600_000,
+    lines: [{ accommodationType: "dormitory", quantity: 3, unitPrice: 150 }],
+  });
+  // Expired, and the pool counter never got the release: its two beds are
+  // exactly what used to show up as Held inventory.
+  await seedBookingRow(t, {
+    hubId: ghana.hubId,
+    repId: ghana.repId,
+    region: "ghana",
+    referenceNumber: "HC-INV-EXPIRED",
+    bookingStatus: "expired",
+    paymentStatus: "awaiting_payment",
+    lines: [{ accommodationType: "dormitory", quantity: 2, unitPrice: 150 }],
+  });
+
+  await t.run((ctx) =>
+    ctx.db.insert("agcInventoryPools", {
+      accommodationType: "dormitory",
+      scope: "africa",
+      total: 10,
+      reserved: 5,
+      confirmed: 2,
+    }),
+  );
+
+  // The dashboard reports the live figure — 3 held, not the ledger's 5.
+  const pools = await t.query(api.agcAdminData.listPoolsAdmin, {
+    sessionToken: adminToken,
+  });
+  expect(
+    pools.find((pool) => pool.accommodationType === "dormitory"),
+  ).toMatchObject({
+    total: 10,
+    reserved: 3,
+    confirmed: 2,
+    available: 5,
+    ledgerReserved: 5,
+  });
+
+  const result = await t.action(api.agcExcel.exportInventoryExcel, {
+    sessionToken: adminToken,
+  });
+  expect(result.filename).toMatch(
+    /^homecoming-2026-accommodation-inventory-\d{4}-\d{2}-\d{2}\.xlsx$/,
+  );
+
+  const workbook = await loadWorkbook(result);
+  const inventory = sheetRecords(workbook.getWorksheet("Inventory")!);
+  expect(inventory[0]).toMatchObject({
+    "Accommodation Type": "dormitory",
+    Pool: "africa",
+    "Total Beds": "10",
+    Confirmed: "2",
+    "Held (awaiting payment)": "3",
+    Available: "5",
+    "Held In Ledger": "5",
+    "Ledger Drift": "2",
+  });
+  expect(inventory[1]).toMatchObject({
+    "Accommodation Type": "TOTAL",
+    "Held (awaiting payment)": "3",
+    Available: "5",
+  });
+
+  // Only the live reservation is behind the Held number.
+  const held = sheetRecords(workbook.getWorksheet("Held reservations")!);
+  expect(held.map((row) => row.Reference)).toEqual(["HC-INV-HELD", "TOTAL"]);
+  expect(held[0]).toMatchObject({
+    Beds: "3",
+    "Booking Status": "reserved",
+    "Payment Status": "awaiting_payment",
+  });
+
+  // The expired reservation is listed as released inventory, not held.
+  const released = sheetRecords(workbook.getWorksheet("Released (excluded)")!);
+  expect(released).toHaveLength(1);
+  expect(released[0]).toMatchObject({
+    Reference: "HC-INV-EXPIRED",
+    Status: "expired",
+    "Beds Released": "2",
+  });
 });
 
 test("rep accommodation export opens on the hub's guests with name, gender and accommodation type", async () => {

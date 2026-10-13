@@ -475,6 +475,74 @@ test("the nightly repair returns held beds on its own and alerts the desk once",
   ).toHaveLength(1);
 });
 
+test("a reservation bounced back for correction still expires and returns its beds", async () => {
+  const t = createTestConvex();
+  const { token, hubId, repId } = await seedAdminAndHub(t);
+  const now = Date.now();
+
+  const ids = await t.run(async (ctx) => {
+    // The desk sent the receipt back for correction and the hold window then
+    // lapsed. Its beds are held inventory until the sweep expires it.
+    const bookingId = await ctx.db.insert("agcBookings", {
+      hubId,
+      repId,
+      region: "ghana",
+      currency: "GHS",
+      totalAmount: 300,
+      paymentMode: "offline",
+      paymentStatus: "correction_requested",
+      bookingStatus: "correction_requested",
+      expiresAt: now - 60_000,
+      referenceNumber: "STY-CORRECTION",
+      createdAt: now - 86_400_000,
+      updatedAt: now - 86_400_000,
+    });
+    await ctx.db.insert("agcBookingLines", {
+      bookingId,
+      accommodationType: "hostel",
+      quantity: 2,
+      unitPrice: 150,
+      isBishopRate: false,
+    });
+    const poolId = await ctx.db.insert("agcInventoryPools", {
+      accommodationType: "hostel",
+      scope: "africa",
+      total: 700,
+      reserved: 2,
+      confirmed: 0,
+    });
+    await ctx.db.insert("agcInventoryLedger", {
+      poolId,
+      accommodationType: "hostel",
+      scope: "africa",
+      action: "reserve",
+      delta: 2,
+      bookingId,
+      createdAt: now - 86_400_000,
+    });
+    return { bookingId, poolId };
+  });
+
+  // The expiry sweep is the automatic path (the cron runs every 5 minutes).
+  const tick = await t.mutation(internal.crons.expireHoldsTick, {});
+  expect(tick).toEqual({ expired: 1 });
+
+  const after = await t.run(async (ctx) => ({
+    booking: await ctx.db.get(ids.bookingId),
+    pool: await ctx.db.get(ids.poolId),
+  }));
+  expect(after.booking?.bookingStatus).toBe("expired");
+  expect(after.pool?.reserved).toBe(0);
+
+  // And the dashboard that the desk reads reports it as freed, not held.
+  const pools = await t.query(api.agcAdminData.listPoolsAdmin, {
+    sessionToken: token,
+  });
+  expect(pools.find((pool) => pool.accommodationType === "hostel")).toMatchObject(
+    { reserved: 0, ledgerReserved: 0, available: 700 },
+  );
+});
+
 test("the Pools tab repair history names each booking and its bed count", async () => {
   const t = createTestConvex();
   const { token, hubId, repId } = await seedAdminAndHub(t);

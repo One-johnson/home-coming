@@ -556,6 +556,318 @@ export const exportBookingsExcel = action({
   },
 });
 
+// ------------------------------------------------------------------
+// Payment-on-arrival accommodation report (SRS §22, §38)
+// ------------------------------------------------------------------
+
+/** A POA booking feed row — the booking report row plus its priced lines. */
+type PoaBookingExportRow = BookingExportRow & {
+  booking: BookingExportRow["booking"] & {
+    confirmedAt: number | null;
+    poaStatus: string;
+    poaConfirmedAt: number | null;
+  };
+  lines: Array<{
+    accommodationType: string;
+    quantity: number;
+    unitPrice: number;
+    isBishopRate: boolean;
+  }>;
+};
+
+/**
+ * The beds behind each POA reservation: accommodation type + quantity, per
+ * booking, next to the booking's own state.
+ */
+function addPoaInventorySheet(
+  workbook: ExcelJS.Workbook,
+  entries: PoaBookingExportRow[],
+): void {
+  const sheet = workbook.addWorksheet("Inventory");
+  sheet.columns = [
+    { header: "Booking Reference", key: "reference", width: 16 },
+    { header: "Hub", key: "hub", width: 28 },
+    { header: "Region", key: "region", width: 18 },
+    { header: "Accommodation Type", key: "type", width: 22 },
+    { header: "Beds", key: "quantity", width: 8 },
+    { header: "Guests", key: "guests", width: 10 },
+    { header: "Booking Status", key: "bookingStatus", width: 16 },
+    { header: "Payment Status", key: "paymentStatus", width: 18 },
+    { header: "POA Status", key: "poaStatus", width: 14 },
+    { header: "Expires At", key: "expiresAt", width: 24 },
+  ];
+  sheet.getRow(1).font = { bold: true };
+  for (const entry of entries) {
+    const active = entry.guests.filter((guest) => guest.status === "active").length;
+    for (const line of entry.lines) {
+      sheet.addRow({
+        reference: entry.booking.referenceNumber ?? "",
+        hub: entry.booking.hubName,
+        region: entry.booking.region,
+        type: line.accommodationType,
+        quantity: line.quantity,
+        guests: active,
+        bookingStatus: entry.booking.bookingStatus,
+        paymentStatus: entry.booking.paymentStatus,
+        poaStatus: entry.booking.poaStatus.replace(/_/g, " "),
+        expiresAt: entry.booking.expiresAt
+          ? new Date(entry.booking.expiresAt).toISOString()
+          : "",
+      });
+    }
+  }
+  sheet.autoFilter = { from: "A1", to: "J1" };
+  const beds = entries.reduce(
+    (sum, entry) =>
+      sum + entry.lines.reduce((lineSum, line) => lineSum + line.quantity, 0),
+    0,
+  );
+  const totalRow = sheet.addRow({
+    reference: "TOTAL",
+    hub: `${entries.length} reservation(s)`,
+    quantity: beds,
+  });
+  totalRow.font = { bold: true };
+}
+
+/**
+ * Payment-on-arrival accommodation bookings report.
+ *
+ * The standard accommodation booking report leaves POA rows out (they are
+ * tracked on POA terms) and the POA collection sheet is money-only, so neither
+ * shows which beds a payment-on-arrival hub has reserved. This workbook mirrors
+ * the accommodation booking report — same guest columns, one sheet per hub, the
+ * same booking columns — and adds an Inventory sheet with the accommodation
+ * type and quantity behind every reservation.
+ */
+export const exportPoaBookingsExcel = action({
+  args: { sessionToken: v.string() },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ filename: string; contentBase64: string }> => {
+    await ctx.runQuery(internal.agcAdminData.requireAdminSession, {
+      sessionToken: args.sessionToken,
+    });
+
+    const entries: PoaBookingExportRow[] = await ctx.runQuery(
+      internal.agcAdminData.listPoaBookingExportData,
+      {},
+    );
+
+    const workbook = new ExcelJS.Workbook();
+    addBookingSheets(workbook, entries);
+    addPoaInventorySheet(workbook, entries);
+    const buffer = await workbook.xlsx.writeBuffer();
+    return {
+      filename: `homecoming-2026-poa-accommodation-${new Date().toISOString().slice(0, 10)}.xlsx`,
+      contentBase64: Buffer.from(buffer as ArrayBuffer).toString("base64"),
+    };
+  },
+});
+
+// ------------------------------------------------------------------
+// Accommodation inventory report (SRS §28–31)
+// ------------------------------------------------------------------
+
+type InventoryPoolRow = {
+  accommodationType: string;
+  scope: string;
+  total: number;
+  confirmed: number;
+  held: number;
+  available: number;
+  ledgerReserved: number;
+};
+
+type InventoryHoldRow = {
+  referenceNumber: string;
+  hubName: string;
+  region: string;
+  accommodationType: string;
+  quantity: number;
+  bookingStatus: string;
+  paymentStatus: string;
+  paymentMode: string;
+  expiresAt: number | null;
+  hoursLeft: number;
+};
+
+type InventoryReleasedRow = {
+  referenceNumber: string;
+  hubName: string;
+  region: string;
+  bookingStatus: string;
+  units: number;
+  closedAt: number;
+};
+
+/**
+ * Accommodation inventory report.
+ *
+ * Confirmed = beds locked in by confirmed bookings. Held = beds reserved by
+ * live reservations still awaiting payment (a reservation whose hold has lapsed
+ * is not held, and neither is an expired or cancelled one). Available = total −
+ * confirmed − held, so expired reservations never reduce availability. The
+ * live holds and the finished reservations whose beds went back are itemised so
+ * every number can be traced to a booking reference.
+ */
+export const exportInventoryExcel = action({
+  args: { sessionToken: v.string() },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ filename: string; contentBase64: string }> => {
+    await ctx.runQuery(internal.agcAdminData.requireAdminSession, {
+      sessionToken: args.sessionToken,
+    });
+
+    const data: {
+      pools: InventoryPoolRow[];
+      held: InventoryHoldRow[];
+      released: InventoryReleasedRow[];
+      generatedAt: number;
+    } = await ctx.runQuery(internal.agcAdminData.listInventoryReportData, {});
+
+    const workbook = new ExcelJS.Workbook();
+
+    const sheet = workbook.addWorksheet("Inventory");
+    sheet.columns = [
+      { header: "Accommodation Type", key: "type", width: 24 },
+      { header: "Pool", key: "scope", width: 16 },
+      { header: "Total Beds", key: "total", width: 12 },
+      { header: "Confirmed", key: "confirmed", width: 12 },
+      { header: "Held (awaiting payment)", key: "held", width: 22 },
+      { header: "Available", key: "available", width: 12 },
+      { header: "Held In Ledger", key: "ledger", width: 14 },
+      { header: "Ledger Drift", key: "drift", width: 13 },
+    ];
+    sheet.getRow(1).font = { bold: true };
+    for (const pool of data.pools) {
+      sheet.addRow({
+        type: pool.accommodationType,
+        scope: pool.scope,
+        total: pool.total,
+        confirmed: pool.confirmed,
+        held: pool.held,
+        available: pool.available,
+        ledger: pool.ledgerReserved,
+        drift: pool.ledgerReserved - pool.held,
+      });
+    }
+    const totals = data.pools.reduce(
+      (acc, pool) => ({
+        total: acc.total + pool.total,
+        confirmed: acc.confirmed + pool.confirmed,
+        held: acc.held + pool.held,
+        available: acc.available + pool.available,
+        ledger: acc.ledger + pool.ledgerReserved,
+      }),
+      { total: 0, confirmed: 0, held: 0, available: 0, ledger: 0 },
+    );
+    const totalRow = sheet.addRow({
+      type: "TOTAL",
+      total: totals.total,
+      confirmed: totals.confirmed,
+      held: totals.held,
+      available: totals.available,
+      ledger: totals.ledger,
+      drift: totals.ledger - totals.held,
+    });
+    totalRow.font = { bold: true };
+    sheet.autoFilter = { from: "A1", to: "H1" };
+
+    const holdsSheet = workbook.addWorksheet("Held reservations");
+    holdsSheet.columns = [
+      { header: "Reference", key: "reference", width: 16 },
+      { header: "Hub", key: "hub", width: 28 },
+      { header: "Region", key: "region", width: 18 },
+      { header: "Accommodation Type", key: "type", width: 22 },
+      { header: "Beds", key: "quantity", width: 8 },
+      { header: "Booking Status", key: "bookingStatus", width: 18 },
+      { header: "Payment Status", key: "paymentStatus", width: 20 },
+      { header: "Payment Mode", key: "paymentMode", width: 18 },
+      { header: "Expires At", key: "expiresAt", width: 24 },
+      { header: "Hours Left", key: "hoursLeft", width: 11 },
+    ];
+    holdsSheet.getRow(1).font = { bold: true };
+    for (const hold of data.held) {
+      holdsSheet.addRow({
+        reference: hold.referenceNumber,
+        hub: hold.hubName,
+        region: hold.region,
+        type: hold.accommodationType,
+        quantity: hold.quantity,
+        bookingStatus: hold.bookingStatus,
+        paymentStatus: hold.paymentStatus,
+        paymentMode: hold.paymentMode,
+        expiresAt: hold.expiresAt
+          ? new Date(hold.expiresAt).toISOString()
+          : "",
+        hoursLeft: hold.hoursLeft,
+      });
+    }
+    const holdTotals = holdsSheet.addRow({
+      reference: "TOTAL",
+      hub: `${new Set(data.held.map((hold) => hold.referenceNumber)).size} reservation(s)`,
+      quantity: data.held.reduce((sum, hold) => sum + hold.quantity, 0),
+    });
+    holdTotals.font = { bold: true };
+    holdsSheet.autoFilter = { from: "A1", to: "J1" };
+
+    const releasedSheet = workbook.addWorksheet("Released (excluded)");
+    releasedSheet.columns = [
+      { header: "Reference", key: "reference", width: 16 },
+      { header: "Hub", key: "hub", width: 28 },
+      { header: "Region", key: "region", width: 18 },
+      { header: "Status", key: "status", width: 14 },
+      { header: "Beds Released", key: "units", width: 14 },
+      { header: "Closed At", key: "closedAt", width: 24 },
+    ];
+    releasedSheet.getRow(1).font = { bold: true };
+    for (const row of data.released) {
+      releasedSheet.addRow({
+        reference: row.referenceNumber,
+        hub: row.hubName,
+        region: row.region,
+        status: row.bookingStatus,
+        units: row.units,
+        closedAt: new Date(row.closedAt).toISOString(),
+      });
+    }
+    releasedSheet.autoFilter = { from: "A1", to: "F1" };
+
+    const notes = workbook.addWorksheet("Notes");
+    notes.getColumn("A").width = 100;
+    notes.addRow(["Homecoming 2026 — accommodation inventory report"]).font = {
+      bold: true,
+    };
+    notes.addRow(["Generated", new Date(data.generatedAt).toISOString()]);
+    notes.addRow([""]);
+    notes.addRow([
+      "Confirmed — beds locked in by bookings whose payment is confirmed.",
+    ]);
+    notes.addRow([
+      "Held — beds reserved by reservations still awaiting payment (awaiting payment, in review, or sent back for correction) whose hold window has not lapsed.",
+    ]);
+    notes.addRow([
+      "Available — total beds minus confirmed minus held. Expired and cancelled reservations hold nothing, so they never reduce availability.",
+    ]);
+    notes.addRow([
+      "Released (excluded) — expired and cancelled reservations whose beds went back into their pools; listed for the audit trail only.",
+    ]);
+    notes.addRow([
+      "Held In Ledger / Ledger Drift — the pool's own counter next to the counted Held figure. A drift means the ledger has not released a finished booking yet: run Move expired bookings back to pools on the Pools tab (the nightly check does it on its own).",
+    ]);
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    return {
+      filename: `homecoming-2026-accommodation-inventory-${new Date().toISOString().slice(0, 10)}.xlsx`,
+      contentBase64: Buffer.from(buffer as ArrayBuffer).toString("base64"),
+    };
+  },
+});
+
 export const exportHubsRepsExcel = action({
   args: { sessionToken: v.string() },
   handler: async (
