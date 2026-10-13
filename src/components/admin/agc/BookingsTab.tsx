@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { ColumnDef } from "@tanstack/react-table";
-import { Download, Trash2 } from "lucide-react";
+import { Download, Eye, EyeOff, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
@@ -78,6 +78,13 @@ type BookingDeleteTarget = {
 /** Confirmed accommodation is locked in: it can never be deleted. */
 const isDeletable = (row: AdminBookingRow) => row.bookingStatus !== "confirmed";
 
+/**
+ * A released reservation (expired or cancelled) holds no beds and needs no
+ * desk action, so it stays out of the working list unless the desk asks for it.
+ */
+const isReleased = (row: AdminBookingRow) =>
+  row.bookingStatus === "expired" || row.bookingStatus === "cancelled";
+
 function formatDateTime(ts: number) {
   return new Date(ts).toLocaleString(undefined, {
     year: "numeric",
@@ -106,6 +113,13 @@ export function BookingsTab() {
   const [deleteTarget, setDeleteTarget] = useState<BookingDeleteTarget | null>(null);
 
   const list = useMemo(() => bookings ?? [], [bookings]);
+
+  const released = useMemo(() => list.filter(isReleased), [list]);
+  const [showReleased, setShowReleased] = useState(false);
+  const tableRows = useMemo(
+    () => (showReleased ? list : list.filter((row) => !isReleased(row))),
+    [list, showReleased],
+  );
 
   const summary = useMemo(
     () => ({
@@ -376,7 +390,15 @@ export function BookingsTab() {
   return (
     <div className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Total bookings" value={summary.total} />
+        <StatTile
+          label="Total bookings"
+          value={summary.total}
+          hint={
+            released.length > 0
+              ? `${released.length} released — beds back in the pool`
+              : undefined
+          }
+        />
         <StatTile
           label="Awaiting review"
           value={summary.awaiting}
@@ -388,17 +410,43 @@ export function BookingsTab() {
       </div>
 
       <Card className={cn("p-4")}>
-        {!canManage && (
-          <p className="mb-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
-            Finance view — read-only. Approvals and deletions are handled by the
-            accommodation team.
-          </p>
-        )}
+        <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+          {!canManage ? (
+            <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
+              Finance view — read-only. Approvals and deletions are handled by the
+              accommodation team.
+            </p>
+          ) : (
+            <span />
+          )}
+          {released.length > 0 && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1.5"
+              onClick={() => setShowReleased((value) => !value)}
+            >
+              {showReleased ? (
+                <EyeOff className="size-3.5" />
+              ) : (
+                <Eye className="size-3.5" />
+              )}
+              {showReleased
+                ? `Hide released (${released.length})`
+                : `Show released (${released.length})`}
+            </Button>
+          )}
+        </div>
         <DataTable
           columns={columns}
-          data={list}
+          data={tableRows}
           isLoading={bookings === undefined}
-          emptyMessage="No bookings yet."
+          emptyMessage={
+            released.length > 0 && !showReleased
+              ? `No live bookings — ${released.length} released reservation(s) hidden.`
+              : "No bookings yet."
+          }
           searchPlaceholder="Search reference, hub, guest…"
           getRowId={(row) => row._id}
           onRowClick={setDetailRow}
