@@ -1,7 +1,10 @@
 import { cronJobs } from "convex/server";
 import { internal } from "./_generated/api";
 import { internalMutation } from "./_generated/server";
-import { expireOverdueHolds } from "./agcAccommodation";
+import {
+  expireOverdueHolds,
+  reconcileExpiredBookingInventory,
+} from "./agcAccommodation";
 
 const crons = cronJobs();
 
@@ -24,6 +27,20 @@ crons.interval(
   internal.crons.expireHoldsTick,
   {},
 );
+
+/**
+ * One-off pool repair, runnable from the CLI:
+ * `npx convex run crons:reconcileExpiredBookingsOnce`.
+ *
+ * Expires holds past their window, then returns every bed an expired or
+ * cancelled booking still occupies to the pool it came from. Idempotent — beds
+ * already released are never returned twice — so it is safe to re-run, and the
+ * Pools tab exposes the same repair to admins.
+ */
+export const reconcileExpiredBookingsOnce = internalMutation({
+  args: {},
+  handler: async (ctx) => reconcileExpiredBookingInventory(ctx),
+});
 
 /**
  * Permanently purge representative accounts that were soft-deleted more than

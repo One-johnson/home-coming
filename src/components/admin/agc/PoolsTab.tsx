@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery } from "convex/react";
-import { Hourglass, MoveRight, Plus, ShieldAlert } from "lucide-react";
+import { Hourglass, MoveRight, Plus, RotateCcw, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
@@ -88,6 +88,11 @@ export function PoolsTab() {
   );
   const reallocate = useMutation(api.agcAdminData.reallocatePool);
   const addCapacity = useMutation(api.agcAdminData.addPoolCapacity);
+  const returnExpiredBeds = useMutation(
+    api.agcAdminData.returnExpiredBookingsToPools,
+  );
+  const [reconcileOpen, setReconcileOpen] = useState(false);
+  const [reconciling, setReconciling] = useState(false);
   const [form, setForm] = useState({
     accommodationType: "dormitory",
     fromScope: "africa",
@@ -126,6 +131,34 @@ export function PoolsTab() {
       toast.error(...toastFriendlyErrorParts(err, "Capacity top-up failed"));
     } finally {
       setTopUpBusy(false);
+    }
+  };
+
+  /**
+   * Return every bed a finished booking still holds. Expires lapsed holds
+   * first, then only returns the beds the ledger has no release for — safe to
+   * run more than once.
+   */
+  const handleReturnExpiredBeds = async () => {
+    if (!sessionToken) return;
+    setReconciling(true);
+    try {
+      const result = await returnExpiredBeds({ sessionToken });
+      toast.success(
+        result.units > 0
+          ? `Returned ${result.units} bed(s) from ${result.bookings} finished booking(s) to their pools`
+          : "Nothing to return — every finished booking has already released its beds",
+        {
+          description: result.expiredHolds
+            ? `${result.expiredHolds} lapsed hold(s) were also expired in this pass.`
+            : undefined,
+        },
+      );
+      setReconcileOpen(false);
+    } catch (err) {
+      toast.error(...toastFriendlyErrorParts(err, "Reconciliation failed"));
+    } finally {
+      setReconciling(false);
     }
   };
 
@@ -270,6 +303,62 @@ export function PoolsTab() {
           );
         })}
       </div>
+
+      {/*
+        Finished bookings (expired/cancelled) must not keep holding beds. Any
+        that still do — rows closed before the release existed — are returned
+        here, from the pool each bed was drawn from.
+      */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-dashed p-4">
+        <div className="min-w-0">
+          <p className="text-sm font-medium">Finished bookings still holding beds</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Expires lapsed holds, then returns every bed an expired or
+            cancelled booking still occupies back into its pool. Safe to run
+            again — beds already released are never returned twice.
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="gap-1.5"
+          onClick={() => setReconcileOpen(true)}
+        >
+          <RotateCcw className="size-3.5" /> Move expired bookings back to pools
+        </Button>
+      </div>
+
+      <Dialog open={reconcileOpen} onOpenChange={setReconcileOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <RotateCcw className="size-4 text-amber-600" /> Return beds to
+              their pools?
+            </DialogTitle>
+            <DialogDescription>
+              Every expired or cancelled booking that still holds beds gives
+              them back to the pool they came from, and any hold past its
+              window is expired. Existing live reservations are untouched.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setReconcileOpen(false)}
+              disabled={reconciling}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => void handleReturnExpiredBeds()}
+              disabled={reconciling}
+            >
+              {reconciling ? "Returning…" : "Return beds"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Reallocation — moves capacity between regional pools (audited). */}
       <div className="grid gap-3 rounded-xl border border-dashed p-4 sm:grid-cols-5">

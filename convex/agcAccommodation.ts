@@ -678,6 +678,118 @@ export async function expireOverdueHolds(ctx: MutationCtx): Promise<number> {
   return expired;
 }
 
+export type InventoryReconciliation = {
+  /** Lapsed holds (legacy POA rows included) expired in this pass. */
+  expiredHolds: number;
+  /** Finished bookings that were still holding beds. */
+  bookings: number;
+  /** Beds moved back into the pools they came from. */
+  units: number;
+};
+
+/**
+ * Return every bed a finished booking still holds.
+ *
+ * A booking that is `expired` or `cancelled` must have given its beds back,
+ * but rows closed by older code paths can still be occupying a pool — a
+ * confirmed booking trashed before confirmed units were released, for example.
+ * The inventory ledger is the record of what each booking already returned, so
+ * a booking only gets the difference between its bed lines and the releases
+ * logged against it; running this a second time returns nothing.
+ *
+ * Lapsed `reserved` holds are expired first (the same pass the cron makes), so
+ * one action repairs everything that is already past its hold window.
+ */
+export async function reconcileExpiredBookingInventory(
+  ctx: MutationCtx,
+): Promise<InventoryReconciliation> {
+  const expiredHolds = await expireOverdueHolds(ctx);
+
+  const [expired, cancelled, ledger] = await Promise.all([
+    ctx.db
+      .query("agcBookings")
+      .withIndex("by_booking_status", (q) => q.eq("bookingStatus", "expired"))
+      .collect(),
+    ctx.db
+      .query("agcBookings")
+      .withIndex("by_booking_status", (q) => q.eq("bookingStatus", "cancelled"))
+      .collect(),
+    // The ledger has no booking index, so sweep it once (not per booking).
+    ctx.db.query("agcInventoryLedger").collect(),
+  ]);
+
+  // How much each booking has already handed back, and how much of it was
+  // taken from the pool's `confirmed` counter when it was paid.
+  const released = new Map<string, number>();
+  const confirmed = new Map<string, number>();
+  for (const entry of ledger) {
+    if (!entry.bookingId) continue;
+    const key: string = entry.bookingId;
+    if (
+      entry.action === "release" ||
+      entry.action === "expire" ||
+      entry.action === "cancel"
+    ) {
+      released.set(key, (released.get(key) ?? 0) + Math.max(0, -entry.delta));
+    } else if (entry.action === "confirm") {
+      confirmed.set(key, Math.max(0, (confirmed.get(key) ?? 0) + entry.delta));
+    }
+  }
+
+  let bookings = 0;
+  let units = 0;
+  for (const booking of [...expired, ...cancelled]) {
+    const lines = await ctx.db
+      .query("agcBookingLines")
+      .withIndex("by_booking", (q) => q.eq("bookingId", booking._id))
+      .collect();
+    if (lines.length === 0) continue;
+
+    const owed = lines.reduce((sum, line) => sum + line.quantity, 0);
+    let outstanding = owed - (released.get(booking._id) ?? 0);
+    if (outstanding <= 0) continue;
+
+    // Confirmed units sit in the pool's `confirmed` counter; the rest are
+    // still counted as reserved. Take from the right one, per line, so each
+    // bed lands back in the pool it was drawn from.
+    let fromConfirmed = Math.min(outstanding, confirmed.get(booking._id) ?? 0);
+    let returned = 0;
+    for (const line of lines) {
+      const pool = await getPoolForRegion(
+        ctx,
+        line.accommodationType,
+        booking.region,
+      );
+      const takeConfirmed = Math.min(line.quantity, fromConfirmed);
+      if (takeConfirmed > 0) {
+        await releaseConfirmedUnits(ctx, pool, takeConfirmed, booking._id, "release");
+        fromConfirmed -= takeConfirmed;
+        outstanding -= takeConfirmed;
+        returned += takeConfirmed;
+      }
+      const takeReserved = Math.min(line.quantity - takeConfirmed, outstanding);
+      if (takeReserved > 0) {
+        await releaseUnits(ctx, pool, takeReserved, booking._id, "release");
+        outstanding -= takeReserved;
+        returned += takeReserved;
+      }
+    }
+
+    if (returned <= 0) continue;
+    bookings += 1;
+    units += returned;
+    await writeAuditLog(ctx, {
+      actorEmail: "system",
+      action: "agc_booking.beds_returned_to_pool",
+      entityType: "agcBookings",
+      entityId: booking._id,
+      summary: `Returned ${returned} bed(s) from ${booking.bookingStatus} booking ${booking.referenceNumber ?? ""} to its pool`,
+    });
+  }
+
+  return { expiredHolds, bookings, units };
+}
+
 // ------------------------------------------------------------------
 // Substitutions (SRS §42–44) — same gender + same type; history kept
 // ------------------------------------------------------------------

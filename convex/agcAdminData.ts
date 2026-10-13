@@ -30,6 +30,7 @@ import { agcRegion, type AgcAccommodationType } from "./schemaTypes";
 import { getSmtpSettings, isSmtpConfigured } from "./lib/smtpConfig";
 import {
   confirmBookingInventory,
+  reconcileExpiredBookingInventory,
   releaseBookingInventory,
 } from "./agcAccommodation";
 import {
@@ -1965,6 +1966,36 @@ export const reviewAgcBooking = mutation({
   },
 });
 
+/**
+ * One-off repair: return every bed a finished booking still holds to its pool.
+ * Expires lapsed holds first, then reconciles `expired`/`cancelled` bookings
+ * against the inventory ledger — safe to run repeatedly (nothing is returned
+ * twice), and audited so the desk can see what moved.
+ */
+export const returnExpiredBookingsToPools = mutation({
+  args: { sessionToken: sessionTokenValidator },
+  handler: async (ctx, args) => {
+    const actor = await requireRole(ctx, args.sessionToken, [
+      "admin",
+      "accommodation",
+    ]);
+    const result = await reconcileExpiredBookingInventory(ctx);
+    await writeAuditLog(ctx, {
+      actorUserId: actor._id,
+      actorEmail: actor.email,
+      action: "agc_pool.expired_bookings_reconciled",
+      entityType: "agcInventoryPools",
+      summary: `Returned ${result.units} bed(s) from ${result.bookings} finished booking(s) to their pools by ${actor.email}`,
+      metadata: {
+        expiredHolds: result.expiredHolds,
+        bookings: result.bookings,
+        units: result.units,
+      },
+    });
+    return result;
+  },
+});
+
 // ------------------------------------------------------------------
 // Admin delete operations (single + bulk) — hard deletes, audit-logged.
 // Registrations: erases the row and its offline receipt blob. Bookings:
@@ -2074,6 +2105,28 @@ async function purgeBookingRecord(
   await ctx.db.delete(booking._id);
 }
 
+/**
+ * Confirmed records are money that has been credited and beds that are locked
+ * in — nothing about them may be deleted, here or from the bulk action, so the
+ * only recovery path is a correction from a full administrator.
+ */
+const CONFIRMED_REGISTRATION_ERROR =
+  "Confirmed registrations cannot be deleted — the payment is already credited. Ask a system administrator for a correction.";
+const CONFIRMED_BOOKING_ERROR =
+  "Confirmed accommodation cannot be deleted — its beds are locked in. Ask a system administrator for a correction.";
+
+function assertRegistrationDeletable(record: Doc<"agcRegistrations">) {
+  if (record.paymentStatus === "confirmed") {
+    throw new ConvexError(CONFIRMED_REGISTRATION_ERROR);
+  }
+}
+
+function assertBookingDeletable(booking: Doc<"agcBookings">) {
+  if (booking.bookingStatus === "confirmed") {
+    throw new ConvexError(CONFIRMED_BOOKING_ERROR);
+  }
+}
+
 export const deleteAgcRegistration = mutation({
   args: {
     sessionToken: sessionTokenValidator,
@@ -2086,6 +2139,7 @@ export const deleteAgcRegistration = mutation({
     ]);
     const record = await ctx.db.get(args.registrationId);
     if (!record) throw new ConvexError("Registration not found");
+    assertRegistrationDeletable(record);
 
     await deleteRegistrationRecord(ctx, record);
 
@@ -2119,11 +2173,19 @@ export const deleteAgcRegistrationsBulk = mutation({
     }
 
     let deleted = 0;
+    let skippedConfirmed = 0;
     for (const id of args.ids) {
       const record = await ctx.db.get(id);
       if (!record || record.deletedAt) continue;
+      if (record.paymentStatus === "confirmed") {
+        skippedConfirmed += 1;
+        continue;
+      }
       await deleteRegistrationRecord(ctx, record);
       deleted += 1;
+    }
+    if (deleted === 0 && skippedConfirmed > 0) {
+      throw new ConvexError(CONFIRMED_REGISTRATION_ERROR);
     }
 
     await writeAuditLog(ctx, {
@@ -2131,10 +2193,10 @@ export const deleteAgcRegistrationsBulk = mutation({
       actorEmail: actor.email,
       action: "agc_registration.bulk_deleted",
       entityType: "agcRegistrations",
-      summary: `Moved ${deleted} registration(s) to trash by ${actor.email}`,
-      metadata: { count: deleted },
+      summary: `Moved ${deleted} registration(s) to trash by ${actor.email}${skippedConfirmed > 0 ? ` — ${skippedConfirmed} confirmed registration(s) kept` : ""}`,
+      metadata: { count: deleted, skippedConfirmed },
     });
-    return { deleted };
+    return { deleted, skippedConfirmed };
   },
 });
 
@@ -2150,6 +2212,7 @@ export const deleteAgcBooking = mutation({
     ]);
     const booking = await ctx.db.get(args.bookingId);
     if (!booking) throw new ConvexError("Booking not found");
+    assertBookingDeletable(booking);
 
     await deleteBookingRecord(ctx, booking);
 
@@ -2183,11 +2246,19 @@ export const deleteAgcBookingsBulk = mutation({
     }
 
     let deleted = 0;
+    let skippedConfirmed = 0;
     for (const id of args.ids) {
       const booking = await ctx.db.get(id);
       if (!booking || booking.deletedAt) continue;
+      if (booking.bookingStatus === "confirmed") {
+        skippedConfirmed += 1;
+        continue;
+      }
       await deleteBookingRecord(ctx, booking);
       deleted += 1;
+    }
+    if (deleted === 0 && skippedConfirmed > 0) {
+      throw new ConvexError(CONFIRMED_BOOKING_ERROR);
     }
 
     await writeAuditLog(ctx, {
@@ -2195,10 +2266,10 @@ export const deleteAgcBookingsBulk = mutation({
       actorEmail: actor.email,
       action: "agc_booking.bulk_deleted",
       entityType: "agcBookings",
-      summary: `Moved ${deleted} booking(s) to trash by ${actor.email}`,
-      metadata: { count: deleted },
+      summary: `Moved ${deleted} booking(s) to trash by ${actor.email}${skippedConfirmed > 0 ? ` — ${skippedConfirmed} confirmed booking(s) kept` : ""}`,
+      metadata: { count: deleted, skippedConfirmed },
     });
-    return { deleted };
+    return { deleted, skippedConfirmed };
   },
 });
 

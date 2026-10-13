@@ -487,7 +487,7 @@ test("the 72h expiry releases held POA beds back into their pool and notifies th
   expect(offlineBooking?.adminMessage).toBeUndefined();
 });
 
-test("deleting a confirmed accommodation returns its beds to the pool", async () => {
+test("deleting a confirmed accommodation is refused and keeps its beds locked in", async () => {
   const t = createTestConvex();
   const { token, hubId, repId } = await seedAdminAndHub(t);
   const now = Date.now();
@@ -501,22 +501,26 @@ test("deleting a confirmed accommodation returns its beds to the pool", async ()
     referenceNumber: "STY-CONFIRMED-DEL",
   });
 
-  await t.mutation(api.agcAdminData.deleteAgcBooking, {
-    sessionToken: token,
-    bookingId,
-  });
+  // A confirmed accommodation is locked in: the delete — and the trash that
+  // would have released its beds — is refused outright. Beds that a booking
+  // like this once leaked are recovered by the pool reconciliation instead
+  // (see agcDeletesAndPoolRepair.test.ts).
+  await expect(
+    t.mutation(api.agcAdminData.deleteAgcBooking, {
+      sessionToken: token,
+      bookingId,
+    }),
+  ).rejects.toThrow(/Confirmed accommodation cannot be deleted/);
 
   const data = await t.run(async (ctx) => ({
     booking: await ctx.db.get(bookingId),
     pool: await ctx.db.get(poolId),
     ledger: await ctx.db.query("agcInventoryLedger").collect(),
   }));
-  expect(data.booking?.deletedAt).toBeTypeOf("number");
-  expect(data.booking?.bookingStatus).toBe("expired");
-  expect(data.pool?.confirmed).toBe(0);
-  expect(
-    data.ledger.some((entry) => entry.action === "cancel" && entry.delta === -3),
-  ).toBe(true);
+  expect(data.booking?.deletedAt).toBeUndefined();
+  expect(data.booking?.bookingStatus).toBe("confirmed");
+  expect(data.pool?.confirmed).toBe(3);
+  expect(data.ledger).toHaveLength(0);
 });
 
 test("bulk confirm credits every live IOU and reports released holds", async () => {

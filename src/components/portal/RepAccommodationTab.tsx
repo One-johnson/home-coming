@@ -16,6 +16,7 @@ import {
   Loader2Icon,
   PencilIcon,
   ReceiptTextIcon,
+  RotateCcwIcon,
   SearchIcon,
   TableIcon,
   Trash2Icon,
@@ -152,6 +153,43 @@ const emptyDraft = (): Draft => ({
 
 const draftIsValid = (draft: Draft) =>
   draft.firstName.trim().length > 0 && draft.lastName.trim().length > 0;
+
+/**
+ * A payment-on-arrival hold whose 72h window released it: the beds went back
+ * into their pool, so the hub's next step is to book the same guests again.
+ */
+function isReleasedPoaHold(booking: RepBooking) {
+  return (
+    booking.paymentMode === "payment_on_arrival" &&
+    booking.bookingStatus === "expired"
+  );
+}
+
+/** The same guests and beds as a booking, ready to be booked again. */
+function draftsFromBooking(booking: RepBooking): Draft[] {
+  const active = booking.guests.filter((guest) => guest.status === "active");
+  if (active.length > 0) {
+    return active.map((guest) => ({
+      firstName: guest.firstName,
+      lastName: guest.lastName,
+      gender: guest.gender === "female" ? "female" : "male",
+      title: guest.title,
+      accommodationType:
+        (guest.accommodationType as Draft["accommodationType"]) ?? "dormitory",
+      isBishopRate: guest.isBishopRate,
+    }));
+  }
+  // Roster emptied (guests removed): bring back one row per bed so the same
+  // accommodation types come back selected.
+  return booking.lines.flatMap((line) =>
+    Array.from({ length: Math.max(0, line.quantity) }, () => ({
+      ...emptyDraft(),
+      accommodationType:
+        (line.accommodationType as Draft["accommodationType"]) ?? "dormitory",
+      isBishopRate: line.isBishopRate,
+    })),
+  );
+}
 
 const BOOKING_FILTERS = [
   { value: "all", label: "All" },
@@ -983,6 +1021,7 @@ function BookingCard({
   onSubstitute,
   onIou,
   onEvidence,
+  onRebook,
 }: {
   booking: RepBooking;
   locked: boolean;
@@ -994,6 +1033,7 @@ function BookingCard({
   onSubstitute: (guest: RepBooking["guests"][number]) => void;
   onIou: (booking: RepBooking) => void;
   onEvidence: (booking: RepBooking) => void;
+  onRebook: (booking: RepBooking) => void;
 }) {
   const status = bookingStatusMeta(booking.bookingStatus);
   const payStatus = displayPaymentStatus(booking);
@@ -1111,6 +1151,18 @@ function BookingCard({
       </ul>
 
       <div className="mt-auto flex flex-wrap items-center gap-2 pt-3">
+        {isReleasedPoaHold(booking) ? (
+          // The released hold is a dead end without this: one click brings the
+          // same guests and beds back into the form.
+          <Button
+            type="button"
+            size="sm"
+            className="bg-amber-600 text-white hover:bg-amber-700"
+            onClick={() => onRebook(booking)}
+          >
+            <RotateCcwIcon className="size-4" /> Book these beds again
+          </Button>
+        ) : null}
         {booking.paymentMode === "payment_on_arrival" && !isClosedBooking(booking) ? (
           <>
             <Button
@@ -2045,6 +2097,31 @@ export function RepAccommodationTab() {
     builderRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
+  /**
+   * "Book these beds again" on a released hold: reopen the builder with the
+   * same guests, titles and accommodation types pre-filled. Availability keeps
+   * being checked live, so a pool that has filled up since blocks the reserve
+   * button instead of over-booking.
+   */
+  const openRebook = (booking: RepBooking) => {
+    const rows = draftsFromBooking(booking);
+    if (rows.length === 0) {
+      toast.error(
+        "This hold has no guests on file — add them in the form to book again.",
+      );
+      return;
+    }
+    setMobileView("book");
+    setError("");
+    // Never discard a half-typed roster: append when the form already has rows.
+    setDrafts((prev) => (prev.length > 0 ? [...prev, ...rows] : rows));
+    setExpandedGuest(null);
+    builderRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    toast.success(
+      `Brought ${rows.length} guest${rows.length === 1 ? "" : "s"} from ${booking.referenceNumber || "the released hold"} into the form — reserve again when the beds look right.`,
+    );
+  };
+
   /** Payment confirmed → the booking is locked: no edit/cancel/delete/substitute. */
   const isLockedBooking = (booking: RepBooking) =>
     booking.bookingStatus === "confirmed";
@@ -2645,6 +2722,16 @@ export function RepAccommodationTab() {
                                     <Trash2Icon className="size-3.5" />
                                   </Button>
                                 </div>
+                              ) : isReleasedPoaHold(booking) ? (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => openRebook(booking)}
+                                >
+                                  <RotateCcwIcon className="size-3.5" /> Book
+                                  again
+                                </Button>
                               ) : (
                                 <span className="text-xs text-muted-foreground">
                                   {booking.bookingStatus === "confirmed" ? "Locked" : "—"}
@@ -2678,6 +2765,7 @@ export function RepAccommodationTab() {
                   setPoaIouTarget({ kind: "booking", recordId: target._id })
                 }
                 onEvidence={(target) => setEvidenceTarget(target._id)}
+                onRebook={openRebook}
               />
             ))}
               </div>

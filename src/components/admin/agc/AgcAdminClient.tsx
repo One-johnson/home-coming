@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { DataTable } from "@/components/ui/data-table";
 import { Textarea } from "@/components/ui/textarea";
-import { createActionsColumn, multiSelectFilter } from "@/components/admin/columns";
+import { multiSelectFilter } from "@/components/admin/columns";
 import {
   RowDetailDialog,
   RowDetailItem,
@@ -57,13 +57,16 @@ type AdminRegistrationRow = {
   paidAt: number | null;
 };
 
-type RegistrationDeleteTarget =
-  | { kind: "single"; row: AdminRegistrationRow }
-  | {
-      kind: "bulk";
-      rows: AdminRegistrationRow[];
-      clearSelection: () => void;
-    };
+type RegistrationDeleteTarget = {
+  rows: AdminRegistrationRow[];
+  /** Confirmed rows in the selection — reported, never deleted. */
+  confirmed: AdminRegistrationRow[];
+  clearSelection: () => void;
+};
+
+/** Confirmed registrations are credited money: they can never be deleted. */
+const isDeletable = (row: AdminRegistrationRow) =>
+  row.paymentStatus !== "confirmed";
 
 export type ReviewDecision =
   | "approve"
@@ -146,7 +149,6 @@ export default function RegistrationsTab({
     sessionToken ? { sessionToken } : "skip",
   );
   const review = useMutation(api.agcAdminData.reviewAgcRegistration);
-  const deleteOne = useMutation(api.agcAdminData.deleteAgcRegistration);
   const deleteBulk = useMutation(api.agcAdminData.deleteAgcRegistrationsBulk);
   const [busyId, setBusyId] = useState<string | null>(null);
   // Row shown in the detail dialog (opened by clicking a table row).
@@ -177,15 +179,27 @@ export default function RegistrationsTab({
     }
   };
 
-  const handleDeleteOne = (row: AdminRegistrationRow) => {
-    setDeleteTarget({ kind: "single", row });
-  };
-
+  /**
+   * Deletion is a selection-only action (there is no per-row delete button),
+   * and confirmed registrations are never part of it — they are reported back
+   * instead, so the desk knows why they stayed.
+   */
   const handleBulkDelete = (
     selectedRows: AdminRegistrationRow[],
     clearSelection: () => void,
   ) => {
-    setDeleteTarget({ kind: "bulk", rows: selectedRows, clearSelection });
+    const rows = selectedRows.filter(isDeletable);
+    const confirmed = selectedRows.filter((row) => !isDeletable(row));
+    if (rows.length === 0) {
+      toast.error("Confirmed registrations cannot be deleted", {
+        description: confirmed.length
+          ? `All ${confirmed.length} selected registration(s) are confirmed — the payment is already credited.`
+          : "Select at least one registration that is not confirmed.",
+      });
+      clearSelection();
+      return;
+    }
+    setDeleteTarget({ rows, confirmed, clearSelection });
   };
 
   const handleConfirmDelete = async () => {
@@ -193,34 +207,22 @@ export default function RegistrationsTab({
     const target = deleteTarget;
     setDeleting(true);
     try {
-      if (target.kind === "single") {
-        const row = target.row;
-        setBusyId(row._id);
-        try {
-          await deleteOne({
-            sessionToken,
-            registrationId: row._id as Id<"agcRegistrations">,
-          });
-          toast.success("Registration deleted");
-          setDeleteTarget(null);
-        } catch (err) {
-          toast.error(...toastFriendlyErrorParts(err, "Delete failed"));
-        } finally {
-          setBusyId(null);
-        }
-      } else {
-        try {
-          const result = await deleteBulk({
-            sessionToken,
-            ids: target.rows.map((r) => r._id as Id<"agcRegistrations">),
-          });
-          toast.success(`Deleted ${result.deleted} registration(s)`);
-          target.clearSelection();
-          setDeleteTarget(null);
-        } catch (err) {
-          toast.error(...toastFriendlyErrorParts(err, "Bulk delete failed"));
-        }
-      }
+      const result = await deleteBulk({
+        sessionToken,
+        ids: target.rows.map((r) => r._id as Id<"agcRegistrations">),
+      });
+      // Confirmed rows are counted here too: one may have been approved in
+      // another tab between selecting and confirming the delete.
+      const kept = target.confirmed.length + result.skippedConfirmed;
+      toast.success(`Deleted ${result.deleted} registration(s)`, {
+        description: kept
+          ? `${kept} confirmed registration(s) were kept — confirmed records cannot be deleted.`
+          : undefined,
+      });
+      target.clearSelection();
+      setDeleteTarget(null);
+    } catch (err) {
+      toast.error(...toastFriendlyErrorParts(err, "Bulk delete failed"));
     } finally {
       setDeleting(false);
     }
@@ -315,23 +317,8 @@ export default function RegistrationsTab({
           </span>
         ),
       },
-      ...(canManage
-        ? [
-            createActionsColumn<AdminRegistrationRow>((row) => (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                disabled={busyId === row._id}
-                aria-label={`Delete registration ${row.referenceNumber || row.hubName}`}
-                onClick={() => void handleDeleteOne(row)}
-              >
-                <Trash2 className="size-4" />
-              </Button>
-            )),
-          ]
-        : []),
+      // No per-row delete button: confirmed registrations can never be
+      // deleted, and everything else is deleted from a row selection.
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps -- handlers close over stable session/mutations
     [busyId, sessionToken, canManage, showAgeing],
@@ -557,17 +544,17 @@ export default function RegistrationsTab({
         onOpenChange={(open) => {
           if (!open) setDeleteTarget(null);
         }}
-        title={deleteTarget?.kind === "bulk" ? "Delete registrations?" : "Delete registration?"}
+        title="Delete registrations?"
         description={
           deleteTarget === null
             ? ""
-            : deleteTarget.kind === "single"
-              ? `Permanently delete registration ${deleteTarget.row.referenceNumber || "(pending)"} for ${deleteTarget.row.hubName}? This cannot be undone.`
-              : `Permanently delete ${deleteTarget.rows.length} registration(s)? This cannot be undone.`
+            : `Permanently delete ${deleteTarget.rows.length} registration(s)? This cannot be undone.${
+                deleteTarget.confirmed.length
+                  ? ` ${deleteTarget.confirmed.length} selected registration(s) are confirmed and will be kept.`
+                  : ""
+              }`
         }
-        confirmLabel={
-          deleteTarget?.kind === "bulk" ? `Delete ${deleteTarget.rows.length}` : "Delete"
-        }
+        confirmLabel={deleteTarget ? `Delete ${deleteTarget.rows.length}` : "Delete"}
         loading={deleting}
         onConfirm={handleConfirmDelete}
       />
