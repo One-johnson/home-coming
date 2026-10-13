@@ -19,6 +19,13 @@ import { AgcExcelExportButton } from "@/components/admin/agc/AgcAdminClient";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -35,9 +42,10 @@ import { cn } from "@/lib/utils";
 /**
  * Venue-desk payment-on-arrival check-in. The desk searches by reference,
  * hub, or guest name, ticks rows off as cash arrives (a local checklist that
- * survives reloads for the shift), and confirms each payment in one tap —
- * the same credit the POA tables perform, with a desk note pre-filled so
- * the audit trail says "collected at the venue desk".
+ * survives reloads for the shift), and confirms payments — one at a time or
+ * every ticked row in one batch. Each confirmation asks first, because it
+ * credits the IOU system-wide and locks the held beds in; the desk note is
+ * pre-filled so the audit trail says "collected at the venue desk".
  *
  * `?hub=<id>` pre-filters the sheet to one hub; clear the filter to see all.
  */
@@ -91,9 +99,13 @@ export function DeskCheckinPage() {
     sessionToken ? { sessionToken } : "skip",
   );
   const confirmPoa = useMutation(api.agcPoa.confirmPoaPayment);
+  const confirmPoaBulk = useMutation(api.agcPoa.confirmPoaPaymentsBulk);
 
   const [search, setSearch] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [confirmTarget, setConfirmTarget] = useState<DeskRow | null>(null);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [ticked, setTicked] = useState<string[]>(() => loadTicked());
 
   // Live rows + ticked ids that no longer exist → converged checklist.
@@ -135,9 +147,26 @@ export function DeskCheckinPage() {
     return due;
   }, [filtered, tickSet]);
 
-  const handleConfirm = async (row: DeskRow) => {
-    if (!sessionToken) return;
+  /** Rows currently ticked on this device — the bulk-collection batch. */
+  const tickedRows = useMemo(
+    () => (rows ?? []).filter((row) => tickSet.has(row.recordId)),
+    [rows, tickSet],
+  );
+
+  const totalsFor = (entries: DeskRow[]) => {
+    const due: Record<string, number> = {};
+    for (const row of entries) {
+      due[row.currency] = (due[row.currency] ?? 0) + row.totalAmount;
+    }
+    return Object.entries(due).sort(([a], [b]) => a.localeCompare(b));
+  };
+
+  /** Single row: confirm only after the desk acknowledges the cash-in-hand. */
+  const handleConfirm = async () => {
+    if (!sessionToken || !confirmTarget) return;
+    const row = confirmTarget;
     setBusyId(row.recordId);
+    setBusy(true);
     try {
       await confirmPoa({
         sessionToken,
@@ -148,10 +177,59 @@ export function DeskCheckinPage() {
       toast.success(
         `${row.currency} ${row.totalAmount} collected for ${row.referenceNumber || "record"} — IOU is now a paid receipt.`,
       );
+      setConfirmTarget(null);
     } catch (err) {
       toast.error(...toastFriendlyErrorParts(err, "Failed to confirm payment"));
     } finally {
       setBusyId(null);
+      setBusy(false);
+    }
+  };
+
+  /**
+   * Bulk: every ticked row in one batch. Rows that fail (another desk already
+   * collected them, or their 72h hold expired) are reported and left ticked so
+   * the desk can look them up.
+   */
+  const handleBulkConfirm = async () => {
+    if (!sessionToken || tickedRows.length === 0) return;
+    setBusy(true);
+    try {
+      const result = await confirmPoaBulk({
+        sessionToken,
+        records: tickedRows.map((row) => ({
+          kind: row.kind,
+          recordId: row.recordId,
+        })),
+        note: DESK_NOTE,
+      });
+      if (result.confirmedCount > 0) {
+        toast.success(
+          `${result.confirmedCount} payment${result.confirmedCount === 1 ? "" : "s"} collected — IOUs are now paid receipts.`,
+        );
+      }
+      if (result.failedCount > 0) {
+        const reasons = [...new Set(result.failed.map((entry) => entry.reason))];
+        toast.error(
+          `${result.failedCount} record${result.failedCount === 1 ? "" : "s"} could not be collected.`,
+          { description: reasons.slice(0, 3).join("; ") },
+        );
+      }
+      const confirmedIds = new Set(
+        result.confirmed.map((entry) => entry.recordId),
+      );
+      setTicked((prev) => {
+        const next = prev.filter((id) => !confirmedIds.has(id));
+        saveTicked(next);
+        return next;
+      });
+      setBulkOpen(false);
+    } catch (err) {
+      toast.error(
+        ...toastFriendlyErrorParts(err, "Failed to collect the ticked payments"),
+      );
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -180,6 +258,11 @@ export function DeskCheckinPage() {
         <Button variant="outline" onClick={() => window.print()}>
           <Printer className="size-4" /> Print sheet
         </Button>
+        {tickedRows.length > 0 && (
+          <Button onClick={() => setBulkOpen(true)}>
+            <HandCoins className="size-4" /> Confirm ticked ({tickedRows.length})
+          </Button>
+        )}
         {ticked.length > 0 && (
           <Button
             variant="outline"
@@ -331,7 +414,7 @@ export function DeskCheckinPage() {
                           type="button"
                           size="sm"
                           disabled={busyId === row.recordId}
-                          onClick={() => void handleConfirm(row)}
+                          onClick={() => setConfirmTarget(row)}
                         >
                           <HandCoins className="size-4" />
                           {busyId === row.recordId ? "Confirming…" : "Cash received"}
@@ -351,12 +434,116 @@ export function DeskCheckinPage() {
           <ClipboardCheck className="mt-0.5 size-4 shrink-0" />
           <p>
             Ticks are kept on this device only — they are a desk checklist, not
-            payment records. “Cash received” confirms the payment system-wide
-            (credits the IOU, unlocks the beds for bookings) and should be
-            tapped only when the money is in hand.
+            payment records. “Confirm ticked” collects every ticked row in one
+            batch; both it and “Cash received” ask for confirmation first,
+            because confirming credits the IOU system-wide and locks the held
+            beds in — do it only when the money is in hand.
           </p>
         </CardContent>
       </Card>
+
+      {/* Single-row confirmation — the money is only credited after this. */}
+      <Dialog
+        open={!!confirmTarget}
+        onOpenChange={(open) => !open && setConfirmTarget(null)}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Confirm cash received</DialogTitle>
+            <DialogDescription>
+              {confirmTarget
+                ? `Collect ${confirmTarget.currency} ${confirmTarget.totalAmount} for ${confirmTarget.referenceNumber || "this record"} (${confirmTarget.hubName})?`
+                : ""}{" "}
+              The IOU becomes a paid receipt and, for accommodation, the held
+              beds are locked in.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setConfirmTarget(null)}
+              disabled={busy}
+            >
+              Cancel
+            </Button>
+            <Button onClick={() => void handleConfirm()} disabled={busy}>
+              {busy ? "Confirming…" : "Cash received"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk confirmation — every ticked row in one credit. */}
+      <Dialog open={bulkOpen} onOpenChange={(open) => !open && setBulkOpen(false)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              Collect {tickedRows.length} ticked payment
+              {tickedRows.length === 1 ? "" : "s"}?
+            </DialogTitle>
+            <DialogDescription>
+              Each ticked record is credited and its IOU becomes a paid
+              receipt. Untick any row you have not received cash for.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="max-h-56 overflow-y-auto rounded-lg border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Reference</TableHead>
+                    <TableHead>Hub</TableHead>
+                    <TableHead className="text-right">Amount</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {tickedRows.map((row) => (
+                    <TableRow key={row.recordId}>
+                      <TableCell className="font-mono text-xs">
+                        {row.referenceNumber || "(pending)"}
+                        {row.kind === "booking" ? (
+                          <span className="ml-1 text-muted-foreground">· stay</span>
+                        ) : null}
+                      </TableCell>
+                      <TableCell className="max-w-36 truncate text-xs">
+                        {row.hubName}
+                      </TableCell>
+                      <TableCell className="text-right text-xs tabular-nums">
+                        {row.currency} {row.totalAmount.toLocaleString()}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+            <div className="space-y-1 rounded-lg bg-muted/50 p-3">
+              {totalsFor(tickedRows).map(([currency, amount]) => (
+                <p
+                  key={currency}
+                  className="flex items-center justify-between text-sm"
+                >
+                  <span className="text-muted-foreground">
+                    Cash to bank ({currency})
+                  </span>
+                  <span className="font-semibold tabular-nums">
+                    {currency} {amount.toLocaleString()}
+                  </span>
+                </p>
+              ))}
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setBulkOpen(false)} disabled={busy}>
+              Cancel
+            </Button>
+            <Button onClick={() => void handleBulkConfirm()} disabled={busy}>
+              {busy
+                ? "Confirming…"
+                : `Confirm ${tickedRows.length} payment${tickedRows.length === 1 ? "" : "s"}`}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <EndOfDayReconciliation />
     </div>

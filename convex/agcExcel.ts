@@ -5,11 +5,19 @@ import { v } from "convex/values";
 import { ConvexError } from "convex/values";
 import { action } from "./_generated/server";
 import { api, internal } from "./_generated/api";
-import { AGC_ACCOMMODATION_TYPE_KEYS } from "./lib/agcConfig";
+import {
+  AGC_ACCOMMODATION_TYPES,
+  AGC_ACCOMMODATION_TYPE_KEYS,
+} from "./lib/agcConfig";
 import type {
   AgcAccommodationType,
   AgcGender,
 } from "./schemaTypes";
+
+/** Human label for an accommodation type key, falling back to the raw key. */
+function accommodationLabel(type: string): string {
+  return AGC_ACCOMMODATION_TYPES[type as AgcAccommodationType]?.label ?? type;
+}
 
 // ------------------------------------------------------------------
 // Row parsing — pure helpers, safe to use inside node actions
@@ -684,6 +692,8 @@ export const exportPoaCollectionExcel = action({
       evidenceFileName: string | null;
       paymentStatus: string;
       bookingStatus: string | null;
+      /** "Hostel (Blocks 1–8): 2 bed(s)" — empty for registrations. */
+      accommodationTypes: string;
       createdAt: number;
     };
     const rows: CollectionRow[] = await ctx.runQuery(
@@ -699,6 +709,7 @@ export const exportPoaCollectionExcel = action({
     const columns: Array<{ header: string; key: string; width: number }> = [
       { header: "Reference", key: "reference", width: 14 },
       { header: "Type", key: "kind", width: 14 },
+      { header: "Accommodation Type", key: "accommodation", width: 30 },
       { header: "Delegates/Guests", key: "units", width: 16 },
       { header: "Amount Due", key: "amount", width: 12 },
       { header: "Currency", key: "currency", width: 10 },
@@ -713,6 +724,9 @@ export const exportPoaCollectionExcel = action({
         sheet.addRow({
           reference: row.referenceNumber || "(pending)",
           kind: row.kind === "registration" ? "Registration" : "Accommodation",
+          accommodation:
+            row.accommodationTypes ||
+            (row.kind === "booking" ? "—" : "n/a (delegates)"),
           units: row.units,
           amount: row.totalAmount,
           currency: row.currency,
@@ -722,7 +736,7 @@ export const exportPoaCollectionExcel = action({
           collected: "",
         });
       }
-      sheet.autoFilter = { from: "A1", to: "I1" };
+      sheet.autoFilter = { from: "A1", to: "J1" };
     };
 
     /** Landscape, fit-to-width print setup for the venue desk printer. */
@@ -860,6 +874,7 @@ export const exportPoaReconciliationExcel = action({
       outstandingCount: number;
       outstandingAmount: number;
       units: number;
+      outstandingByAccommodationType: Record<string, number>;
     };
     // Reuse the live reconciliation math for the current local day.
     const report = await ctx.runQuery(
@@ -935,6 +950,18 @@ export const exportPoaReconciliationExcel = action({
           count: row.outstandingCount,
           amount: row.outstandingAmount,
         });
+        // Beds still to collect, broken down by accommodation type so the
+        // desk knows which pools the outstanding IOUs are holding.
+        for (const [type, units] of Object.entries(
+          row.outstandingByAccommodationType ?? {},
+        ).sort(([a], [b]) => a.localeCompare(b))) {
+          sheet.addRow({
+            metric: `Still outstanding — ${accommodationLabel(type)}`,
+            currency: row.currency,
+            count: units,
+            amount: "",
+          });
+        }
       }
       setupPrint(sheet);
     }
@@ -949,6 +976,7 @@ export const exportPoaReconciliationExcel = action({
       { header: "Collected Total", key: "collected", width: 16 },
       { header: "Outstanding", key: "outstanding", width: 14 },
       { header: "Outstanding Count", key: "outstandingCount", width: 16 },
+      { header: "Outstanding beds by type", key: "outstandingTypes", width: 34 },
     ];
     summary.getRow(1).font = { bold: true };
     for (const row of rows) {
@@ -961,6 +989,11 @@ export const exportPoaReconciliationExcel = action({
         collected: row.currency + " " + row.collectedAmount.toLocaleString(),
         outstanding: row.currency + " " + row.outstandingAmount.toLocaleString(),
         outstandingCount: row.outstandingCount,
+        outstandingTypes:
+          Object.entries(row.outstandingByAccommodationType ?? {})
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([type, units]) => `${accommodationLabel(type)}: ${units}`)
+            .join(" · ") || "—",
       });
     }
     for (const [currency, agg] of Object.entries(

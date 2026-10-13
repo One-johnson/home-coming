@@ -221,6 +221,8 @@ export const createBooking = mutation({
               "",
               `Your accommodation reservation ${referenceNumber} for ${args.guests.length} guest(s) was created on payment-on-arrival terms.`,
               `Total due on arrival: ${result.totalAmount} ${result.currency}.`,
+              `Your beds are held until ${new Date(result.expiresAt).toUTCString()} —`,
+              "if the payment is not confirmed by then, the beds go back into the pool.",
               "Your IOU receipt is available in the portal. When you pay, upload",              "your payment evidence there and the desk will confirm it.",
               "",
               "— Homecoming 2026 Accommodation Desk",
@@ -483,8 +485,8 @@ export const submitOfflineBookingPayment = mutation({
     ) {
       throw new ConvexError("This booking can no longer receive a payment submission");
     }
-    // POA holds are not on a timer — but an offline receipt must still arrive
-    // inside the hold window (POA is gated out above by paymentMode).
+    // A receipt must arrive inside the hold window — the beds return to the
+    // pool once the hold lapses, and confirming an expired hold is refused.
     if (booking.expiresAt && booking.expiresAt < Date.now()) {
       throw new ConvexError(
         "The hold window for this reservation has expired. Create a new booking.",

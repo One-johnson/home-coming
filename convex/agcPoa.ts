@@ -5,7 +5,10 @@ import type { MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { requireRole, sessionTokenValidator } from "./users";
 import { requireRep, assertBeforeDeadline } from "./agcPortal";
-import { isHubPoaEnabled } from "./lib/agcPoaRuntime";
+import {
+  isCollectiblePoaBooking,
+  isHubPoaEnabled,
+} from "./lib/agcPoaRuntime";
 import { buildPoaReconciliation } from "./agcAdminData";
 import { regionPricing } from "./lib/agcConfig";
 import { createUniqueReferenceNumber } from "./lib/referenceNumbers";
@@ -129,6 +132,195 @@ export const setHubPoa = mutation({
 // inventory hold and the booking itself so rooms can be assigned.
 // ------------------------------------------------------------------
 
+/** Most records one bulk confirmation may credit in a single batch. */
+export const MAX_POA_BULK_CONFIRM = 100;
+
+type PoaActor = { _id: Id<"users">; email: string };
+
+type ConfirmedPoaRecord = {
+  kind: "registration" | "booking";
+  recordId: string;
+  referenceNumber: string;
+  amount: number;
+  currency: string;
+};
+
+/** ConvexError carries its human message in `.data`; `.message` may be JSON. */
+function errorText(err: unknown): string {
+  if (err instanceof Error) {
+    const data = (err as { data?: unknown }).data;
+    if (typeof data === "string" && data.length > 0) return data;
+    return err.message;
+  }
+  return String(err);
+}
+
+/**
+ * Credit one POA record: flip the IOU to a paid receipt, confirm the booking's
+ * inventory hold, audit, and notify the rep. Shared by the single and bulk
+ * confirmation mutations so both paths behave identically. Room assignment is
+ * left to the callers (they run it once per batch).
+ */
+async function confirmPoaRecord(
+  ctx: MutationCtx,
+  actor: PoaActor,
+  args: {
+    kind: "registration" | "booking";
+    recordId: string;
+    note?: string;
+  },
+): Promise<ConfirmedPoaRecord> {
+  const now = Date.now();
+
+  if (args.kind === "registration") {
+    const record = await ctx.db.get(args.recordId as Id<"agcRegistrations">);
+    if (!record) throw new ConvexError("Registration not found");
+    if (!record.poa) {
+      throw new ConvexError("This registration is not on payment-on-arrival terms");
+    }
+    if (record.deletedAt) {
+      throw new ConvexError("This registration is in the trash");
+    }
+    if (record.poa.status === "confirmed") {
+      throw new ConvexError("This payment is already confirmed");
+    }
+    await ctx.db.patch(record._id, {
+      paymentStatus: "confirmed",
+      paidAt: record.paidAt ?? now,
+      confirmedAt: now,
+      adminMessage: args.note?.trim() || record.adminMessage,
+      poa: {
+        ...record.poa,
+        status: "confirmed",
+        confirmedAt: now,
+        confirmedBy: actor.email,
+      },
+      updatedAt: now,
+    });
+    await writeAuditLog(ctx, {
+      actorUserId: actor._id,
+      actorEmail: actor.email,
+      action: "agc_registration.poa_confirmed",
+      entityType: "agcRegistrations",
+      entityId: record._id,
+      summary: `Confirmed POA payment for registration ${record.referenceNumber ?? ""} (${record.totalAmount} ${record.currency}) by ${actor.email}`,
+      metadata: { note: args.note },
+    });
+    await queuePoaEmail(ctx, {
+      repId: record.repId,
+      subject: `Homecoming 2026 — payment confirmed (${record.referenceNumber ?? ""})`,
+      body: [
+        "Hello,",
+        "",
+        `Your payment of ${record.currency} ${record.totalAmount} for registration ${record.referenceNumber ?? ""} has been confirmed.`,
+        "Your IOU receipt is now a paid receipt in the portal.",
+        "",
+        "— Homecoming 2026 Registration Desk",
+      ].join("\n"),
+      referenceId: record._id,
+      type: "agc_poa_confirmed",
+    });
+    return {
+      kind: "registration",
+      recordId: record._id,
+      referenceNumber: record.referenceNumber ?? "",
+      amount: record.totalAmount,
+      currency: record.currency,
+    };
+  }
+
+  const booking = await ctx.db.get(args.recordId as Id<"agcBookings">);
+  if (!booking) throw new ConvexError("Booking not found");
+  if (!booking.poa) {
+    throw new ConvexError("This booking is not on payment-on-arrival terms");
+  }
+  if (booking.deletedAt) {
+    throw new ConvexError("This booking is in the trash");
+  }
+  if (booking.poa.status === "confirmed") {
+    throw new ConvexError("This payment is already confirmed");
+  }
+  if (
+    booking.bookingStatus === "expired" ||
+    booking.bookingStatus === "cancelled"
+  ) {
+    throw new ConvexError(
+      "This booking's hold has been released — the beds are back in the pool. Ask the hub to book again.",
+    );
+  }
+  await ctx.db.patch(booking._id, {
+    paymentStatus: "confirmed",
+    bookingStatus: "confirmed",
+    paidAt: booking.paidAt ?? now,
+    confirmedAt: now,
+    expiresAt: undefined,
+    adminMessage: args.note?.trim() || booking.adminMessage,
+    poa: {
+      ...booking.poa,
+      status: "confirmed",
+      confirmedAt: now,
+      confirmedBy: actor.email,
+    },
+    updatedAt: now,
+  });
+  await confirmBookingInventory(ctx, booking._id);
+  await writeAuditLog(ctx, {
+    actorUserId: actor._id,
+    actorEmail: actor.email,
+    action: "agc_booking.poa_confirmed",
+    entityType: "agcBookings",
+    entityId: booking._id,
+    summary: `Confirmed POA payment for booking ${booking.referenceNumber ?? ""} (${booking.totalAmount} ${booking.currency}) by ${actor.email}`,
+    metadata: { note: args.note },
+  });
+  await queuePoaEmail(ctx, {
+    repId: booking.repId,
+    subject: `Homecoming 2026 — payment confirmed (${booking.referenceNumber ?? ""})`,
+    body: [
+      "Hello,",
+      "",
+      `Your payment of ${booking.currency} ${booking.totalAmount} for booking ${booking.referenceNumber ?? ""} has been confirmed.`,
+      "Your IOU receipt is now a paid receipt in the portal and your beds are locked in.",
+      "",
+      "— Homecoming 2026 Accommodation Desk",
+    ].join("\n"),
+    referenceId: booking._id,
+    type: "agc_poa_confirmed",
+  });
+  return {
+    kind: "booking",
+    recordId: booking._id,
+    referenceNumber: booking.referenceNumber ?? "",
+    amount: booking.totalAmount,
+    currency: booking.currency,
+  };
+}
+
+/**
+ * Best-effort rooming after a confirmation. With the beds confirmed the
+ * guests should land in rooms right away — the venue desk should not need a
+ * separate accommodation step per payment. A full-house assignment failure is
+ * audited but must never roll back a payment confirmation.
+ */
+async function autoRoomAfterConfirm(
+  ctx: MutationCtx,
+  actorEmail: string,
+  reference: string,
+): Promise<number | null> {
+  try {
+    const rooming = await runAutoAssignment(ctx, actorEmail);
+    return rooming.placed;
+  } catch (err) {
+    await writeAuditLog(ctx, {
+      actorEmail,
+      action: "agc_room.auto_assign_failed",
+      entityType: "agcBookings",
+      summary: `Auto room assignment after POA confirm of ${reference || "booking"} failed (payment still confirmed): ${errorText(err)}`,
+    });
+    return null;
+  }
+}
+
 export const confirmPoaPayment = mutation({
   args: {
     sessionToken: sessionTokenValidator,
@@ -141,131 +333,107 @@ export const confirmPoaPayment = mutation({
       "admin",
       "finance",
     ]);
-    const now = Date.now();
+    const confirmed = await confirmPoaRecord(ctx, actor, args);
+    const roomsAutoAssigned =
+      confirmed.kind === "booking"
+        ? await autoRoomAfterConfirm(
+            ctx,
+            actor.email,
+            confirmed.referenceNumber,
+          )
+        : null;
+    return { success: true as const, roomsAutoAssigned };
+  },
+});
 
-    if (args.kind === "registration") {
-      const record = await ctx.db.get(
-        args.recordId as Id<"agcRegistrations">,
+export const confirmPoaPaymentsBulk = mutation({
+  args: {
+    sessionToken: sessionTokenValidator,
+    records: v.array(
+      v.object({
+        kind: v.union(v.literal("registration"), v.literal("booking")),
+        recordId: v.string(),
+      }),
+    ),
+    note: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireRole(ctx, args.sessionToken, [
+      "admin",
+      "finance",
+    ]);
+    if (args.records.length === 0) {
+      throw new ConvexError("Select at least one payment to confirm");
+    }
+    if (args.records.length > MAX_POA_BULK_CONFIRM) {
+      throw new ConvexError(
+        `Confirm at most ${MAX_POA_BULK_CONFIRM} payments at a time`,
       );
-      if (!record) throw new ConvexError("Registration not found");
-      if (!record.poa) {
-        throw new ConvexError("This registration is not on payment-on-arrival terms");
+    }
+
+    const confirmed: ConfirmedPoaRecord[] = [];
+    const failed: Array<{
+      kind: "registration" | "booking";
+      recordId: string;
+      reason: string;
+    }> = [];
+    let anyBooking = false;
+
+    for (const entry of args.records) {
+      try {
+        const record = await confirmPoaRecord(ctx, actor, {
+          kind: entry.kind,
+          recordId: entry.recordId,
+          note: args.note,
+        });
+        if (record.kind === "booking") anyBooking = true;
+        confirmed.push(record);
+      } catch (err) {
+        failed.push({ ...entry, reason: errorText(err) });
       }
-      if (record.poa.status === "confirmed") {
-        throw new ConvexError("This payment is already confirmed");
+    }
+
+    if (confirmed.length > 0) {
+      const byCurrency: Record<string, number> = {};
+      for (const record of confirmed) {
+        byCurrency[record.currency] =
+          (byCurrency[record.currency] ?? 0) + record.amount;
       }
-      await ctx.db.patch(record._id, {
-        paymentStatus: "confirmed",
-        paidAt: record.paidAt ?? now,
-        confirmedAt: now,
-        adminMessage: args.note?.trim() || record.adminMessage,
-        poa: {
-          ...record.poa,
-          status: "confirmed",
-          confirmedAt: now,
-          confirmedBy: actor.email,
-        },
-        updatedAt: now,
-      });
       await writeAuditLog(ctx, {
         actorUserId: actor._id,
         actorEmail: actor.email,
-        action: "agc_registration.poa_confirmed",
-        entityType: "agcRegistrations",
-        entityId: record._id,
-        summary: `Confirmed POA payment for registration ${record.referenceNumber ?? ""} (${record.totalAmount} ${record.currency}) by ${actor.email}`,
-        metadata: { note: args.note },
-      });
-      await queuePoaEmail(ctx, {
-        repId: record.repId,
-        subject: `Homecoming 2026 — payment confirmed (${record.referenceNumber ?? ""})`,
-        body: [
-          "Hello,",
-          "",
-          `Your payment of ${record.currency} ${record.totalAmount} for registration ${record.referenceNumber ?? ""} has been confirmed.`,
-          "Your IOU receipt is now a paid receipt in the portal.",
-          "",
-          "— Homecoming 2026 Registration Desk",
-        ].join("\n"),
-        referenceId: record._id,
-        type: "agc_poa_confirmed",
-      });
-      return { success: true as const };
-    }
-
-    const booking = await ctx.db.get(args.recordId as Id<"agcBookings">);
-    if (!booking) throw new ConvexError("Booking not found");
-    if (!booking.poa) {
-      throw new ConvexError("This booking is not on payment-on-arrival terms");
-    }
-    if (booking.poa.status === "confirmed") {
-      throw new ConvexError("This payment is already confirmed");
-    }
-    if (
-      booking.bookingStatus === "expired" ||
-      booking.bookingStatus === "cancelled"
-    ) {
-      throw new ConvexError("This booking is no longer active");
-    }
-    await ctx.db.patch(booking._id, {
-      paymentStatus: "confirmed",
-      bookingStatus: "confirmed",
-      paidAt: booking.paidAt ?? now,
-      confirmedAt: now,
-      expiresAt: undefined,
-      adminMessage: args.note?.trim() || booking.adminMessage,
-      poa: {
-        ...booking.poa,
-        status: "confirmed",
-        confirmedAt: now,
-        confirmedBy: actor.email,
-      },
-      updatedAt: now,
-    });
-    await confirmBookingInventory(ctx, booking._id);
-    await writeAuditLog(ctx, {
-      actorUserId: actor._id,
-      actorEmail: actor.email,
-      action: "agc_booking.poa_confirmed",
-      entityType: "agcBookings",
-      entityId: booking._id,
-      summary: `Confirmed POA payment for booking ${booking.referenceNumber ?? ""} (${booking.totalAmount} ${booking.currency}) by ${actor.email}`,
-      metadata: { note: args.note },
-    });
-
-    // With the beds confirmed, run the rooming routine so the booking's
-    // guests land in rooms right away — the venue desk should not need a
-    // separate accommodation step per payment. Best-effort: a full-house
-    // assignment failure must never roll back the payment confirmation.
-    let roomsAutoAssigned: number | null = null;
-    try {
-      const rooming = await runAutoAssignment(ctx, actor.email);
-      roomsAutoAssigned = rooming.placed;
-    } catch (err) {
-      await writeAuditLog(ctx, {
-        actorEmail: actor.email,
-        action: "agc_room.auto_assign_failed",
-        entityType: "agcBookings",
-        entityId: booking._id,
-        summary: `Auto room assignment after POA confirm of ${booking.referenceNumber ?? "booking"} failed (payment still confirmed): ${err instanceof Error ? err.message : String(err)}`,
+        action: "agc_poa.bulk_confirmed",
+        entityType: "agcPoaBatch",
+        summary: `Confirmed ${confirmed.length} payment-on-arrival record(s) by ${actor.email} — ${Object.entries(
+          byCurrency,
+        )
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([currency, amount]) => `${currency} ${amount.toLocaleString()}`)
+          .join(" · ")}`,
+        metadata: {
+          note: args.note,
+          references: confirmed.map((record) => record.referenceNumber),
+          failed: failed.length,
+        },
       });
     }
 
-    await queuePoaEmail(ctx, {
-      repId: booking.repId,
-      subject: `Homecoming 2026 — payment confirmed (${booking.referenceNumber ?? ""})`,
-      body: [
-        "Hello,",
-        "",
-        `Your payment of ${booking.currency} ${booking.totalAmount} for booking ${booking.referenceNumber ?? ""} has been confirmed.`,
-        "Your IOU receipt is now a paid receipt in the portal and your beds are locked in.",
-        "",
-        "— Homecoming 2026 Accommodation Desk",
-      ].join("\n"),
-      referenceId: booking._id,
-      type: "agc_poa_confirmed",
-    });
-    return { success: true as const, roomsAutoAssigned };
+    // One rooming pass for everything confirmed in this batch.
+    const roomsAutoAssigned = anyBooking
+      ? await autoRoomAfterConfirm(
+          ctx,
+          actor.email,
+          `${confirmed.length} record(s)`,
+        )
+      : null;
+
+    return {
+      confirmed,
+      failed,
+      confirmedCount: confirmed.length,
+      failedCount: failed.length,
+      roomsAutoAssigned,
+    };
   },
 });
 
@@ -539,6 +707,9 @@ export const listPoaDeskData = query({
       await ctx.db.query("agcBookings").withIndex("by_created_at").collect()
     ).filter((row) => !row.deletedAt && row.poa)) {
       if (booking.poa!.status === "confirmed") continue;
+      // Released holds (expired 72h window / cancelled) have no beds left to
+      // collect against — they stay in the POA tables, not on the desk sheet.
+      if (!isCollectiblePoaBooking(booking)) continue;
       const guests = (
         await ctx.db
           .query("agcGuests")
@@ -611,6 +782,13 @@ export const listPoaRecordsAdmin = query({
       (await ctx.db.query("agcHubs").collect()).map((hub) => [hub._id, hub.name]),
     );
 
+    /** One accommodation type a booking holds beds in (label + beds). */
+    type RowAccommodation = {
+      type: string;
+      label: string;
+      units: number;
+    };
+
     const rows: Array<{
       kind: "registration" | "booking";
       _id: string;
@@ -625,9 +803,18 @@ export const listPoaRecordsAdmin = query({
       poaStatus: string;
       evidenceUrl: string | null;
       evidenceFileName: string | null;
+      note: string | null;
       createdAt: number;
       submittedAt: number | null;
       confirmedAt: number | null;
+      confirmedBy: string | null;
+      /** POA hold deadline; null for registrations (no beds held). */
+      expiresAt: number | null;
+      /** True once the hold was released (expired/cancelled booking). */
+      released: boolean;
+      /** Accommodation types with the beds this record consumes. */
+      accommodation: RowAccommodation[];
+      guests: Array<{ name: string; type: string; gender: string }>;
     }> = [];
 
     const registrations = (
@@ -650,9 +837,15 @@ export const listPoaRecordsAdmin = query({
           ? ((await ctx.storage.getUrl(record.poa!.evidenceStorageId)) ?? null)
           : null,
         evidenceFileName: record.poa!.evidenceFileName ?? null,
+        note: record.poa!.note ?? null,
         createdAt: record.createdAt,
         submittedAt: record.poa!.submittedAt ?? null,
         confirmedAt: record.poa!.confirmedAt ?? null,
+        confirmedBy: record.poa!.confirmedBy ?? null,
+        expiresAt: null,
+        released: false,
+        accommodation: [],
+        guests: [],
       });
     }
 
@@ -660,10 +853,31 @@ export const listPoaRecordsAdmin = query({
       await ctx.db.query("agcBookings").withIndex("by_created_at").collect()
     ).filter((row) => !row.deletedAt && row.poa);
     for (const booking of bookings) {
-      const guests = await ctx.db
-        .query("agcGuests")
-        .withIndex("by_booking", (q) => q.eq("bookingId", booking._id))
-        .collect();
+      const [guests, lines] = await Promise.all([
+        ctx.db
+          .query("agcGuests")
+          .withIndex("by_booking", (q) => q.eq("bookingId", booking._id))
+          .collect(),
+        ctx.db
+          .query("agcBookingLines")
+          .withIndex("by_booking", (q) => q.eq("bookingId", booking._id))
+          .collect(),
+      ]);
+      const active = guests.filter((guest) => guest.status === "active");
+      // Beds per accommodation type — the same types the pools are keyed by.
+      const byType = new Map<string, RowAccommodation>();
+      for (const line of lines) {
+        const entry = byType.get(line.accommodationType) ?? {
+          type: line.accommodationType,
+          label:
+            AGC_ACCOMMODATION_LABELS[
+              line.accommodationType as keyof typeof AGC_ACCOMMODATION_LABELS
+            ] ?? line.accommodationType,
+          units: 0,
+        };
+        entry.units += line.quantity;
+        byType.set(line.accommodationType, entry);
+      }
       rows.push({
         kind: "booking",
         _id: booking._id,
@@ -672,7 +886,7 @@ export const listPoaRecordsAdmin = query({
         region: booking.region,
         currency: booking.currency,
         totalAmount: booking.totalAmount,
-        units: guests.filter((guest) => guest.status === "active").length,
+        units: active.length,
         paymentStatus: booking.paymentStatus,
         bookingStatus: booking.bookingStatus,
         poaStatus: booking.poa!.status,
@@ -680,9 +894,21 @@ export const listPoaRecordsAdmin = query({
           ? ((await ctx.storage.getUrl(booking.poa!.evidenceStorageId)) ?? null)
           : null,
         evidenceFileName: booking.poa!.evidenceFileName ?? null,
+        note: booking.poa!.note ?? null,
         createdAt: booking.createdAt,
         submittedAt: booking.poa!.submittedAt ?? null,
         confirmedAt: booking.poa!.confirmedAt ?? null,
+        confirmedBy: booking.poa!.confirmedBy ?? null,
+        expiresAt: booking.expiresAt ?? null,
+        released: !isCollectiblePoaBooking(booking),
+        accommodation: [...byType.values()].sort((a, b) =>
+          a.type.localeCompare(b.type),
+        ),
+        guests: active.map((guest) => ({
+          name: `${guest.firstName} ${guest.lastName}`.trim(),
+          type: guest.accommodationType,
+          gender: guest.gender,
+        })),
       });
     }
 

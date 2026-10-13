@@ -20,6 +20,7 @@ import type {
   AgcGender,
   AgcInventoryScope,
 } from "./schemaTypes";
+import { writeAuditLog } from "./lib/audit";
 
 /**
  * First row for an indexed query, or null — like .unique() but tolerant of
@@ -240,6 +241,25 @@ export async function releaseUnits(
   await writeLedger(ctx, pool, { action, delta: -units, bookingId });
 }
 
+/**
+ * Return *confirmed* units to a pool — used when a confirmed accommodation is
+ * deleted or withdrawn, so the beds re-enter the pool they were drawn from
+ * instead of staying consumed forever.
+ */
+export async function releaseConfirmedUnits(
+  ctx: MutationCtx,
+  pool: Doc<"agcInventoryPools">,
+  units: number,
+  bookingId: Id<"agcBookings">,
+  action: "release" | "expire" | "cancel",
+) {
+  if (units <= 0) return;
+  await ctx.db.patch(pool._id, {
+    confirmed: Math.max(0, pool.confirmed - units),
+  });
+  await writeLedger(ctx, pool, { action, delta: -units, bookingId });
+}
+
 /** Move units from reserved to confirmed after payment verification. */
 export async function confirmBookingInventory(
   ctx: MutationCtx,
@@ -372,8 +392,8 @@ export function validateGuestInput(
 export type CreateBookingResult = {
   bookingId: Id<"agcBookings">;
   referenceNumber: string;
-  /** `undefined` for POA bookings — their holds are never on a timer. */
-  expiresAt: number | undefined;
+  /** Hold deadline: the earlier of the hold window and the registration deadline. */
+  expiresAt: number;
   currency: string;
   totalAmount: number;
   lines: ComputedLine[];
@@ -407,13 +427,11 @@ export async function createBookingWithGuests(
   const lines = computeBookingLines(guests, hub.region, typesConfig, bishopRate);
   const total = bookingTotal(lines);
   const currency = bookingCurrency(hub.region);
-  // POA bookings are never on a timer: their beds stay held until either the
-  // payment is confirmed or the hub cancels the booking. No expiresAt means
-  // the expiry cron has nothing to release, and the portal shows no countdown.
-  const expiresAt =
-    args.paymentMode === "payment_on_arrival"
-      ? undefined
-      : await computeHoldExpiry(ctx);
+  // Every booking holds beds on a timer — the earlier of the configured hold
+  // window (72h by default) and the registration deadline. Payment-on-arrival
+  // bookings are no exception: if the desk never confirms the payment, the
+  // held beds return to their pools instead of being held indefinitely.
+  const expiresAt = await computeHoldExpiry(ctx);
 
   const bookingId: Id<"agcBookings"> = await ctx.db.insert("agcBookings", {
     hubId: hub._id,
@@ -486,11 +504,23 @@ export async function createBookingWithGuests(
 // Releases (expiry, cancellation)
 // ------------------------------------------------------------------
 
+/**
+ * Return a booking's held beds to the pools they came from — the pool that
+ * matches the line's accommodation type and the booking's region, so a bed
+ * never lands in another region's or another type's pool.
+ *
+ * Reserved beds return from `reserved`; an already-confirmed booking returns
+ * its beds from `confirmed` (deleting a confirmed accommodation frees it).
+ * Closed bookings (expired/cancelled) have nothing left to return.
+ */
 export async function releaseBookingInventory(
   ctx: MutationCtx,
   booking: Doc<"agcBookings">,
   action: "release" | "expire" | "cancel",
 ) {
+  const isConfirmed = booking.bookingStatus === "confirmed";
+  if (!isConfirmed && booking.bookingStatus !== "reserved") return;
+
   const lines = await ctx.db
     .query("agcBookingLines")
     .withIndex("by_booking", (q) => q.eq("bookingId", booking._id))
@@ -502,15 +532,26 @@ export async function releaseBookingInventory(
       line.accommodationType,
       booking.region,
     );
-    // Confirmed bookings keep their units consumed — only reserved units return.
-    if (booking.bookingStatus === "confirmed") continue;
-    await releaseUnits(ctx, pool, line.quantity, booking._id, action);
+    if (isConfirmed) {
+      await releaseConfirmedUnits(ctx, pool, line.quantity, booking._id, action);
+    } else {
+      await releaseUnits(ctx, pool, line.quantity, booking._id, action);
+    }
   }
 }
 
-/** Scheduled job: expire reserved bookings whose hold has lapsed (§32–34). */
+/**
+ * Scheduled job: expire bookings whose hold has lapsed (§32–34) — including
+ * payment-on-arrival holds, which are on the same 72h window. Expiring returns
+ * the held beds to their pools and flips the booking to `expired`.
+ *
+ * POA reservations created before the hold timer existed carry no `expiresAt`;
+ * for those the fallback deadline is their creation time plus the current hold
+ * window, so old holds are released too instead of holding beds forever.
+ */
 export async function expireOverdueHolds(ctx: MutationCtx): Promise<number> {
   const now = Date.now();
+  const legacyWindow = (await getHoldHours(ctx)) * 60 * 60 * 1000;
   const reserved = await ctx.db
     .query("agcBookings")
     .withIndex("by_booking_status", (q) => q.eq("bookingStatus", "reserved"))
@@ -518,13 +559,22 @@ export async function expireOverdueHolds(ctx: MutationCtx): Promise<number> {
 
   let expired = 0;
   for (const booking of reserved) {
-    // POA holds are never on a timer — they expire only when the hub cancels.
-    if (booking.poa) continue;
-    if (!booking.expiresAt || booking.expiresAt >= now) continue;
+    if (booking.deletedAt) continue;
+    const deadline =
+      booking.expiresAt ??
+      (booking.poa ? booking.createdAt + legacyWindow : undefined);
+    if (!deadline || deadline >= now) continue;
     await releaseBookingInventory(ctx, booking, "expire");
     await ctx.db.patch(booking._id, {
       bookingStatus: "expired",
       updatedAt: now,
+    });
+    await writeAuditLog(ctx, {
+      actorEmail: "system",
+      action: "agc_booking.hold_expired",
+      entityType: "agcBookings",
+      entityId: booking._id,
+      summary: `${booking.poa ? "Payment-on-arrival" : "Unpaid"} hold ${booking.referenceNumber ?? ""} expired — held beds returned to their pools`,
     });
     expired += 1;
   }

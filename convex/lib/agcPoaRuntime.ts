@@ -16,3 +16,21 @@ export async function isHubPoaEnabled(
     .collect();
   return rows.length > 0;
 }
+
+/**
+ * Whether an unconfirmed POA booking can still be collected at the desk.
+ *
+ * Every POA hold is on the same window as a normal reservation (72h by
+ * default). Once the hold lapses the beds go back into their pools and the
+ * booking is `expired`; a `cancelled` booking is closed too. Both stay in the
+ * POA tables for the audit trail, but they are no longer collectible and are
+ * left out of the collection sheet, the reconciliation, and the desk queue.
+ */
+export function isCollectiblePoaBooking(booking: {
+  bookingStatus: string;
+}): boolean {
+  return (
+    booking.bookingStatus !== "expired" &&
+    booking.bookingStatus !== "cancelled"
+  );
+}

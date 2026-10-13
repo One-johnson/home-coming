@@ -6,6 +6,7 @@ import {
   type IouReceiptDoc,
 } from "@/lib/agcPoa";
 import { isRoomableBooking } from "@convex/agcRoomAssignments";
+import { isCollectiblePoaBooking } from "@convex/lib/agcPoaRuntime";
 
 const baseDoc: IouReceiptDoc = {
   kind: "booking",
@@ -55,6 +56,16 @@ describe("iouReceiptHtml", () => {
     expect(html).not.toContain("IOU RECEIPT");
     expect(html).toContain("Accra Hub &lt;Central&gt;");
     expect(html).toContain("confirmed by the Homecoming 2026 registration desk");
+  });
+});
+
+describe("isCollectiblePoaBooking", () => {
+  it("keeps live holds collectible and drops released ones", () => {
+    expect(isCollectiblePoaBooking({ bookingStatus: "reserved" })).toBe(true);
+    expect(isCollectiblePoaBooking({ bookingStatus: "confirmed" })).toBe(true);
+    // Released holds: the 72h window lapsed, or the hub cancelled.
+    expect(isCollectiblePoaBooking({ bookingStatus: "expired" })).toBe(false);
+    expect(isCollectiblePoaBooking({ bookingStatus: "cancelled" })).toBe(false);
   });
 });
 

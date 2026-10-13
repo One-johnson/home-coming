@@ -19,13 +19,14 @@ import {
 import { writeAuditLog } from "./lib/audit";
 import { canonicalUsername } from "./lib/hubUsername";
 import {
+  AGC_ACCOMMODATION_TYPES,
   AGC_DEFAULTS,
   AGC_DEFAULT_BANK_DETAILS,
   AGC_DEFAULT_TITLES,
   AGC_INVENTORY_SEED,
   AGC_SETTING_KEYS,
 } from "./lib/agcConfig";
-import { agcRegion } from "./schemaTypes";
+import { agcRegion, type AgcAccommodationType } from "./schemaTypes";
 import { getSmtpSettings, isSmtpConfigured } from "./lib/smtpConfig";
 import {
   confirmBookingInventory,
@@ -36,6 +37,7 @@ import {
   getBishopRate,
   getPoolTotalOverrides,
 } from "./lib/agcSettingsRuntime";
+import { isCollectiblePoaBooking } from "./lib/agcPoaRuntime";
 
 // ------------------------------------------------------------------
 // Data access for AGC admin features. Queries and mutations live here;
@@ -584,46 +586,48 @@ export async function buildPoaReconciliation(
     outstandingCount: number;
     outstandingAmount: number;
     units: number;
+    outstandingByAccommodationType: Record<string, number>;
   }>;
   byCurrency: Record<string, { collected: number; outstanding: number }>;
 }> {
   const dayEnd = dayStart + 24 * 60 * 60 * 1000;
   const hubs = await ctx.db.query("agcHubs").collect();
-  const hubById = new Map(hubs.map((hub) => [hub._id, hub.name]));
-
-  type Line = {
-    hubId: string;
-    hubName: string;
-    currency: string;
-    collectedCount: number;
-    collectedAmount: number;
-    collectedDeskCount: number;
-    collectedOnlineCount: number;
-    outstandingCount: number;
-    outstandingAmount: number;
-    units: number;
-  };
-  const lines = new Map<string, Line>();
-  const line = (hubId: string, currency: string): Line => {
-    const key = `${hubId}::${currency}`;
-    let entry = lines.get(key);
-    if (!entry) {
-      entry = {
-        hubId,
-        hubName: hubById.get(hubId as Id<"agcHubs">) ?? "(unknown)",
-        currency,
-        collectedCount: 0,
-        collectedAmount: 0,
-        collectedDeskCount: 0,
-        collectedOnlineCount: 0,
-        outstandingCount: 0,
-        outstandingAmount: 0,
-        units: 0,
-      };
-      lines.set(key, entry);
-    }
-    return entry;
-  };
+  const hubById = new Map(hubs.map((hub) => [hub._id, hub.name]));    type Line = {
+      hubId: string;
+      hubName: string;
+      currency: string;
+      collectedCount: number;
+      collectedAmount: number;
+      collectedDeskCount: number;
+      collectedOnlineCount: number;
+      outstandingCount: number;
+      outstandingAmount: number;
+      units: number;
+      /** Beds still to collect, per accommodation type. */
+      outstandingByAccommodationType: Record<string, number>;
+    };
+    const lines = new Map<string, Line>();
+    const line = (hubId: string, currency: string): Line => {
+      const key = `${hubId}::${currency}`;
+      let entry = lines.get(key);
+      if (!entry) {
+        entry = {
+          hubId,
+          hubName: hubById.get(hubId as Id<"agcHubs">) ?? "(unknown)",
+          currency,
+          collectedCount: 0,
+          collectedAmount: 0,
+          collectedDeskCount: 0,
+          collectedOnlineCount: 0,
+          outstandingCount: 0,
+          outstandingAmount: 0,
+          units: 0,
+          outstandingByAccommodationType: {},
+        };
+        lines.set(key, entry);
+      }
+      return entry;
+    };
 
   const inDay = (ts: number | undefined) =>
     ts !== undefined && ts >= dayStart && ts < dayEnd;
@@ -661,10 +665,23 @@ export async function buildPoaReconciliation(
         .withIndex("by_booking", (q) => q.eq("bookingId", booking._id))
         .collect();
       entry.units += guests.filter((g) => g.status === "active").length;
-    } else if (booking.poa!.status !== "confirmed") {
+    } else if (
+      booking.poa!.status !== "confirmed" &&
+      // A released hold (expired 72h window / cancellation) has no beds left
+      // and nothing to collect — it is not outstanding cash any more.
+      isCollectiblePoaBooking(booking)
+    ) {
       const entry = line(booking.hubId, booking.currency);
       entry.outstandingCount += 1;
       entry.outstandingAmount += booking.totalAmount;
+      for (const bookingLine of await ctx.db
+        .query("agcBookingLines")
+        .withIndex("by_booking", (q) => q.eq("bookingId", booking._id))
+        .collect()) {
+        entry.outstandingByAccommodationType[bookingLine.accommodationType] =
+          (entry.outstandingByAccommodationType[bookingLine.accommodationType] ??
+            0) + bookingLine.quantity;
+      }
     }
   }
 
@@ -714,6 +731,8 @@ export const listPoaCollectionData = internalQuery({
       evidenceFileName: string | null;
       paymentStatus: string;
       bookingStatus: string | null;
+      /** "Hostel (Blocks 1–8): 2 bed(s)" — empty for registrations. */
+      accommodationTypes: string;
       createdAt: number;
     }> = [];
 
@@ -733,6 +752,7 @@ export const listPoaCollectionData = internalQuery({
         evidenceFileName: record.poa.evidenceFileName ?? null,
         paymentStatus: record.paymentStatus,
         bookingStatus: null,
+        accommodationTypes: "",
         createdAt: record.createdAt,
       });
     }
@@ -740,10 +760,24 @@ export const listPoaCollectionData = internalQuery({
       if (booking.deletedAt || !booking.poa || booking.poa.status === "confirmed") {
         continue;
       }
+      // Released holds (expired 72h window / cancellation) have no beds left
+      // to collect against — the desk sheet lists live IOUs only.
+      if (!isCollectiblePoaBooking(booking)) continue;
       const guests = await ctx.db
         .query("agcGuests")
         .withIndex("by_booking", (q) => q.eq("bookingId", booking._id))
         .collect();
+      const lines = await ctx.db
+        .query("agcBookingLines")
+        .withIndex("by_booking", (q) => q.eq("bookingId", booking._id))
+        .collect();
+      const bedsByType = new Map<string, number>();
+      for (const line of lines) {
+        bedsByType.set(
+          line.accommodationType,
+          (bedsByType.get(line.accommodationType) ?? 0) + line.quantity,
+        );
+      }
       rows.push({
         kind: "booking",
         referenceNumber: booking.referenceNumber ?? "",
@@ -756,6 +790,13 @@ export const listPoaCollectionData = internalQuery({
         evidenceFileName: booking.poa.evidenceFileName ?? null,
         paymentStatus: booking.paymentStatus,
         bookingStatus: booking.bookingStatus,
+        accommodationTypes: [...bedsByType.entries()]
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(
+            ([type, units]) =>
+              `${AGC_ACCOMMODATION_TYPES[type as AgcAccommodationType]?.label ?? type}: ${units} bed(s)`,
+          )
+          .join(" · "),
         createdAt: booking.createdAt,
       });
     }
@@ -1957,8 +1998,15 @@ async function deleteBookingRecord(
   ctx: MutationCtx,
   booking: Doc<"agcBookings">,
 ) {
-  // Held rooms must return to the pool the moment a booking is trashed.
-  if (booking.bookingStatus === "reserved") {
+  // Held rooms must return to the pool the moment a booking is trashed —
+  // whether they were still reserved or already confirmed, so deleting an
+  // accommodation never leaves beds consumed in a pool. Flipping the status to
+  // `expired` also keeps the release idempotent: a restored booking that gets
+  // deleted again has already returned its beds.
+  if (
+    booking.bookingStatus === "reserved" ||
+    booking.bookingStatus === "confirmed"
+  ) {
     await releaseBookingInventory(ctx, booking, "cancel");
     await ctx.db.patch(booking._id, {
       bookingStatus: "expired",
@@ -2792,7 +2840,11 @@ export const getAgcOverview = query({
       (row) => row.poa && row.poa.status !== "confirmed",
     );
     const poaOutstandingBookings = bookings.filter(
-      (row) => row.poa && row.poa.status !== "confirmed",
+      (row) =>
+        row.poa &&
+        row.poa.status !== "confirmed" &&
+        // A released hold has no beds and no cash left to collect.
+        isCollectiblePoaBooking(row),
     );
     const poaOutstandingByCurrency: Record<string, number> = {};
     // Per-currency POA outstanding split by surface, so the overview card

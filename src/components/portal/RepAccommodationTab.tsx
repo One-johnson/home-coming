@@ -1041,7 +1041,10 @@ function BookingCard({
           <Badge variant="outline" className={payStatus.className}>
             {payStatus.label}
           </Badge>
-          {isReserved && booking.expiresAt && booking.paymentMode !== "payment_on_arrival" ? (
+          {isReserved && booking.expiresAt ? (
+            // Payment-on-arrival beds are on the same hold window — the
+            // countdown is shown for them too, so no rep is surprised when the
+            // beds return to the pool.
             <HoldCountdown expiresAt={booking.expiresAt} />
           ) : null}
         </div>
@@ -2479,9 +2482,11 @@ export function RepAccommodationTab() {
                     below.
                   </>
                 ) : (
-                  <>held on payment-on-arrival terms — no expiry. Pay at the
+                  <>held until the desk confirms your payment. Pay at the
                     venue desk during check-in (bank transfer/MoMo receipts can
-                    still be submitted on the booking below).</>
+                    still be submitted on the booking below); if the payment is
+                    not confirmed inside the hold window the beds go back into
+                    the pool.</>
                 )}
               </AlertDescription>
             </Alert>
@@ -2602,11 +2607,9 @@ export function RepAccommodationTab() {
                               </Badge>
                             </TableCell>
                             <TableCell className="text-xs whitespace-nowrap text-muted-foreground">
-                              {booking.bookingStatus === "reserved" && booking.expiresAt && booking.paymentMode !== "payment_on_arrival"
+                              {booking.bookingStatus === "reserved" && booking.expiresAt
                                 ? new Date(booking.expiresAt).toLocaleString()
-                                : booking.bookingStatus === "reserved" && booking.paymentMode === "payment_on_arrival"
-                                  ? "Held for desk check-in"
-                                  : "—"}
+                                : "—"}
                             </TableCell>
                             <TableCell className="text-right">
                               {canPay ? (

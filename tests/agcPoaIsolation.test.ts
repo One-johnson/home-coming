@@ -315,56 +315,297 @@ test("collection data lists only unconfirmed POA records with per-hub units", as
   expect(outstanding[0].totalAmount).toBe(1500);
 });
 
-test("POA holds are never on a timer — expiry leaves POA reservations untouched", async () => {
+const HOLD_HOURS = 72;
+const HOUR_MS = 3_600_000;
+
+/** Seed one booking + its bed line + the regional pool those beds sit in. */
+async function seedHeldBooking(
+  t: TestConvex,
+  args: {
+    hubId: Id<"agcHubs">;
+    repId: Id<"agcRepresentatives">;
+    paymentMode: "offline" | "payment_on_arrival";
+    bookingStatus: "reserved" | "confirmed";
+    expiresAt?: number;
+    createdAt: number;
+    quantity: number;
+    referenceNumber: string;
+    accommodationType?: "dormitory" | "hostel";
+  },
+) {
+  return await t.run(async (ctx) => {
+    const accommodationType = args.accommodationType ?? "dormitory";
+    const bookingId: Id<"agcBookings"> = await ctx.db.insert("agcBookings", {
+      hubId: args.hubId,
+      repId: args.repId,
+      region: "ghana",
+      currency: "GHS",
+      totalAmount: args.quantity * 150,
+      paymentMode: args.paymentMode,
+      paymentStatus: args.bookingStatus === "confirmed" ? "confirmed" : "awaiting_payment",
+      bookingStatus: args.bookingStatus,
+      expiresAt: args.expiresAt,
+      poa: args.paymentMode === "payment_on_arrival" ? { status: "pending" } : undefined,
+      referenceNumber: args.referenceNumber,
+      createdAt: args.createdAt,
+      updatedAt: args.createdAt,
+    });
+    await ctx.db.insert("agcBookingLines", {
+      bookingId,
+      accommodationType,
+      quantity: args.quantity,
+      unitPrice: 150,
+      isBishopRate: false,
+    });
+    const poolId: Id<"agcInventoryPools"> = await ctx.db.insert(
+      "agcInventoryPools",
+      {
+        accommodationType,
+        scope: "africa",
+        total: 1000,
+        reserved: args.bookingStatus === "confirmed" ? 0 : args.quantity,
+        confirmed: args.bookingStatus === "confirmed" ? args.quantity : 0,
+      },
+    );
+    return { bookingId, poolId };
+  });
+}
+
+test("the 72h expiry releases held POA beds back into their pool", async () => {
   const t = createTestConvex();
   const { hubId, repId } = await seedAdminAndHub(t);
   const now = Date.now();
-  await t.run(async (ctx) => {
-    // POA booking long overdue (no expiresAt set — as created since the
-    // no-timer change). The expiry cron must skip it entirely.
-    await ctx.db.insert("agcBookings", {
-      hubId,
-      repId,
-      region: "ghana",
-      currency: "GHS",
-      totalAmount: 300,
-      paymentMode: "payment_on_arrival",
-      paymentStatus: "awaiting_payment",
-      bookingStatus: "reserved",
-      poa: { status: "pending" },
-      createdAt: now,
-      updatedAt: now,
-    });
-    // Ordinary offline booking with a lapsed hold — still expires.
-    await ctx.db.insert("agcBookings", {
-      hubId,
-      repId,
-      region: "ghana",
-      currency: "GHS",
-      totalAmount: 200,
-      paymentMode: "offline",
-      paymentStatus: "awaiting_payment",
-      bookingStatus: "reserved",
-      expiresAt: now - 1_000,
-      createdAt: now,
-      updatedAt: now,
-    });
+
+  // Legacy POA hold: created 73h ago with no expiresAt (as rows written before
+  // the hold timer existed) — its fallback deadline has lapsed.
+  const overdue = await seedHeldBooking(t, {
+    hubId,
+    repId,
+    paymentMode: "payment_on_arrival",
+    bookingStatus: "reserved",
+    createdAt: now - (HOLD_HOURS + 1) * HOUR_MS,
+    quantity: 2,
+    referenceNumber: "STY-EXPIRED-POA",
+  });
+  // A POA hold still inside its window — must stay reserved with its beds.
+  // It draws from the hostel pool, so each booking has its own pool row.
+  const fresh = await seedHeldBooking(t, {
+    hubId,
+    repId,
+    paymentMode: "payment_on_arrival",
+    bookingStatus: "reserved",
+    expiresAt: now + HOUR_MS,
+    createdAt: now,
+    quantity: 1,
+    referenceNumber: "STY-LIVE-POA",
+    accommodationType: "hostel",
   });
 
   // The cron tick is an internal mutation — run the same helper it wraps.
-  await t.run(async (ctx) => {
+  const expiredCount = await t.run(async (ctx) => {
     const { expireOverdueHolds } = await import("../convex/agcAccommodation");
-    await expireOverdueHolds(ctx);
+    return await expireOverdueHolds(ctx);
+  });
+  expect(expiredCount).toBe(1);
+
+  const data = await t.run(async (ctx) => ({
+    bookings: await ctx.db.query("agcBookings").collect(),
+    pool: await ctx.db.get(overdue.poolId),
+    livePool: await ctx.db.get(fresh.poolId),
+    ledger: await ctx.db.query("agcInventoryLedger").collect(),
+  }));
+  const overdueBooking = data.bookings.find(
+    (row) => row.referenceNumber === "STY-EXPIRED-POA",
+  );
+  const liveBooking = data.bookings.find(
+    (row) => row.referenceNumber === "STY-LIVE-POA",
+  );
+  expect(overdueBooking?.bookingStatus).toBe("expired");
+  // The two held dormitory beds went back into the pool it belongs to.
+  expect(data.pool?.reserved).toBe(0);
+  expect(
+    data.ledger.some(
+      (entry) => entry.action === "expire" && entry.delta === -2,
+    ),
+  ).toBe(true);
+  // The live POA hold is untouched, and its bed stays reserved.
+  expect(liveBooking?.bookingStatus).toBe("reserved");
+  expect(data.livePool?.reserved).toBe(1);
+});
+
+test("deleting a confirmed accommodation returns its beds to the pool", async () => {
+  const t = createTestConvex();
+  const { token, hubId, repId } = await seedAdminAndHub(t);
+  const now = Date.now();
+  const { bookingId, poolId } = await seedHeldBooking(t, {
+    hubId,
+    repId,
+    paymentMode: "offline",
+    bookingStatus: "confirmed",
+    createdAt: now,
+    quantity: 3,
+    referenceNumber: "STY-CONFIRMED-DEL",
   });
 
-  const bookings = await t.run((ctx) =>
-    ctx.db.query("agcBookings").collect(),
-  );
-  const poa = bookings.find((b) => b.poa);
-  const offline = bookings.find((b) => !b.poa);
-  // The POA hold survives; the offline hold expired.
-  expect(poa?.bookingStatus).toBe("reserved");
-  expect(offline?.bookingStatus).toBe("expired");
+  await t.mutation(api.agcAdminData.deleteAgcBooking, {
+    sessionToken: token,
+    bookingId,
+  });
+
+  const data = await t.run(async (ctx) => ({
+    booking: await ctx.db.get(bookingId),
+    pool: await ctx.db.get(poolId),
+    ledger: await ctx.db.query("agcInventoryLedger").collect(),
+  }));
+  expect(data.booking?.deletedAt).toBeTypeOf("number");
+  expect(data.booking?.bookingStatus).toBe("expired");
+  expect(data.pool?.confirmed).toBe(0);
+  expect(
+    data.ledger.some((entry) => entry.action === "cancel" && entry.delta === -3),
+  ).toBe(true);
+});
+
+test("bulk confirm credits every live IOU and reports released holds", async () => {
+  const t = createTestConvex();
+  const { token, hubId, repId } = await seedAdminAndHub(t);
+  const now = Date.now();
+  const ids = await t.run(async (ctx) => {
+    const registrationId = await ctx.db.insert("agcRegistrations", {
+      hubId,
+      repId,
+      region: "ghana",
+      quantity: 2,
+      unitPrice: 30,
+      currency: "GHS",
+      totalAmount: 60,
+      paymentMode: "payment_on_arrival",
+      paymentStatus: "awaiting_payment",
+      poa: { status: "pending" },
+      referenceNumber: "REG-BULK-1",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const releasedId = await ctx.db.insert("agcBookings", {
+      hubId,
+      repId,
+      region: "ghana",
+      currency: "GHS",
+      totalAmount: 150,
+      paymentMode: "payment_on_arrival",
+      paymentStatus: "awaiting_payment",
+      bookingStatus: "expired",
+      poa: { status: "pending" },
+      referenceNumber: "STY-BULK-REL",
+      createdAt: now,
+      updatedAt: now,
+    });
+    return { registrationId, releasedId };
+  });
+
+  const booking = await seedHeldBooking(t, {
+    hubId,
+    repId,
+    paymentMode: "payment_on_arrival",
+    bookingStatus: "reserved",
+    expiresAt: now + HOUR_MS,
+    createdAt: now,
+    quantity: 1,
+    referenceNumber: "STY-BULK-2",
+  });
+
+  const result = await t.mutation(api.agcPoa.confirmPoaPaymentsBulk, {
+    sessionToken: token,
+    records: [
+      { kind: "registration", recordId: ids.registrationId },
+      { kind: "booking", recordId: booking.bookingId },
+      { kind: "booking", recordId: ids.releasedId },
+    ],
+    note: "collected at the venue desk",
+  });
+
+  expect(result.confirmedCount).toBe(2);
+  expect(result.failedCount).toBe(1);
+  expect(result.failed[0].recordId).toBe(ids.releasedId);
+  expect(result.failed[0].reason).toContain("released");
+
+  const data = await t.run(async (ctx) => ({
+    registration: await ctx.db.get(ids.registrationId),
+    booking: await ctx.db.get(booking.bookingId),
+    released: await ctx.db.get(ids.releasedId),
+    pool: await ctx.db.get(booking.poolId),
+  }));
+  expect(data.registration?.poa?.status).toBe("confirmed");
+  expect(data.registration?.paymentStatus).toBe("confirmed");
+  expect(data.booking?.poa?.status).toBe("confirmed");
+  expect(data.booking?.bookingStatus).toBe("confirmed");
+  // The confirmed bed moved from reserved to confirmed in its pool.
+  expect(data.pool?.reserved).toBe(0);
+  expect(data.pool?.confirmed).toBe(1);
+  expect(data.released?.poa?.status).toBe("pending");
+});
+
+test("the POA table exposes accommodation types, guests, and the released flag", async () => {
+  const t = createTestConvex();
+  const { token, hubId, repId } = await seedAdminAndHub(t);
+  const now = Date.now();
+  const { bookingId } = await seedHeldBooking(t, {
+    hubId,
+    repId,
+    paymentMode: "payment_on_arrival",
+    bookingStatus: "reserved",
+    expiresAt: now + HOUR_MS,
+    createdAt: now,
+    quantity: 2,
+    referenceNumber: "STY-DETAIL-1",
+  });
+  await t.run(async (ctx) => {
+    await ctx.db.insert("agcGuests", {
+      bookingId,
+      hubId,
+      region: "ghana",
+      country: "Ghana",
+      firstName: "Yaa",
+      lastName: "Detail",
+      gender: "female",
+      title: "Member",
+      accommodationType: "dormitory",
+      pool: "africa",
+      isBishopRate: false,
+      status: "active",
+      createdAt: now,
+    });
+  });
+
+  const rows = await t.query(api.agcPoa.listPoaRecordsAdmin, {
+    sessionToken: token,
+  });
+  const booking = rows.find((row) => row.referenceNumber === "STY-DETAIL-1");
+  expect(booking?.kind).toBe("booking");
+  expect(booking?.released).toBe(false);
+  expect(booking?.expiresAt).toBe(now + HOUR_MS);
+  expect(booking?.accommodation).toEqual([
+    { type: "dormitory", label: expect.any(String), units: 2 },
+  ]);
+  expect(booking?.guests[0]?.name).toBe("Yaa Detail");
+
+  // Once the hold is released the row stays visible but is flagged.
+  await t.run(async (ctx) => {
+    await ctx.db.patch(bookingId, { bookingStatus: "expired" });
+  });
+  const afterRelease = await t.query(api.agcPoa.listPoaRecordsAdmin, {
+    sessionToken: token,
+  });
+  expect(
+    afterRelease.find((row) => row.referenceNumber === "STY-DETAIL-1")?.released,
+  ).toBe(true);
+
+  // Released holds drop off the venue collection sheet entirely.
+  const collection = await t.query(api.agcPoa.listPoaDeskData, {
+    sessionToken: token,
+  });
+  expect(
+    collection.some((row) => row.referenceNumber === "STY-DETAIL-1"),
+  ).toBe(false);
 });
 
 test("desk data lists unconfirmed POA records with guest rosters", async () => {
