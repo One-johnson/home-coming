@@ -1,6 +1,8 @@
 import { ConvexError } from "convex/values";
+import { internal } from "./_generated/api";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
+import { isSmtpConfigured } from "./lib/smtpConfig";
 import {
   AGC_ACCOMMODATION_TYPES,
   AGC_DEFAULTS,
@@ -541,6 +543,96 @@ export async function releaseBookingInventory(
 }
 
 /**
+ * Queue a rep email through the email log (stub when SMTP is unconfigured), so
+ * hold-release notices behave exactly like every other portal email.
+ */
+async function queueHoldEmail(
+  ctx: MutationCtx,
+  args: {
+    repId: Id<"agcRepresentatives">;
+    subject: string;
+    body: string;
+    referenceId: Id<"agcBookings">;
+    type: string;
+  },
+) {
+  const rep = await ctx.db.get(args.repId);
+  if (!rep?.email) return;
+  const status = isSmtpConfigured() ? ("pending" as const) : ("stub" as const);
+  const emailLogId: Id<"emailLogs"> = await ctx.db.insert("emailLogs", {
+    to: rep.email,
+    subject: args.subject,
+    body: args.body,
+    type: args.type,
+    referenceId: args.referenceId,
+    status,
+    createdAt: Date.now(),
+  });
+  if (status === "pending") {
+    await ctx.scheduler.runAfter(0, internal.emailSendAction.sendEmail, {
+      emailLogId,
+    });
+  }
+}
+
+/**
+ * A released payment-on-arrival hold is a dead end for the hub unless they are
+ * told about it: email the rep and leave the same explanation in the portal,
+ * where the booking's adminMessage renders as the desk-notice banner. Both
+ * spell out that the beds went back into the pool and how to book again.
+ */
+async function notifyPoaHoldReleased(
+  ctx: MutationCtx,
+  booking: Doc<"agcBookings">,
+  deadline: number,
+  holdHours: number,
+) {
+  const lines = await ctx.db
+    .query("agcBookingLines")
+    .withIndex("by_booking", (q) => q.eq("bookingId", booking._id))
+    .collect();
+  const beds =
+    lines
+      .sort((a, b) => a.accommodationType.localeCompare(b.accommodationType))
+      .map(
+        (line) =>
+          `${line.quantity} × ${AGC_ACCOMMODATION_TYPES[line.accommodationType]?.label ?? line.accommodationType}`,
+      )
+      .join(", ") || "The beds";
+  const reference = booking.referenceNumber ?? "";
+  const releasedOn = new Date(deadline).toUTCString();
+  const label = reference ? ` ${reference}` : "";
+  const rep = await ctx.db.get(booking.repId);
+  const greeting = rep?.firstName ?? rep?.username ?? "there";
+
+  // Portal notice on the booking itself (shown as the desk-message banner).
+  await ctx.db.patch(booking._id, {
+    adminMessage: `Your payment-on-arrival hold${label} expired on ${releasedOn}, so ${beds} went back into the pool. Book again in the Accommodation tab of this portal, or contact the accommodation desk (with this reference) if the booking window has closed.`,
+  });
+
+  await queueHoldEmail(ctx, {
+    repId: booking.repId,
+    subject: `Homecoming 2026 — your beds were released (${reference || "accommodation hold"})`,
+    body: [
+      `Hello ${greeting},`,
+      "",
+      `Your payment-on-arrival accommodation hold${label} expired on ${releasedOn} — the ${holdHours}h hold window ran out before the payment was confirmed.`,
+      `The beds have gone back into the pool so other hubs can book them: ${beds}.`,
+      "",
+      "To hold beds again:",
+      "  1. Open the representative portal → Accommodation and create a new booking.",
+      "  2. Pay by bank transfer/MoMo and upload the receipt in the portal, or pay at the venue desk on arrival, so the desk can confirm the payment and lock the beds in.",
+      "",
+      "If the booking window has closed, contact the Homecoming 2026 accommodation desk and quote this reference.",
+      "",
+      "— Homecoming 2026 Accommodation Desk",
+    ].join("\n"),
+    referenceId: booking._id,
+    type: "agc_booking_poa_hold_released",
+  });
+}
+
+/**
  * Scheduled job: expire bookings whose hold has lapsed (§32–34) — including
  * payment-on-arrival holds, which are on the same 72h window. Expiring returns
  * the held beds to their pools and flips the booking to `expired`.
@@ -551,7 +643,8 @@ export async function releaseBookingInventory(
  */
 export async function expireOverdueHolds(ctx: MutationCtx): Promise<number> {
   const now = Date.now();
-  const legacyWindow = (await getHoldHours(ctx)) * 60 * 60 * 1000;
+  const holdHours = await getHoldHours(ctx);
+  const legacyWindow = holdHours * 60 * 60 * 1000;
   const reserved = await ctx.db
     .query("agcBookings")
     .withIndex("by_booking_status", (q) => q.eq("bookingStatus", "reserved"))
@@ -569,6 +662,10 @@ export async function expireOverdueHolds(ctx: MutationCtx): Promise<number> {
       bookingStatus: "expired",
       updatedAt: now,
     });
+    // POA holds are the hub's own money promise — tell the rep the beds moved.
+    if (booking.poa) {
+      await notifyPoaHoldReleased(ctx, booking, deadline, holdHours);
+    }
     await writeAuditLog(ctx, {
       actorEmail: "system",
       action: "agc_booking.hold_expired",

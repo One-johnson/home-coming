@@ -371,10 +371,14 @@ async function seedHeldBooking(
   });
 }
 
-test("the 72h expiry releases held POA beds back into their pool", async () => {
+test("the 72h expiry releases held POA beds back into their pool and notifies the rep", async () => {
   const t = createTestConvex();
   const { hubId, repId } = await seedAdminAndHub(t);
   const now = Date.now();
+  // The release notice goes to the rep's email — give the seeded rep one.
+  await t.run(async (ctx) => {
+    await ctx.db.patch(repId, { email: "ashanti_mampong@example.com" });
+  });
 
   // Legacy POA hold: created 73h ago with no expiresAt (as rows written before
   // the hold timer existed) — its fallback deadline has lapsed.
@@ -387,6 +391,33 @@ test("the 72h expiry releases held POA beds back into their pool", async () => {
     quantity: 2,
     referenceNumber: "STY-EXPIRED-POA",
   });
+  // An ordinary offline hold that lapsed in the same tick: it expires silently
+  // (no POA release notice — it was never on the IOU terms).
+  const offlineOverdue = await t.run(async (ctx) => {
+    const bookingId: Id<"agcBookings"> = await ctx.db.insert("agcBookings", {
+      hubId,
+      repId,
+      region: "ghana",
+      currency: "GHS",
+      totalAmount: 150,
+      paymentMode: "offline",
+      paymentStatus: "awaiting_payment",
+      bookingStatus: "reserved",
+      expiresAt: now - 1_000,
+      referenceNumber: "STY-OFFLINE-LAPSED",
+      createdAt: now - HOUR_MS,
+      updatedAt: now - HOUR_MS,
+    });
+    await ctx.db.insert("agcBookingLines", {
+      bookingId,
+      accommodationType: "ebpv",
+      quantity: 1,
+      unitPrice: 150,
+      isBishopRate: false,
+    });
+    return { bookingId };
+  });
+
   // A POA hold still inside its window — must stay reserved with its beds.
   // It draws from the hostel pool, so each booking has its own pool row.
   const fresh = await seedHeldBooking(t, {
@@ -406,13 +437,14 @@ test("the 72h expiry releases held POA beds back into their pool", async () => {
     const { expireOverdueHolds } = await import("../convex/agcAccommodation");
     return await expireOverdueHolds(ctx);
   });
-  expect(expiredCount).toBe(1);
+  expect(expiredCount).toBe(2);
 
   const data = await t.run(async (ctx) => ({
     bookings: await ctx.db.query("agcBookings").collect(),
     pool: await ctx.db.get(overdue.poolId),
     livePool: await ctx.db.get(fresh.poolId),
     ledger: await ctx.db.query("agcInventoryLedger").collect(),
+    emails: await ctx.db.query("emailLogs").collect(),
   }));
   const overdueBooking = data.bookings.find(
     (row) => row.referenceNumber === "STY-EXPIRED-POA",
@@ -431,6 +463,28 @@ test("the 72h expiry releases held POA beds back into their pool", async () => {
   // The live POA hold is untouched, and its bed stays reserved.
   expect(liveBooking?.bookingStatus).toBe("reserved");
   expect(data.livePool?.reserved).toBe(1);
+
+  // Re-book guidance reaches the rep by email — and only for the POA hold.
+  const releaseEmails = data.emails.filter(
+    (mail) => mail.type === "agc_booking_poa_hold_released",
+  );
+  expect(releaseEmails).toHaveLength(1);
+  expect(releaseEmails[0].to).toBe("ashanti_mampong@example.com");
+  expect(releaseEmails[0].referenceId).toBe(overdue.bookingId);
+  expect(releaseEmails[0].subject).toContain("STY-EXPIRED-POA");
+  expect(releaseEmails[0].body).toContain("back into the pool");
+  expect(releaseEmails[0].body).toContain("create a new booking");
+  expect(releaseEmails[0].body).toContain("2 × Dormitory");
+
+  // The same explanation sits on the booking in the portal (desk-message banner).
+  expect(overdueBooking?.adminMessage).toContain("back into the pool");
+  expect(overdueBooking?.adminMessage).toContain("Book again");
+  // Offline holds expire silently — no POA notice, no portal message.
+  const offlineBooking = data.bookings.find(
+    (row) => row._id === offlineOverdue.bookingId,
+  );
+  expect(offlineBooking?.bookingStatus).toBe("expired");
+  expect(offlineBooking?.adminMessage).toBeUndefined();
 });
 
 test("deleting a confirmed accommodation returns its beds to the pool", async () => {
