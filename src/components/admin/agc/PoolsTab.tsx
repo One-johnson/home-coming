@@ -50,6 +50,19 @@ type ExpiringHold = {
   expiresAt: number;
 };
 
+type PoolRepair = {
+  _id: string;
+  kind: "run" | "booking";
+  actorEmail: string;
+  summary: string;
+  referenceNumber: string | null;
+  units: number | null;
+  bookings: number | null;
+  expiredHolds: number | null;
+  bookingStatus: string | null;
+  createdAt: number;
+};
+
 type Reallocation = {
   _id: string;
   accommodationType: string;
@@ -86,6 +99,10 @@ export function PoolsTab() {
     api.agcAdminData.listReallocationsAdmin,
     sessionToken ? { sessionToken } : "skip",
   );
+  const repairs = useQuery(
+    api.agcAdminData.listPoolRepairsAdmin,
+    sessionToken ? { sessionToken } : "skip",
+  ) as PoolRepair[] | undefined;
   const reallocate = useMutation(api.agcAdminData.reallocatePool);
   const addCapacity = useMutation(api.agcAdminData.addPoolCapacity);
   const returnExpiredBeds = useMutation(
@@ -546,6 +563,48 @@ export function PoolsTab() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Recent repairs — what came back, how much, and who (or what) moved it. */}
+      {repairs && repairs.length > 0 && (
+        <div className="rounded-xl border p-3">
+          <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <RotateCcw className="size-3.5" /> Recent pool repairs
+          </p>
+          <ul className="space-y-1 text-xs">
+            {repairs.map((row) => (
+              <li
+                key={row._id}
+                className="flex flex-wrap items-center gap-1.5"
+              >
+                {row.kind === "booking" ? (
+                  <>
+                    <span className="font-mono font-medium">
+                      {row.referenceNumber || "(pending)"}
+                    </span>
+                    <span className="tabular-nums">
+                      ×{row.units ?? "?"} bed{(row.units ?? 0) === 1 ? "" : "s"}
+                    </span>
+                    {row.bookingStatus ? (
+                      <Badge variant="outline" className="text-[10px] capitalize">
+                        {row.bookingStatus}
+                      </Badge>
+                    ) : null}
+                  </>
+                ) : (
+                  <span className="font-medium">
+                    Returned {row.units ?? 0} bed(s) from {row.bookings ?? 0}{" "}
+                    finished booking(s)
+                  </span>
+                )}
+                <span className="text-muted-foreground">
+                  · {row.actorEmail === "system" ? "nightly check" : row.actorEmail}{" "}
+                  · {new Date(row.createdAt).toLocaleString()}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Recent reallocations — server already records each move. */}
       {reallocations && reallocations.length > 0 && (

@@ -702,6 +702,8 @@ export type InventoryReconciliation = {
  */
 export async function reconcileExpiredBookingInventory(
   ctx: MutationCtx,
+  /** Who asked for the repair (an admin's email), or "system" for the cron. */
+  actorEmail = "system",
 ): Promise<InventoryReconciliation> {
   const expiredHolds = await expireOverdueHolds(ctx);
 
@@ -779,11 +781,16 @@ export async function reconcileExpiredBookingInventory(
     bookings += 1;
     units += returned;
     await writeAuditLog(ctx, {
-      actorEmail: "system",
+      actorEmail,
       action: "agc_booking.beds_returned_to_pool",
       entityType: "agcBookings",
       entityId: booking._id,
       summary: `Returned ${returned} bed(s) from ${booking.bookingStatus} booking ${booking.referenceNumber ?? ""} to its pool`,
+      metadata: {
+        units: returned,
+        bookingStatus: booking.bookingStatus,
+        referenceNumber: booking.referenceNumber ?? "",
+      },
     });
   }
 

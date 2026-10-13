@@ -180,13 +180,21 @@ export function DataTable<TData, TValue>({
           aria-label="Select all"
         />
       ),
+      // The wrapper swallows the click: ticking a row must never also trigger
+      // the row's onRowClick (which opens its detail dialog), or selecting rows
+      // for a bulk action would be unusable.
       cell: ({ row }) => (
-        <Checkbox
-          checked={row.getIsSelected()}
-          onCheckedChange={(value) => row.toggleSelected(value === true)}
-          aria-label="Select row"
-          onClick={(e) => e.stopPropagation()}
-        />
+        <div
+          className="flex"
+          data-select-cell=""
+          onClick={(event) => event.stopPropagation()}
+        >
+          <Checkbox
+            checked={row.getIsSelected()}
+            onCheckedChange={(value) => row.toggleSelected(value === true)}
+            aria-label="Select row"
+          />
+        </div>
       ),
     };
 

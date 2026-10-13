@@ -2113,12 +2113,20 @@ export function RepAccommodationTab() {
     }
     setMobileView("book");
     setError("");
+    // Same terms come back: a hub still enrolled in payment-on-arrival gets the
+    // toggle re-selected, so the re-book is the arrangement it had before.
     // Never discard a half-typed roster: append when the form already has rows.
     setDrafts((prev) => (prev.length > 0 ? [...prev, ...rows] : rows));
+    setUsePoa(overview?.paymentOnArrival === true);
     setExpandedGuest(null);
     builderRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     toast.success(
       `Brought ${rows.length} guest${rows.length === 1 ? "" : "s"} from ${booking.referenceNumber || "the released hold"} into the form — reserve again when the beds look right.`,
+      {
+        description: overview?.paymentOnArrival
+          ? "Payment on arrival is re-selected — untick it to pay by receipt instead."
+          : undefined,
+      },
     );
   };
 

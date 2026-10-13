@@ -43,6 +43,33 @@ export const reconcileExpiredBookingsOnce = internalMutation({
 });
 
 /**
+ * Nightly inventory repair: beds still held by finished bookings go back to
+ * their pools on their own, and the desk is told when something actually
+ * moved — nobody has to press the repair button for the inventory to heal.
+ */
+export const nightlyPoolRepairTick = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const result = await reconcileExpiredBookingInventory(ctx);
+    if (result.units > 0) {
+      await ctx.runMutation(internal.agcAdminData.alertDeskOfPoolRepair, {
+        expiredHolds: result.expiredHolds,
+        bookings: result.bookings,
+        units: result.units,
+      });
+    }
+    return result;
+  },
+});
+
+crons.daily(
+  "return beds held by finished bookings",
+  { hourUTC: 2, minuteUTC: 30 },
+  internal.crons.nightlyPoolRepairTick,
+  {},
+);
+
+/**
  * Permanently purge representative accounts that were soft-deleted more than
  * 7 days ago (REP_SOFT_DELETE_TTL_MS). Runs hourly; the purge is idempotent.
  */

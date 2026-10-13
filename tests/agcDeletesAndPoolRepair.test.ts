@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { api } from "../convex/_generated/api";
+import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { createTestConvex } from "./testUtils";
 
@@ -376,4 +376,126 @@ test("returnExpiredBookingsToPools returns held beds once, from the right counte
         entry.bookingId === ids.leakedBooking && entry.delta < 0,
     ),
   ).toHaveLength(1);
+});
+
+/**
+ * A confirmed booking closed while it still held its confirmed beds, plus the
+ * pool carrying them — the shape the repair exists to fix.
+ */
+async function seedLeakedBooking(
+  t: TestConvex,
+  args: { hubId: Id<"agcHubs">; repId: Id<"agcRepresentatives">; referenceNumber: string },
+) {
+  const now = Date.now();
+  return await t.run(async (ctx) => {
+    const bookingId = await ctx.db.insert("agcBookings", {
+      hubId: args.hubId,
+      repId: args.repId,
+      region: "ghana",
+      currency: "GHS",
+      totalAmount: 300,
+      paymentMode: "offline",
+      paymentStatus: "confirmed",
+      bookingStatus: "expired",
+      referenceNumber: args.referenceNumber,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await ctx.db.insert("agcBookingLines", {
+      bookingId,
+      accommodationType: "dormitory",
+      quantity: 2,
+      unitPrice: 150,
+      isBishopRate: false,
+    });
+    const poolId = await ctx.db.insert("agcInventoryPools", {
+      accommodationType: "dormitory",
+      scope: "africa",
+      total: 1000,
+      reserved: 0,
+      confirmed: 2,
+    });
+    await ctx.db.insert("agcInventoryLedger", {
+      poolId,
+      accommodationType: "dormitory",
+      scope: "africa",
+      action: "reserve",
+      delta: 2,
+      bookingId,
+      createdAt: now,
+    });
+    await ctx.db.insert("agcInventoryLedger", {
+      poolId,
+      accommodationType: "dormitory",
+      scope: "africa",
+      action: "confirm",
+      delta: 2,
+      bookingId,
+      createdAt: now,
+    });
+    return { bookingId, poolId };
+  });
+}
+
+test("the nightly repair returns held beds on its own and alerts the desk once", async () => {
+  const t = createTestConvex();
+  const { hubId, repId } = await seedAdminAndHub(t);
+  const leaked = await seedLeakedBooking(t, {
+    hubId,
+    repId,
+    referenceNumber: "STY-NIGHTLY",
+  });
+
+  const tick = await t.mutation(internal.crons.nightlyPoolRepairTick, {});
+  expect(tick).toEqual({ expiredHolds: 0, bookings: 1, units: 2 });
+
+  const after = await t.run(async (ctx) => ({
+    pool: await ctx.db.get(leaked.poolId),
+    emails: await ctx.db.query("emailLogs").collect(),
+  }));
+  expect(after.pool?.confirmed).toBe(0);
+
+  // The desk hears about it: one alert per active user with a desk role.
+  const alerts = after.emails.filter(
+    (mail) => mail.type === "agc_pool_repair_alert",
+  );
+  expect(alerts).toHaveLength(1);
+  expect(alerts[0].to).toBe("admin@example.com");
+  expect(alerts[0].subject).toContain("2 bed(s) returned");
+  expect(alerts[0].body).toContain("Bookings that gave beds back: 1");
+
+  // Nothing left to return → nothing to say. Re-running stays silent.
+  const second = await t.mutation(internal.crons.nightlyPoolRepairTick, {});
+  expect(second).toEqual({ expiredHolds: 0, bookings: 0, units: 0 });
+  const emailsAfter = await t.run(async (ctx) =>
+    ctx.db.query("emailLogs").collect(),
+  );
+  expect(
+    emailsAfter.filter((mail) => mail.type === "agc_pool_repair_alert"),
+  ).toHaveLength(1);
+});
+
+test("the Pools tab repair history names each booking and its bed count", async () => {
+  const t = createTestConvex();
+  const { token, hubId, repId } = await seedAdminAndHub(t);
+  await seedLeakedBooking(t, {
+    hubId,
+    repId,
+    referenceNumber: "STY-HISTORY",
+  });
+
+  await t.mutation(api.agcAdminData.returnExpiredBookingsToPools, {
+    sessionToken: token,
+  });
+
+  const history = await t.query(api.agcAdminData.listPoolRepairsAdmin, {
+    sessionToken: token,
+  });
+  // Newest first: the manual run, then the booking it returned beds for.
+  expect(history.map((row) => row.kind)).toEqual(["run", "booking"]);
+  expect(history[0].actorEmail).toBe("admin@example.com");
+  expect(history[0].units).toBe(2);
+  expect(history[1].referenceNumber).toBe("STY-HISTORY");
+  expect(history[1].units).toBe(2);
+  expect(history[1].bookingStatus).toBe("expired");
 });

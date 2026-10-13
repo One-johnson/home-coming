@@ -1966,6 +1966,135 @@ export const reviewAgcBooking = mutation({
   },
 });
 
+/** Audit actions written when beds are returned to a pool (repair history). */
+const POOL_REPAIR_RUN_ACTION = "agc_pool.expired_bookings_reconciled";
+const POOL_REPAIR_BOOKING_ACTION = "agc_booking.beds_returned_to_pool";
+
+/** Desk roles that hear about a pool repair — admins and the accommodation team. */
+const DESK_ROLES = ["admin", "accommodation", "finance"] as const;
+
+/**
+ * Recent pool repairs, newest first: one entry per repair run plus one per
+ * booking that gave beds back (with how many). Reads the audit trail the
+ * repair writes, so it also shows repairs the nightly job made on its own.
+ */
+export const listPoolRepairsAdmin = query({
+  args: { sessionToken: sessionTokenValidator },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, args.sessionToken, ["admin", "accommodation"]);
+    // Bounded scan of the newest audit entries; repairs are rare, so a couple
+    // of pages back is always enough to show the recent history.
+    const rows = await ctx.db
+      .query("auditLogs")
+      .withIndex("by_created_at")
+      .order("desc")
+      .take(300);
+    return rows
+      .filter(
+        (row) =>
+          row.action === POOL_REPAIR_RUN_ACTION ||
+          row.action === POOL_REPAIR_BOOKING_ACTION,
+      )
+      .slice(0, 40)
+      .map((row) => {
+        let metadata: Record<string, number | string> | null = null;
+        if (row.metadata) {
+          try {
+            const parsed: unknown = JSON.parse(row.metadata);
+            if (parsed && typeof parsed === "object") {
+              metadata = parsed as Record<string, number | string>;
+            }
+          } catch {
+            // Legacy/hand-written entries may not be JSON — show the summary.
+            metadata = null;
+          }
+        }
+        return {
+          _id: row._id,
+          kind:
+            row.action === POOL_REPAIR_RUN_ACTION
+              ? ("run" as const)
+              : ("booking" as const),
+          actorEmail: row.actorEmail ?? "system",
+          summary: row.summary,
+          referenceNumber:
+            typeof metadata?.referenceNumber === "string"
+              ? metadata.referenceNumber
+              : null,
+          units:
+            typeof metadata?.units === "number" ? metadata.units : null,
+          /** Run rows only: how many finished bookings and holds were touched. */
+          bookings:
+            typeof metadata?.bookings === "number" ? metadata.bookings : null,
+          expiredHolds:
+            typeof metadata?.expiredHolds === "number"
+              ? metadata.expiredHolds
+              : null,
+          bookingStatus:
+            typeof metadata?.bookingStatus === "string"
+              ? metadata.bookingStatus
+              : null,
+          createdAt: row.createdAt,
+        };
+      });
+  },
+});
+
+/**
+ * Alert the desk that beds have gone back into their pools without anyone
+ * asking — the nightly repair only calls this when something actually moved.
+ * Queued through the email log like every other notification, so it is a real
+ * email when SMTP is configured and a stub row otherwise.
+ */
+export const alertDeskOfPoolRepair = internalMutation({
+  args: {
+    expiredHolds: v.number(),
+    bookings: v.number(),
+    units: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const users = await ctx.db.query("users").withIndex("by_email").collect();
+    const desk = users.filter(
+      (user) =>
+        user.email &&
+        user.active !== false &&
+        (DESK_ROLES as readonly string[]).includes(user.role),
+    );
+    if (desk.length === 0) return { notified: 0 };
+
+    const subject = `Homecoming 2026 — ${args.units} bed(s) returned to the pools`;
+    const body = [
+      "The nightly inventory check found beds still held by finished bookings and returned them to their pools.",
+      "",
+      `Beds returned: ${args.units}`,
+      `Bookings that gave beds back: ${args.bookings}`,
+      `Holds expired in the same pass: ${args.expiredHolds}`,
+      "",
+      "Open the admin console → AGC 2026 → Pools to see the repair history, or re-check availability there. No action is needed unless the bed counts look wrong.",
+      "",
+      "— Homecoming 2026 automated notification",
+    ].join("\n");
+
+    const status = isSmtpConfigured() ? ("pending" as const) : ("stub" as const);
+    for (const user of desk) {
+      const emailLogId: Id<"emailLogs"> = await ctx.db.insert("emailLogs", {
+        to: user.email,
+        subject,
+        body,
+        type: "agc_pool_repair_alert",
+        status,
+        createdAt: Date.now(),
+      });
+      if (status === "pending") {
+        await ctx.scheduler.runAfter(0, internal.emailSendAction.sendEmail, {
+          emailLogId,
+        });
+      }
+    }
+    return { notified: desk.length };
+  },
+});
+
 /**
  * One-off repair: return every bed a finished booking still holds to its pool.
  * Expires lapsed holds first, then reconciles `expired`/`cancelled` bookings
@@ -1979,11 +2108,11 @@ export const returnExpiredBookingsToPools = mutation({
       "admin",
       "accommodation",
     ]);
-    const result = await reconcileExpiredBookingInventory(ctx);
+    const result = await reconcileExpiredBookingInventory(ctx, actor.email);
     await writeAuditLog(ctx, {
       actorUserId: actor._id,
       actorEmail: actor.email,
-      action: "agc_pool.expired_bookings_reconciled",
+      action: POOL_REPAIR_RUN_ACTION,
       entityType: "agcInventoryPools",
       summary: `Returned ${result.units} bed(s) from ${result.bookings} finished booking(s) to their pools by ${actor.email}`,
       metadata: {
