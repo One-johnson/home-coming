@@ -815,6 +815,7 @@ function SummaryBar({
   allDraftsValid,
   locked,
   loading,
+  payOnArrival,
   onReserve,
   onShowBreakdown,
 }: {
@@ -825,6 +826,8 @@ function SummaryBar({
   allDraftsValid: boolean;
   locked: boolean;
   loading: boolean;
+  /** The reservation being reviewed will be paid at the desk (IOU). */
+  payOnArrival: boolean;
   onReserve: () => void;
   onShowBreakdown: () => void;
 }) {
@@ -855,6 +858,12 @@ function SummaryBar({
               <span className="block text-lg font-semibold tabular-nums">
                 {formatMoney(summary.totalAmount, currency)}
               </span>
+              {payOnArrival ? (
+                <span className="mt-0.5 flex items-center gap-1 text-[11px] font-medium text-amber-700 dark:text-amber-300">
+                  <ReceiptTextIcon className="size-3 shrink-0" /> Pay on arrival
+                  — IOU receipt
+                </span>
+              ) : null}
             </button>
             <Button
               type="button"
@@ -902,6 +911,12 @@ function SummaryBar({
               {formatMoney(summary.totalAmount, currency)}
             </p>
           </div>
+          {payOnArrival ? (
+            <p className="mt-2 flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50/60 px-2 py-1.5 text-xs font-medium text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+              <ReceiptTextIcon className="size-3.5 shrink-0" /> Pay on arrival —
+              IOU, settled at the venue desk
+            </p>
+          ) : null}
           {capacityIssue ? (
             <p className="mt-2 flex items-start gap-1.5 text-xs font-medium text-amber-700">
               <AlertTriangleIcon className="mt-0.5 size-3.5 shrink-0" />{" "}
@@ -936,6 +951,7 @@ function BreakdownSheet({
   allDraftsValid,
   locked,
   loading,
+  payOnArrival,
   onReserve,
 }: {
   open: boolean;
@@ -947,6 +963,8 @@ function BreakdownSheet({
   allDraftsValid: boolean;
   locked: boolean;
   loading: boolean;
+  /** The reservation being reviewed will be paid at the desk (IOU). */
+  payOnArrival: boolean;
   onReserve: () => void;
 }) {
   const disabled = loading || locked || !allDraftsValid || Boolean(capacityIssue);
@@ -993,6 +1011,12 @@ function BreakdownSheet({
               {formatMoney(summary.totalAmount, currency)}
             </p>
           </div>
+          {payOnArrival ? (
+            <p className="flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50/60 px-2 py-1.5 text-xs font-medium text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+              <ReceiptTextIcon className="size-3.5 shrink-0" /> Pay on arrival —
+              IOU, settled at the venue desk
+            </p>
+          ) : null}
           {capacityIssue ? (
             <p className="flex items-start gap-1.5 text-xs font-medium text-amber-700">
               <AlertTriangleIcon className="mt-0.5 size-3.5 shrink-0" />{" "}
@@ -1521,6 +1545,10 @@ export function RepAccommodationTab() {
   const submitPoaEvidence = useMutation(api.agcPoa.submitPoaEvidence);
   // Payment-on-arrival (hub-enrolled): book now, pay on arrival, IOU receipt.
   const [usePoa, setUsePoa] = useState(false);
+  // The tick only counts while the hub still holds the POA grant: if an admin
+  // revokes it mid-session the control disappears, and the next booking falls
+  // back to paying by receipt instead of being rejected by the server gate.
+  const poaSelected = usePoa && overview?.paymentOnArrival === true;
   const [poaIouTarget, setPoaIouTarget] = useState<{
     kind: "registration" | "booking";
     recordId: string;
@@ -1688,7 +1716,7 @@ export function RepAccommodationTab() {
           accommodationType: draft.accommodationType,
           isBishopRate: draft.isBishopRate,
         })),
-        paymentOnArrival: usePoa || undefined,
+        paymentOnArrival: poaSelected || undefined,
       });
       setLastBooking({
         bookingId: result.bookingId,
@@ -1974,7 +2002,7 @@ export function RepAccommodationTab() {
       const result = await createFromExcel({
         sessionToken,
         storageId: excelStorageId as Id<"_storage">,
-        paymentOnArrival: usePoa || undefined,
+        paymentOnArrival: poaSelected || undefined,
       });
       setLastBooking({
         bookingId: result.bookingId,
@@ -2284,6 +2312,32 @@ export function RepAccommodationTab() {
                 </p>
               )}
             </div>
+
+            {/* Payment-on-arrival choice: it lives with the roster, so the term
+                is visible while guests are being added — not only once one is
+                queued — and it covers the Excel import below it too. */}
+            {overview?.paymentOnArrival && (
+              <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-amber-300 bg-amber-50/60 p-4 text-sm dark:border-amber-900 dark:bg-amber-950/40">
+                <input
+                  type="checkbox"
+                  checked={usePoa}
+                  onChange={(e) => setUsePoa(e.target.checked)}
+                  className="mt-0.5 size-4 accent-amber-600"
+                />
+                <span>
+                  <span className="font-semibold text-amber-900 dark:text-amber-200">
+                    Book without paying — payment on arrival
+                  </span>
+                  <span className="mt-0.5 block text-xs text-amber-800/90 dark:text-amber-300/90">
+                    Your hub is enrolled: reserve these beds now, pay on arrival,
+                    and upload your payment evidence here when you pay. An IOU
+                    receipt is generated automatically; the total is only
+                    credited once the desk confirms your payment. Applies to the
+                    Excel flow too.
+                  </span>
+                </span>
+              </label>
+            )}
 
             {/* Bulk import — secondary path, still previews before booking. */}
             <div className="rounded-xl border border-dashed bg-muted/20 p-3">
@@ -2802,29 +2856,6 @@ export function RepAccommodationTab() {
       </Card>
       </section>
 
-      {/* Payment-on-arrival toggle (hubs enrolled by the admin) */}
-      {overview?.paymentOnArrival && drafts.length > 0 && (
-        <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-amber-300 bg-amber-50/60 p-4 text-sm dark:border-amber-900 dark:bg-amber-950/40">
-          <input
-            type="checkbox"
-            checked={usePoa}
-            onChange={(e) => setUsePoa(e.target.checked)}
-            className="mt-0.5 size-4 accent-amber-600"
-          />
-          <span>
-            <span className="font-semibold text-amber-900 dark:text-amber-200">
-              Book without paying — payment on arrival
-            </span>
-            <span className="mt-0.5 block text-xs text-amber-800/90 dark:text-amber-300/90">
-              Your hub is enrolled: reserve these beds now, pay on arrival, and
-              upload your payment evidence here when you pay. An IOU receipt is
-              generated automatically; the total is only credited once the desk
-              confirms your payment. Applies to the Excel flow too.
-            </span>
-          </span>
-        </label>
-      )}
-
       {/* Room for the fixed summary bar so content never hides behind it. */}
       {drafts.length > 0 && <div className="h-36 md:h-40" aria-hidden />}
 
@@ -2837,6 +2868,7 @@ export function RepAccommodationTab() {
           allDraftsValid={allDraftsValid}
           locked={portalConfig?.locked === true}
           loading={loading}
+          payOnArrival={poaSelected}
           onReserve={() => void handleCreateBooking()}
           onShowBreakdown={() => setReviewOpen(true)}
         />
@@ -2851,6 +2883,7 @@ export function RepAccommodationTab() {
         allDraftsValid={allDraftsValid}
         locked={portalConfig?.locked === true}
         loading={loading}
+        payOnArrival={poaSelected}
         onReserve={() => {
           setReviewOpen(false);
           void handleCreateBooking();
