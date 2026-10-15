@@ -20,11 +20,11 @@ export async function isHubPoaEnabled(
 /**
  * Whether an unconfirmed POA booking can still be collected at the desk.
  *
- * Every POA hold is on the same window as a normal reservation (72h by
- * default). Once the hold lapses the beds go back into their pools and the
- * booking is `expired`; a `cancelled` booking is closed too. Both stay in the
- * POA tables for the audit trail, but they are no longer collectible and are
- * left out of the collection sheet, the reconciliation, and the desk queue.
+ * A POA hold is deliberately off the reservation window: its beds stay held
+ * until the venue desk confirms the payment or the booking is closed by hand
+ * (`cancelled`, or expired by an admin). A closed booking keeps no beds, so it
+ * stays in the POA tables for the audit trail but is left out of the
+ * collection sheet, the reconciliation, and the desk queue.
  */
 export function isCollectiblePoaBooking(booking: {
   bookingStatus: string;

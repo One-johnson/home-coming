@@ -707,8 +707,8 @@ export const listPoaDeskData = query({
       await ctx.db.query("agcBookings").withIndex("by_created_at").collect()
     ).filter((row) => !row.deletedAt && row.poa)) {
       if (booking.poa!.status === "confirmed") continue;
-      // Released holds (expired 72h window / cancelled) have no beds left to
-      // collect against — they stay in the POA tables, not on the desk sheet.
+      // Closed holds (cancelled at the desk) have no beds left to collect
+      // against — they stay in the POA tables, not on the desk sheet.
       if (!isCollectiblePoaBooking(booking)) continue;
       const guests = (
         await ctx.db
@@ -808,9 +808,12 @@ export const listPoaRecordsAdmin = query({
       submittedAt: number | null;
       confirmedAt: number | null;
       confirmedBy: string | null;
-      /** POA hold deadline; null for registrations (no beds held). */
+      /**
+       * Only ever set on rows written before POA holds left the hold timer —
+       * the beds of a POA booking are held until the desk acts.
+       */
       expiresAt: number | null;
-      /** True once the hold was released (expired/cancelled booking). */
+      /** True once the beds are gone (a cancelled or expired booking). */
       released: boolean;
       /** Accommodation types with the beds this record consumes. */
       accommodation: RowAccommodation[];

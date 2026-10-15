@@ -3,6 +3,7 @@
 import {
   type ColumnDef,
   type ColumnFiltersState,
+  type Row,
   type RowSelectionState,
   type SortingState,
   type VisibilityState,
@@ -99,6 +100,14 @@ type DataTableProps<TData, TValue> = {
   columnLabels?: Record<string, string>;
   /** Persist search/filters/pagination in the URL query string (shareable views). */
   persistStateKey?: string;
+  /**
+   * Which rows can be selected for a bulk action: `true` (default) for every
+   * row, or a predicate when only some rows may be acted on (e.g. only records
+   * a bulk action can still change). Non-selectable rows get a disabled
+   * checkbox, "select all" skips them, and a row that stops being selectable
+   * drops out of the selection on its own.
+   */
+  enableRowSelection?: boolean | ((row: Row<TData>) => boolean);
 };
 
 const URL_STATE_PREFIX = "t";
@@ -148,6 +157,7 @@ export function DataTable<TData, TValue>({
   expandedId,
   columnLabels = {},
   persistStateKey,
+  enableRowSelection = true,
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>(
@@ -191,6 +201,7 @@ export function DataTable<TData, TValue>({
         >
           <Checkbox
             checked={row.getIsSelected()}
+            disabled={!row.getCanSelect()}
             onCheckedChange={(value) => row.toggleSelected(value === true)}
             aria-label="Select row"
           />
@@ -235,7 +246,7 @@ export function DataTable<TData, TValue>({
       rowSelection,
       globalFilter,
     },
-    enableRowSelection: true,
+    enableRowSelection,
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
     onColumnVisibilityChange: setColumnVisibility,
@@ -250,6 +261,25 @@ export function DataTable<TData, TValue>({
     getRowId,
     initialState: { pagination: { pageSize: 10 } },
   });
+
+  // A selection must never outlive the rows behind it: when the data changes,
+  // drop ids for rows that are gone or that may no longer be selected —
+  // otherwise the bulk bar would act on records the user cannot even see.
+  useEffect(() => {
+    const selectable = new Set(
+      table
+        .getPrePaginationRowModel()
+        .rows.filter((row) => row.getCanSelect())
+        .map((row) => row.id),
+    );
+    setRowSelection((prev) => {
+      const ids = Object.keys(prev);
+      if (ids.every((id) => selectable.has(id))) return prev;
+      return Object.fromEntries(
+        ids.filter((id) => selectable.has(id)).map((id) => [id, true]),
+      );
+    });
+  }, [table, data, enableRowSelection]);
 
   // Restore persisted table state (search/filters/page) from the URL once.
   useEffect(() => {

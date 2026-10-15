@@ -1,8 +1,6 @@
 import { ConvexError } from "convex/values";
-import { internal } from "./_generated/api";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
-import { isSmtpConfigured } from "./lib/smtpConfig";
 import {
   AGC_ACCOMMODATION_TYPES,
   AGC_DEFAULTS,
@@ -86,18 +84,31 @@ export function holdsReservedUnits(status: AgcBookingStatus): boolean {
 }
 
 /**
- * When a booking's hold lapses. Payment-on-arrival rows created before the
- * hold timer existed carry no `expiresAt`; their fallback is the creation time
- * plus the current hold window, so they expire instead of holding beds forever.
+ * Whether the hold timer governs a booking at all.
+ *
+ * Payment-on-arrival accommodation is settled at the venue desk, so its beds
+ * stay held until the desk confirms the payment or closes the booking by hand:
+ * the reservation window (72h by default) deliberately does not release POA
+ * beds. Every expiry path asks this first, so a POA hold can never be swept
+ * while its payment is still outstanding.
+ */
+export function holdTimerApplies(
+  booking: Pick<Doc<"agcBookings">, "poa">,
+): boolean {
+  return !booking.poa;
+}
+
+/**
+ * When a booking's hold lapses, or `undefined` when nothing will lapse it —
+ * payment-on-arrival holds (see `holdTimerApplies`) plus any reservation whose
+ * window was never set. A lapsed deadline stops counting as held inventory
+ * even before the sweep flips the booking to `expired`.
  */
 export function holdDeadline(
-  booking: Pick<Doc<"agcBookings">, "expiresAt" | "poa" | "createdAt">,
-  holdHours: number,
+  booking: Pick<Doc<"agcBookings">, "expiresAt" | "poa">,
 ): number | undefined {
-  return (
-    booking.expiresAt ??
-    (booking.poa ? booking.createdAt + holdHours * 60 * 60 * 1000 : undefined)
-  );
+  if (!holdTimerApplies(booking)) return undefined;
+  return booking.expiresAt;
 }
 
 /** The pool a line of `type` booked from `region` draws its beds from (§28). */
@@ -225,9 +236,16 @@ function availableUnits(pool: Doc<"agcInventoryPools">): number {
 
 async function writeLedger(
   ctx: MutationCtx,
-  pool: Doc<"agcInventoryPools">,
+  pool: Pick<Doc<"agcInventoryPools">, "_id" | "accommodationType" | "scope">,
   entry: {
-    action: "reserve" | "release" | "confirm" | "expire" | "cancel" | "reallocate";
+    action:
+      | "reserve"
+      | "release"
+      | "confirm"
+      | "expire"
+      | "cancel"
+      | "reallocate"
+      | "reconcile";
     delta: number;
     bookingId?: Id<"agcBookings">;
     actorEmail?: string;
@@ -433,8 +451,12 @@ export function validateGuestInput(
 export type CreateBookingResult = {
   bookingId: Id<"agcBookings">;
   referenceNumber: string;
-  /** Hold deadline: the earlier of the hold window and the registration deadline. */
-  expiresAt: number;
+  /**
+   * Hold deadline — the earlier of the hold window and the registration
+   * deadline — or `undefined` for a payment-on-arrival booking, whose beds the
+   * hold timer never releases (see `holdTimerApplies`).
+   */
+  expiresAt: number | undefined;
   currency: string;
   totalAmount: number;
   lines: ComputedLine[];
@@ -468,11 +490,13 @@ export async function createBookingWithGuests(
   const lines = computeBookingLines(guests, hub.region, typesConfig, bishopRate);
   const total = bookingTotal(lines);
   const currency = bookingCurrency(hub.region);
-  // Every booking holds beds on a timer — the earlier of the configured hold
-  // window (72h by default) and the registration deadline. Payment-on-arrival
-  // bookings are no exception: if the desk never confirms the payment, the
-  // held beds return to their pools instead of being held indefinitely.
-  const expiresAt = await computeHoldExpiry(ctx);
+  // A timed reservation holds its beds until the earlier of the configured
+  // hold window (72h by default) and the registration deadline. A
+  // payment-on-arrival booking is deliberately off that timer: it is settled at
+  // the venue desk, so its beds stay held until the desk confirms the payment
+  // or closes the booking (see `holdTimerApplies`).
+  const isPoa = args.paymentMode === "payment_on_arrival";
+  const expiresAt = isPoa ? undefined : await computeHoldExpiry(ctx);
 
   const bookingId: Id<"agcBookings"> = await ctx.db.insert("agcBookings", {
     hubId: hub._id,
@@ -485,10 +509,7 @@ export async function createBookingWithGuests(
     paymentMode: args.paymentMode,
     paymentStatus: "awaiting_payment",
     bookingStatus: "reserved",
-    poa:
-      args.paymentMode === "payment_on_arrival"
-        ? { status: "pending" }
-        : undefined,
+    poa: isPoa ? { status: "pending" } : undefined,
     referenceNumber: args.referenceNumber,
     expiresAt,
     createdAt: Date.now(),
@@ -584,108 +605,16 @@ export async function releaseBookingInventory(
 }
 
 /**
- * Queue a rep email through the email log (stub when SMTP is unconfigured), so
- * hold-release notices behave exactly like every other portal email.
- */
-async function queueHoldEmail(
-  ctx: MutationCtx,
-  args: {
-    repId: Id<"agcRepresentatives">;
-    subject: string;
-    body: string;
-    referenceId: Id<"agcBookings">;
-    type: string;
-  },
-) {
-  const rep = await ctx.db.get(args.repId);
-  if (!rep?.email) return;
-  const status = isSmtpConfigured() ? ("pending" as const) : ("stub" as const);
-  const emailLogId: Id<"emailLogs"> = await ctx.db.insert("emailLogs", {
-    to: rep.email,
-    subject: args.subject,
-    body: args.body,
-    type: args.type,
-    referenceId: args.referenceId,
-    status,
-    createdAt: Date.now(),
-  });
-  if (status === "pending") {
-    await ctx.scheduler.runAfter(0, internal.emailSendAction.sendEmail, {
-      emailLogId,
-    });
-  }
-}
-
-/**
- * A released payment-on-arrival hold is a dead end for the hub unless they are
- * told about it: email the rep and leave the same explanation in the portal,
- * where the booking's adminMessage renders as the desk-notice banner. Both
- * spell out that the beds went back into the pool and how to book again.
- */
-async function notifyPoaHoldReleased(
-  ctx: MutationCtx,
-  booking: Doc<"agcBookings">,
-  deadline: number,
-  holdHours: number,
-) {
-  const lines = await ctx.db
-    .query("agcBookingLines")
-    .withIndex("by_booking", (q) => q.eq("bookingId", booking._id))
-    .collect();
-  const beds =
-    lines
-      .sort((a, b) => a.accommodationType.localeCompare(b.accommodationType))
-      .map(
-        (line) =>
-          `${line.quantity} × ${AGC_ACCOMMODATION_TYPES[line.accommodationType]?.label ?? line.accommodationType}`,
-      )
-      .join(", ") || "The beds";
-  const reference = booking.referenceNumber ?? "";
-  const releasedOn = new Date(deadline).toUTCString();
-  const label = reference ? ` ${reference}` : "";
-  const rep = await ctx.db.get(booking.repId);
-  const greeting = rep?.firstName ?? rep?.username ?? "there";
-
-  // Portal notice on the booking itself (shown as the desk-message banner).
-  await ctx.db.patch(booking._id, {
-    adminMessage: `Your payment-on-arrival hold${label} expired on ${releasedOn}, so ${beds} went back into the pool. Book again in the Accommodation tab of this portal, or contact the accommodation desk (with this reference) if the booking window has closed.`,
-  });
-
-  await queueHoldEmail(ctx, {
-    repId: booking.repId,
-    subject: `Homecoming 2026 — your beds were released (${reference || "accommodation hold"})`,
-    body: [
-      `Hello ${greeting},`,
-      "",
-      `Your payment-on-arrival accommodation hold${label} expired on ${releasedOn} — the ${holdHours}h hold window ran out before the payment was confirmed.`,
-      `The beds have gone back into the pool so other hubs can book them: ${beds}.`,
-      "",
-      "To hold beds again:",
-      "  1. Open the representative portal → Accommodation and create a new booking.",
-      "  2. Pay by bank transfer/MoMo and upload the receipt in the portal, or pay at the venue desk on arrival, so the desk can confirm the payment and lock the beds in.",
-      "",
-      "If the booking window has closed, contact the Homecoming 2026 accommodation desk and quote this reference.",
-      "",
-      "— Homecoming 2026 Accommodation Desk",
-    ].join("\n"),
-    referenceId: booking._id,
-    type: "agc_booking_poa_hold_released",
-  });
-}
-
-/**
- * Scheduled job: expire bookings whose hold has lapsed (§32–34) — including
- * payment-on-arrival holds, which are on the same 72h window. Expiring returns
- * the held beds to their pools and flips the booking to `expired`, so an
- * expired reservation never keeps counting as held inventory.
+ * Scheduled job: expire bookings whose hold has lapsed (§32–34). Expiring
+ * returns the held beds to their pools and flips the booking to `expired`, so a
+ * lapsed reservation never keeps counting as held inventory.
  *
- * POA reservations created before the hold timer existed carry no `expiresAt`;
- * for those the fallback deadline is their creation time plus the current hold
- * window, so old holds are released too instead of holding beds forever.
+ * Payment-on-arrival holds are exempt (`holdTimerApplies`): their beds stay
+ * held until the venue desk confirms the payment or closes the booking, because
+ * that money is handed over on arrival instead of inside a reservation window.
  */
 export async function expireOverdueHolds(ctx: MutationCtx): Promise<number> {
   const now = Date.now();
-  const holdHours = await getHoldHours(ctx);
   // Every open state holds beds, so every open state expires: a reservation
   // awaiting payment, one whose receipt is in review, and one bounced back to
   // the hub for a correction. Only `reserved` was swept before, which left
@@ -705,23 +634,21 @@ export async function expireOverdueHolds(ctx: MutationCtx): Promise<number> {
   let expired = 0;
   for (const booking of open) {
     if (booking.deletedAt) continue;
-    const deadline = holdDeadline(booking, holdHours);
+    // A POA hold is never on a timer — the desk releases it.
+    if (!holdTimerApplies(booking)) continue;
+    const deadline = holdDeadline(booking);
     if (!deadline || deadline >= now) continue;
     await releaseBookingInventory(ctx, booking, "expire");
     await ctx.db.patch(booking._id, {
       bookingStatus: "expired",
       updatedAt: now,
     });
-    // POA holds are the hub's own money promise — tell the rep the beds moved.
-    if (booking.poa) {
-      await notifyPoaHoldReleased(ctx, booking, deadline, holdHours);
-    }
     await writeAuditLog(ctx, {
       actorEmail: "system",
       action: "agc_booking.hold_expired",
       entityType: "agcBookings",
       entityId: booking._id,
-      summary: `${booking.poa ? "Payment-on-arrival" : "Unpaid"} hold ${booking.referenceNumber ?? ""} expired — held beds returned to their pools`,
+      summary: `Hold ${booking.referenceNumber ?? ""} expired — held beds returned to their pools`,
     });
     expired += 1;
   }
@@ -729,12 +656,16 @@ export async function expireOverdueHolds(ctx: MutationCtx): Promise<number> {
 }
 
 export type InventoryReconciliation = {
-  /** Lapsed holds (legacy POA rows included) expired in this pass. */
+  /** Lapsed holds expired in this pass. */
   expiredHolds: number;
   /** Finished bookings that were still holding beds. */
   bookings: number;
   /** Beds moved back into the pools they came from. */
   units: number;
+  /** Pools whose counters had to be rewritten to match the reservations. */
+  poolsCorrected: number;
+  /** Beds the stored counters had drifted by (in either direction). */
+  counterBedsAdjusted: number;
 };
 
 /**
@@ -748,7 +679,9 @@ export type InventoryReconciliation = {
  * logged against it; running this a second time returns nothing.
  *
  * Lapsed `reserved` holds are expired first (the same pass the cron makes), so
- * one action repairs everything that is already past its hold window.
+ * one action repairs everything that is already past its hold window. The
+ * pool counters are then rewritten to match the reservations, so availability
+ * always agrees with the bookings behind it.
  */
 export async function reconcileExpiredBookingInventory(
   ctx: MutationCtx,
@@ -844,7 +777,18 @@ export async function reconcileExpiredBookingInventory(
     });
   }
 
-  return { expiredHolds, bookings, units };
+  // The counters are the booking gate, so the same pass rewrites any drift
+  // left behind by older release paths — availability can never disagree with
+  // the reservations that actually hold the beds.
+  const counters = await reconcilePoolCounters(ctx, actorEmail);
+
+  return {
+    expiredHolds,
+    bookings,
+    units,
+    poolsCorrected: counters.pools,
+    counterBedsAdjusted: counters.beds,
+  };
 }
 
 // ------------------------------------------------------------------
@@ -864,6 +808,8 @@ export type PoolCounts = {
   available: number;
   /** What the pool's own `reserved` counter says (ledger drift included). */
   ledgerReserved: number;
+  /** What the pool's own `confirmed` counter says (ledger drift included). */
+  ledgerConfirmed: number;
 };
 
 /**
@@ -871,19 +817,21 @@ export type PoolCounts = {
  *
  * A bed is `confirmed` while its booking is confirmed, and `held` while its
  * booking is an open reservation (awaiting payment, in review, or sent back
- * for correction) that has not passed its hold deadline. Expired and cancelled
- * reservations hold nothing, and a lapsed hold stops counting even before the
- * expiry sweep flips it — so a stale pool counter can never show up as Held.
+ * for correction) that still has a live hold — payment-on-arrival holds have
+ * no deadline at all, so they stay held until the desk acts on them. Expired
+ * and cancelled reservations hold nothing, and a lapsed hold stops counting
+ * even before the expiry sweep flips it — so a stale pool counter can never
+ * show up as Held.
  *
- * The pool's stored counters stay the booking gate; `ledgerReserved` exposes
- * any difference so the desk can see and repair drift.
+ * The pool's stored counters stay the booking gate; `ledgerReserved` and
+ * `ledgerConfirmed` expose any difference so the desk can see the drift and
+ * `reconcilePoolCounters` can heal it.
  */
 export async function livePoolCounts(ctx: QueryCtx): Promise<PoolCounts[]> {
-  const [pools, bookings, lines, holdHours] = await Promise.all([
+  const [pools, bookings, lines] = await Promise.all([
     ctx.db.query("agcInventoryPools").collect(),
     ctx.db.query("agcBookings").collect(),
     ctx.db.query("agcBookingLines").collect(),
-    getHoldHours(ctx),
   ]);
 
   const linesByBooking = new Map<string, Doc<"agcBookingLines">[]>();
@@ -910,7 +858,7 @@ export async function livePoolCounts(ctx: QueryCtx): Promise<PoolCounts[]> {
     const isConfirmed = booking.bookingStatus === "confirmed";
     if (!isConfirmed) {
       if (!holdsReservedUnits(booking.bookingStatus)) continue;
-      const deadline = holdDeadline(booking, holdHours);
+      const deadline = holdDeadline(booking);
       if (deadline !== undefined && deadline <= now) continue;
     }
     for (const line of linesByBooking.get(booking._id) ?? []) {
@@ -937,8 +885,78 @@ export async function livePoolCounts(ctx: QueryCtx): Promise<PoolCounts[]> {
       held: entry.held,
       available: pool.total - entry.confirmed - entry.held,
       ledgerReserved: pool.reserved,
+      ledgerConfirmed: pool.confirmed,
     };
   });
+}
+
+export type PoolCounterRepair = {
+  /** Pools whose stored counters had to be rewritten. */
+  pools: number;
+  /** Beds the stored counters had drifted by (in either direction). */
+  beds: number;
+};
+
+/**
+ * Rewrite each pool's stored `reserved`/`confirmed` counters to what the
+ * reservations say they should be — the self-healing half of the inventory.
+ *
+ * `livePoolCounts` is the single source of truth, but the stored counters are
+ * what the booking gate compares against, so any drift between the two
+ * misstates availability: a bed released twice by an older path, a confirm
+ * that never moved a bed out of `reserved`, a hold expired after its beds were
+ * already returned. Every pass copies the live counts back into the counters,
+ * records what moved on the inventory ledger, and audits the correction.
+ * Counters that already agree are left untouched, so running it again finds
+ * nothing and the crons can call it as often as they like.
+ */
+export async function reconcilePoolCounters(
+  ctx: MutationCtx,
+  actorEmail = "system",
+): Promise<PoolCounterRepair> {
+  const pools = await livePoolCounts(ctx);
+  let poolsCorrected = 0;
+  let beds = 0;
+
+  for (const pool of pools) {
+    const heldDelta = pool.held - pool.ledgerReserved;
+    const confirmedDelta = pool.confirmed - pool.ledgerConfirmed;
+    if (heldDelta === 0 && confirmedDelta === 0) continue;
+
+    await ctx.db.patch(pool._id, {
+      reserved: pool.held,
+      confirmed: pool.confirmed,
+    });
+    if (heldDelta !== 0) {
+      await writeLedger(ctx, pool, {
+        action: "reconcile",
+        delta: heldDelta,
+        actorEmail,
+        note: `Held counter corrected to the live reservations (${pool.ledgerReserved} → ${pool.held})`,
+      });
+    }
+    if (confirmedDelta !== 0) {
+      await writeLedger(ctx, pool, {
+        action: "reconcile",
+        delta: confirmedDelta,
+        actorEmail,
+        note: `Confirmed counter corrected to the live bookings (${pool.ledgerConfirmed} → ${pool.confirmed})`,
+      });
+    }
+
+    poolsCorrected += 1;
+    beds += Math.abs(heldDelta) + Math.abs(confirmedDelta);
+    await writeAuditLog(ctx, {
+      actorEmail,
+      action: "agc_pool.counters_reconciled",
+      entityType: "agcInventoryPools",
+      entityId: pool._id,
+      summary: `Reconciled ${pool.accommodationType} (${pool.scope.replace(/_/g, " ")}) counters to the reservations — held ${pool.ledgerReserved} → ${pool.held}, confirmed ${pool.ledgerConfirmed} → ${pool.confirmed}`,
+      metadata: { heldDelta, confirmedDelta },
+    });
+  }
+
+  return { pools: poolsCorrected, beds };
 }
 
 // ------------------------------------------------------------------

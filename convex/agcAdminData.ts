@@ -30,7 +30,6 @@ import { agcRegion, type AgcAccommodationType } from "./schemaTypes";
 import { getSmtpSettings, isSmtpConfigured } from "./lib/smtpConfig";
 import {
   confirmBookingInventory,
-  getHoldHours,
   holdDeadline,
   holdsReservedUnits,
   livePoolCounts,
@@ -672,8 +671,8 @@ export async function buildPoaReconciliation(
       entry.units += guests.filter((g) => g.status === "active").length;
     } else if (
       booking.poa!.status !== "confirmed" &&
-      // A released hold (expired 72h window / cancellation) has no beds left
-      // and nothing to collect — it is not outstanding cash any more.
+      // A closed hold (cancelled at the desk) has no beds left and nothing to
+      // collect — it is not outstanding cash any more.
       isCollectiblePoaBooking(booking)
     ) {
       const entry = line(booking.hubId, booking.currency);
@@ -765,8 +764,8 @@ export const listPoaCollectionData = internalQuery({
       if (booking.deletedAt || !booking.poa || booking.poa.status === "confirmed") {
         continue;
       }
-      // Released holds (expired 72h window / cancellation) have no beds left
-      // to collect against — the desk sheet lists live IOUs only.
+      // Closed holds (cancelled at the desk) have no beds left to collect
+      // against — the desk sheet lists live IOUs only.
       if (!isCollectiblePoaBooking(booking)) continue;
       const guests = await ctx.db
         .query("agcGuests")
@@ -896,12 +895,11 @@ export const listRegistrationExportData = internalQuery({
 export const listInventoryReportData = internalQuery({
   args: {},
   handler: async (ctx) => {
-    const [pools, bookings, lines, hubs, holdHours] = await Promise.all([
+    const [pools, bookings, lines, hubs] = await Promise.all([
       livePoolCounts(ctx),
       ctx.db.query("agcBookings").collect(),
       ctx.db.query("agcBookingLines").collect(),
       ctx.db.query("agcHubs").collect(),
-      getHoldHours(ctx),
     ]);
     const hubName = new Map(hubs.map((hub) => [hub._id, hub.name]));
     const linesByBooking = new Map<string, Doc<"agcBookingLines">[]>();
@@ -921,8 +919,9 @@ export const listInventoryReportData = internalQuery({
       bookingStatus: string;
       paymentStatus: string;
       paymentMode: string;
+      /** Null when the hold has no deadline (payment-on-arrival). */
       expiresAt: number | null;
-      hoursLeft: number;
+      hoursLeft: number | null;
     }> = [];
     const released: Array<{
       referenceNumber: string;
@@ -952,9 +951,10 @@ export const listInventoryReportData = internalQuery({
       }
       if (booking.bookingStatus === "confirmed") continue;
       if (!holdsReservedUnits(booking.bookingStatus)) continue;
-      const deadline = holdDeadline(booking, holdHours);
+      const deadline = holdDeadline(booking);
       // A lapsed hold is not held inventory any more, even before the sweep
-      // flips it to `expired`.
+      // flips it to `expired`. POA holds have no deadline — they stay held
+      // until the venue desk confirms or closes them.
       if (deadline !== undefined && deadline <= now) continue;
 
       for (const line of bookingLines) {
@@ -970,7 +970,7 @@ export const listInventoryReportData = internalQuery({
           expiresAt: deadline ?? null,
           hoursLeft:
             deadline === undefined
-              ? 0
+              ? null
               : Math.max(0, Math.round((deadline - now) / (60 * 60 * 1000))),
         });
       }
@@ -2205,6 +2205,15 @@ export const listPoolRepairsAdmin = query({
             typeof metadata?.expiredHolds === "number"
               ? metadata.expiredHolds
               : null,
+          /** Run rows only: pools whose counters were rewritten, and by how much. */
+          poolsCorrected:
+            typeof metadata?.poolsCorrected === "number"
+              ? metadata.poolsCorrected
+              : null,
+          counterBedsAdjusted:
+            typeof metadata?.counterBedsAdjusted === "number"
+              ? metadata.counterBedsAdjusted
+              : null,
           bookingStatus:
             typeof metadata?.bookingStatus === "string"
               ? metadata.bookingStatus
@@ -2226,6 +2235,8 @@ export const alertDeskOfPoolRepair = internalMutation({
     expiredHolds: v.number(),
     bookings: v.number(),
     units: v.number(),
+    poolsCorrected: v.number(),
+    counterBedsAdjusted: v.number(),
   },
   handler: async (ctx, args) => {
     const users = await ctx.db.query("users").withIndex("by_email").collect();
@@ -2244,6 +2255,7 @@ export const alertDeskOfPoolRepair = internalMutation({
       `Beds returned: ${args.units}`,
       `Bookings that gave beds back: ${args.bookings}`,
       `Holds expired in the same pass: ${args.expiredHolds}`,
+      `Pool counters corrected to the reservations: ${args.poolsCorrected} pool(s), ${args.counterBedsAdjusted} bed(s) of drift`,
       "",
       "Open the admin console → AGC 2026 → Pools to see the repair history, or re-check availability there. No action is needed unless the bed counts look wrong.",
       "",
@@ -2289,11 +2301,13 @@ export const returnExpiredBookingsToPools = mutation({
       actorEmail: actor.email,
       action: POOL_REPAIR_RUN_ACTION,
       entityType: "agcInventoryPools",
-      summary: `Returned ${result.units} bed(s) from ${result.bookings} finished booking(s) to their pools by ${actor.email}`,
+      summary: `Returned ${result.units} bed(s) from ${result.bookings} finished booking(s) to their pools and reconciled ${result.poolsCorrected} pool(s) (${result.counterBedsAdjusted} bed(s) of drift) by ${actor.email}`,
       metadata: {
         expiredHolds: result.expiredHolds,
         bookings: result.bookings,
         units: result.units,
+        poolsCorrected: result.poolsCorrected,
+        counterBedsAdjusted: result.counterBedsAdjusted,
       },
     });
     return result;
@@ -3562,6 +3576,9 @@ export const getAgcOverview = query({
               .filter(
                 (row) =>
                   !row.deletedAt &&
+                  // POA holds have no deadline (the desk releases them), so
+                  // they are never "about to expire".
+                  !row.poa &&
                   row.bookingStatus === "reserved" &&
                   row.expiresAt !== undefined &&
                   row.expiresAt - now < 48 * 60 * 60 * 1000,
@@ -3730,8 +3747,9 @@ export const getHubRoster = query({
 });
 
 /**
- * Reserved holds that lapse within 48 hours — surfaced above the pools
- * grid so admins can see what's about to free up without digging.
+ * Timed holds that lapse within 48 hours — surfaced above the pools grid so
+ * admins can see what's about to free up without digging. Payment-on-arrival
+ * holds never lapse, so they are left out.
  */
 export const listExpiringHoldsAdmin = query({
   args: { sessionToken: sessionTokenValidator },
@@ -3752,7 +3770,10 @@ export const listExpiringHoldsAdmin = query({
     return holds
       .filter(
         (row) =>
-          !row.deletedAt && row.bookingStatus === "reserved" && (row.expiresAt ?? 0) >= now,
+          !row.deletedAt &&
+          !row.poa &&
+          row.bookingStatus === "reserved" &&
+          (row.expiresAt ?? 0) >= now,
       )
       .sort((a, b) => (a.expiresAt ?? 0) - (b.expiresAt ?? 0))
       .slice(0, 10)
@@ -3798,9 +3819,9 @@ export const listReallocationsAdmin = query({
  * Pool grid: capacity plus live counts.
  *
  * `reserved`/`confirmed`/`available` are counted from the reservations, so an
- * expired hold can never be reported as Held inventory; `ledgerReserved` is
- * what the pool counter still says, which lets the desk spot (and repair) a
- * ledger that never released a finished booking.
+ * expired hold can never be reported as Held inventory; `ledgerReserved` and
+ * `ledgerConfirmed` are what the pool's own counters still say, which lets the
+ * desk spot any drift the self-healing pass has not rewritten yet.
  */
 export const listPoolsAdmin = query({
   args: { sessionToken: sessionTokenValidator },
@@ -3821,6 +3842,7 @@ export const listPoolsAdmin = query({
         confirmed: pool.confirmed,
         available: pool.available,
         ledgerReserved: pool.ledgerReserved,
+        ledgerConfirmed: pool.ledgerConfirmed,
       }))
       .sort(
         (a, b) =>

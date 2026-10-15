@@ -12,7 +12,10 @@ import { createTestConvex } from "./testUtils";
  *    which keeps confirmed rows and reports them back.
  * 2. Every bed a finished booking still holds is returned to its pool by the
  *    reconciliation action, which is idempotent (a bed is never returned
- *    twice) and also expires holds whose window has lapsed.
+ *    twice) and also expires timed holds whose window has lapsed.
+ * 3. The pool counters reconcile themselves: whatever the reservations say is
+ *    held or confirmed is written back into the pool, so availability can
+ *    never disagree with the bookings behind it.
  */
 
 type TestConvex = ReturnType<typeof createTestConvex>;
@@ -294,18 +297,18 @@ test("returnExpiredBookingsToPools returns held beds once, from the right counte
       createdAt: now,
     });
 
-    // A legacy payment-on-arrival hold whose 72h window has lapsed: the same
-    // action expires it and its two hostel beds (still counted as reserved).
+    // An unpaid hold whose window has lapsed: the same action expires it and
+    // its two hostel beds (still counted as reserved). Payment-on-arrival
+    // holds are off this timer and are covered in agcPoaIsolation.test.ts.
     const lapsedBooking = await ctx.db.insert("agcBookings", {
       hubId,
       repId,
       region: "ghana",
       currency: "GHS",
       totalAmount: 300,
-      paymentMode: "payment_on_arrival",
+      paymentMode: "offline",
       paymentStatus: "awaiting_payment",
       bookingStatus: "reserved",
-      poa: { status: "pending" },
       expiresAt: now - 1_000,
       referenceNumber: "STY-LAPSED",
       createdAt: now - 86_400_000,
@@ -328,6 +331,9 @@ test("returnExpiredBookingsToPools returns held beds once, from the right counte
   expect(first.expiredHolds).toBe(1);
   expect(first.bookings).toBe(1);
   expect(first.units).toBe(3);
+  // The counters already matched the reservations, so nothing needed healing.
+  expect(first.poolsCorrected).toBe(0);
+  expect(first.counterBedsAdjusted).toBe(0);
 
   const after = await t.run(async (ctx) => ({
     dormitoryPool: await ctx.db.get(ids.dormitoryPool),
@@ -365,7 +371,13 @@ test("returnExpiredBookingsToPools returns held beds once, from the right counte
     api.agcAdminData.returnExpiredBookingsToPools,
     { sessionToken: token },
   );
-  expect(second).toEqual({ expiredHolds: 0, bookings: 0, units: 0 });
+  expect(second).toEqual({
+    expiredHolds: 0,
+    bookings: 0,
+    units: 0,
+    poolsCorrected: 0,
+    counterBedsAdjusted: 0,
+  });
 
   const finalLedger = await t.run(async (ctx) =>
     ctx.db.query("agcInventoryLedger").collect(),
@@ -447,7 +459,13 @@ test("the nightly repair returns held beds on its own and alerts the desk once",
   });
 
   const tick = await t.mutation(internal.crons.nightlyPoolRepairTick, {});
-  expect(tick).toEqual({ expiredHolds: 0, bookings: 1, units: 2 });
+  expect(tick).toEqual({
+    expiredHolds: 0,
+    bookings: 1,
+    units: 2,
+    poolsCorrected: 0,
+    counterBedsAdjusted: 0,
+  });
 
   const after = await t.run(async (ctx) => ({
     pool: await ctx.db.get(leaked.poolId),
@@ -466,7 +484,13 @@ test("the nightly repair returns held beds on its own and alerts the desk once",
 
   // Nothing left to return → nothing to say. Re-running stays silent.
   const second = await t.mutation(internal.crons.nightlyPoolRepairTick, {});
-  expect(second).toEqual({ expiredHolds: 0, bookings: 0, units: 0 });
+  expect(second).toEqual({
+    expiredHolds: 0,
+    bookings: 0,
+    units: 0,
+    poolsCorrected: 0,
+    counterBedsAdjusted: 0,
+  });
   const emailsAfter = await t.run(async (ctx) =>
     ctx.db.query("emailLogs").collect(),
   );
@@ -524,8 +548,9 @@ test("a reservation bounced back for correction still expires and returns its be
   });
 
   // The expiry sweep is the automatic path (the cron runs every 5 minutes).
+  // The counters were already right, so there is nothing for it to rewrite.
   const tick = await t.mutation(internal.crons.expireHoldsTick, {});
-  expect(tick).toEqual({ expired: 1 });
+  expect(tick).toEqual({ expired: 1, pools: 0, beds: 0 });
 
   const after = await t.run(async (ctx) => ({
     booking: await ctx.db.get(ids.bookingId),
@@ -566,4 +591,104 @@ test("the Pools tab repair history names each booking and its bed count", async 
   expect(history[1].referenceNumber).toBe("STY-HISTORY");
   expect(history[1].units).toBe(2);
   expect(history[1].bookingStatus).toBe("expired");
+});
+
+test("the pool counters rewrite themselves when they drift from the reservations", async () => {
+  const t = createTestConvex();
+  const { token, hubId, repId } = await seedAdminAndHub(t);
+  const now = Date.now();
+
+  const ids = await t.run(async (ctx) => {
+    // A live reservation whose beds were released by hand: the counter says 0
+    // while the booking still holds 1 bed.
+    const heldId = await ctx.db.insert("agcBookings", {
+      hubId,
+      repId,
+      region: "ghana",
+      currency: "GHS",
+      totalAmount: 150,
+      paymentMode: "offline",
+      paymentStatus: "awaiting_payment",
+      bookingStatus: "reserved",
+      expiresAt: now + 3_600_000,
+      referenceNumber: "STY-DRIFT-HELD",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await ctx.db.insert("agcBookingLines", {
+      bookingId: heldId,
+      accommodationType: "dormitory",
+      quantity: 1,
+      unitPrice: 150,
+      isBishopRate: false,
+    });
+    // A confirmed booking whose confirm never moved its beds out of
+    // `reserved` (paid, but still counted as merely held).
+    const confirmedId = await ctx.db.insert("agcBookings", {
+      hubId,
+      repId,
+      region: "ghana",
+      currency: "GHS",
+      totalAmount: 300,
+      paymentMode: "offline",
+      paymentStatus: "confirmed",
+      bookingStatus: "confirmed",
+      referenceNumber: "STY-DRIFT-CONFIRMED",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await ctx.db.insert("agcBookingLines", {
+      bookingId: confirmedId,
+      accommodationType: "dormitory",
+      quantity: 2,
+      unitPrice: 150,
+      isBishopRate: false,
+    });
+    // The pools table is the booking gate: it is what bookings check capacity
+    // against, so it has to agree with the reservations.
+    const poolId: Id<"agcInventoryPools"> = await ctx.db.insert(
+      "agcInventoryPools",
+      {
+        accommodationType: "dormitory",
+        scope: "africa",
+        total: 100,
+        reserved: 0,
+        confirmed: 0,
+      },
+    );
+    return { poolId };
+  });
+
+  // Nobody presses anything: the 5-minute tick heals the drift on its own.
+  const tick = await t.mutation(internal.crons.expireHoldsTick, {});
+  expect(tick).toEqual({ expired: 0, pools: 1, beds: 3 });
+
+  const pool = await t.run((ctx) => ctx.db.get(ids.poolId));
+  expect(pool?.reserved).toBe(1);
+  expect(pool?.confirmed).toBe(2);
+
+  // The correction is recorded on the ledger and in the audit trail.
+  const trail = await t.run(async (ctx) => ({
+    ledger: await ctx.db.query("agcInventoryLedger").collect(),
+    audits: await ctx.db.query("auditLogs").collect(),
+  }));
+  expect(trail.ledger.filter((entry) => entry.action === "reconcile")).toHaveLength(2);
+  expect(
+    trail.audits.some(
+      (row) => row.action === "agc_pool.counters_reconciled",
+    ),
+  ).toBe(true);
+
+  // The desk reads the healed numbers, and nothing moves on a second pass.
+  const pools = await t.query(api.agcAdminData.listPoolsAdmin, {
+    sessionToken: token,
+  });
+  expect(pools.find((row) => row._id === ids.poolId)).toMatchObject({
+    reserved: 1,
+    confirmed: 2,
+    available: 97,
+    ledgerReserved: 1,
+  });
+  const again = await t.mutation(internal.crons.expireHoldsTick, {});
+  expect(again).toEqual({ expired: 0, pools: 0, beds: 0 });
 });

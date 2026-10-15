@@ -188,7 +188,7 @@ export function DeskCheckinPage() {
 
   /**
    * Bulk: every ticked row in one batch. Rows that fail (another desk already
-   * collected them, or their 72h hold expired) are reported and left ticked so
+   * collected them, or the booking was closed) are reported and left ticked so
    * the desk can look them up.
    */
   const handleBulkConfirm = async () => {

@@ -155,13 +155,14 @@ const draftIsValid = (draft: Draft) =>
   draft.firstName.trim().length > 0 && draft.lastName.trim().length > 0;
 
 /**
- * A payment-on-arrival hold whose 72h window released it: the beds went back
- * into their pool, so the hub's next step is to book the same guests again.
+ * A payment-on-arrival hold whose beds are gone — the desk cancelled or closed
+ * it (a POA hold is never released by the reservation window). The hub's next
+ * step is to book the same guests again, so these sit behind the Released
+ * filter with the re-book shortcut instead of in the live list.
  */
 function isReleasedPoaHold(booking: RepBooking) {
   return (
-    booking.paymentMode === "payment_on_arrival" &&
-    booking.bookingStatus === "expired"
+    booking.paymentMode === "payment_on_arrival" && isClosedBooking(booking)
   );
 }
 
@@ -195,7 +196,8 @@ const BOOKING_FILTERS = [
   { value: "all", label: "All" },
   { value: "active", label: "Active" },
   { value: "awaiting", label: "Awaiting payment" },
-  { value: "closed", label: "Closed" },
+  { value: "confirmed", label: "Confirmed" },
+  { value: "released", label: "Released" },
 ] as const;
 
 type BookingFilter = (typeof BOOKING_FILTERS)[number]["value"];
@@ -205,7 +207,14 @@ function formatMoney(amount: number, currency: string) {
   return `${currency} ${amount.toLocaleString("en-US")}`;
 }
 
-/** Shared by the list filter and the filter chips so counts can't drift. */
+/**
+ * Shared by the list filter and the filter chips so counts can't drift.
+ *
+ * "All" means every booking still working: a released hold (cancelled or
+ * closed by the desk) has no beds and needs no action, so it lives behind the
+ * Released filter — one click away, with its re-book shortcut — instead of
+ * cluttering the main list.
+ */
 function bookingMatchesFilter(booking: RepBooking, filter: BookingFilter) {
   switch (filter) {
     case "active":
@@ -222,14 +231,12 @@ function bookingMatchesFilter(booking: RepBooking, filter: BookingFilter) {
         (booking.paymentStatus === "awaiting_payment" ||
           booking.paymentStatus === "correction_requested")
       );
-    case "closed":
-      return (
-        booking.bookingStatus === "confirmed" ||
-        booking.bookingStatus === "cancelled" ||
-        booking.bookingStatus === "expired"
-      );
+    case "confirmed":
+      return booking.bookingStatus === "confirmed";
+    case "released":
+      return isClosedBooking(booking);
     default:
-      return true;
+      return !isClosedBooking(booking);
   }
 }
 
@@ -1082,9 +1089,9 @@ function BookingCard({
             {payStatus.label}
           </Badge>
           {isReserved && booking.expiresAt ? (
-            // Payment-on-arrival beds are on the same hold window — the
-            // countdown is shown for them too, so no rep is surprised when the
-            // beds return to the pool.
+            // Only timed reservations expire, so only they get a countdown:
+            // payment-on-arrival beds wait for the desk and are never released
+            // by the hold window.
             <HoldCountdown expiresAt={booking.expiresAt} />
           ) : null}
         </div>
@@ -2079,14 +2086,18 @@ export function RepAccommodationTab() {
   const bookingCounts = useMemo(() => {
     const all = bookings ?? [];
     return {
-      all: all.length,
+      all: all.filter((booking) => bookingMatchesFilter(booking, "all")).length,
       active: all.filter((booking) => bookingMatchesFilter(booking, "active"))
         .length,
       awaiting: all.filter((booking) =>
         bookingMatchesFilter(booking, "awaiting"),
       ).length,
-      closed: all.filter((booking) => bookingMatchesFilter(booking, "closed"))
-        .length,
+      confirmed: all.filter((booking) =>
+        bookingMatchesFilter(booking, "confirmed"),
+      ).length,
+      released: all.filter((booking) =>
+        bookingMatchesFilter(booking, "released"),
+      ).length,
     };
   }, [bookings]);
 
@@ -2477,8 +2488,8 @@ export function RepAccommodationTab() {
           <ZoneHeader
             icon={ClipboardListIcon}
             title="Your bookings"
-            badge={bookings && bookings.length > 0 ? bookings.length : undefined}
-            description="Pay, edit or cancel before the hold expires."
+            badge={bookingCounts.all > 0 ? bookingCounts.all : undefined}
+            description="Pay, edit or cancel before the hold expires — released holds are under Released."
             right={
               (bookings?.length ?? 0) > 0 ? (
                 <Button
@@ -2503,7 +2514,13 @@ export function RepAccommodationTab() {
           {(bookings?.length ?? 0) > 0 ? (
             <div className="space-y-3">
               <div className="flex flex-wrap items-center gap-2">
-                {BOOKING_FILTERS.map((option) => (
+                {BOOKING_FILTERS.filter(
+                  // Released holds are hidden until there are some: the filter
+                  // appears exactly when it would show something.
+                  (option) =>
+                    option.value !== "released" ||
+                    bookingCounts.released > 0,
+                ).map((option) => (
                   <Button
                     key={option.value}
                     type="button"
@@ -2569,9 +2586,9 @@ export function RepAccommodationTab() {
                 ) : (
                   <>held until the desk confirms your payment. Pay at the
                     venue desk during check-in (bank transfer/MoMo receipts can
-                    still be submitted on the booking below); if the payment is
-                    not confirmed inside the hold window the beds go back into
-                    the pool.</>
+                    still be submitted on the booking below) — payment-on-arrival
+                    beds are not released by the hold window, they wait for the
+                    desk.</>
                 )}
               </AlertDescription>
             </Alert>
@@ -2595,7 +2612,7 @@ export function RepAccommodationTab() {
                     <p className="font-medium">Add guests and reserve</p>
                     <p className="text-muted-foreground">
                       Beds are held for {overview?.holdHours ?? 72}h while you
-                      pay.
+                      pay — payment-on-arrival beds wait for the desk instead.
                     </p>
                   </div>
                 </li>
@@ -2639,7 +2656,9 @@ export function RepAccommodationTab() {
             </div>
           ) : filteredBookings.length === 0 ? (
             <p className="py-4 text-center text-sm text-muted-foreground">
-              No bookings match this filter.
+              {filter === "all" && bookingCounts.released > 0
+                ? `No live bookings — ${bookingCounts.released} released hold${bookingCounts.released === 1 ? "" : "s"} are under Released.`
+                : "No bookings match this filter."}
             </p>
           ) : (
             <>

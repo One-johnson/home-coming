@@ -4,20 +4,26 @@ import { internalMutation } from "./_generated/server";
 import {
   expireOverdueHolds,
   reconcileExpiredBookingInventory,
+  reconcilePoolCounters,
 } from "./agcAccommodation";
 
 const crons = cronJobs();
 
 /**
- * §32–34: holds expire at the earlier of 72h or the registration deadline.
- * Runs every 5 minutes; the release is idempotent (only `reserved` bookings
- * whose expiresAt has lapsed are touched).
+ * §32–34: a timed hold expires at the earlier of the hold window (72h by
+ * default) and the registration deadline — payment-on-arrival holds never do,
+ * because their money is handed over at the venue desk.
+ *
+ * Runs every 5 minutes; the expiry is idempotent, and the same pass rewrites
+ * any pool counters that no longer match the reservations behind them, so
+ * availability can never drift away from the bookings holding the beds.
  */
 export const expireHoldsTick = internalMutation({
   args: {},
   handler: async (ctx) => {
     const expired = await expireOverdueHolds(ctx);
-    return { expired };
+    const counters = await reconcilePoolCounters(ctx);
+    return { expired, ...counters };
   },
 });
 
@@ -44,18 +50,21 @@ export const reconcileExpiredBookingsOnce = internalMutation({
 
 /**
  * Nightly inventory repair: beds still held by finished bookings go back to
- * their pools on their own, and the desk is told when something actually
- * moved — nobody has to press the repair button for the inventory to heal.
+ * their pools on their own and the pool counters are rewritten to match the
+ * reservations, and the desk is told when something actually moved — nobody
+ * has to press the repair button for the inventory to heal.
  */
 export const nightlyPoolRepairTick = internalMutation({
   args: {},
   handler: async (ctx) => {
     const result = await reconcileExpiredBookingInventory(ctx);
-    if (result.units > 0) {
+    if (result.units > 0 || result.counterBedsAdjusted > 0) {
       await ctx.runMutation(internal.agcAdminData.alertDeskOfPoolRepair, {
         expiredHolds: result.expiredHolds,
         bookings: result.bookings,
         units: result.units,
+        poolsCorrected: result.poolsCorrected,
+        counterBedsAdjusted: result.counterBedsAdjusted,
       });
     }
     return result;

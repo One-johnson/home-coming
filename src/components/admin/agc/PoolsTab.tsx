@@ -42,10 +42,13 @@ type PoolRow = {
   confirmed: number;
   available: number;
   /**
-   * What the pool's own counter still says. Larger than `reserved` when the
-   * ledger has not released a finished booking yet (the repair fixes it).
+   * What the pool's own counter still says. Lower than `reserved` when the
+   * counter has not released a finished booking yet — drift the self-healing
+   * pass rewrites within minutes.
    */
   ledgerReserved: number;
+  /** What the pool's own `confirmed` counter says (drift included). */
+  ledgerConfirmed: number;
 };
 
 type ExpiringHold = {
@@ -66,6 +69,9 @@ type PoolRepair = {
   units: number | null;
   bookings: number | null;
   expiredHolds: number | null;
+  /** Run rows only: pools whose counters were rewritten, and by how much. */
+  poolsCorrected: number | null;
+  counterBedsAdjusted: number | null;
   bookingStatus: string | null;
   createdAt: number;
 };
@@ -168,15 +174,21 @@ export function PoolsTab() {
     setReconciling(true);
     try {
       const result = await returnExpiredBeds({ sessionToken });
+      const details = [
+        result.expiredHolds
+          ? `${result.expiredHolds} lapsed hold(s) were also expired in this pass.`
+          : null,
+        result.poolsCorrected > 0
+          ? `${result.poolsCorrected} pool counter(s) rewritten to the reservations (${result.counterBedsAdjusted} bed(s) of drift).`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" ");
       toast.success(
         result.units > 0
           ? `Returned ${result.units} bed(s) from ${result.bookings} finished booking(s) to their pools`
-          : "Nothing to return — every finished booking has already released its beds",
-        {
-          description: result.expiredHolds
-            ? `${result.expiredHolds} lapsed hold(s) were also expired in this pass.`
-            : undefined,
-        },
+          : "Every finished booking has already released its beds",
+        { description: details || undefined },
       );
       setReconcileOpen(false);
     } catch (err) {
@@ -187,11 +199,15 @@ export function PoolsTab() {
   };
 
   const list = pools ?? [];
-  // Beds the pool counters still hold that no live reservation occupies —
-  // expired reservations nobody released. Surfaced instead of hidden so the
-  // desk knows the repair is worth running.
+  // How far the pool counters have drifted from the reservations — expired
+  // reservations nobody released, a confirm that never moved a bed. Surfaced
+  // instead of hidden, even though the counters rewrite themselves, so the
+  // desk can see when something needed healing.
   const ledgerDrift = list.reduce(
-    (sum, p: PoolRow) => sum + Math.max(0, p.ledgerReserved - p.reserved),
+    (sum, p: PoolRow) =>
+      sum +
+      Math.max(0, p.ledgerReserved - p.reserved) +
+      Math.abs(p.ledgerConfirmed - p.confirmed),
     0,
   );
   const totals = list.reduce(
@@ -265,10 +281,12 @@ export function PoolsTab() {
             {ledgerDrift} bed(s) still counted as held for finished bookings
           </p>
           <p className="mt-0.5 text-muted-foreground">
-            Expired and cancelled reservations do not count towards On hold or
-            Available here. The pool ledger has not released them yet — run
+            Expired and cancelled reservations never count towards On hold or
+            Available here, and the pool counters are rewritten to match the
+            reservations on their own — within minutes by the five-minute
+            check, and nightly at the latest. Run
             <span className="font-medium"> Move expired bookings back to pools</span>{" "}
-            below (the nightly check does it on its own).
+            below to correct them right now.
           </p>
         </div>
       )}
@@ -367,9 +385,10 @@ export function PoolsTab() {
         <div className="min-w-0">
           <p className="text-sm font-medium">Finished bookings still holding beds</p>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Expires lapsed holds, then returns every bed an expired or
-            cancelled booking still occupies back into its pool. Safe to run
-            again — beds already released are never returned twice.
+            Expires lapsed timed holds, returns every bed an expired or
+            cancelled booking still occupies back into its pool, and rewrites
+            the pool counters to match the reservations. Safe to run again —
+            beds already released are never returned twice.
           </p>
         </div>
         <Button
@@ -392,8 +411,11 @@ export function PoolsTab() {
             </DialogTitle>
             <DialogDescription>
               Every expired or cancelled booking that still holds beds gives
-              them back to the pool they came from, and any hold past its
-              window is expired. Existing live reservations are untouched.
+              them back to the pool they came from, any timed hold past its
+              window is expired, and the pool counters are rewritten to match
+              the reservations. Payment-on-arrival holds wait for the desk, so
+              they are never expired here. Existing live reservations are
+              untouched.
             </DialogDescription>
           </DialogHeader>
           <div className="flex justify-end gap-2">
@@ -631,6 +653,9 @@ export function PoolsTab() {
                   <span className="font-medium">
                     Returned {row.units ?? 0} bed(s) from {row.bookings ?? 0}{" "}
                     finished booking(s)
+                    {row.poolsCorrected
+                      ? ` · rewrote ${row.poolsCorrected} pool counter(s)`
+                      : ""}
                   </span>
                 )}
                 <span className="text-muted-foreground">

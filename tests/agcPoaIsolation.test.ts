@@ -371,28 +371,42 @@ async function seedHeldBooking(
   });
 }
 
-test("the 72h expiry releases held POA beds back into their pool and notifies the rep", async () => {
+test("the hold window never releases POA beds — the venue desk does", async () => {
   const t = createTestConvex();
-  const { hubId, repId } = await seedAdminAndHub(t);
+  const { token, hubId, repId } = await seedAdminAndHub(t);
   const now = Date.now();
-  // The release notice goes to the rep's email — give the seeded rep one.
+  // Any release notice would go to the rep's email — give the seeded rep one,
+  // so the test would catch the sweep mailing one.
   await t.run(async (ctx) => {
     await ctx.db.patch(repId, { email: "ashanti_mampong@example.com" });
   });
 
-  // Legacy POA hold: created 73h ago with no expiresAt (as rows written before
-  // the hold timer existed) — its fallback deadline has lapsed.
-  const overdue = await seedHeldBooking(t, {
+  // A POA hold whose window lapsed 1h ago: payment-on-arrival beds wait for
+  // the venue desk, so the sweep must leave the booking and its beds alone.
+  const lapsedPoa = await seedHeldBooking(t, {
     hubId,
     repId,
     paymentMode: "payment_on_arrival",
     bookingStatus: "reserved",
+    expiresAt: now - HOUR_MS,
     createdAt: now - (HOLD_HOURS + 1) * HOUR_MS,
     quantity: 2,
-    referenceNumber: "STY-EXPIRED-POA",
+    referenceNumber: "STY-POA-KEEPS-BEDS",
   });
-  // An ordinary offline hold that lapsed in the same tick: it expires silently
-  // (no POA release notice — it was never on the IOU terms).
+  // A POA row written before the hold timer existed carries no expiresAt at
+  // all — and is not expired on a fallback deadline either.
+  const legacyPoa = await seedHeldBooking(t, {
+    hubId,
+    repId,
+    paymentMode: "payment_on_arrival",
+    bookingStatus: "reserved",
+    createdAt: now - 10 * HOLD_HOURS * HOUR_MS,
+    quantity: 1,
+    referenceNumber: "STY-POA-LEGACY",
+    accommodationType: "hostel",
+  });
+  // An ordinary offline hold that lapsed in the same tick still expires and
+  // hands its beds back — the exemption is POA-only.
   const offlineOverdue = await t.run(async (ctx) => {
     const bookingId: Id<"agcBookings"> = await ctx.db.insert("agcBookings", {
       hubId,
@@ -418,73 +432,66 @@ test("the 72h expiry releases held POA beds back into their pool and notifies th
     return { bookingId };
   });
 
-  // A POA hold still inside its window — must stay reserved with its beds.
-  // It draws from the hostel pool, so each booking has its own pool row.
-  const fresh = await seedHeldBooking(t, {
-    hubId,
-    repId,
-    paymentMode: "payment_on_arrival",
-    bookingStatus: "reserved",
-    expiresAt: now + HOUR_MS,
-    createdAt: now,
-    quantity: 1,
-    referenceNumber: "STY-LIVE-POA",
-    accommodationType: "hostel",
-  });
-
   // The cron tick is an internal mutation — run the same helper it wraps.
   const expiredCount = await t.run(async (ctx) => {
     const { expireOverdueHolds } = await import("../convex/agcAccommodation");
     return await expireOverdueHolds(ctx);
   });
-  expect(expiredCount).toBe(2);
+  expect(expiredCount).toBe(1);
 
   const data = await t.run(async (ctx) => ({
     bookings: await ctx.db.query("agcBookings").collect(),
-    pool: await ctx.db.get(overdue.poolId),
-    livePool: await ctx.db.get(fresh.poolId),
-    ledger: await ctx.db.query("agcInventoryLedger").collect(),
+    lapsedPool: await ctx.db.get(lapsedPoa.poolId),
+    legacyPool: await ctx.db.get(legacyPoa.poolId),
     emails: await ctx.db.query("emailLogs").collect(),
   }));
-  const overdueBooking = data.bookings.find(
-    (row) => row.referenceNumber === "STY-EXPIRED-POA",
+  const lapsed = data.bookings.find(
+    (row) => row.referenceNumber === "STY-POA-KEEPS-BEDS",
   );
-  const liveBooking = data.bookings.find(
-    (row) => row.referenceNumber === "STY-LIVE-POA",
+  const legacy = data.bookings.find(
+    (row) => row.referenceNumber === "STY-POA-LEGACY",
   );
-  expect(overdueBooking?.bookingStatus).toBe("expired");
-  // The two held dormitory beds went back into the pool it belongs to.
-  expect(data.pool?.reserved).toBe(0);
+
+  // Neither POA hold was touched: status, beds and the portal stay quiet.
+  expect(lapsed?.bookingStatus).toBe("reserved");
+  expect(lapsed?.adminMessage).toBeUndefined();
+  expect(data.lapsedPool?.reserved).toBe(2);
+  expect(legacy?.bookingStatus).toBe("reserved");
+  expect(data.legacyPool?.reserved).toBe(1);
   expect(
-    data.ledger.some(
-      (entry) => entry.action === "expire" && entry.delta === -2,
+    data.emails.filter(
+      (mail) => mail.type === "agc_booking_poa_hold_released",
     ),
-  ).toBe(true);
-  // The live POA hold is untouched, and its bed stays reserved.
-  expect(liveBooking?.bookingStatus).toBe("reserved");
-  expect(data.livePool?.reserved).toBe(1);
+  ).toHaveLength(0);
 
-  // Re-book guidance reaches the rep by email — and only for the POA hold.
-  const releaseEmails = data.emails.filter(
-    (mail) => mail.type === "agc_booking_poa_hold_released",
-  );
-  expect(releaseEmails).toHaveLength(1);
-  expect(releaseEmails[0].to).toBe("ashanti_mampong@example.com");
-  expect(releaseEmails[0].referenceId).toBe(overdue.bookingId);
-  expect(releaseEmails[0].subject).toContain("STY-EXPIRED-POA");
-  expect(releaseEmails[0].body).toContain("back into the pool");
-  expect(releaseEmails[0].body).toContain("create a new booking");
-  expect(releaseEmails[0].body).toContain("2 × Dormitory");
-
-  // The same explanation sits on the booking in the portal (desk-message banner).
-  expect(overdueBooking?.adminMessage).toContain("back into the pool");
-  expect(overdueBooking?.adminMessage).toContain("Book again");
-  // Offline holds expire silently — no POA notice, no portal message.
+  // The lapsed offline hold did expire, beds and all.
   const offlineBooking = data.bookings.find(
     (row) => row._id === offlineOverdue.bookingId,
   );
   expect(offlineBooking?.bookingStatus).toBe("expired");
-  expect(offlineBooking?.adminMessage).toBeUndefined();
+
+  // Held inventory agrees with them: POA beds count as held however old the
+  // row is, and the pool counters have not drifted.
+  const pools = await t.query(api.agcAdminData.listPoolsAdmin, {
+    sessionToken: token,
+  });
+  expect(
+    pools.find((pool) => pool.accommodationType === "dormitory"),
+  ).toMatchObject({ reserved: 2, ledgerReserved: 2 });
+  expect(
+    pools.find((pool) => pool.accommodationType === "hostel"),
+  ).toMatchObject({ reserved: 1, ledgerReserved: 1 });
+
+  // And the POA table keeps showing them as live holds, not released rows.
+  const rows = await t.query(api.agcPoa.listPoaRecordsAdmin, {
+    sessionToken: token,
+  });
+  expect(
+    rows.find((row) => row.referenceNumber === "STY-POA-KEEPS-BEDS")?.released,
+  ).toBe(false);
+  expect(
+    rows.find((row) => row.referenceNumber === "STY-POA-LEGACY")?.released,
+  ).toBe(false);
 });
 
 test("deleting a confirmed accommodation is refused and keeps its beds locked in", async () => {

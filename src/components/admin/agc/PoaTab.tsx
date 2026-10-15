@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
+import { ColumnDef } from "@tanstack/react-table";
 import {
   BadgeCheckIcon,
   BedDouble,
@@ -19,8 +20,10 @@ import {
   RowDetailList,
   RowDetailSection,
 } from "@/components/admin/agc/RowDetailDialog";
+import { multiSelectFilter } from "@/components/admin/columns";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { DataTable } from "@/components/ui/data-table";
 import {
   Dialog,
   DialogContent,
@@ -28,9 +31,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -54,6 +55,12 @@ import { poaStatusMeta } from "@/lib/agcPoa";
  * evidence, notes and timeline). Payments can be confirmed one at a time or in
  * bulk — both paths ask for confirmation first, because confirming credits
  * money and locks beds in.
+ *
+ * The table is the shared DataTable: search, per-column filters (kind, POA and
+ * payment status, hold, region), sortable columns, the Columns dropdown,
+ * pagination and a CSV export. Only rows whose IOU is still live can be
+ * ticked, so a bulk confirm can never touch a payment that is already
+ * confirmed or a hold whose beds are gone.
  *
  * `kind` scopes the table: the registrations page shows registrations, the
  * accommodation page shows bookings, and "all" (default) shows both.
@@ -83,15 +90,6 @@ type PoaRow = {
   accommodation: Array<{ type: string; label: string; units: number }>;
   guests: Array<{ name: string; type: string; gender: string }>;
 };
-
-const FILTERS = [
-  { id: "all", label: "All" },
-  { id: "pending", label: "IOU pending" },
-  { id: "evidence_submitted", label: "Evidence submitted" },
-  { id: "confirmed", label: "Confirmed" },
-] as const;
-
-type FilterId = (typeof FILTERS)[number]["id"];
 
 function formatWhen(ts: number | null) {
   return ts ? new Date(ts).toLocaleString() : "—";
@@ -126,67 +124,259 @@ export function PoaTab({ kind = "all" }: { kind?: "all" | "registration" | "book
     [allRows, kind],
   );
 
-  const [filter, setFilter] = useState<FilterId>("all");
-  const [search, setSearch] = useState("");
+  const list = useMemo(() => rows ?? [], [rows]);
+
   const [detailsRow, setDetailsRow] = useState<PoaRow | null>(null);
   const [confirmTarget, setConfirmTarget] = useState<PoaRow | null>(null);
-  const [bulkOpen, setBulkOpen] = useState(false);
+  /**
+   * The rows behind an in-flight bulk confirm, with the selection's own reset
+   * — the table owns selection state, so the dialog snapshots what it will
+   * credit and clears it only after the mutation succeeds.
+   */
+  const [bulkTarget, setBulkTarget] = useState<{
+    rows: PoaRow[];
+    clear: () => void;
+  } | null>(null);
   const [confirmNote, setConfirmNote] = useState("");
-  const [selected, setSelected] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
 
   const canAct = user?.role === "admin" || user?.role === "finance";
 
-  const filtered = useMemo(() => {
-    const all = rows ?? [];
-    const term = search.trim().toLowerCase();
-    return all.filter(
-      (row: PoaRow) =>
-        (filter === "all" || row.poaStatus === filter) &&
-        (!term ||
-          row.referenceNumber.toLowerCase().includes(term) ||
-          row.hubName.toLowerCase().includes(term) ||
-          row.accommodation.some((entry) =>
-            entry.label.toLowerCase().includes(term),
-          ) ||
-          row.guests.some((guest) =>
-            guest.name.toLowerCase().includes(term),
-          )),
-    );
-  }, [rows, filter, search]);
-
-  // Selection is kept to rows that are still on screen (filters hide rows).
-  const selectedRows = useMemo(
-    () => filtered.filter((row) => selected.includes(row._id) && isConfirmable(row)),
-    [filtered, selected],
+  const columns = useMemo<ColumnDef<PoaRow>[]>(
+    () => [
+      {
+        accessorKey: "kind",
+        header: "Kind",
+        filterFn: multiSelectFilter,
+        cell: ({ row }) => (
+          <Badge variant="outline" className="text-[10px] capitalize">
+            {row.original.kind === "registration" ? "Registration" : "Booking"}
+          </Badge>
+        ),
+      },
+      {
+        accessorKey: "referenceNumber",
+        header: "Reference",
+        cell: ({ row }) => (
+          <span className="font-mono text-xs">
+            {row.original.referenceNumber || "(pending)"}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "hubName",
+        header: "Hub",
+        cell: ({ row }) => (
+          <span className="block max-w-40 truncate text-sm">
+            {row.original.hubName}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "region",
+        header: "Region",
+        filterFn: multiSelectFilter,
+        cell: ({ row }) => (
+          <span className="text-xs capitalize">
+            {row.original.region.replace(/_/g, " ")}
+          </span>
+        ),
+      },
+      {
+        id: "accommodation",
+        accessorFn: (row) =>
+          row.accommodation.map((entry) => entry.label).join(", "),
+        header: "Accommodation",
+        cell: ({ row }) =>
+          row.original.accommodation.length === 0 ? (
+            <span className="text-xs text-muted-foreground">
+              n/a (delegates)
+            </span>
+          ) : (
+            <div className="space-y-0.5">
+              {row.original.accommodation.map((entry) => (
+                <p
+                  key={entry.type}
+                  className="truncate text-xs"
+                  title={entry.label}
+                >
+                  {entry.label}
+                  <span className="text-muted-foreground">
+                    {" "}
+                    · {entry.units} bed(s)
+                  </span>
+                </p>
+              ))}
+            </div>
+          ),
+      },
+      {
+        id: "guests",
+        accessorFn: (row) => row.guests.map((guest) => guest.name).join(", "),
+        header: "Guests",
+        cell: ({ row }) =>
+          row.original.guests.length === 0 ? (
+            <span className="text-xs text-muted-foreground">—</span>
+          ) : (
+            <span
+              className="block max-w-56 truncate text-xs"
+              title={row.original.guests
+                .map(
+                  (guest) => `${guest.name} · ${guest.type} · ${guest.gender}`,
+                )
+                .join("\n")}
+            >
+              {row.original.guests.map((guest) => guest.name).join(", ")}
+            </span>
+          ),
+      },
+      {
+        accessorKey: "units",
+        header: "Units",
+        cell: ({ row }) => (
+          <span className="block text-right tabular-nums">
+            {row.original.units}
+          </span>
+        ),
+      },
+      {
+        id: "total",
+        accessorFn: (row) => row.totalAmount,
+        header: "Total",
+        cell: ({ row }) => (
+          <span className="block text-right tabular-nums">
+            {row.original.currency} {row.original.totalAmount.toLocaleString()}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "poaStatus",
+        header: "POA status",
+        filterFn: multiSelectFilter,
+        cell: ({ row }) => {
+          const meta = poaStatusMeta(row.original.poaStatus);
+          return (
+            <Badge variant="outline" className={cn("text-[10px]", meta.className)}>
+              {meta.label}
+            </Badge>
+          );
+        },
+      },
+      {
+        id: "hold",
+        accessorFn: (row) => (row.released ? "released" : "held"),
+        header: "Hold",
+        filterFn: multiSelectFilter,
+        cell: ({ row }) =>
+          row.original.released ? (
+            <Badge
+              variant="outline"
+              className="border-amber-300 bg-amber-50 text-[10px] text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300"
+              title="This booking was closed — its beds are back in their pools."
+            >
+              <Undo2Icon className="size-3" /> Released
+            </Badge>
+          ) : (
+            <span className="text-xs text-muted-foreground">
+              {row.original.kind === "booking" ? "Held for the desk" : "—"}
+            </span>
+          ),
+      },
+      {
+        accessorKey: "paymentStatus",
+        header: "Payment",
+        filterFn: multiSelectFilter,
+        cell: ({ row }) => (
+          <span className="text-xs capitalize">
+            {row.original.paymentStatus.replace(/_/g, " ")}
+          </span>
+        ),
+      },
+      {
+        id: "bookingStatus",
+        accessorFn: (row) => row.bookingStatus ?? "",
+        header: "Booking",
+        filterFn: multiSelectFilter,
+        cell: ({ row }) => (
+          <span className="text-xs capitalize">
+            {row.original.bookingStatus?.replace(/_/g, " ") ?? "—"}
+          </span>
+        ),
+      },
+      {
+        id: "evidence",
+        accessorFn: (row) => row.evidenceFileName ?? "",
+        header: "Evidence",
+        cell: ({ row }) =>
+          row.original.evidenceUrl ? (
+            <a
+              href={row.original.evidenceUrl}
+              target="_blank"
+              rel="noreferrer"
+              onClick={(event) => event.stopPropagation()}
+              className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+            >
+              <LinkIcon className="size-3" />
+              {row.original.evidenceFileName ?? "view"}
+            </a>
+          ) : (
+            <span className="text-xs text-muted-foreground">—</span>
+          ),
+      },
+      {
+        accessorKey: "createdAt",
+        header: "Created",
+        cell: ({ row }) => (
+          <span className="text-xs text-muted-foreground">
+            {formatWhen(row.original.createdAt)}
+          </span>
+        ),
+      },
+      {
+        id: "actions",
+        header: "Action",
+        enableSorting: false,
+        cell: ({ row }) => (
+          <div className="text-right">
+            {row.original.poaStatus === "confirmed" ? (
+              <span className="inline-flex items-center gap-1 text-xs text-emerald-700 dark:text-emerald-400">
+                <BadgeCheckIcon className="size-3.5" />
+                {formatWhen(row.original.confirmedAt)}
+              </span>
+            ) : row.original.released ? (
+              <span className="text-xs text-muted-foreground">
+                beds released
+              </span>
+            ) : (
+              <Button
+                type="button"
+                size="sm"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setConfirmNote("");
+                  setConfirmTarget(row.original);
+                }}
+              >
+                <HandCoins className="size-4" /> Confirm payment
+              </Button>
+            )}
+          </div>
+        ),
+      },
+    ],
+    [],
   );
-  const selectableRows = useMemo(
-    () => filtered.filter(isConfirmable),
-    [filtered],
-  );
-  const allSelected =
-    selectableRows.length > 0 &&
-    selectableRows.every((row) => selected.includes(row._id));
-
-  const toggleSelected = (row: PoaRow) => {
-    setSelected((prev) =>
-      prev.includes(row._id)
-        ? prev.filter((id) => id !== row._id)
-        : [...prev, row._id],
-    );
-  };
-
-  const toggleAll = () => {
-    setSelected(allSelected ? [] : selectableRows.map((row) => row._id));
-  };
 
   const counts = useMemo(() => {
-    const all = rows ?? [];
-    const outstanding = all.filter((row: PoaRow) => row.poaStatus !== "confirmed");
-    const released = outstanding.filter((row: PoaRow) => row.released);
-    const collectible = outstanding.filter((row: PoaRow) => !row.released);
+    const outstanding = list.filter((row) => row.poaStatus !== "confirmed");
+    const released = outstanding.filter((row) => row.released);
+    const collectible = outstanding.filter((row) => !row.released);
     return {
-      total: all.length,
+      total: list.length,
+      pending: list.filter((row) => row.poaStatus === "pending").length,
+      evidence: list.filter((row) => row.poaStatus === "evidence_submitted")
+        .length,
+      confirmed: list.filter((row) => row.poaStatus === "confirmed").length,
       outstanding: outstanding.length,
       released: released.length,
       outstandingLabel:
@@ -194,7 +384,10 @@ export function PoaTab({ kind = "all" }: { kind?: "all" | "registration" | "book
           .map(([currency, value]) => `${currency} ${value.toLocaleString()}`)
           .join(" · ") || "0",
     };
-  }, [rows]);
+  }, [list]);
+
+  /** The rows a bulk confirm would credit (empty while its dialog is closed). */
+  const bulkRows = bulkTarget?.rows ?? [];
 
   const openConfirm = (row: PoaRow) => {
     setConfirmNote("");
@@ -214,7 +407,6 @@ export function PoaTab({ kind = "all" }: { kind?: "all" | "registration" | "book
       toast.success(
         `Payment confirmed for ${confirmTarget.referenceNumber || "record"} — the IOU receipt is now a paid receipt.`,
       );
-      setSelected((prev) => prev.filter((id) => id !== confirmTarget._id));
       setConfirmTarget(null);
       setConfirmNote("");
     } catch (err) {
@@ -225,12 +417,12 @@ export function PoaTab({ kind = "all" }: { kind?: "all" | "registration" | "book
   };
 
   const handleBulkConfirm = async () => {
-    if (!sessionToken || selectedRows.length === 0) return;
+    if (!sessionToken || !bulkTarget || bulkTarget.rows.length === 0) return;
     setBusy(true);
     try {
       const result = await confirmPoaBulk({
         sessionToken,
-        records: selectedRows.map((row) => ({
+        records: bulkTarget.rows.map((row) => ({
           kind: row.kind,
           recordId: row._id,
         })),
@@ -248,8 +440,8 @@ export function PoaTab({ kind = "all" }: { kind?: "all" | "registration" | "book
           { description: reasons.slice(0, 3).join("; ") },
         );
       }
-      setSelected([]);
-      setBulkOpen(false);
+      bulkTarget.clear();
+      setBulkTarget(null);
       setConfirmNote("");
     } catch (err) {
       toast.error(
@@ -288,232 +480,165 @@ export function PoaTab({ kind = "all" }: { kind?: "all" | "registration" | "book
           />
         </div>
       )}
-      <div className="grid gap-4 sm:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <Stat label="POA records" value={counts.total} />
-        <Stat label="Awaiting payment" value={counts.outstanding} tone="warning" />
+        <Stat label="IOU pending" value={counts.pending} tone="warning" />
+        <Stat
+          label="Evidence submitted"
+          value={counts.evidence}
+          hint="receipts waiting on the desk"
+        />
+        <Stat label="Confirmed" value={counts.confirmed} tone="positive" />
+        <Stat
+          label="Awaiting payment"
+          value={counts.outstanding}
+          tone="warning"
+          hint={
+            counts.released > 0
+              ? `${counts.released} hold(s) released — beds back in the pool`
+              : "IOUs still uncollected"
+          }
+        />
         <Stat
           label="Outstanding total"
           value={counts.outstandingLabel}
           hint="not credited until confirmed — per currency"
           tone="info"
         />
-        <Stat
-          label="Holds released"
-          value={counts.released}
-          hint="72h expired — beds back in their pools"
-        />
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        {FILTERS.map((f) => (
-          <button
-            key={f.id}
+      <DataTable
+        columns={columns}
+        data={list}
+        isLoading={rows === undefined}
+        emptyMessage="No payment-on-arrival records match these filters."
+        searchPlaceholder="Search reference, hub, guest, or type…"
+        getRowId={(row) => row._id}
+        onRowClick={setDetailsRow}
+        exportFilename="agc-poa-records.csv"
+        exportRow={(row) => ({
+          kind: row.kind,
+          reference: row.referenceNumber,
+          hub: row.hubName,
+          region: row.region,
+          accommodation: row.accommodation
+            .map((entry) => `${entry.label} x${entry.units}`)
+            .join("; "),
+          guests: row.guests.map((guest) => guest.name).join("; "),
+          units: row.units,
+          total: row.totalAmount,
+          currency: row.currency,
+          poaStatus: row.poaStatus,
+          hold: row.released ? "released" : "held",
+          paymentStatus: row.paymentStatus,
+          bookingStatus: row.bookingStatus ?? "",
+          evidence: row.evidenceFileName ?? "",
+          createdAt: new Date(row.createdAt).toISOString(),
+          confirmedAt: row.confirmedAt
+            ? new Date(row.confirmedAt).toISOString()
+            : "",
+        })}
+        columnLabels={{
+          kind: "Kind",
+          referenceNumber: "Reference",
+          hubName: "Hub",
+          region: "Region",
+          accommodation: "Accommodation",
+          guests: "Guests",
+          units: "Units",
+          total: "Total",
+          poaStatus: "POA status",
+          hold: "Hold",
+          paymentStatus: "Payment",
+          bookingStatus: "Booking",
+          evidence: "Evidence",
+          createdAt: "Created",
+          actions: "Action",
+        }}
+        facetFilters={[
+          {
+            columnId: "kind",
+            title: "Kind",
+            options: [
+              { value: "registration", label: "Registration" },
+              { value: "booking", label: "Booking" },
+            ],
+          },
+          {
+            columnId: "poaStatus",
+            title: "POA status",
+            options: ["pending", "evidence_submitted", "confirmed"].map(
+              (value) => ({ value, label: poaStatusMeta(value).label }),
+            ),
+          },
+          {
+            columnId: "hold",
+            title: "Hold",
+            options: [
+              { value: "held", label: "Held for the desk" },
+              { value: "released", label: "Released" },
+            ],
+          },
+          {
+            columnId: "paymentStatus",
+            title: "Payment",
+            options: [
+              "awaiting_payment",
+              "pending_verification",
+              "correction_requested",
+              "rejected",
+              "confirmed",
+            ].map((value) => ({ value, label: value.replace(/_/g, " ") })),
+          },
+          {
+            columnId: "bookingStatus",
+            title: "Booking",
+            options: [
+              "reserved",
+              "pending_verification",
+              "correction_requested",
+              "confirmed",
+              "expired",
+              "cancelled",
+            ].map((value) => ({ value, label: value.replace(/_/g, " ") })),
+          },
+          {
+            columnId: "region",
+            title: "Region",
+            options: [
+              "ghana",
+              "west_africa",
+              "rest_of_africa",
+              "north_america",
+              "england",
+              "switzerland",
+              "rest_of_europe",
+              "rest_of_world",
+            ].map((value) => ({ value, label: value.replace(/_/g, " ") })),
+          },
+        ]}
+        // Only a live IOU can be confirmed, so only those rows are selectable.
+        enableRowSelection={(row) => isConfirmable(row.original)}
+        bulkActions={({ selectedRows, clearSelection }) => (
+          <Button
             type="button"
-            onClick={() => setFilter(f.id)}
-            className={cn(
-              "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
-              filter === f.id
-                ? "border-gold bg-gold/15 text-ink"
-                : "text-muted-foreground hover:border-gold/40 hover:text-foreground",
-            )}
+            size="sm"
+            onClick={() => {
+              setConfirmNote("");
+              setBulkTarget({ rows: selectedRows, clear: clearSelection });
+            }}
           >
-            {f.label}
-          </button>
-        ))}
-        <Input
-          type="search"
-          placeholder="Reference, hub, guest, or type…"
-          className="ml-auto h-9 w-56"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-        <Button
-          type="button"
-          size="sm"
-          disabled={selectedRows.length === 0}
-          onClick={() => {
-            setConfirmNote("");
-            setBulkOpen(true);
-          }}
-        >
-          <HandCoins className="size-4" />
-          Confirm selected ({selectedRows.length})
-        </Button>
-      </div>
-
-      <div className="overflow-x-auto rounded-xl border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-10">
-                <input
-                  type="checkbox"
-                  aria-label="Select every confirmable payment"
-                  className="size-4 cursor-pointer"
-                  checked={allSelected}
-                  disabled={selectableRows.length === 0}
-                  onChange={toggleAll}
-                />
-              </TableHead>
-              <TableHead>Kind</TableHead>
-              <TableHead>Reference</TableHead>
-              <TableHead>Hub</TableHead>
-              <TableHead>Accommodation</TableHead>
-              <TableHead className="text-right">Units</TableHead>
-              <TableHead className="text-right">Total</TableHead>
-              <TableHead>POA status</TableHead>
-              <TableHead>Payment</TableHead>
-              <TableHead>Evidence</TableHead>
-              <TableHead>Created</TableHead>
-              <TableHead className="text-right">Action</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows === undefined ? (
-              <TableRow>
-                <TableCell colSpan={12}>
-                  <Skeleton className="h-8 w-full" />
-                </TableCell>
-              </TableRow>
-            ) : filtered.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={12} className="py-8 text-center text-sm text-muted-foreground">
-                  No payment-on-arrival records yet. Grant hubs the feature in
-                  Settings → Payment on arrival; new POA registrations and
-                  bookings appear here.
-                </TableCell>
-              </TableRow>
-            ) : (
-              filtered.map((row: PoaRow) => {
-                const meta = poaStatusMeta(row.poaStatus);
-                const confirmable = isConfirmable(row);
-                return (
-                  <TableRow
-                    key={row._id}
-                    className="cursor-pointer transition-colors hover:bg-muted/40"
-                    onClick={() => setDetailsRow(row)}
-                  >
-                    <TableCell onClick={(event) => event.stopPropagation()}>
-                      <input
-                        type="checkbox"
-                        aria-label={`Select ${row.referenceNumber || row._id}`}
-                        className="size-4 cursor-pointer disabled:cursor-not-allowed"
-                        checked={selected.includes(row._id)}
-                        disabled={!confirmable}
-                        onChange={() => toggleSelected(row)}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="text-[10px] capitalize">
-                        {row.kind === "registration" ? "Registration" : "Booking"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="font-mono text-xs">
-                      {row.referenceNumber || "(pending)"}
-                    </TableCell>
-                    <TableCell className="max-w-40 truncate text-sm">
-                      {row.hubName}
-                    </TableCell>
-                    <TableCell className="max-w-56">
-                      {row.accommodation.length === 0 ? (
-                        <span className="text-xs text-muted-foreground">
-                          n/a (delegates)
-                        </span>
-                      ) : (
-                        <div className="space-y-0.5">
-                          {row.accommodation.map((entry) => (
-                            <p
-                              key={entry.type}
-                              className="truncate text-xs"
-                              title={entry.label}
-                            >
-                              {entry.label}
-                              <span className="text-muted-foreground">
-                                {" "}
-                                · {entry.units} bed(s)
-                              </span>
-                            </p>
-                          ))}
-                        </div>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {row.units}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {row.currency} {row.totalAmount}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap items-center gap-1">
-                        <Badge variant="outline" className={cn("text-[10px]", meta.className)}>
-                          {meta.label}
-                        </Badge>
-                        {row.released && (
-                          <Badge
-                            variant="outline"
-                            className="border-amber-300 bg-amber-50 text-[10px] text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300"
-                            title="The 72h hold lapsed — the beds went back into their pools."
-                          >
-                            <Undo2Icon className="size-3" /> Released
-                          </Badge>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-xs capitalize">
-                      {row.paymentStatus.replace(/_/g, " ")}
-                      {row.bookingStatus ? ` · ${row.bookingStatus}` : ""}
-                    </TableCell>
-                    <TableCell onClick={(event) => event.stopPropagation()}>
-                      {row.evidenceUrl ? (
-                        <a
-                          href={row.evidenceUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-                        >
-                          <LinkIcon className="size-3" /> {row.evidenceFileName ?? "view"}
-                        </a>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground">
-                      {formatWhen(row.createdAt)}
-                    </TableCell>
-                    <TableCell
-                      className="text-right"
-                      onClick={(event) => event.stopPropagation()}
-                    >
-                      {row.poaStatus === "confirmed" ? (
-                        <span className="inline-flex items-center gap-1 text-xs text-emerald-700 dark:text-emerald-400">
-                          <BadgeCheckIcon className="size-3.5" />
-                          {formatWhen(row.confirmedAt)}
-                        </span>
-                      ) : row.released ? (
-                        <span className="text-xs text-muted-foreground">
-                          beds released
-                        </span>
-                      ) : (
-                        <Button
-                          type="button"
-                          size="sm"
-                          onClick={() => openConfirm(row)}
-                        >
-                          <HandCoins className="size-4" /> Confirm payment
-                        </Button>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                );
-              })
-            )}
-          </TableBody>
-        </Table>
-      </div>
+            <HandCoins className="size-4" />
+            Confirm selected ({selectedRows.length})
+          </Button>
+        )}
+      />
 
       <p className="text-xs text-muted-foreground">
         Click a row for the full record — accommodation types, guest roster,
-        evidence, notes and the payment timeline.
+        evidence, notes and the payment timeline. POA beds are not released by
+        the reservation window: a hold stays live until the desk confirms the
+        payment or closes the booking.
       </p>
 
       {/* Row detail — the whole record behind the click. */}
@@ -606,9 +731,9 @@ export function PoaTab({ kind = "all" }: { kind?: "all" | "registration" | "book
                     <RowDetailItem label="Hold">
                       {detailsRow.released
                         ? "Released — beds returned to their pools"
-                        : detailsRow.expiresAt
-                          ? `Expires ${formatWhen(detailsRow.expiresAt)}`
-                          : "Until confirmed"}
+                        : // Every row here is on POA terms, so its beds wait for
+                          // the desk — the reservation window never releases them.
+                          "Held until the desk confirms the payment"}
                     </RowDetailItem>
                   </>
                 )}
@@ -731,11 +856,14 @@ export function PoaTab({ kind = "all" }: { kind?: "all" | "registration" | "book
       </Dialog>
 
       {/* Bulk confirm — every selected IOU in one credit, per-currency totals. */}
-      <Dialog open={bulkOpen} onOpenChange={(open) => !open && setBulkOpen(false)}>
+      <Dialog
+        open={bulkTarget !== null}
+        onOpenChange={(open) => !open && setBulkTarget(null)}
+      >
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>
-              Confirm {selectedRows.length} payment{selectedRows.length === 1 ? "" : "s"} on arrival
+              Confirm {bulkRows.length} payment{bulkRows.length === 1 ? "" : "s"} on arrival
             </DialogTitle>
             <DialogDescription>
               Each selected record is credited and its IOU receipt becomes a
@@ -755,7 +883,7 @@ export function PoaTab({ kind = "all" }: { kind?: "all" | "registration" | "book
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {selectedRows.map((row) => (
+                  {bulkRows.map((row) => (
                     <TableRow key={row._id}>
                       <TableCell className="font-mono text-xs">
                         {row.referenceNumber || "(pending)"}
@@ -779,7 +907,7 @@ export function PoaTab({ kind = "all" }: { kind?: "all" | "registration" | "book
               </Table>
             </div>
             <div className="space-y-1 rounded-lg bg-muted/50 p-3">
-              {totalsByCurrency(selectedRows).map(([currency, amount]) => (
+              {totalsByCurrency(bulkRows).map(([currency, amount]) => (
                 <p
                   key={currency}
                   className="flex items-center justify-between text-sm"
@@ -804,13 +932,20 @@ export function PoaTab({ kind = "all" }: { kind?: "all" | "registration" | "book
             </div>
           </div>
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setBulkOpen(false)} disabled={busy}>
+            <Button
+              variant="outline"
+              onClick={() => setBulkTarget(null)}
+              disabled={busy}
+            >
               Cancel
             </Button>
-            <Button onClick={() => void handleBulkConfirm()} disabled={busy}>
+            <Button
+              onClick={() => void handleBulkConfirm()}
+              disabled={busy || bulkRows.length === 0}
+            >
               {busy
                 ? "Confirming…"
-                : `Confirm ${selectedRows.length} payment${selectedRows.length === 1 ? "" : "s"}`}
+                : `Confirm ${bulkRows.length} payment${bulkRows.length === 1 ? "" : "s"}`}
             </Button>
           </div>
         </DialogContent>
@@ -828,7 +963,7 @@ function Stat({
   label: string;
   value: number | string;
   hint?: string;
-  tone?: "default" | "warning" | "info";
+  tone?: "default" | "warning" | "info" | "positive";
 }) {
   return (
     <div className="rounded-xl border p-3">
@@ -838,6 +973,7 @@ function Stat({
           "text-xl font-semibold tabular-nums",
           tone === "warning" && "text-amber-700 dark:text-amber-400",
           tone === "info" && "text-sky-700 dark:text-sky-400",
+          tone === "positive" && "text-emerald-700 dark:text-emerald-400",
         )}
       >
         {value}

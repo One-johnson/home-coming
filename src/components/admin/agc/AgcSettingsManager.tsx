@@ -902,7 +902,9 @@ function AgcSettingsForm({
               />
               <p className="text-xs text-muted-foreground">
                 How long an offline booking keeps its reserved rooms before the
-                hold expires (1–720 hours).
+                hold expires (1–720 hours). Payment-on-arrival beds are off this
+                timer: they stay held until the desk confirms or closes the
+                booking.
               </p>
             </div>
           </div>

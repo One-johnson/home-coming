@@ -690,7 +690,8 @@ type InventoryHoldRow = {
   paymentStatus: string;
   paymentMode: string;
   expiresAt: number | null;
-  hoursLeft: number;
+  /** Null when the hold has no deadline (payment-on-arrival). */
+  hoursLeft: number | null;
 };
 
 type InventoryReleasedRow = {
@@ -803,8 +804,8 @@ export const exportInventoryExcel = action({
         paymentMode: hold.paymentMode,
         expiresAt: hold.expiresAt
           ? new Date(hold.expiresAt).toISOString()
-          : "",
-        hoursLeft: hold.hoursLeft,
+          : "no deadline (POA)",
+        hoursLeft: hold.hoursLeft ?? "",
       });
     }
     const holdTotals = holdsSheet.addRow({
@@ -848,7 +849,7 @@ export const exportInventoryExcel = action({
       "Confirmed — beds locked in by bookings whose payment is confirmed.",
     ]);
     notes.addRow([
-      "Held — beds reserved by reservations still awaiting payment (awaiting payment, in review, or sent back for correction) whose hold window has not lapsed.",
+      "Held — beds reserved by reservations still awaiting payment (awaiting payment, in review, or sent back for correction) whose hold window has not lapsed. Payment-on-arrival holds have no deadline: their beds stay held until the desk confirms the payment or closes the booking.",
     ]);
     notes.addRow([
       "Available — total beds minus confirmed minus held. Expired and cancelled reservations hold nothing, so they never reduce availability.",

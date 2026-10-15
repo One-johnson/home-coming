@@ -547,6 +547,8 @@ export default defineSchema({
       v.literal("expire"),
       v.literal("cancel"),
       v.literal("reallocate"),
+      /** Counter self-heal: the stored counters were rewritten to match. */
+      v.literal("reconcile"),
     ),
     delta: v.number(),
     bookingId: v.optional(v.id("agcBookings")),
