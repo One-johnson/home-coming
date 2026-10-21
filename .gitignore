@@ -43,3 +43,6 @@ next-env.d.ts
 
 # freebuff agent workspace
 .freebuff/
+
+# freebuff sites build artifacts
+/freebuff-sites-build/

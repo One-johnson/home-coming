@@ -6,8 +6,12 @@ import {
   agcBookingStatus,
   agcGender,
   agcInventoryScope,
+  agcKeyStatus,
+  agcOfflineAction,
   agcOfflinePayment,
+  agcOfflineSyncStatus,
   agcPaymentMode,
+  agcPaymentOverride,
   agcPaymentStatus,
   agcPoaRecord,
   agcRegion,
@@ -15,12 +19,16 @@ import {
 
 export * from "./schemaTypes";
 
+// Phase 2 §2 adds venue staff roles: "room_assignment" (assign/change rooms,
+// check in/out, keys) and "checkin" (search, check in/out, keys only).
 const adminRole = v.union(
   v.literal("admin"),
   v.literal("content"),
   v.literal("finance"),
   v.literal("registration"),
   v.literal("accommodation"),
+  v.literal("room_assignment"),
+  v.literal("checkin"),
 );
 
 export default defineSchema({
@@ -31,6 +39,8 @@ export default defineSchema({
     role: adminRole,
     active: v.optional(v.boolean()),
     disabledAt: v.optional(v.number()),
+    /** Phase 2 §2: staff default accommodation location (building), switchable when authorized. */
+    defaultLocation: v.optional(v.string()),
     createdAt: v.number(),
   }).index("by_email", ["email"]),
 
@@ -575,11 +585,103 @@ export default defineSchema({
   agcRooms: defineTable({
     accommodationType: agcAccommodationType,
     name: v.string(),
+    /** Block/building within the location (Phase 2 §3, e.g. "Blocks 1–4"). */
+    building: v.optional(v.string()),
     gender: v.optional(agcGender),
     capacity: v.number(),
     note: v.optional(v.string()),
+    /** Phase 2 §8: null/unset = Unpublished; set when reps may see it. */
+    publishedAt: v.optional(v.number()),
+    publishedBy: v.optional(v.string()),
     deletedAt: v.optional(v.number()),
   }).index("by_type", ["accommodationType"]),
+
+  /** Per-room key record — WSL / Good General / EBPV (Phase 2 §14–15). */
+  agcKeys: defineTable({
+    roomId: v.id("agcRooms"),
+    accommodationType: agcAccommodationType,
+    roomName: v.string(),
+    /** Recipient guest + label at the time of issuance. */
+    recipientGuestId: v.optional(v.id("agcGuests")),
+    recipientName: v.optional(v.string()),
+    status: agcKeyStatus,
+    issuedAt: v.optional(v.number()),
+    issuedBy: v.optional(v.string()),
+    replacedAt: v.optional(v.number()),
+    replacedBy: v.optional(v.string()),
+    newRecipientName: v.optional(v.string()),
+    returnedAt: v.optional(v.number()),
+    returnedBy: v.optional(v.string()),
+    note: v.optional(v.string()),
+    updatedAt: v.number(),
+  }).index("by_room", ["roomId"]),
+
+  /**
+   * Accommodation check-in (Phase 2 §10–18). One row per guest check-in;
+   * duplicate check-ins are prevented by the by_guest index lookup.
+   */
+  agcCheckIns: defineTable({
+    guestId: v.id("agcGuests"),
+    bookingId: v.id("agcBookings"),
+    hubId: v.id("agcHubs"),
+    roomId: v.id("agcRooms"),
+    /** Room name/building snapshot at check-in time (rooms can be renamed). */
+    roomName: v.string(),
+    building: v.optional(v.string()),
+    /** "central" or the building name of the desk that processed it. */
+    location: v.string(),
+    checkedInAt: v.number(),
+    checkedInBy: v.string(),
+    checkedInByRole: v.optional(v.string()),
+    /** Station transaction id when this came from the offline queue (§19). */
+    offlineTxId: v.optional(v.string()),
+    /** §18: payment override — Accommodation Admin only. */
+    paymentOverride: v.optional(agcPaymentOverride),
+    // Optional check-out (§20).
+    checkedOutAt: v.optional(v.number()),
+    checkedOutBy: v.optional(v.string()),
+    keyReturnStatus: v.optional(v.union(
+      v.literal("returned"),
+      v.literal("not_returned"),
+      v.literal("not_applicable"),
+    )),
+    // §16: correction of an erroneous check-in — never silently deleted.
+    correctedAt: v.optional(v.number()),
+    correctedBy: v.optional(v.string()),
+    correctionReason: v.optional(v.string()),
+  })
+    .index("by_guest", ["guestId"])
+    .index("by_room", ["roomId"])
+    .index("by_checked_in_at", ["checkedInAt"]),
+
+  /** Designated offline station per building (Phase 2 §19) — one per building. */
+  agcOfflineStations: defineTable({
+    building: v.string(),
+    stationName: v.string(),
+    registeredBy: v.string(),
+    active: v.boolean(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_building", ["building"]),
+
+  /** Offline transaction queue entry (Phase 2 §19). */
+  agcOfflineTransactions: defineTable({
+    /** Client-generated UUID — dedupe on replay. */
+    txId: v.string(),
+    staffId: v.string(),
+    staffRole: v.optional(v.string()),
+    building: v.string(),
+    action: agcOfflineAction,
+    /** JSON payload of the action's mutation args. */
+    payload: v.string(),
+    originalAt: v.number(),
+    syncStatus: agcOfflineSyncStatus,
+    syncedAt: v.optional(v.number()),
+    conflictReason: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_tx", ["txId"])
+    .index("by_sync_status", ["syncStatus"]),
 
   /** Hubs allowed to register/book with "payment on arrival" (IOU) terms. */
   agcPoaHubs: defineTable({
@@ -590,13 +692,22 @@ export default defineSchema({
     updatedAt: v.number(),
   }).index("by_hub", ["hubId"]),
 
-  /** A guest checked into a room — one row per occupied bed. */
+  /**
+   * A guest in a room — one open row per occupied bed. Append-only: room
+   * changes close the row (endedAt) instead of deleting it, preserving the
+   * full assignment history (Phase 2 §9).
+   */
   agcRoomAssignments: defineTable({
     roomId: v.id("agcRooms"),
     guestId: v.id("agcGuests"),
     bookingId: v.id("agcBookings"),
     assignedBy: v.optional(v.string()),
     createdAt: v.number(),
+    /** Set when the guest was moved/removed — the row is kept forever. */
+    endedAt: v.optional(v.number()),
+    endReason: v.optional(v.string()),
+    replacedByAssignmentId: v.optional(v.id("agcRoomAssignments")),
+    endBy: v.optional(v.string()),
   })
     .index("by_room", ["roomId"])
     .index("by_guest", ["guestId"])

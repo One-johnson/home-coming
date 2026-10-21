@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { RepRoomAssignmentsCard } from "@/components/portal/RepRoomAssignmentsCard";
 import { useAction, useMutation, useQuery } from "convex/react";
 import {
   type LucideIcon,
@@ -2243,6 +2244,14 @@ export function RepAccommodationTab() {
             ) : null}
           </CardContent>
         </Card>
+      </section>
+
+      {/* Published room assignments (Phase 2 §8) — own hub only */}
+      <section
+        className={cn("space-y-3", mobileView !== "bookings" && "hidden md:block")}
+        aria-label="Room assignments"
+      >
+        <RepRoomAssignmentsCard />
       </section>
 
       {/* New reservation */}

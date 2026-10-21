@@ -1,13 +1,16 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useMemo, useRef, useState } from "react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import {
   BedDouble,
+  Download,
   DoorOpen,
+  Eye,
   Printer,
   Sparkles,
   Trash2,
+  Upload,
   UserPlus,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -32,17 +35,34 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { toastFriendlyErrorParts } from "@/lib/friendlyError";
 import { AGC_ACCOMMODATION_LABELS } from "@/lib/agcPortal";
 import { cn } from "@/lib/utils";
+
+/**
+ * Room management + assignment screen (Phase 2 §3–§9): Excel physical
+ * inventory import, capacity/gender validation, bulk assignment, change
+ * history, and publishing for the rep portal.
+ */
 
 type RoomRow = {
   _id: string;
   accommodationType: string;
   name: string;
+  building: string | null;
   gender: string | null;
   capacity: number;
   note: string | null;
+  publishedAt: number | null;
+  publishedBy: string | null;
   occupants: number;
   assignments: { _id: string; guestId: string; bookingId: string }[];
 };
@@ -62,6 +82,7 @@ type RoomingRoom = {
   accommodationType: string;
   typeLabel: string;
   name: string;
+  building: string | null;
   gender: string | null;
   capacity: number;
   occupants: {
@@ -71,6 +92,33 @@ type RoomingRoom = {
     hubName: string;
     bookingRef: string;
   }[];
+};
+
+type HistoryRow = {
+  _id: string;
+  guestName: string;
+  assignedBy: string;
+  createdAt: number;
+  endedAt: string | number | null;
+  endBy: string | null;
+  endReason: string | null;
+};
+
+type ImportPreview = {
+  accommodationType: string;
+  newRooms: number;
+  updatedRooms: number;
+  capacity: number;
+  poolTotal: number;
+  withinPool: boolean;
+};
+
+type ImportRow = {
+  accommodationType: "dormitory" | "hostel" | "wise_serpents" | "good_general" | "ebpv";
+  building?: string;
+  name: string;
+  gender?: "male" | "female";
+  capacity: number;
 };
 
 const TYPES = ["dormitory", "hostel", "wise_serpents", "good_general", "ebpv"] as const;
@@ -92,12 +140,17 @@ export function RoomsTab() {
   const assignGuests = useMutation(api.agcRoomAssignments.assignGuests);
   const unassignGuest = useMutation(api.agcRoomAssignments.unassignGuest);
   const autoAssign = useMutation(api.agcRoomAssignments.autoAssignGuests);
+  const publishRooms = useMutation(api.agcRoomAssignments.publishRooms);
+  const parseImport = useAction(api.agcRoomsImport.parseRoomImportWorkbook);
+  const generateTemplate = useAction(api.agcRoomsImport.generateRoomImportTemplate);
+  const importRoomsMutation = useMutation(api.agcRoomAssignments.importRooms);
 
   const [roomFormOpen, setRoomFormOpen] = useState(false);
   const [editingRoom, setEditingRoom] = useState<RoomRow | null>(null);
   const [roomForm, setRoomForm] = useState({
     accommodationType: "dormitory",
     name: "",
+    building: "",
     gender: "any",
     capacity: "2",
   });
@@ -107,10 +160,51 @@ export function RoomsTab() {
   const [roomingOpen, setRoomingOpen] = useState(false);
   const [roomingType, setRoomingType] = useState<string>("all");
 
-  const list = rooms ?? [];
+  // Unassigned-queue filters (§5)
+  const [guestFilter, setGuestFilter] = useState("");
+  const [guestHub, setGuestHub] = useState("all");
+  const [guestGender, setGuestGender] = useState("all");
+  const [guestType, setGuestType] = useState("all");
+
+  // Import dialog
+  const [importOpen, setImportOpen] = useState(false);
+  const [importRows, setImportRows] = useState<ImportRow[] | null>(null);
+  const [invalidRows, setInvalidRows] = useState<{ row: number; reason: string }[]>([]);
+  const importFileRef = useRef<HTMLInputElement>(null);
+
+  // History drawer
+  const [historyRoom, setHistoryRoom] = useState<RoomRow | null>(null);
+  const history = useQuery(
+    api.agcRoomAssignments.getRoomHistory,
+    sessionToken && historyRoom
+      ? { sessionToken, roomId: historyRoom._id as Id<"agcRooms"> }
+      : "skip",
+  );
+
+  const list = useMemo(() => rooms ?? [], [rooms]);
   const guests = useMemo(() => unassigned ?? [], [unassigned]);
   const totalBeds = list.reduce((sum, room) => sum + room.capacity, 0);
   const usedBeds = list.reduce((sum, room) => sum + room.occupants, 0);
+
+  const buildings = useMemo(
+    () => [...new Set(list.map((room) => room.building).filter(Boolean) as string[])],
+    [list],
+  );
+  const hubs = useMemo(
+    () => [...new Set(guests.map((g) => g.hubName))],
+    [guests],
+  );
+
+  const filteredGuests = useMemo(() => {
+    const term = guestFilter.trim().toLowerCase();
+    return guests.filter((g) => {
+      if (guestHub !== "all" && g.hubName !== guestHub) return false;
+      if (guestGender !== "all" && g.gender !== guestGender) return false;
+      if (guestType !== "all" && g.accommodationType !== guestType) return false;
+      if (term && !`${g.name}`.toLowerCase().includes(term)) return false;
+      return true;
+    });
+  }, [guests, guestFilter, guestHub, guestGender, guestType]);
 
   const openRoomForm = (room: RoomRow | null) => {
     setEditingRoom(room);
@@ -119,10 +213,11 @@ export function RoomsTab() {
         ? {
             accommodationType: room.accommodationType,
             name: room.name,
+            building: room.building ?? "",
             gender: room.gender ?? "any",
             capacity: String(room.capacity),
           }
-        : { accommodationType: "dormitory", name: "", gender: "any", capacity: "2" },
+        : { accommodationType: "dormitory", name: "", building: "", gender: "any", capacity: "2" },
     );
     setRoomFormOpen(true);
   };
@@ -136,6 +231,7 @@ export function RoomsTab() {
         roomId: editingRoom?._id as Id<"agcRooms"> | undefined,
         accommodationType: roomForm.accommodationType as (typeof TYPES)[number],
         name: roomForm.name,
+        building: roomForm.building.trim() || undefined,
         gender:
           roomForm.gender === "any" ? undefined : (roomForm.gender as "male" | "female"),
         capacity: Number(roomForm.capacity),
@@ -207,6 +303,117 @@ export function RoomsTab() {
     }
   };
 
+  const publish = async (roomIds: string[] | null, building: string | null, publishValue: boolean) => {
+    if (!sessionToken) return;
+    try {
+      const result = await publishRooms({
+        sessionToken,
+        roomIds: roomIds
+          ? (roomIds as Id<"agcRooms">[])
+          : undefined,
+        building: building ?? undefined,
+        publish: publishValue,
+      });
+      toast.success(
+        `${publishValue ? "Published" : "Unpublished"} ${result.count} room(s) — reps can now see them.`,
+      );
+    } catch (err) {
+      toast.error(...toastFriendlyErrorParts(err, "Publish failed"));
+    }
+  };
+
+  const downloadTemplate = async () => {
+    if (!sessionToken) return;
+    try {
+      const result = await generateTemplate({ sessionToken });
+      downloadBase64(result.filename, result.contentBase64);
+    } catch (err) {
+      toast.error(...toastFriendlyErrorParts(err, "Could not generate template"));
+    }
+  };
+
+  const parseImportFile = async (file: File) => {
+    if (!sessionToken) return;
+    setBusy(true);
+    setImportRows(null);
+    setInvalidRows([]);
+    try {
+      const contentBase64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          resolve(String(reader.result ?? "").split(",")[1] ?? "");
+        };
+        reader.onerror = () => reject(new Error("Could not read the file"));
+        reader.readAsDataURL(file);
+      });
+      const parsed = await parseImport({ sessionToken, contentBase64 });
+      setImportRows(parsed.rows);
+      setInvalidRows(parsed.invalidRows);
+      // The dry-run preview renders automatically via previewRoomImport.
+    } catch (err) {
+      toast.error(...toastFriendlyErrorParts(err, "Could not parse the workbook"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** Dry-run preview — same validation the commit runs (pool caps etc.). */
+  const previewRows = useQuery(
+    api.agcRoomAssignments.previewRoomImport,
+    sessionToken && importRows
+      ? {
+          sessionToken,
+          rows: importRows.map((row) => ({
+            accommodationType: row.accommodationType,
+            building: row.building,
+            name: row.name,
+            gender: row.gender,
+            capacity: row.capacity,
+          })),
+        }
+      : "skip",
+  );
+
+  const commitImport = async () => {
+    if (!sessionToken || !importRows || importRows.length === 0) return;
+    setBusy(true);
+    try {
+      const result = await importRoomsMutation({
+        sessionToken,
+        rows: importRows.map((row) => ({
+          accommodationType: row.accommodationType,
+          building: row.building,
+          name: row.name,
+          gender: row.gender,
+          capacity: row.capacity,
+        })),
+      });
+      toast.success(`Imported: ${result.created} new, ${result.updated} updated rooms.`);
+      setImportOpen(false);
+      setImportRows(null);
+      setInvalidRows([]);
+    } catch (err) {
+      toast.error(...toastFriendlyErrorParts(err, "Import failed"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  function downloadBase64(filename: string, contentBase64: string) {
+    const binary = atob(contentBase64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+    const blob = new Blob([bytes], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
   /** Guest pool for the assignment dialog: matching type, not yet in a room. */
   const assignableGuests = useMemo(
     () =>
@@ -224,6 +431,9 @@ export function RoomsTab() {
         <Button size="sm" onClick={() => openRoomForm(null)}>
           <BedDouble className="size-4" /> Add room
         </Button>
+        <Button size="sm" variant="outline" onClick={() => setImportOpen(true)}>
+          <Upload className="size-4" /> Import inventory
+        </Button>
         <Button
           size="sm"
           variant="outline"
@@ -235,22 +445,99 @@ export function RoomsTab() {
         <Button size="sm" variant="outline" onClick={() => setRoomingOpen(true)} disabled={list.length === 0}>
           <Printer className="size-4" /> Rooming list
         </Button>
+        {buildings.length > 0 && (
+          <Select
+            onValueChange={(value) => {
+              const building = typeof value === "string" ? value : "";
+              if (building) void publish(null, building, true);
+            }}
+          >
+            <SelectTrigger className="h-9 w-40" aria-label="Publish a block">
+              <SelectValue placeholder="Publish block…" />
+            </SelectTrigger>
+            <SelectContent>
+              {buildings.map((building) => (
+                <SelectItem key={building} value={building}>
+                  Publish {building}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
         <span className="grow" />
         <span className="text-sm text-muted-foreground tabular-nums">
-          {usedBeds}/{totalBeds} beds filled · {guests.length} awaiting a room
+          {usedBeds}/{totalBeds} {list.some((r) => r.accommodationType === "ebpv") ? "spaces" : "beds"} filled · {guests.length} awaiting a room
         </span>
       </div>
 
       {list.length === 0 && (
         <p className="rounded-xl border border-dashed px-3 py-8 text-center text-sm text-muted-foreground">
-          No rooms yet — add rooms per accommodation type, then assign guests
-          (or use auto-assign). Only guests with confirmed bookings appear.
+          No rooms yet — import the physical inventory from Excel, add rooms
+          manually, then assign guests (or use auto-assign).
         </p>
       )}
+
+      {/* Unassigned delegates (§5A) */}
+      <div className="rounded-xl border p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-sm font-medium">Unassigned delegates ({filteredGuests.length})</p>
+          <Input
+            placeholder="Name…"
+            className="h-8 w-40"
+            value={guestFilter}
+            onChange={(e) => setGuestFilter(e.target.value)}
+          />
+          <Select value={guestHub} onValueChange={(value) => setGuestHub(value ?? "all")}>
+            <SelectTrigger className="h-8 w-36"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All hubs</SelectItem>
+              {hubs.map((hub) => (
+                <SelectItem key={hub} value={hub}>{hub}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={guestGender} onValueChange={(value) => setGuestGender(value ?? "all")}>
+            <SelectTrigger className="h-8 w-28"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Any gender</SelectItem>
+              <SelectItem value="male">Male</SelectItem>
+              <SelectItem value="female">Female</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={guestType} onValueChange={(value) => setGuestType(value ?? "all")}>
+            <SelectTrigger className="h-8 w-44"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All types</SelectItem>
+              {TYPES.map((type) => (
+                <SelectItem key={type} value={type}>{TYPE_LABEL(type)}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        {filteredGuests.length > 0 && (
+          <ul className="mt-2 grid gap-1 sm:grid-cols-2 xl:grid-cols-3">
+            {filteredGuests.slice(0, 60).map((guest) => (
+              <li key={guest._id} className="flex items-center justify-between gap-2 rounded-lg border px-2 py-1 text-xs">
+                <span className="min-w-0">
+                  <span className="block truncate font-medium">{guest.name}</span>
+                  <span className="text-muted-foreground">
+                    {guest.hubName} · {guest.gender} · {TYPE_LABEL(guest.accommodationType)}
+                  </span>
+                </span>
+                <Badge variant="outline" className="shrink-0 text-[10px]">
+                  {guest.bookingRef || "—"}
+                </Badge>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {list.map((room) => {
           const full = room.occupants >= room.capacity;
+          const isApartment = room.accommodationType === "ebpv";
+          const published = room.publishedAt != null;
           return (
             <div key={room._id} className="rounded-xl border p-3">
               <div className="flex items-start justify-between gap-2">
@@ -258,7 +545,8 @@ export function RoomsTab() {
                   <p className="truncate text-sm font-medium">{room.name}</p>
                   <p className="text-xs text-muted-foreground">
                     {TYPE_LABEL(room.accommodationType)}
-                    {room.gender ? ` · ${room.gender} only` : ""}
+                    {room.building ? ` · ${room.building}` : ""}
+                    {room.gender ? ` · ${room.gender} only` : isApartment ? " · mixed" : ""}
                   </p>
                 </div>
                 <Badge
@@ -272,6 +560,32 @@ export function RoomsTab() {
                 >
                   {room.occupants}/{room.capacity}
                 </Badge>
+              </div>
+              {isApartment && (
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Apartment — occupants choose their rooms; keys go to the first arrival (§7).
+                </p>
+              )}
+              <div className="mt-1.5 flex items-center gap-1.5">
+                {published ? (
+                  <Badge variant="outline" className="border-sky-300 bg-sky-50 text-sky-700">
+                    Published to reps
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="text-muted-foreground">
+                    Unpublished
+                  </Badge>
+                )}
+                <button
+                  type="button"
+                  className="text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                  onClick={async () => {
+                    if (room.publishedAt) await publish([room._id], null, false);
+                    else await publish([room._id], null, true);
+                  }}
+                >
+                  {published ? "unpublish" : "publish"}
+                </button>
               </div>
               {room.assignments.length > 0 && (
                 <ul className="mt-2 space-y-1">
@@ -323,6 +637,14 @@ export function RoomsTab() {
                 <Button
                   size="sm"
                   variant="ghost"
+                  className="h-7 gap-1 text-xs"
+                  onClick={() => setHistoryRoom(room)}
+                >
+                  <Eye className="size-3" /> History
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
                   className="h-7 gap-1 text-xs text-destructive hover:text-destructive"
                   disabled={room.occupants > 0}
                   onClick={() => void removeRoom(room)}
@@ -342,7 +664,8 @@ export function RoomsTab() {
             <DialogTitle>{editingRoom ? `Edit ${editingRoom.name}` : "Add room"}</DialogTitle>
             <DialogDescription>
               Rooms belong to an accommodation type and hold a fixed number of
-              beds. A gender lock keeps shared rooms single-sex.
+              beds. A gender lock keeps shared rooms single-sex. EBPV apartments
+              hold at most 4 delegates (§7).
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
@@ -364,6 +687,16 @@ export function RoomsTab() {
                 </Select>
               </div>
               <div className="space-y-1.5">
+                <Label>Building / block</Label>
+                <Input
+                  value={roomForm.building}
+                  placeholder="e.g. Blocks 1–4"
+                  onChange={(e) => setRoomForm({ ...roomForm, building: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
                 <Label>Gender lock</Label>
                 <Select
                   value={roomForm.gender}
@@ -377,21 +710,22 @@ export function RoomsTab() {
                   </SelectContent>
                 </Select>
               </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Room name</Label>
                 <Input
                   value={roomForm.name}
-                  placeholder="e.g. Dorm A-101"
+                  placeholder={roomForm.accommodationType === "ebpv" ? "e.g. Apartment 1" : "e.g. Room 101"}
                   onChange={(e) => setRoomForm({ ...roomForm, name: e.target.value })}
                 />
               </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label>Beds</Label>
+                <Label>{roomForm.accommodationType === "ebpv" ? "Delegates (max 4)" : "Beds"}</Label>
                 <Input
                   type="number"
                   min={1}
+                  max={roomForm.accommodationType === "ebpv" ? 4 : undefined}
                   value={roomForm.capacity}
                   onChange={(e) => setRoomForm({ ...roomForm, capacity: e.target.value })}
                 />
@@ -427,7 +761,7 @@ export function RoomsTab() {
             <DialogTitle>Assign guests to {assignRoom?.name}</DialogTitle>
             <DialogDescription>
               {assignRoom
-                ? `${assignRoom.capacity - assignRoom.occupants} bed(s) free · ${TYPE_LABEL(assignRoom.accommodationType)}${assignRoom.gender ? ` · ${assignRoom.gender} only` : ""}`
+                ? `${assignRoom.capacity - assignRoom.occupants} ${assignRoom.accommodationType === "ebpv" ? "delegate space(s)" : "bed(s)"} free · ${TYPE_LABEL(assignRoom.accommodationType)}${assignRoom.gender ? ` · ${assignRoom.gender} only` : ""}`
                 : ""}
             </DialogDescription>
           </DialogHeader>
@@ -498,6 +832,140 @@ export function RoomsTab() {
         </DialogContent>
       </Dialog>
 
+      {/* Import inventory */}
+      <Dialog open={importOpen} onOpenChange={setImportOpen}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Import physical room inventory (§3)</DialogTitle>
+            <DialogDescription>
+              Upload the Excel inventory. Unnumbered beds are one row with the
+              bed total; EBPV is one row per apartment (4 delegates). Imports
+              never exceed the confirmed inventory pools.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button size="sm" variant="outline" onClick={() => void downloadTemplate()}>
+                <Download className="size-4" /> Template
+              </Button>
+              <Input
+                ref={importFileRef}
+                type="file"
+                accept=".xlsx"
+                className="max-w-xs"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) void parseImportFile(file);
+                }}
+              />
+              {busy && <Loader2 />}
+            </div>
+            {invalidRows.length > 0 && (
+              <div className="rounded-lg border border-rose-200 bg-rose-50 p-2 text-xs text-rose-800">
+                {invalidRows.map((bad) => (
+                  <p key={bad.row}>
+                    Row {bad.row}: {bad.reason}
+                  </p>
+                ))}
+              </div>
+            )}
+            {previewRows && (
+              <div className="rounded-lg border p-2 text-xs">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Location</TableHead>
+                      <TableHead>New</TableHead>
+                      <TableHead>Updated</TableHead>
+                      <TableHead>Spaces</TableHead>
+                      <TableHead>Pool total</TableHead>
+                      <TableHead />
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {previewRows.map((row: ImportPreview) => (
+                      <TableRow key={row.accommodationType}>
+                        <TableCell>{TYPE_LABEL(row.accommodationType)}</TableCell>
+                        <TableCell className="tabular-nums">{row.newRooms}</TableCell>
+                        <TableCell className="tabular-nums">{row.updatedRooms}</TableCell>
+                        <TableCell className="tabular-nums">{row.capacity}</TableCell>
+                        <TableCell className="tabular-nums">{row.poolTotal}</TableCell>
+                        <TableCell>
+                          {row.withinPool ? (
+                            <Badge variant="outline" className="border-emerald-300 bg-emerald-50 text-emerald-700">
+                              OK
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="border-rose-300 bg-rose-50 text-rose-700">
+                              Exceeds pool
+                            </Badge>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setImportOpen(false)}>Cancel</Button>
+              <Button
+                onClick={() => void commitImport()}
+                disabled={busy || !importRows || importRows.length === 0}
+              >
+                Import {importRows?.length ?? 0} rows
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* History drawer */}
+      <Dialog open={historyRoom !== null} onOpenChange={(open) => !open && setHistoryRoom(null)}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>History — {historyRoom?.name}</DialogTitle>
+            <DialogDescription>
+              Every assignment, move and removal is preserved (§9).
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-80 overflow-y-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Delegate</TableHead>
+                  <TableHead>Assigned</TableHead>
+                  <TableHead>Closed</TableHead>
+                  <TableHead>Reason</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(history ?? []).length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={4} className="py-6 text-center text-muted-foreground">
+                      No assignments recorded yet.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  ((history ?? []) as HistoryRow[]).map((row) => (
+                    <TableRow key={row._id}>
+                      <TableCell>{row.guestName}</TableCell>
+                      <TableCell className="text-xs">
+                        {new Date(row.createdAt).toLocaleString()} · {row.assignedBy}
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        {row.endedAt ? new Date(row.endedAt).toLocaleString() : "—"}
+                      </TableCell>
+                      <TableCell className="text-xs">{row.endReason ?? "—"}</TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Printable rooming list */}
       <RoomingListDialog
         open={roomingOpen}
@@ -507,6 +975,10 @@ export function RoomsTab() {
       />
     </div>
   );
+}
+
+function Loader2() {
+  return <span className="inline-block size-4 animate-spin rounded-full border-2 border-current border-t-transparent" aria-label="Loading" />;
 }
 
 function RoomingListDialog({
@@ -575,6 +1047,7 @@ function RoomingListDialog({
                   {room.name}
                   <span className="text-xs font-normal text-muted-foreground">
                     {room.typeLabel}
+                    {room.building ? ` · ${room.building}` : ""}
                     {room.gender ? ` · ${room.gender} only` : ""} ·{" "}
                     {room.occupants.length}/{room.capacity} beds
                   </span>

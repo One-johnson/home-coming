@@ -11,7 +11,7 @@ import {
   SESSION_TTL_MS,
   adminRoleValidator,
   sessionTokenValidator,
-  type AdminRole,
+  type StaffRole,
 } from "./users";
 import { buildResetUrl } from "./lib/resetUrls";
 import { LOCK_MESSAGE } from "./lib/loginThrottle";
@@ -60,7 +60,7 @@ type AuthResult = {
     _id: Id<"users">;
     name: string;
     email: string;
-    role: AdminRole;
+    role: StaffRole;
   };
 };
 
@@ -218,7 +218,7 @@ export const adminCreateUser = action({
     _id: Id<"users">;
     name: string;
     email: string;
-    role: AdminRole;
+    role: StaffRole;
   }> => {
     const actor = await ctx.runQuery(internal.users.getSessionUser, {
       sessionToken: args.sessionToken,

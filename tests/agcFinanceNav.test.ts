@@ -35,6 +35,8 @@ test("finance sidebar filter yields overview, registrations, accommodations and 
     "/admin",
     "/admin/registrations",
     "/admin/finance/accommodations",
+    // Phase 2 §24 operational exports are open to finance as well.
+    "/admin/reports",
     "/admin/audit",
   ]);
 });

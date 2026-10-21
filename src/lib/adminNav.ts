@@ -1,4 +1,4 @@
-import type { AdminArea, AdminRole } from "@/lib/adminRoles";
+import type { AdminArea, StaffRole } from "@/lib/adminRoles";
 
 export type AdminNavItem = {
   href: string;
@@ -7,9 +7,9 @@ export type AdminNavItem = {
   area?: AdminArea;
   badgeKey?: "registrationsPending" | "bookingsPending" | "emailsFailed";
   /** Show the item only for these roles (after the area check passes). */
-  visibleTo?: readonly AdminRole[];
+  visibleTo?: readonly StaffRole[];
   /** Never show the item for these roles, even if the area check passes. */
-  hiddenFrom?: readonly AdminRole[];
+  hiddenFrom?: readonly StaffRole[];
 };
 
 export type AdminNavGroup = {
@@ -46,10 +46,23 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         badgeKey: "bookingsPending",
       },
       {
+        href: "/admin/arrival",
+        label: "Arrival desk",
+        description: "Accommodation check-in, keys, offline stations",
+        visibleTo: ["admin", "accommodation", "room_assignment", "checkin"],
+      },
+      {
         href: "/admin/finance/accommodations",
         label: "Accommodations",
         description: "Finance view of bookings and payments",
         visibleTo: ["finance"],
+      },
+      {
+        href: "/admin/reports",
+        label: "Ops reports",
+        description: "Phase 2 operational exports (Excel)",
+        visibleTo: ["admin", "accommodation", "finance"],
+        hiddenFrom: ["registration", "content"],
       },
       {
         href: "/admin/hubs-reps",

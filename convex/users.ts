@@ -18,7 +18,14 @@ export const ADMIN_ROLES = [
   "accommodation",
 ] as const;
 
+/** Phase 2 §2 venue staff — restricted to arrival operations, not admin areas. */
+export const VENUE_STAFF_ROLES = ["room_assignment", "checkin"] as const;
+
 export type AdminRole = (typeof ADMIN_ROLES)[number];
+export type VenueStaffRole = (typeof VENUE_STAFF_ROLES)[number];
+export type StaffRole = AdminRole | VenueStaffRole;
+
+export const ALL_STAFF_ROLES: readonly StaffRole[] = [...ADMIN_ROLES, ...VENUE_STAFF_ROLES];
 
 export type AdminArea =
   | "registration"
@@ -47,6 +54,8 @@ export const adminRoleValidator = v.union(
   v.literal("finance"),
   v.literal("registration"),
   v.literal("accommodation"),
+  v.literal("room_assignment"),
+  v.literal("checkin"),
 );
 
 export const sessionTokenValidator = v.string();
@@ -55,6 +64,13 @@ type Ctx = QueryCtx | MutationCtx;
 
 export function isAdminRole(role: string | undefined | null): role is AdminRole {
   return ADMIN_ROLES.includes(role as AdminRole);
+}
+
+/** True for both console admins and Phase 2 venue staff. */
+export function isValidStaffRole(
+  role: string | undefined | null,
+): role is StaffRole {
+  return ALL_STAFF_ROLES.includes(role as StaffRole);
 }
 
 export function canAccessArea(
@@ -96,7 +112,7 @@ export async function getUserBySessionToken(ctx: Ctx, sessionToken: string) {
 export async function requireRole(
   ctx: Ctx,
   sessionToken: string,
-  allowedRoles: AdminRole[],
+  allowedRoles: readonly StaffRole[],
 ) {
   const user = await getUserBySessionToken(ctx, sessionToken);
   if (!user || user.active === false || !allowedRoles.includes(user.role)) {
@@ -121,7 +137,7 @@ async function countAdmins(ctx: Ctx) {
 async function assertNotRemovingLastAdmin(
   ctx: Ctx,
   target: Doc<"users">,
-  nextRole: AdminRole | null,
+  nextRole: StaffRole | null,
 ) {
   if (target.role !== "admin") return;
   if (nextRole === "admin") return;

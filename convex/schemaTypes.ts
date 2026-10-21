@@ -122,6 +122,48 @@ export const agcBishopReview = v.object({
 });
 
 // ------------------------------------------------------------------
+// Phase 2 — room assignment publication, check-in, keys, offline sync
+// ------------------------------------------------------------------
+
+/** One room/apartment's key lifecycle (Phase 2 §15). */
+export const agcKeyStatus = v.union(
+  v.literal("not_issued"),
+  v.literal("issued"),
+  v.literal("replaced"),
+  v.literal("returned"),
+);
+
+/** Key/wristband state recorded at checkout (Phase 2 §20). */
+export const agcKeyReturnStatus = v.union(
+  v.literal("returned"),
+  v.literal("not_returned"),
+  v.literal("not_applicable"),
+);
+
+/** Operational actions an offline station can queue (Phase 2 §19). */
+export const agcOfflineAction = v.union(
+  v.literal("check_in"),
+  v.literal("check_out"),
+  v.literal("issue_key"),
+  v.literal("room_change"),
+);
+
+/** Offline transaction lifecycle (Phase 2 §19). */
+export const agcOfflineSyncStatus = v.union(
+  v.literal("pending"),
+  v.literal("synced"),
+  v.literal("conflict"),
+  v.literal("rejected"),
+);
+
+/** Payment-override authorization captured at check-in (Phase 2 §18). */
+export const agcPaymentOverride = v.object({
+  authorizedBy: v.string(),
+  reason: v.string(),
+  authorizedAt: v.number(),
+});
+
+// ------------------------------------------------------------------
 // Inferred types
 // ------------------------------------------------------------------
 
@@ -136,3 +178,8 @@ export type AgcOfflinePayment = Infer<typeof agcOfflinePayment>;
 export type AgcBishopReview = Infer<typeof agcBishopReview>;
 export type AgcPoaStatus = Infer<typeof agcPoaStatus>;
 export type AgcPoaRecord = Infer<typeof agcPoaRecord>;
+export type AgcKeyStatus = Infer<typeof agcKeyStatus>;
+export type AgcKeyReturnStatus = Infer<typeof agcKeyReturnStatus>;
+export type AgcOfflineAction = Infer<typeof agcOfflineAction>;
+export type AgcOfflineSyncStatus = Infer<typeof agcOfflineSyncStatus>;
+export type AgcPaymentOverride = Infer<typeof agcPaymentOverride>;

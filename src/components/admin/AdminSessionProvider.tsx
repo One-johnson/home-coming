@@ -15,13 +15,13 @@ import {
   unwrapSessionToken,
   useSessionToken,
 } from "@/lib/sessionStore";
-import type { AdminRole } from "@/lib/adminRoles";
+import type { StaffRole } from "@/lib/adminRoles";
 
 type SessionUser = {
   _id: string;
   name: string;
   email: string;
-  role: AdminRole;
+  role: StaffRole;
 };
 
 type AdminSessionContextValue = {

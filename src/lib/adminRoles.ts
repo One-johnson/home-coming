@@ -6,7 +6,18 @@ export const ADMIN_ROLES = [
   "finance",
 ] as const;
 
+/**
+ * Phase 2 §2 venue staff. They authenticate like admins but work only in the
+ * arrival surface (/admin/arrival) with server-enforced, role-specific powers:
+ *
+ * - room_assignment: rooms, assignments, changes, check-in/out, keys, views.
+ * - checkin: search, check in/out, keys, status — never assign or publish.
+ */
+export const VENUE_STAFF_ROLES = ["room_assignment", "checkin"] as const;
+
 export type AdminRole = (typeof ADMIN_ROLES)[number];
+export type VenueStaffRole = (typeof VENUE_STAFF_ROLES)[number];
+export type StaffRole = AdminRole | VenueStaffRole;
 
 export type AdminArea =
   | "registration"
@@ -39,6 +50,16 @@ export function isAdminRole(role: string | undefined | null): role is AdminRole 
   );
 }
 
+/** True for console admins and venue staff alike (drives admin shell auth). */
+export function isValidStaffRole(
+  role: string | undefined | null,
+): role is StaffRole {
+  return isAdminRole(role) || role === "room_assignment" || role === "checkin";
+}
+
+/** Alias used by route guards for the arrival surface. */
+export const isStaffRole = isValidStaffRole;
+
 export function canAccessArea(
   role: string | undefined | null,
   area: AdminArea,
@@ -47,10 +68,24 @@ export function canAccessArea(
   return AREA_ROLES[area].includes(role);
 }
 
-export const ROLE_LABELS: Record<AdminRole, string> = {
+export const ROLE_LABELS: Record<StaffRole, string> = {
   admin: "Admin",
   content: "Content",
   registration: "Registration",
   accommodation: "Accommodation",
   finance: "Finance",
+  room_assignment: "Room assignment staff",
+  checkin: "Check-in staff",
 };
+
+/** Powers granted on the arrival surface, mirroring the server-side checks. */
+export const ARRIVAL_ROLES: readonly StaffRole[] = [
+  ...ADMIN_ROLES,
+  ...VENUE_STAFF_ROLES,
+];
+
+/** Admin/accommodation only: publishing, overrides, corrections. */
+export const ARRIVAL_APPROVER_ROLES: readonly StaffRole[] = [
+  "admin",
+  "accommodation",
+];
