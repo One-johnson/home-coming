@@ -22,6 +22,8 @@ describe("team sign-in routes", () => {
     expect(TEAM_LOGINS.accommodation.signInPath).toBe("/accommodation");
     expect(TEAM_LOGINS.finance.signInPath).toBe("/finance");
     expect(TEAM_LOGINS.content.signInPath).toBe("/content");
+    expect(TEAM_LOGINS.room_assignment.signInPath).toBe("/room-assignment");
+    expect(TEAM_LOGINS.checkin.signInPath).toBe("/check-in");
   });
 
   test("sign-in URLs are unique and homes live inside the console", () => {
@@ -30,6 +32,9 @@ describe("team sign-in routes", () => {
     for (const key of TEAM_KEYS) {
       expect(TEAM_LOGINS[key].homePath.startsWith("/admin")).toBe(true);
     }
+    // Both venue staff teams land on the arrival desk.
+    expect(TEAM_LOGINS.checkin.homePath).toBe("/admin/arrival");
+    expect(TEAM_LOGINS.room_assignment.homePath).toBe("/admin/arrival");
   });
 
   test("a team route only accepts that team's role", () => {
@@ -38,28 +43,34 @@ describe("team sign-in routes", () => {
     expect(canSignInToTeam("accommodation", "accommodation")).toBe(true);
     expect(canSignInToTeam("finance", "finance")).toBe(true);
     expect(canSignInToTeam("content", "content")).toBe(true);
+    expect(canSignInToTeam("room_assignment", "room_assignment")).toBe(true);
+    expect(canSignInToTeam("checkin", "checkin")).toBe(true);
 
     // Cross-team attempts are rejected (they are told where to go instead).
     expect(canSignInToTeam("admin", "registration")).toBe(false);
     expect(canSignInToTeam("registration", "admin")).toBe(false);
     expect(canSignInToTeam("finance", "accommodation")).toBe(false);
-    // Venue staff have no team route of their own.
+    // Venue staff have their own doors and cannot use the other teams'.
     expect(canSignInToTeam("checkin", "admin")).toBe(false);
+    expect(canSignInToTeam("checkin", "room_assignment")).toBe(false);
     expect(canSignInToTeam("room_assignment", "accommodation")).toBe(false);
+    expect(canSignInToTeam("admin", "checkin")).toBe(false);
     expect(canSignInToTeam(null, "admin")).toBe(false);
   });
 
-  test("roles map back to their team route, venue staff fall back to /admin", () => {
+  test("roles map back to their own sign-in route, venue staff included", () => {
     expect(teamForRole("admin")).toBe("admin");
     expect(teamForRole("registration")).toBe("registration");
     expect(teamForRole("accommodation")).toBe("accommodation");
     expect(teamForRole("finance")).toBe("finance");
     expect(teamForRole("content")).toBe("content");
-    expect(teamForRole("checkin")).toBeNull();
-    expect(teamForRole("room_assignment")).toBeNull();
+    expect(teamForRole("checkin")).toBe("checkin");
+    expect(teamForRole("room_assignment")).toBe("room_assignment");
+    expect(teamForRole("something_else")).toBeNull();
 
     expect(signInPathForRole("finance")).toBe("/finance");
-    expect(signInPathForRole("checkin")).toBe("/admin");
+    expect(signInPathForRole("checkin")).toBe("/check-in");
+    expect(signInPathForRole("room_assignment")).toBe("/room-assignment");
   });
 
   test("public chrome is suppressed only for the top-level team routes", () => {
@@ -67,6 +78,8 @@ describe("team sign-in routes", () => {
     expect(TEAM_SIGN_IN_PATHS).toContain("/accommodation");
     expect(TEAM_SIGN_IN_PATHS).toContain("/finance");
     expect(TEAM_SIGN_IN_PATHS).toContain("/content");
+    expect(TEAM_SIGN_IN_PATHS).toContain("/room-assignment");
+    expect(TEAM_SIGN_IN_PATHS).toContain("/check-in");
     expect(TEAM_SIGN_IN_PATHS).not.toContain("/admin");
   });
 

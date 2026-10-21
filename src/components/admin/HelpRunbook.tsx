@@ -31,14 +31,16 @@ const SECTIONS: RunbookSection[] = [
         text: "Accommodation — rooms, import, publishing, overrides, corrections, reports.",
       },
       {
-        text: "Room assignment staff — rooms/assignments/changes plus check-in/out and keys.",
+        text: "Room assignment staff — sign in at /room-assignment: rooms/assignments/changes plus check-in/out and keys.",
       },
-      { text: "Check-in staff — search, check-in/out, keys, status views only." },
+      {
+        text: "Check-in staff — sign in at /check-in: search, check-in/out, keys, status views only.",
+      },
       {
         text: "Finance — registrations/POA verification, cash-collection desk, audit log.",
       },
       {
-        text: "Every team has its own sign-in URL: /admin (admins and venue staff), /registration, /accommodation, /finance, /content. A team URL only accepts that team's accounts.",
+        text: "Every team has its own sign-in URL: /admin (admins), /registration, /accommodation, /finance, /content, /room-assignment and /check-in. A team URL only accepts that team's accounts; the venue staff doors both open the arrival desk.",
       },
       {
         text: "Every action carries your own account identity — it shows in the audit log and reports.",

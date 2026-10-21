@@ -1,11 +1,12 @@
 import type { StaffRole } from "@/lib/adminRoles";
 
 /**
- * Dedicated sign-in routes per team. /admin is the console's own door (and
- * also the door for venue staff, who land on the arrival desk); every other
- * console team signs in at their own top-level URL. Each route only accepts
- * the roles of that team — an admin account trying /registration is told to
- * use /admin instead, never signed in silently.
+ * Dedicated sign-in routes per team: /admin, /registration, /accommodation,
+ * /finance, /content, plus /room-assignment and /check-in for the two venue
+ * staff roles (both land on the arrival desk). Each route only accepts the
+ * roles of that team — an admin account trying /registration is told to use
+ * /admin instead, never signed in silently. /admin additionally accepts
+ * venue staff, so existing staff bookmarks keep working.
  */
 
 export const TEAM_KEYS = [
@@ -14,6 +15,8 @@ export const TEAM_KEYS = [
   "accommodation",
   "finance",
   "content",
+  "room_assignment",
+  "checkin",
 ] as const;
 
 export type TeamKey = (typeof TEAM_KEYS)[number];
@@ -71,15 +74,35 @@ export const TEAM_LOGINS: Record<TeamKey, TeamLogin> = {
     roles: ["content"],
     description: "FAQs, announcements, hero slides, videos and galleries.",
   },
+  room_assignment: {
+    key: "room_assignment",
+    label: "Room assignment",
+    homePath: "/admin/arrival",
+    signInPath: "/room-assignment",
+    roles: ["room_assignment"],
+    description:
+      "Venue staff: rooms and assignments, room changes, check-in/out and keys.",
+  },
+  checkin: {
+    key: "checkin",
+    label: "Check-in",
+    homePath: "/admin/arrival",
+    signInPath: "/check-in",
+    roles: ["checkin"],
+    description:
+      "Venue staff: arrival search, check-in/out, keys and status views only.",
+  },
 };
 
-/** The team whose sign-in route a role should use, or null for venue staff. */
+/** The team whose sign-in route a role should use, or null if unknown. */
 export function teamForRole(role: StaffRole | string | null | undefined): TeamKey | null {
   if (role === "admin") return "admin";
   if (role === "registration") return "registration";
   if (role === "accommodation") return "accommodation";
   if (role === "finance") return "finance";
   if (role === "content") return "content";
+  if (role === "room_assignment") return "room_assignment";
+  if (role === "checkin") return "checkin";
   return null;
 }
 
@@ -95,7 +118,8 @@ export function canSignInToTeam(
 /** The route a signed-in role should be sent to when rejected at `team`. */
 export function signInPathForRole(role: StaffRole | string | null | undefined): string {
   const team = teamForRole(role);
-  // Venue staff have no team route: /admin is their door, landing on Arrival.
+  // Unknown roles are pointed at the general console door, which explains
+  // that no staff role is assigned.
   return team ? TEAM_LOGINS[team].signInPath : "/admin";
 }
 

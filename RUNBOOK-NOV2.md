@@ -12,10 +12,12 @@ console (https://home-coming-ten.vercel.app) and is role-gated server-side.
 | Check-in staff | Search, check-in/out, keys, status views only |
 | Finance | Registrations/POA verification, cash-collection desk, audit log |
 
-Each team has its own sign-in URL: **/admin** (admins and venue staff),
-**/registration**, **/accommodation**, **/finance**, **/content**. A team URL
-only accepts that team's accounts; anyone with the wrong role is pointed to
-the correct door instead of being signed in.
+Each team has its own sign-in URL: **/admin** (admins), **/registration**,
+**/accommodation**, **/finance**, **/content**, **/room-assignment** (room
+assignment staff) and **/check-in** (check-in staff). A team URL only accepts
+that team's accounts; anyone with the wrong role is pointed to the correct
+door instead of being signed in. Both venue staff doors land on the arrival
+desk.
 
 Workstation accounts are created in **Team** (see "Adding team & venue staff
 accounts" at the bottom). Each person signs in with their own account on the
@@ -127,8 +129,9 @@ Admin console → **Team** (`/admin/team`), only Admins can access it:
 1. **Create team member** — full name, email, temporary password (min 8
    characters), and a role from the picker (Admin, Content, Registration,
    Accommodation, Finance, **Room assignment staff**, **Check-in staff**).
-   The new account signs in at its team URL (Room assignment / Check-in staff
-   use /admin and land on the arrival desk).
+   The new account signs in at its team URL: room assignment staff at
+   /room-assignment, check-in staff at /check-in (both land on the arrival
+   desk).
    Passwords are stored hashed; the person changes it on first sign-in or via
    the admin password-reset page.
 2. Change a role or deactivate anyone later from the same page's member
