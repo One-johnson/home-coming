@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
 import {
@@ -71,7 +72,8 @@ import {
   ROLE_LABELS,
   canAccessArea,
   isAdminRole,
-  type AdminRole,
+  isValidStaffRole,
+  type StaffRole,
 } from "@/lib/adminRoles";
 import { EVENT } from "@/lib/eventConfig";
 import { cn } from "@/lib/utils";
@@ -145,7 +147,7 @@ function HeaderUserMenu({
 }: {
   name: string;
   email: string;
-  role: AdminRole;
+  role: StaffRole;
   onSignOut: () => void;
 }) {
   const router = useRouter();
@@ -195,7 +197,7 @@ function NavUserMenu({
 }: {
   name: string;
   email: string;
-  role: AdminRole;
+  role: StaffRole;
   onSignOut: () => void;
 }) {
   const router = useRouter();
@@ -284,7 +286,7 @@ function AdminSidebar({
 }: {
   name: string;
   email: string;
-  role: AdminRole;
+  role: StaffRole;
   onSignOut: () => void;
   badges?: NavBadges | null;
 }) {
@@ -293,6 +295,11 @@ function AdminSidebar({
     ...group,
     items: group.items.filter((item) => {
       if (item.area && !canAccessArea(role, item.area)) return false;
+      // Venue staff only see items explicitly opened to them; never the
+      // area-less Overview entry.
+      if (!isAdminRole(role) && !item.area && !item.visibleTo?.includes(role)) {
+        return false;
+      }
       if (item.visibleTo && !item.visibleTo.includes(role)) return false;
       if (item.hiddenFrom?.includes(role)) return false;
       return true;
@@ -383,10 +390,26 @@ function AdminSidebar({
   );
 }
 
+/** Venue staff have one workspace: send them to the arrival desk. */
+function VenueStaffRedirect() {
+  const router = useRouter();
+
+  useEffect(() => {
+    router.replace("/admin/arrival");
+  }, [router]);
+
+  return (
+    <div className="flex min-h-svh items-center justify-center bg-neutral-100 text-sm text-muted-foreground">
+      Opening the arrival desk…
+    </div>
+  );
+}
+
 export function AdminShell({ children }: { children: React.ReactNode }) {
   const { user, isReady, sessionToken, clearSession, sessionExpiresAt } =
     useAdminSession();
   const sessionArgs = useSessionArgs();
+  const pathname = usePathname();
   const overview = useQuery(
     api.admin.getOverview,
     isReady && user && isAdminRole(user.role) && sessionArgs
@@ -411,26 +434,38 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   }
 
   if (!isAdminRole(user.role)) {
-    return (
-      <div className="flex min-h-svh items-center justify-center bg-neutral-100 px-4">
-        <div className="w-full max-w-md rounded-2xl border bg-white p-8 shadow-elevate">
-          <h1 className="font-display text-2xl">No admin access</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Signed in as {user.email}, but no staff role is assigned.
-          </p>
-          <Button
-            className="mt-6"
-            variant="outline"
-            onClick={async () => {
-              await clearSession();
-              toast.info("Signed out");
-            }}
-          >
-            Sign out
-          </Button>
+    // Venue staff (room assignment / check-in) work only on the arrival desk
+    // and the runbook; any other console URL sends them to their workspace.
+    if (isValidStaffRole(user.role)) {
+      const staffWorkspace =
+        pathname === "/admin/arrival" ||
+        pathname.startsWith("/admin/arrival/") ||
+        pathname === "/admin/help";
+      if (!staffWorkspace) {
+        return <VenueStaffRedirect />;
+      }
+    } else {
+      return (
+        <div className="flex min-h-svh items-center justify-center bg-neutral-100 px-4">
+          <div className="w-full max-w-md rounded-2xl border bg-white p-8 shadow-elevate">
+            <h1 className="font-display text-2xl">No admin access</h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Signed in as {user.email}, but no staff role is assigned.
+            </p>
+            <Button
+              className="mt-6"
+              variant="outline"
+              onClick={async () => {
+                await clearSession();
+                toast.info("Signed out");
+              }}
+            >
+              Sign out
+            </Button>
+          </div>
         </div>
-      </div>
-    );
+      );
+    }
   }
 
   const signOut = async () => {
@@ -467,7 +502,7 @@ function AdminConsoleFrame({
 }: {
   name: string;
   email: string;
-  role: AdminRole;
+  role: StaffRole;
   onSignOut: () => void;
   badges?: NavBadges | null;
   children: React.ReactNode;
@@ -488,10 +523,9 @@ function AdminConsoleFrame({
     <>
       <AdminSidebar
         name={name}
-        email={email}
-        role={role}
-        onSignOut={onSignOut}
-        badges={badges}
+        email={email}                role={role}
+                onSignOut={onSignOut}
+                badges={badges}
       />
       <SidebarInset className="min-w-0 overflow-x-hidden bg-neutral-100">
         <header

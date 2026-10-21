@@ -38,6 +38,9 @@ const SECTIONS: RunbookSection[] = [
         text: "Finance — registrations/POA verification, cash-collection desk, audit log.",
       },
       {
+        text: "Every team has its own sign-in URL: /admin (admins and venue staff), /registration, /accommodation, /finance, /content. A team URL only accepts that team's accounts.",
+      },
+      {
         text: "Every action carries your own account identity — it shows in the audit log and reports.",
       },
     ],

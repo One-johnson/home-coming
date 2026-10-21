@@ -4,6 +4,7 @@ import { toastFriendlyErrorParts } from "@/lib/friendlyError";
 
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useAction } from "convex/react";
 import { useState } from "react";
 import { Eye, EyeOff, Loader2, Lock, Mail } from "lucide-react";
@@ -15,12 +16,22 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useAdminSession } from "@/components/admin/AdminSessionProvider";
+import { ROLE_LABELS, type StaffRole } from "@/lib/adminRoles";
 import { isConvexConfigured } from "@/lib/convex-config";
 import { loginErrorInfo } from "@/lib/friendlyError";
+import {
+  TEAM_LOGINS,
+  canSignInToTeam,
+  otherTeamLogins,
+  signInPathForRole,
+  type TeamKey,
+} from "@/lib/teamLogins";
 
-export function AdminSignIn() {
+export function AdminSignIn({ team }: { team?: TeamKey } = {}) {
   const login = useAction(api.authActions.login);
   const { setSession } = useAdminSession();
+  const router = useRouter();
+  const teamConfig = team ? TEAM_LOGINS[team] : null;
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -48,8 +59,23 @@ export function AdminSignIn() {
     setSigningIn(true);
     try {
       const result = await login({ email, password });
+      const role = result.user?.role as StaffRole | undefined;
+
+      // Dedicated team routes only accept their own team's accounts.
+      if (teamConfig && !canSignInToTeam(role, teamConfig.key)) {
+        const roleLabel = role ? ROLE_LABELS[role] ?? role : "unknown";
+        const correctPath = signInPathForRole(role);
+        const message = `This is the ${teamConfig.label} team sign-in, but your account is ${roleLabel}. Sign in at ${correctPath} instead.`;
+        setAuthError(message);
+        toast.error(message);
+        return;
+      }
+
       setSession(result.sessionToken, result.expiresAt);
       toast.success("Signed in");
+      if (teamConfig) {
+        router.replace(teamConfig.homePath);
+      }
     } catch (err) {
       const message = toastFriendlyErrorParts.toastMessage(err, "Sign in failed");
       setAuthError(message);
@@ -72,10 +98,12 @@ export function AdminSignIn() {
     <div className="flex min-h-svh items-center justify-center bg-neutral-800 px-4 py-16">
       <div className="w-full max-w-md rounded-2xl border border-border bg-white p-8 shadow-elevate">
         <h1 className="font-display text-3xl font-normal tracking-tight">
-          Admin sign in
+          {teamConfig ? `${teamConfig.label} team sign in` : "Admin sign in"}
         </h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Sign in with your staff email and password.
+          {teamConfig
+            ? teamConfig.description
+            : "Sign in with your staff email and password."}
         </p>
 
         <form onSubmit={handleSignIn} className="mt-8 space-y-4">
@@ -153,15 +181,34 @@ export function AdminSignIn() {
           </Link>
         </p>
 
-        <p className="mt-6 text-center text-sm text-muted-foreground">
-          Need an account?{" "}
-          <Link
-            href="/admin/register"
-            className="font-medium text-gold hover:text-gold-dark"
-          >
-            Create one
-          </Link>
-        </p>
+        {teamConfig ? (
+          <p className="mt-6 text-center text-xs text-muted-foreground">
+            {teamConfig.label} team only — accounts are created by an admin in
+            Team.{" "}
+            Other teams:{" "}
+            {otherTeamLogins(teamConfig.key).map((other, index) => (
+              <span key={other.key}>
+                {index > 0 ? " · " : ""}
+                <Link
+                  href={other.signInPath}
+                  className="font-medium text-gold hover:text-gold-dark"
+                >
+                  {other.label}
+                </Link>
+              </span>
+            ))}
+          </p>
+        ) : (
+          <p className="mt-6 text-center text-sm text-muted-foreground">
+            Need an account?{" "}
+            <Link
+              href="/admin/register"
+              className="font-medium text-gold hover:text-gold-dark"
+            >
+              Create one
+            </Link>
+          </p>
+        )}
       </div>
     </div>
   );
