@@ -30,6 +30,7 @@ const modules = {
   "convex/agcOffline.ts": () => import("../convex/agcOffline"),
   "convex/agcOpsData.ts": () => import("../convex/agcOpsData"),
   "convex/agcOpsExcel.ts": () => import("../convex/agcOpsExcel"),
+  "convex/agcPreArrival.ts": () => import("../convex/agcPreArrival"),
   "convex/agcRoomsImport.ts": () => import("../convex/agcRoomsImport"),
   "convex/authActions.ts": () => import("../convex/authActions"),
   "convex/content.ts": () => import("../convex/content"),

@@ -25,8 +25,9 @@ import {
 import {
   ADMIN_ROLES,
   ROLE_LABELS,
+  VENUE_STAFF_ROLES,
   canAccessArea,
-  type AdminRole,
+  type StaffRole,
 } from "@/lib/adminRoles";
 
 export default function AdminTeamPage() {
@@ -45,7 +46,7 @@ export default function AdminTeamPage() {
     name: "",
     email: "",
     password: "",
-    role: "content" as AdminRole,
+    role: "content" as StaffRole,
   });
 
   if (!allowed) {
@@ -79,7 +80,7 @@ export default function AdminTeamPage() {
     }
   };
 
-  const handleRoleChange = async (userId: Id<"users">, nextRole: AdminRole) => {
+  const handleRoleChange = async (userId: Id<"users">, nextRole: StaffRole) => {
     if (!sessionToken) return;
     try {
       await setUserRole({ sessionToken, userId, role: nextRole });
@@ -141,14 +142,14 @@ export default function AdminTeamPage() {
                 value={newUser.role}
                 onValueChange={(value) => {
                   if (!value) return;
-                  setNewUser({ ...newUser, role: value as AdminRole });
+                  setNewUser({ ...newUser, role: value as StaffRole });
                 }}
               >
                 <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {ADMIN_ROLES.map((r) => (
+                  {[...ADMIN_ROLES, ...VENUE_STAFF_ROLES].map((r) => (
                     <SelectItem key={r} value={r}>
                       {ROLE_LABELS[r]}
                     </SelectItem>
@@ -182,7 +183,7 @@ export default function AdminTeamPage() {
               {
                 columnId: "role",
                 title: "Role",
-                options: ADMIN_ROLES.map((r) => ({
+                options: [...ADMIN_ROLES, ...VENUE_STAFF_ROLES].map((r) => ({
                   label: ROLE_LABELS[r],
                   value: r,
                 })),
@@ -220,14 +221,14 @@ export default function AdminTeamPage() {
                       value={member.role}
                       onValueChange={(value) => {
                         if (!value) return;
-                        void handleRoleChange(member._id, value as AdminRole);
+                        void handleRoleChange(member._id, value as StaffRole);
                       }}
                     >
                       <SelectTrigger className="min-w-[11rem]">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {ADMIN_ROLES.map((r) => (
+                        {[...ADMIN_ROLES, ...VENUE_STAFF_ROLES].map((r) => (
                           <SelectItem key={r} value={r}>
                             {ROLE_LABELS[r]}
                           </SelectItem>
