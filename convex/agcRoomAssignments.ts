@@ -29,7 +29,7 @@ export const requireRoomAccess = internalQuery({
   },
 });
 /** Roles that may assign/change delegates (Phase 2 §2 includes room-assignment staff). */
-const ASSIGN_ROLES = ["admin", "accommodation", "room_assignment"] as const;
+const ASSIGN_ROLES = ["admin", "accommodation", "room_assignment", "checkin"] as const;
 
 /** Live (open) assignment rows — moved/removed rows are closed, never deleted (§9). */
 function isOpen(a: Doc<"agcRoomAssignments">): boolean {
