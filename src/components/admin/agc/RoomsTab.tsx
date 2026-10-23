@@ -113,6 +113,8 @@ type ImportPreview = {
   capacity: number;
   poolTotal: number;
   withinPool: boolean;
+  duplicateRows: number;
+  duplicateRooms: number;
 };
 
 type ImportRow = {
@@ -164,6 +166,7 @@ export function RoomsTab() {
   const [roomingType, setRoomingType] = useState<string>("all");
   const [publishScopeValue, setPublishScopeValue] = useState("");
   const [roomView, setRoomView] = useState<RoomView>("all");
+  const [roomSearch, setRoomSearch] = useState("");
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
 
   // Unassigned-queue filters (§5)
@@ -193,22 +196,22 @@ export function RoomsTab() {
   const usedBeds = list.reduce((sum, room) => sum + room.occupants, 0);
 
   // Rooms grouped under a heading per accommodation type, narrowed by the
-  // published / unpublished filter.
-  const roomGroups = useMemo(
-    () =>
-      TYPES.map((type) => {
-        const allRooms = list.filter((room) => room.accommodationType === type);
-        const shown = allRooms.filter((room) =>
-          roomView === "all"
-            ? true
-            : roomView === "published"
-              ? room.publishedAt != null
-              : room.publishedAt == null,
-        );
-        return { type, rooms: shown, allRooms };
-      }).filter((group) => group.rooms.length > 0),
-    [list, roomView],
-  );
+  // search box and the published / unpublished filter.
+  const roomGroups = useMemo(() => {
+    const term = roomSearch.trim().toLowerCase();
+    return TYPES.map((type) => {
+      const allRooms = list.filter((room) => room.accommodationType === type);
+      const shown = allRooms.filter((room) => {
+        if (roomView === "published" && room.publishedAt == null) return false;
+        if (roomView === "unpublished" && room.publishedAt != null) return false;
+        if (!term) return true;
+        return `${room.name} ${room.building ?? ""}`.toLowerCase().includes(term);
+      });
+      return { type, rooms: shown, allRooms };
+    }).filter((group) => group.rooms.length > 0);
+  }, [list, roomView, roomSearch]);
+
+  const matchedRooms = roomGroups.reduce((sum, group) => sum + group.rooms.length, 0);
 
   const publishedCount = list.filter((room) => room.publishedAt != null).length;
 
@@ -450,7 +453,12 @@ export function RoomsTab() {
           capacity: row.capacity,
         })),
       });
-      toast.success(`Imported: ${result.created} new, ${result.updated} updated rooms.`);
+      const summary = [`${result.created} new`, `${result.updated} updated`];
+      if (result.removed > 0) summary.push(`${result.removed} duplicate(s) removed`);
+      if (result.keptOccupied > 0) {
+        summary.push(`${result.keptOccupied} duplicate(s) kept — guests still roomed there`);
+      }
+      toast.success(`Imported: ${summary.join(", ")}.`);
       setImportOpen(false);
       setImportRows(null);
       setInvalidRows([]);
@@ -539,6 +547,13 @@ export function RoomsTab() {
             ))}
           </SelectContent>
         </Select>
+        <Input
+          placeholder="Search room or building…"
+          aria-label="Search rooms"
+          className="h-9 w-48"
+          value={roomSearch}
+          onChange={(e) => setRoomSearch(e.target.value)}
+        />
         <Select
           value={roomView}
           onValueChange={(value) => setRoomView((value ?? "all") as RoomView)}
@@ -557,6 +572,7 @@ export function RoomsTab() {
         <span className="grow" />
         <span className="text-sm text-muted-foreground tabular-nums">
           {usedBeds}/{totalBeds} {list.some((r) => r.accommodationType === "ebpv") ? "spaces" : "beds"} filled · {guests.length} awaiting a room
+          {roomSearch.trim() ? ` · ${matchedRooms} match(es)` : ""}
         </span>
       </div>
 
@@ -625,8 +641,9 @@ export function RoomsTab() {
 
       {list.length > 0 && roomGroups.length === 0 && (
         <p className="rounded-xl border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
-          No {roomView === "published" ? "published" : "unpublished"} rooms —
-          switch the filter to see the rest.
+          {roomSearch.trim()
+            ? `No room matches “${roomSearch.trim()}”.`
+            : `No ${roomView === "published" ? "published" : "unpublished"} rooms — switch the filter to see the rest.`}
         </p>
       )}
 
@@ -985,7 +1002,10 @@ export function RoomsTab() {
               one sheet per accommodation type, a title row, then the room number
               / apartment name and capacity headers with one room per row. Staff
               assign and check in delegates manually, so no gender column is
-              needed. Imports never exceed the confirmed inventory pools.
+              needed. Re-importing updates the rooms that already exist —
+              matching ignores case and spacing — and removes leftovers from
+              earlier duplicate imports. Imports never exceed the confirmed
+              inventory pools.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
@@ -1050,6 +1070,16 @@ export function RoomsTab() {
                     ))}
                   </TableBody>
                 </Table>
+                {(previewRows.some(
+                  (row: ImportPreview) => row.duplicateRows > 0 || row.duplicateRooms > 0,
+                )) && (
+                  <p className="mt-2 text-[11px] text-amber-700">
+                    {previewRows.reduce((sum, row) => sum + row.duplicateRows, 0) > 0 &&
+                      `${previewRows.reduce((sum, row) => sum + row.duplicateRows, 0)} repeated row(s) in the sheet will be ignored (the first row wins). `}
+                    {previewRows.reduce((sum, row) => sum + row.duplicateRooms, 0) > 0 &&
+                      `${previewRows.reduce((sum, row) => sum + row.duplicateRooms, 0)} existing duplicate room(s) will be removed on import (any with delegates still roomed in them are kept).`}
+                  </p>
+                )}
               </div>
             )}
             <div className="flex justify-end gap-2">

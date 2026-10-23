@@ -45,7 +45,13 @@ Route: **Accommodation → Rooms tab** (Steps 7–12).
    type against the Phase 1 confirmed inventory pools. An import may never
    exceed a pool; fix the sheet or the pool first.
 3. **Commit** — same-named rows update capacity/building in place, others are
-   created. EBPV rows over 4 delegates are rejected at commit.
+   created. Matching ignores case and extra spacing, so importing the same
+   workbook twice never duplicates a room: a repeated row in the sheet is
+   ignored (the first row wins), and leftover duplicate rows from earlier
+   imports are retired — unless someone is still roomed in one, which is
+   reported instead. A sheet without a building or gender column never wipes
+   values set by hand in the UI. EBPV rows over 4 delegates are rejected at
+   commit.
 4. **Publish** — rooms become visible to hub reps the moment you publish. Reps
    see only published rooms and only their own delegates (§8). The **Publish…**
    menu on the Rooms tab does it in one pass: *all rooms*, *every room of one

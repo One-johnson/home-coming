@@ -899,8 +899,17 @@ export type RoomImportRow = {
 };
 
 /**
+ * A room's identity across imports: type + name, ignoring case and extra
+ * spacing, so "ROOM 212 " and "Room  212" are the same room.
+ */
+function roomImportKey(type: string, name: string): string {
+  return `${type}|${name.trim().toLowerCase().replace(/\s+/g, " ")}`;
+}
+
+/**
  * Preview an import: counts per type + the total per type vs Phase 1's
  * corrected inventory pools (import may never exceed confirmed inventory).
+ * Repeated rows are collapsed the same way the commit collapses them.
  */
 export const previewRoomImport = query({
   args: { sessionToken: v.string(), rows: v.array(v.object({
@@ -922,18 +931,55 @@ export const previewRoomImport = query({
       );
     }
 
-    const byType = new Map<string, { newRooms: number; updatedRooms: number; capacity: number }>();
-    const existingByKey = new Map(
-      rooms.map((room) => [`${room.accommodationType}|${room.name}`, room]),
-    );
+    const byType = new Map<
+      string,
+      {
+        newRooms: number;
+        updatedRooms: number;
+        capacity: number;
+        duplicateRows: number;
+        duplicateRooms: number;
+      }
+    >();
+    const existingByKey = new Map<string, number>();
+    for (const room of rooms) {
+      const key = roomImportKey(room.accommodationType, room.name);
+      existingByKey.set(key, (existingByKey.get(key) ?? 0) + 1);
+    }
+    const entryFor = (type: string) => {
+      const existing = byType.get(type);
+      if (existing) return existing;
+      const fresh = {
+        newRooms: 0,
+        updatedRooms: 0,
+        capacity: 0,
+        duplicateRows: 0,
+        duplicateRooms: 0,
+      };
+      byType.set(type, fresh);
+      return fresh;
+    };
+
     const importedTotal = new Map<string, number>();
+    const seen = new Set<string>();
     for (const row of args.rows) {
-      const entry = byType.get(row.accommodationType) ?? { newRooms: 0, updatedRooms: 0, capacity: 0 };
+      const key = roomImportKey(row.accommodationType, row.name);
+      const entry = entryFor(row.accommodationType);
+      if (seen.has(key)) {
+        // Repeated row — the commit ignores it, so it adds no spaces either.
+        entry.duplicateRows += 1;
+        continue;
+      }
+      seen.add(key);
       entry.capacity += row.capacity;
-      importedTotal.set(row.accommodationType, (importedTotal.get(row.accommodationType) ?? 0) + row.capacity);
-      if (existingByKey.has(`${row.accommodationType}|${row.name.trim()}`)) entry.updatedRooms += 1;
+      importedTotal.set(
+        row.accommodationType,
+        (importedTotal.get(row.accommodationType) ?? 0) + row.capacity,
+      );
+      const existingCount = existingByKey.get(key) ?? 0;
+      if (existingCount > 0) entry.updatedRooms += 1;
       else entry.newRooms += 1;
-      byType.set(row.accommodationType, entry);
+      entry.duplicateRooms += Math.max(0, existingCount - 1);
     }
     return [...byType.entries()].map(([type, entry]) => ({
       accommodationType: type,
@@ -965,9 +1011,33 @@ export const importRooms = mutation({
     if (args.rows.length === 0) throw new ConvexError("Nothing to import");
 
     const rooms = (await ctx.db.query("agcRooms").collect()).filter((room) => !room.deletedAt);
-    const existingByKey = new Map(
-      rooms.map((room) => [`${room.accommodationType}|${room.name}`, room]),
-    );
+    const existingByKey = new Map<string, Doc<"agcRooms">[]>();
+    for (const room of rooms) {
+      const key = roomImportKey(room.accommodationType, room.name);
+      const matches = existingByKey.get(key) ?? [];
+      matches.push(room);
+      existingByKey.set(key, matches);
+    }
+    // Oldest first: that row is the room an import updates, and the one a
+    // duplicate sweep keeps.
+    for (const matches of existingByKey.values()) {
+      matches.sort((a, b) => a._creationTime - b._creationTime);
+    }
+
+    // Collapse rows that repeat a room (same type + name, ignoring case and
+    // spacing) so importing a sheet twice never creates a second copy.
+    const seen = new Set<string>();
+    const rows: typeof args.rows = [];
+    let sheetDuplicates = 0;
+    for (const row of args.rows) {
+      const key = roomImportKey(row.accommodationType, row.name);
+      if (seen.has(key)) {
+        sheetDuplicates += 1;
+        continue;
+      }
+      seen.add(key);
+      rows.push(row);
+    }
 
     const pools = await ctx.db.query("agcInventoryPools").collect();
     const poolTotalByType = new Map<string, number>();
@@ -979,7 +1049,7 @@ export const importRooms = mutation({
     }
 
     // Per-row shape rules (EPBV apartment, §7) before the aggregate guard.
-    for (const row of args.rows) {
+    for (const row of rows) {
       if (row.accommodationType === "ebpv" && row.capacity > 4) {
         throw new ConvexError(
           `${row.name}: an EBPV apartment holds at most 4 delegates`,
@@ -992,7 +1062,7 @@ export const importRooms = mutation({
 
     // Capacity guard runs on the *imported* total per type.
     const importedTotal = new Map<string, number>();
-    for (const row of args.rows) {
+    for (const row of rows) {
       importedTotal.set(row.accommodationType, (importedTotal.get(row.accommodationType) ?? 0) + row.capacity);
     }
     for (const [type, total] of importedTotal) {
@@ -1006,7 +1076,9 @@ export const importRooms = mutation({
 
     let created = 0;
     let updated = 0;
-    for (const row of args.rows) {
+    let removed = 0;
+    let keptOccupied = 0;
+    for (const row of rows) {
       const name = row.name.trim();
       if (!name || row.capacity <= 0) {
         throw new ConvexError(`Invalid room row: ${row.name || "(empty)"}`);
@@ -1017,7 +1089,9 @@ export const importRooms = mutation({
       if (row.accommodationType === "ebpv" && row.gender) {
         throw new ConvexError(`${name}: EBPV apartments are mixed-gender`);
       }
-      const existing = existingByKey.get(`${row.accommodationType}|${name}`);
+      const key = roomImportKey(row.accommodationType, name);
+      const matches = existingByKey.get(key) ?? [];
+      const existing = matches[0];
       if (existing) {
         const occupants = await openAssignmentsForRoom(ctx, existing._id);
         if (row.capacity < occupants.length) {
@@ -1026,11 +1100,26 @@ export const importRooms = mutation({
           );
         }
         await ctx.db.patch(existing._id, {
-          building: row.building,
-          gender: row.gender ?? undefined,
+          // A sheet with no building/gender column must not wipe a value set
+          // by hand in the UI.
+          building: row.building ?? existing.building,
+          gender: row.gender ?? existing.gender,
           capacity: row.capacity,
         });
         updated += 1;
+
+        // Earlier imports may have left duplicates of this room. Keep the
+        // oldest row (now carrying the imported capacity) and retire the rest,
+        // unless someone is still roomed in one of them.
+        for (const duplicate of matches.slice(1)) {
+          const held = await openAssignmentsForRoom(ctx, duplicate._id);
+          if (held.length > 0) {
+            keptOccupied += 1;
+            continue;
+          }
+          await ctx.db.patch(duplicate._id, { deletedAt: Date.now() });
+          removed += 1;
+        }
       } else {
         const roomId = await ctx.db.insert("agcRooms", {
           accommodationType: row.accommodationType,
@@ -1039,7 +1128,7 @@ export const importRooms = mutation({
           gender: row.gender ?? undefined,
           capacity: row.capacity,
         });
-        existingByKey.set(`${row.accommodationType}|${name}`, await ctx.db.get(roomId) as Doc<"agcRooms">);
+        existingByKey.set(key, [(await ctx.db.get(roomId)) as Doc<"agcRooms">]);
         created += 1;
       }
     }
@@ -1049,10 +1138,18 @@ export const importRooms = mutation({
       actorEmail: actor.email,
       action: "agc_room.imported",
       entityType: "agcRooms",
-      summary: `Imported physical inventory by ${actor.email}: ${created} created, ${updated} updated`,
-      metadata: { created, updated, rows: args.rows.length },
+      summary: `Imported physical inventory by ${actor.email}: ${created} created, ${updated} updated, ${removed} duplicate(s) removed`,
+      metadata: {
+        created,
+        updated,
+        removed,
+        keptOccupied,
+        sheetDuplicates,
+        rows: args.rows.length,
+        importedRows: rows.length,
+      },
     });
-    return { created, updated };
+    return { created, updated, removed, keptOccupied, sheetDuplicates };
   },
 });
 

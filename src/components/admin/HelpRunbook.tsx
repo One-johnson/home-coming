@@ -61,7 +61,7 @@ const SECTIONS: RunbookSection[] = [
         text: "Preview first: the parser reports invalid rows by row number, and the preview compares the imported total per type against the confirmed inventory pools. An import may never exceed a pool — fix the sheet or the pool first.",
       },
       {
-        text: "Commit: same-named rows update in place, others are created. EBPV rows over 4 delegates are rejected.",
+        text: "Commit: same-named rows update in place, others are created. Matching ignores case and spacing, so re-importing never duplicates a room — repeated rows in the sheet are ignored (first wins) and leftover duplicates are removed, unless someone is still roomed in one. EBPV rows over 4 delegates are rejected.",
       },
       {
         text: "Publish from the Publish… menu: all rooms at once, every room of one type, or one block as it becomes ready. Reps see only published rooms and only their own delegates.",

@@ -412,6 +412,99 @@ test("publishing gates rep visibility, hub-scoped", async () => {
   expect(otherRooms).toHaveLength(0);
 });
 
+test("room import is idempotent: repeats update in place and duplicates are removed", async () => {
+  const t = createTestConvex();
+  const { token } = await seedStaff(t, "accommodation");
+  await t.run(async (ctx) => {
+    await ctx.db.insert("agcInventoryPools", {
+      accommodationType: "hostel",
+      scope: "africa",
+      total: 100,
+      reserved: 0,
+      confirmed: 0,
+    });
+  });
+
+  // The sheet repeats Room 212 with different casing/spacing — imported once.
+  const first = await t.mutation(api.agcRoomAssignments.importRooms, {
+    sessionToken: token,
+    rows: [
+      { accommodationType: "hostel", name: "Room 212", capacity: 4 },
+      { accommodationType: "hostel", name: " room  212 ", capacity: 4 },
+      { accommodationType: "hostel", name: "Room 213", capacity: 4 },
+    ],
+  });
+  expect(first.created).toBe(2);
+  expect(first.sheetDuplicates).toBe(1);
+
+  let rooms = await t.query(api.agcRoomAssignments.listRoomsAdmin, {
+    sessionToken: token,
+  });
+  expect(rooms.map((room) => room.name).sort()).toEqual(["Room 212", "Room 213"]);
+
+  // Re-importing the same room updates it instead of adding a copy.
+  const again = await t.mutation(api.agcRoomAssignments.importRooms, {
+    sessionToken: token,
+    rows: [{ accommodationType: "hostel", name: "ROOM 212", capacity: 6 }],
+  });
+  expect(again.created).toBe(0);
+  expect(again.updated).toBe(1);
+  rooms = await t.query(api.agcRoomAssignments.listRoomsAdmin, {
+    sessionToken: token,
+  });
+  expect(rooms).toHaveLength(2);
+  expect(rooms.find((room) => room.name === "Room 212")?.capacity).toBe(6);
+
+  // A duplicate left behind by an earlier import is retired by the next
+  // import, which also applies the building from the sheet.
+  await seedRoom(t, { accommodationType: "hostel", name: "Room 212", capacity: 2 });
+  const cleaned = await t.mutation(api.agcRoomAssignments.importRooms, {
+    sessionToken: token,
+    rows: [
+      { accommodationType: "hostel", name: "Room 212", capacity: 6, building: "Block A" },
+    ],
+  });
+  expect(cleaned.removed).toBe(1);
+  rooms = await t.query(api.agcRoomAssignments.listRoomsAdmin, {
+    sessionToken: token,
+  });
+  expect(rooms.filter((room) => room.name === "Room 212")).toHaveLength(1);
+  expect(rooms.find((room) => room.name === "Room 212")?.building).toBe("Block A");
+
+  // A sheet without a building column must not wipe the building set above.
+  await t.mutation(api.agcRoomAssignments.importRooms, {
+    sessionToken: token,
+    rows: [{ accommodationType: "hostel", name: "Room 212", capacity: 6 }],
+  });
+  rooms = await t.query(api.agcRoomAssignments.listRoomsAdmin, {
+    sessionToken: token,
+  });
+  expect(rooms.find((room) => room.name === "Room 212")?.building).toBe("Block A");
+
+  // A duplicate somebody is actually roomed in is left alone and reported.
+  const occupiedDuplicate = await seedRoom(t, {
+    accommodationType: "hostel",
+    name: "Room 212",
+    capacity: 4,
+  });
+  const booking = await seedConfirmedBooking(t, {
+    accommodationType: "hostel",
+    gender: "male",
+    count: 1,
+  });
+  await t.mutation(api.agcRoomAssignments.assignGuests, {
+    sessionToken: token,
+    roomId: occupiedDuplicate as Id<"agcRooms">,
+    guestIds: [booking.guestIds[0] as Id<"agcGuests">],
+  });
+  const guarded = await t.mutation(api.agcRoomAssignments.importRooms, {
+    sessionToken: token,
+    rows: [{ accommodationType: "hostel", name: "Room 212", capacity: 6 }],
+  });
+  expect(guarded.removed).toBe(0);
+  expect(guarded.keptOccupied).toBe(1);
+});
+
 test("bulk publish works by type or for every room, and a repeat pass is a no-op", async () => {
   const t = createTestConvex();
   const { token } = await seedStaff(t, "accommodation");
