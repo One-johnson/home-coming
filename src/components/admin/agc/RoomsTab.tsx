@@ -145,6 +145,7 @@ export function RoomsTab() {
   const unassignGuest = useMutation(api.agcRoomAssignments.unassignGuest);
   const autoAssign = useMutation(api.agcRoomAssignments.autoAssignGuests);
   const publishRooms = useMutation(api.agcRoomAssignments.publishRooms);
+  const deleteRooms = useMutation(api.agcRoomAssignments.deleteRooms);
   const parseImport = useAction(api.agcRoomsImport.parseRoomImportWorkbook);
   const generateTemplate = useAction(api.agcRoomsImport.generateRoomImportTemplate);
   const importRoomsMutation = useMutation(api.agcRoomAssignments.importRooms);
@@ -164,6 +165,11 @@ export function RoomsTab() {
   const [roomingOpen, setRoomingOpen] = useState(false);
   const [roomingType, setRoomingType] = useState<string>("all");
   const [publishScopeValue, setPublishScopeValue] = useState("");
+
+  // Bulk delete dialog
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [deleteScope, setDeleteScope] = useState("");
+  const [deleteConfirm, setDeleteConfirm] = useState("");
   const [roomView, setRoomView] = useState<RoomView>("all");
   const [roomSearch, setRoomSearch] = useState("");
   /** Accordion: one group open at a time. undefined = pick the first match. */
@@ -220,6 +226,21 @@ export function RoomsTab() {
     setOpenGroup(activeGroup === type ? null : type);
 
   const publishedCount = list.filter((room) => room.publishedAt != null).length;
+
+  const deleteTargets = useMemo(() => {
+    if (deleteScope === "all") return list;
+    if (deleteScope.startsWith("type:")) {
+      const type = deleteScope.slice("type:".length);
+      return list.filter((room) => room.accommodationType === type);
+    }
+    if (deleteScope.startsWith("building:")) {
+      const building = deleteScope.slice("building:".length);
+      return list.filter((room) => room.building === building);
+    }
+    return [];
+  }, [deleteScope, list]);
+  const deletableRooms = deleteTargets.filter((room) => room.occupants === 0);
+  const occupiedInDeleteScope = deleteTargets.length - deletableRooms.length;
 
   const buildings = useMemo(
     () => [...new Set(list.map((room) => room.building).filter(Boolean) as string[])],
@@ -378,6 +399,37 @@ export function RoomsTab() {
   };
 
   /** Bulk publish scopes from the "Publish…" menu (all, a type, or a block). */
+  const runBulkDelete = async () => {
+    if (!sessionToken || !deleteScope || deleteConfirm !== "DELETE") return;
+    setBusy(true);
+    try {
+      const scope =
+        deleteScope === "all"
+          ? { all: true }
+          : deleteScope.startsWith("type:")
+            ? {
+                accommodationType: deleteScope.slice(
+                  "type:".length,
+                ) as (typeof TYPES)[number],
+              }
+            : { building: deleteScope.slice("building:".length) };
+      const result = await deleteRooms({ sessionToken, ...scope });
+      toast.success(
+        `Deleted ${result.deleted} room(s)` +
+          (result.kept > 0
+            ? ` — kept ${result.kept} that still hold delegates`
+            : ""),
+      );
+      setBulkDeleteOpen(false);
+      setDeleteScope("");
+      setDeleteConfirm("");
+    } catch (err) {
+      toast.error(...toastFriendlyErrorParts(err, "Bulk delete failed"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const publishScope = async (scope: string) => {
     if (!scope) return;
     if (scope === "all") {
@@ -520,6 +572,15 @@ export function RoomsTab() {
         </Button>
         <Button size="sm" variant="outline" onClick={() => setRoomingOpen(true)} disabled={list.length === 0}>
           <Printer className="size-4" /> Rooming list
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          className="gap-1 text-destructive hover:text-destructive"
+          onClick={() => setBulkDeleteOpen(true)}
+          disabled={busy || list.length === 0}
+        >
+          <Trash2 className="size-4" /> Bulk delete
         </Button>
         <Select
           value={publishScopeValue}
@@ -1013,6 +1074,110 @@ export function RoomsTab() {
                 disabled={busy || assignPicks.length === 0}
               >
                 Assign {assignPicks.length || ""}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk delete */}
+      <Dialog
+        open={bulkDeleteOpen}
+        onOpenChange={(open) => {
+          setBulkDeleteOpen(open);
+          if (!open) setDeleteConfirm("");
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Delete rooms in bulk</DialogTitle>
+            <DialogDescription>
+              This removes rooms from the inventory and from what hub reps can
+              see. Rooms that still hold delegates are never deleted — move
+              those guests first. Assignment history is kept (§9).
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>What to delete</Label>
+              <Select
+                value={deleteScope}
+                onValueChange={(value) => {
+                  setDeleteScope(value ?? "");
+                  setDeleteConfirm("");
+                }}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Choose a scope…" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All {list.length} room(s)</SelectItem>
+                  {TYPES.filter((type) =>
+                    list.some((room) => room.accommodationType === type),
+                  ).map((type) => (
+                    <SelectItem key={type} value={`type:${type}`}>
+                      All {TYPE_LABEL(type)} (
+                      {list.filter((room) => room.accommodationType === type).length})
+                    </SelectItem>
+                  ))}
+                  {buildings.map((building) => (
+                    <SelectItem key={building} value={`building:${building}`}>
+                      Block — {building}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {deleteScope && (
+              <div className="rounded-lg border border-rose-200 bg-rose-50 p-2 text-xs text-rose-800">
+                <p className="font-medium">
+                  {deletableRooms.length} room(s) will be deleted.
+                </p>
+                {occupiedInDeleteScope > 0 && (
+                  <p className="mt-0.5">
+                    {occupiedInDeleteScope} room(s) still hold delegates and will
+                    be kept.
+                  </p>
+                )}
+                {deletableRooms.length === 0 && (
+                  <p className="mt-0.5">
+                    Nothing can be deleted in this scope right now.
+                  </p>
+                )}
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              <Label>
+                Type <span className="font-mono font-semibold">DELETE</span> to
+                confirm
+              </Label>
+              <Input
+                value={deleteConfirm}
+                onChange={(e) => setDeleteConfirm(e.target.value)}
+                placeholder="DELETE"
+                autoComplete="off"
+                aria-label="Type DELETE to confirm"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setBulkDeleteOpen(false)}
+                disabled={busy}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => void runBulkDelete()}
+                disabled={
+                  busy || deleteConfirm !== "DELETE" || deletableRooms.length === 0
+                }
+              >
+                <Trash2 className="size-4" /> Delete {deletableRooms.length} room(s)
               </Button>
             </div>
           </div>

@@ -205,6 +205,94 @@ export const deleteRoom = mutation({
   },
 });
 
+/**
+ * The live rooms a bulk action addresses: explicit ids, a building, one
+ * accommodation type, or every room. Bulk passes matter because an imported
+ * workbook carries no building column, so blocks are not always available.
+ */
+async function resolveRoomScope(
+  ctx: MutationCtx,
+  scope: {
+    roomIds?: Id<"agcRooms">[];
+    building?: string;
+    accommodationType?: Doc<"agcRooms">["accommodationType"];
+    all?: boolean;
+  },
+): Promise<Doc<"agcRooms">[]> {
+  if (scope.roomIds && scope.roomIds.length > 0) {
+    const rooms = await Promise.all(scope.roomIds.map((id) => ctx.db.get(id)));
+    return rooms.filter(
+      (room): room is Doc<"agcRooms"> => !!room && !room.deletedAt,
+    );
+  }
+  const rooms = (await ctx.db.query("agcRooms").collect()).filter(
+    (room) => !room.deletedAt,
+  );
+  if (scope.building) {
+    return rooms.filter((room) => room.building === scope.building);
+  }
+  if (scope.accommodationType) {
+    return rooms.filter(
+      (room) => room.accommodationType === scope.accommodationType,
+    );
+  }
+  if (scope.all) return rooms;
+  throw new ConvexError("Choose rooms, a building, a type or all rooms");
+}
+
+/**
+ * Bulk delete (soft). Rooms still holding delegates are kept and reported —
+ * nobody is ever orphaned by a sweep — and the audit log records the scope.
+ */
+export const deleteRooms = mutation({
+  args: {
+    sessionToken: v.string(),
+    roomIds: v.optional(v.array(v.id("agcRooms"))),
+    building: v.optional(v.string()),
+    accommodationType: v.optional(agcAccommodationType),
+    all: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireRole(ctx, args.sessionToken, [...ROOM_AREA_ROLES]);
+    const rooms = await resolveRoomScope(ctx, args);
+    if (rooms.length === 0) throw new ConvexError("No matching rooms");
+
+    let deleted = 0;
+    const kept: string[] = [];
+    for (const room of rooms) {
+      const occupants = await openAssignmentsForRoom(ctx, room._id);
+      if (occupants.length > 0) {
+        kept.push(room.name);
+        continue;
+      }
+      await ctx.db.patch(room._id, { deletedAt: Date.now() });
+      deleted += 1;
+    }
+    if (deleted === 0) {
+      throw new ConvexError(
+        `All ${kept.length} matching room(s) still hold delegates — move them out first`,
+      );
+    }
+
+    await writeAuditLog(ctx, {
+      actorUserId: actor._id,
+      actorEmail: actor.email,
+      action: "agc_room.deleted_bulk",
+      entityType: "agcRooms",
+      summary: `Bulk-deleted ${deleted} room(s) by ${actor.email}${kept.length > 0 ? `, kept ${kept.length} with delegates` : ""}`,
+      metadata: {
+        deleted,
+        kept: kept.length,
+        keptNames: kept.slice(0, 25),
+        building: args.building ?? null,
+        accommodationType: args.accommodationType ?? null,
+        all: args.all ?? false,
+      },
+    });
+    return { deleted, kept: kept.length, keptNames: kept.slice(0, 25) };
+  },
+});
+
 // ------------------------------------------------------------------
 // Assignments
 // ------------------------------------------------------------------
@@ -828,27 +916,7 @@ export const publishRooms = mutation({
   handler: async (ctx, args) => {
     const actor = await requireRole(ctx, args.sessionToken, [...ROOM_AREA_ROLES]);
 
-    let rooms: Doc<"agcRooms">[];
-    if (args.roomIds && args.roomIds.length > 0) {
-      rooms = (await Promise.all(args.roomIds.map((id) => ctx.db.get(id)))).filter(
-        (room): room is Doc<"agcRooms"> => !!room && !room.deletedAt,
-      );
-    } else if (args.building) {
-      rooms = (await ctx.db.query("agcRooms").collect()).filter(
-        (room) => !room.deletedAt && room.building === args.building,
-      );
-    } else if (args.accommodationType) {
-      rooms = (await ctx.db.query("agcRooms").collect()).filter(
-        (room) =>
-          !room.deletedAt && room.accommodationType === args.accommodationType,
-      );
-    } else if (args.all) {
-      rooms = (await ctx.db.query("agcRooms").collect()).filter(
-        (room) => !room.deletedAt,
-      );
-    } else {
-      throw new ConvexError("Select rooms, a building, a type or all rooms to publish");
-    }
+    const rooms = await resolveRoomScope(ctx, args);
     if (rooms.length === 0) throw new ConvexError("No matching rooms");
     const matched = rooms.length;
 

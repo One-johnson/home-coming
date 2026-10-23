@@ -505,6 +505,63 @@ test("room import is idempotent: repeats update in place and duplicates are remo
   expect(guarded.keptOccupied).toBe(1);
 });
 
+test("bulk delete retires empty rooms and never orphans delegates", async () => {
+  const t = createTestConvex();
+  const { token } = await seedStaff(t, "accommodation");
+  await seedRoom(t, { accommodationType: "hostel", name: "Empty 1", capacity: 2 });
+  const occupied = await seedRoom(t, {
+    accommodationType: "hostel",
+    name: "Occupied 1",
+    capacity: 2,
+  });
+  await seedRoom(t, {
+    accommodationType: "wise_serpents",
+    name: "WASL 9",
+    capacity: 2,
+  });
+
+  const booking = await seedConfirmedBooking(t, {
+    accommodationType: "hostel",
+    gender: "male",
+    count: 1,
+  });
+  await t.mutation(api.agcRoomAssignments.assignGuests, {
+    sessionToken: token,
+    roomId: occupied as Id<"agcRooms">,
+    guestIds: [booking.guestIds[0] as Id<"agcGuests">],
+  });
+
+  const sweep = await t.mutation(api.agcRoomAssignments.deleteRooms, {
+    sessionToken: token,
+    accommodationType: "hostel",
+  });
+  expect(sweep.deleted).toBe(1);
+  expect(sweep.kept).toBe(1);
+  expect(sweep.keptNames).toEqual(["Occupied 1"]);
+
+  let rooms = await t.query(api.agcRoomAssignments.listRoomsAdmin, {
+    sessionToken: token,
+  });
+  expect(rooms.map((room) => room.name).sort()).toEqual(["Occupied 1", "WASL 9"]);
+
+  // A scope where every room still holds delegates is refused outright.
+  await expect(() =>
+    t.mutation(api.agcRoomAssignments.deleteRooms, {
+      sessionToken: token,
+      accommodationType: "hostel",
+    }),
+  ).rejects.toThrow(/still hold delegates/);
+
+  // Deleting rooms stays with the accommodation area, not the desk.
+  const checker = await seedStaff(t, "checkin");
+  await expect(() =>
+    t.mutation(api.agcRoomAssignments.deleteRooms, {
+      sessionToken: checker.token,
+      all: true,
+    }),
+  ).rejects.toThrow();
+});
+
 test("bulk publish works by type or for every room, and a repeat pass is a no-op", async () => {
   const t = createTestConvex();
   const { token } = await seedStaff(t, "accommodation");
