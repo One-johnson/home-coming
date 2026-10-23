@@ -167,11 +167,24 @@ function isReleasedPoaHold(booking: RepBooking) {
   );
 }
 
+/**
+ * The guests a booking card should name.
+ *
+ * Closing a booking retires its guest rows, so a released hold has no `active`
+ * guests left — but the card still has to show who the re-book is for.
+ */
+function rosterGuests(booking: RepBooking): RepBooking["guests"] {
+  const active = booking.guests.filter((guest) => guest.status === "active");
+  return active.length > 0 ? active : booking.guests;
+}
+
 /** The same guests and beds as a booking, ready to be booked again. */
 function draftsFromBooking(booking: RepBooking): Draft[] {
-  const active = booking.guests.filter((guest) => guest.status === "active");
-  if (active.length > 0) {
-    return active.map((guest) => ({
+  // Retired rows still carry the names, which is the whole point of the
+  // re-book shortcut on a released hold — so any roster beats a blank form.
+  const roster = rosterGuests(booking);
+  if (roster.length > 0) {
+    return roster.map((guest) => ({
       firstName: guest.firstName,
       lastName: guest.lastName,
       gender: guest.gender === "female" ? "female" : "male",
@@ -1081,9 +1094,7 @@ function BookingCard({
     booking.bookingStatus === "reserved" &&
     booking.paymentStatus === "awaiting_payment";
   const isReserved = booking.bookingStatus === "reserved";
-  const activeGuests = booking.guests.filter(
-    (guest) => guest.status === "active",
-  );
+  const roster = rosterGuests(booking);
 
   return (
     <div className="flex flex-col rounded-xl border bg-card p-4 text-sm">
@@ -1127,7 +1138,7 @@ function BookingCard({
           {formatMoney(booking.totalAmount, booking.currency)}
         </p>
         <p className="text-xs text-muted-foreground">
-          {activeGuests.length} guest{activeGuests.length === 1 ? "" : "s"} ·{" "}
+          {roster.length} guest{roster.length === 1 ? "" : "s"} ·{" "}
           {booking.paymentMode === "payment_on_arrival"
             ? "pay on arrival"
             : booking.paymentMode === "offline"
@@ -1143,7 +1154,7 @@ function BookingCard({
       ) : null}
 
       <ul className="mt-3 space-y-1.5">
-        {activeGuests.map((guest) => (
+        {roster.map((guest) => (
           <li key={guest._id} className="flex items-center gap-2.5">
             <span
               aria-hidden
@@ -2758,7 +2769,7 @@ export function RepAccommodationTab() {
                               {booking.referenceNumber || "(pending)"}
                             </TableCell>
                             <TableCell className="tabular-nums">
-                              {booking.guests.filter((g) => g.status === "active").length}
+                              {rosterGuests(booking).length}
                             </TableCell>
                             <TableCell className="whitespace-nowrap">
                               {booking.currency} {booking.totalAmount}

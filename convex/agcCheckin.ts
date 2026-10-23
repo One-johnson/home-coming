@@ -168,6 +168,18 @@ export const searchDelegates = query({
       if (guest.status !== "active") continue;
       const name = guestLabel(guest);
       const booking = bookingById.get(guest.bookingId);
+      // The desk searches delegates who still have a stay behind them. Rows on
+      // a closed or trashed booking are skipped here as well as at the source,
+      // because holds released before guests were retired still carry `active`
+      // rows — and the desk must not offer a delegate twice or from a dead hold.
+      if (
+        !booking ||
+        booking.deletedAt ||
+        booking.bookingStatus === "expired" ||
+        booking.bookingStatus === "cancelled"
+      ) {
+        continue;
+      }
       const hubName = hubNameById.get(guest.hubId) ?? "(unknown)";
       if (term) {
         const haystack = `${name} ${guest.firstName} ${guest.lastName} ${hubName}`.toLowerCase();

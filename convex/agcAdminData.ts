@@ -35,6 +35,7 @@ import {
   livePoolCounts,
   reconcileExpiredBookingInventory,
   releaseBookingInventory,
+  retireBookingGuests,
 } from "./agcAccommodation";
 import {
   getAccommodationTypesConfig,
@@ -2107,6 +2108,9 @@ export const reviewAgcBooking = mutation({
         adminMessage: args.message || undefined,
         updatedAt: Date.now(),
       });
+      // A rejected receipt ends the reservation, so its delegates come off the
+      // desk with it — otherwise the hub's re-book doubles every one of them.
+      await retireBookingGuests(ctx, args.bookingId, "cancelled");
     } else {
       await ctx.db.patch(args.bookingId, {
         paymentStatus: "correction_requested",
@@ -2361,6 +2365,9 @@ async function deleteBookingRecord(
       bookingStatus: "expired",
       expiresAt: undefined,
     });
+    // Trashing a hold ends its reservation too: restore brings the record back
+    // as expired, so its delegates must not return as live either.
+    await retireBookingGuests(ctx, booking._id, "expired");
   }
   // Frees room assignments while guests stay intact for a possible restore.
   for (const guest of await ctx.db

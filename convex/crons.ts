@@ -1,10 +1,12 @@
 import { cronJobs } from "convex/server";
+import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalMutation } from "./_generated/server";
 import {
   expireOverdueHolds,
   reconcileExpiredBookingInventory,
   reconcilePoolCounters,
+  retireBookingGuests,
 } from "./agcAccommodation";
 
 const crons = cronJobs();
@@ -46,6 +48,59 @@ crons.interval(
 export const reconcileExpiredBookingsOnce = internalMutation({
   args: {},
   handler: async (ctx) => reconcileExpiredBookingInventory(ctx),
+});
+
+/**
+ * One-off backfill for holds released before guests were retired: their rosters
+ * are still `active`, so metrics, exports and the guest lists kept counting
+ * delegates from bookings that hold no beds.
+ *
+ * Copies one page of bookings, retires the roster of every closed or trashed
+ * one, and returns a cursor — so it is bounded, idempotent and safe to re-run.
+ * Future closes cascade on their own; this only cleans up history.
+ *
+ * `npx convex run crons:backfillRetiredGuests '{}'`
+ * `npx convex run crons:backfillRetiredGuests '{"cursor":"<continueCursor>"}'`
+ * …until the result says `isDone: true`.
+ */
+export const backfillRetiredGuests = internalMutation({
+  args: {
+    cursor: v.optional(v.union(v.string(), v.null())),
+    pageSize: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const page = await ctx.db.query("agcBookings").paginate({
+      cursor: args.cursor ?? null,
+      numItems: Math.min(Math.max(args.pageSize ?? 100, 1), 500),
+    });
+
+    let bookings = 0;
+    let guests = 0;
+    for (const booking of page.page) {
+      const closedBefore =
+        booking.deletedAt !== undefined ||
+        booking.bookingStatus === "expired" ||
+        booking.bookingStatus === "cancelled";
+      if (!closedBefore) continue;
+      const retired = await retireBookingGuests(
+        ctx,
+        booking._id,
+        booking.bookingStatus === "cancelled" ? "cancelled" : "expired",
+      );
+      if (retired > 0) {
+        bookings += 1;
+        guests += retired;
+      }
+    }
+
+    return {
+      scanned: page.page.length,
+      bookings,
+      guests,
+      cursor: page.continueCursor,
+      isDone: page.isDone,
+    };
+  },
 });
 
 /**

@@ -19,6 +19,7 @@ import {
   availabilityForRegion,
   createBookingWithGuests,
   releaseBookingInventory,
+  retireBookingGuests,
   applySubstitution,
   getHoldHours,
   getDeadlineMs,
@@ -282,6 +283,9 @@ export const cancelBooking = mutation({
       bookingStatus: "cancelled",
       updatedAt: Date.now(),
     });
+    // A cancelled booking's delegates are off the desk for good; without this
+    // their rows stayed live and doubled up when the hub booked again.
+    await retireBookingGuests(ctx, args.bookingId, "cancelled");
 
     await writeAuditLog(ctx, {
       actorEmail: rep.email ?? rep.username,

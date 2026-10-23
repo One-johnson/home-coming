@@ -488,8 +488,9 @@ export const getRepOverview = query({
         accPaidAmount += booking.totalAmount;
         confirmedBookings += 1;
       } else if (isClosed(booking.bookingStatus)) {
-        // Cancelled/expired holds — guests no longer count toward the hub.
-        accCancelledGuests += activeGuestCount;
+        // Cancelled/expired holds — the whole roster counts as cancelled here
+        // (closing a booking retires its guests, so none of them is active).
+        accCancelledGuests += bookingGuests.length;
         cancelledBookings += 1;
       } else {
         accPendingGuests += activeGuestCount;

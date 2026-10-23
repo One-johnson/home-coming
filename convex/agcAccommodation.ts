@@ -605,6 +605,51 @@ export async function releaseBookingInventory(
 }
 
 /**
+ * Retire a booking's guest rows when the booking itself closes (hold expired,
+ * booking cancelled by the hub, or its receipt rejected).
+ *
+ * A guest row — not a booking — is the unit the desk searches, rooms and
+ * exports, and nothing used to cascade the booking's status into it: a lapsed
+ * hold handed its beds back but left its people `active` forever, so the hub's
+ * re-book produced a second live copy of the same delegate and the arrival desk
+ * listed both. Retiring the roster closes that loop. Rows are flipped to
+ * `cancelled`, never deleted, so the booking keeps its names for history and
+ * for the "book these beds again" prefill.
+ *
+ * Open room assignments end first — a retired guest must not keep holding a bed.
+ * Returns how many rows were still active.
+ */
+export async function retireBookingGuests(
+  ctx: MutationCtx,
+  bookingId: Id<"agcBookings">,
+  status: "expired" | "cancelled",
+): Promise<number> {
+  const active = (
+    await ctx.db
+      .query("agcGuests")
+      .withIndex("by_booking", (q) => q.eq("bookingId", bookingId))
+      .collect()
+  ).filter((guest) => guest.status === "active");
+  if (active.length === 0) return 0;
+
+  const now = Date.now();
+  for (const guest of active) {
+    for (const assignment of await ctx.db
+      .query("agcRoomAssignments")
+      .withIndex("by_guest", (q) => q.eq("guestId", guest._id))
+      .collect()) {
+      if (assignment.endedAt !== undefined) continue;
+      await ctx.db.patch(assignment._id, {
+        endedAt: now,
+        endReason: `Booking ${status}`,
+      });
+    }
+    await ctx.db.patch(guest._id, { status: "cancelled" });
+  }
+  return active.length;
+}
+
+/**
  * Scheduled job: expire bookings whose hold has lapsed (§32–34). Expiring
  * returns the held beds to their pools and flips the booking to `expired`, so a
  * lapsed reservation never keeps counting as held inventory.
@@ -643,6 +688,9 @@ export async function expireOverdueHolds(ctx: MutationCtx): Promise<number> {
       bookingStatus: "expired",
       updatedAt: now,
     });
+    // The beds are gone, so its delegates are too: leaving the rows `active`
+    // put the same people on the arrival desk twice once the hub re-booked.
+    await retireBookingGuests(ctx, booking._id, "expired");
     await writeAuditLog(ctx, {
       actorEmail: "system",
       action: "agc_booking.hold_expired",
