@@ -676,7 +676,10 @@ export function RoomsTab() {
                 aria-expanded={isOpen}
                 aria-controls={panelId}
                 onClick={() => toggleGroup(group.type)}
-                className="flex w-full flex-wrap items-center gap-2 rounded-xl px-3 py-2 text-left transition-colors hover:bg-muted/50"
+                className={cn(
+                  "sticky top-16 z-20 flex w-full flex-wrap items-center gap-2 rounded-t-xl bg-background px-3 py-2 text-left transition-colors hover:bg-muted/60",
+                  isOpen && "border-b",
+                )}
               >
                 <ChevronDown
                   className={cn(
@@ -703,7 +706,7 @@ export function RoomsTab() {
                 )}
               >
                 <div className="overflow-hidden">
-                  <div className="grid gap-3 border-t p-3 sm:grid-cols-2 xl:grid-cols-3">
+                  <div className="grid gap-3 p-3 sm:grid-cols-2 xl:grid-cols-3">
                   {group.rooms.map((room) => {
           const full = room.occupants >= room.capacity;
           const isApartment = room.accommodationType === "ebpv";

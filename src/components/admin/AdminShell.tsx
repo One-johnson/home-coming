@@ -580,7 +580,9 @@ function AdminConsoleFrame({
             />
           </div>
         </header>
-        <div className="min-w-0 flex-1 overflow-x-hidden px-4 pt-20 pb-4 sm:px-6 sm:pb-6 lg:px-8 lg:pb-8">
+        {/* overflow-x-clip, not hidden: hidden makes this a scroll container,
+            which silently disables position: sticky in every admin page. */}
+        <div className="min-w-0 flex-1 overflow-x-clip px-4 pt-20 pb-4 sm:px-6 sm:pb-6 lg:px-8 lg:pb-8">
           {children}
         </div>
       </SidebarInset>
