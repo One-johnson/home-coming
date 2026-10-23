@@ -5,7 +5,6 @@ import {
   BedDoubleIcon,
   ClipboardListIcon,
   LayoutDashboardIcon,
-  LogOutIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useRepSession } from "@/components/portal/RepSessionProvider";
@@ -17,6 +16,8 @@ import { SessionExpiryBanner } from "@/components/auth/SessionExpiryBanner";
 import { RepOverviewTab } from "@/components/portal/RepOverviewTab";
 import { RepRegistrationTab } from "@/components/portal/RepRegistrationTab";
 import { RepAccommodationTab } from "@/components/portal/RepAccommodationTab";
+import { RepNotificationsBell } from "@/components/portal/RepNotificationsBell";
+import { RepProfileMenu } from "@/components/portal/RepProfileMenu";
 import {
   Sidebar,
   SidebarContent,
@@ -102,28 +103,6 @@ function PortalLoading() {
   );
 }
 
-function PortalSignOutButton({
-  className,
-  onSignOut,
-}: {
-  className?: string;
-  onSignOut: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onSignOut}
-      className={cn(
-        "flex w-full items-center gap-2 rounded-md p-2 text-left text-sm text-sidebar-foreground/80 outline-hidden transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-        className,
-      )}
-    >
-      <LogOutIcon className="size-4 shrink-0" />
-      <span>Sign out</span>
-    </button>
-  );
-}
-
 function PortalSidebar({
   rep,
   tab,
@@ -135,6 +114,7 @@ function PortalSidebar({
     firstName: string;
     lastName: string;
     email: string;
+    username?: string;
   };
   tab: PortalTab;
   onSelect: (tab: PortalTab) => void;
@@ -180,15 +160,12 @@ function PortalSidebar({
         </SidebarGroup>
       </SidebarContent>
       <SidebarFooter>
-        <div className="px-2 pb-1 group-data-[collapsible=icon]:hidden">
-          <p className="truncate text-sm font-medium text-sidebar-foreground">
-            {rep.hubName}
-          </p>
-          <p className="truncate text-xs text-sidebar-foreground/60">
-            {rep.firstName} {rep.lastName}
-          </p>
-        </div>
-        <PortalSignOutButton onSignOut={onSignOut} />
+        <RepProfileMenu
+          rep={rep}
+          onSignOut={onSignOut}
+          variant="sidebar"
+          align="start"
+        />
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>
@@ -289,24 +266,7 @@ function PortalBody() {
 
   const content = (
     <div className="space-y-6 pb-24 md:pb-0">
-      <SessionExpiryBanner
-        expiresAt={sessionExpiresAt}
-        onSignOut={signOut}
-      />
-      <div className="flex flex-col gap-3 rounded-lg border bg-card p-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-        <div className="min-w-0">
-          <p className="truncate font-display text-lg text-primary">
-            {rep.hubName}
-          </p>
-          <p className="break-words text-xs text-muted-foreground">
-            {rep.firstName} {rep.lastName} · {rep.email} · Hub: {rep.username}
-          </p>
-        </div>
-        <PortalSignOutButton
-          className="w-full border border-border bg-white sm:hidden"
-          onSignOut={signOut}
-        />
-      </div>
+      <SessionExpiryBanner expiresAt={sessionExpiresAt} onSignOut={signOut} />
       {tab === "overview" && <RepOverviewTab onNavigate={selectTab} />}
       {tab === "registration" && (
         <RepRegistrationTab
@@ -334,7 +294,7 @@ function PortalBody() {
       <PortalFrame
         rep={rep}
         tab={tab}
-        onSelect={(next) => selectTab(next)}
+        onSelect={(next, filter) => selectTab(next, filter)}
         onSignOut={signOut}
       >
         {content}
@@ -357,7 +317,7 @@ function PortalFrame({
     email: string;
   };
   tab: PortalTab;
-  onSelect: (tab: PortalTab) => void;
+  onSelect: (tab: PortalTab, filter?: string) => void;
   onSignOut: () => void;
   children: React.ReactNode;
 }) {
@@ -389,6 +349,8 @@ function PortalFrame({
                 {meta.description}
               </p>
             </div>
+            <RepNotificationsBell onNavigate={onSelect} />
+            <RepProfileMenu rep={rep} onSignOut={onSignOut} />
           </div>
         </header>
         <div className="min-w-0 flex-1 px-3 pt-[calc(env(safe-area-inset-top)+72px)] pb-4">{children}</div>
@@ -426,14 +388,8 @@ function PortalFrame({
               <span>·</span>
               <span>Rep portal</span>
             </div>
-            <button
-              type="button"
-              onClick={onSignOut}
-              className="inline-flex size-9 items-center justify-center rounded-lg border border-border bg-white text-muted-foreground outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
-              aria-label="Sign out"
-            >
-              <LogOutIcon className="size-4" />
-            </button>
+            <RepNotificationsBell onNavigate={onSelect} />
+            <RepProfileMenu rep={rep} onSignOut={onSignOut} />
           </div>
         </header>
         <div className="min-w-0 flex-1 overflow-x-hidden px-4 pt-20 pb-4 sm:px-6 sm:pb-6 lg:px-8 lg:pb-8">
