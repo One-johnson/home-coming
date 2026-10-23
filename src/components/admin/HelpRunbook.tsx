@@ -64,7 +64,7 @@ const SECTIONS: RunbookSection[] = [
         text: "Commit: same-named rows update in place, others are created. EBPV rows over 4 delegates are rejected.",
       },
       {
-        text: "Publish per building as rooms become ready — reps see only published rooms and only their own delegates.",
+        text: "Publish from the Publish… menu: all rooms at once, every room of one type, or one block as it becomes ready. Reps see only published rooms and only their own delegates.",
       },
     ],
   },

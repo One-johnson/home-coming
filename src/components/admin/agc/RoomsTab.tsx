@@ -158,6 +158,7 @@ export function RoomsTab() {
   const [busy, setBusy] = useState(false);
   const [roomingOpen, setRoomingOpen] = useState(false);
   const [roomingType, setRoomingType] = useState<string>("all");
+  const [publishScopeValue, setPublishScopeValue] = useState("");
 
   // Unassigned-queue filters (§5)
   const [guestFilter, setGuestFilter] = useState("");
@@ -302,22 +303,60 @@ export function RoomsTab() {
     }
   };
 
-  const publish = async (roomIds: string[] | null, building: string | null, publishValue: boolean) => {
+  const publish = async (request: {
+    roomIds?: string[];
+    building?: string;
+    accommodationType?: string;
+    all?: boolean;
+    publish: boolean;
+    label: string;
+  }) => {
     if (!sessionToken) return;
+    setBusy(true);
     try {
       const result = await publishRooms({
         sessionToken,
-        roomIds: roomIds
-          ? (roomIds as Id<"agcRooms">[])
+        roomIds: request.roomIds
+          ? (request.roomIds as Id<"agcRooms">[])
           : undefined,
-        building: building ?? undefined,
-        publish: publishValue,
+        building: request.building,
+        accommodationType: request.accommodationType as (typeof TYPES)[number] | undefined,
+        all: request.all,
+        publish: request.publish,
       });
-      toast.success(
-        `${publishValue ? "Published" : "Unpublished"} ${result.count} room(s) — reps can now see them.`,
-      );
+      if (result.count === 0) {
+        toast.info(
+          `${request.label} — nothing to change, those ${result.matched} room(s) were already ${request.publish ? "published" : "unpublished"}.`,
+        );
+      } else {
+        toast.success(
+          request.publish
+            ? `Published ${result.count} room(s) — reps can now see them.`
+            : `Unpublished ${result.count} room(s) — reps can no longer see them.`,
+        );
+      }
     } catch (err) {
       toast.error(...toastFriendlyErrorParts(err, "Publish failed"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** Bulk publish scopes from the "Publish…" menu (all, a type, or a block). */
+  const publishScope = async (scope: string) => {
+    if (!scope) return;
+    if (scope === "all") {
+      await publish({ all: true, publish: true, label: "Publish all rooms" });
+    } else if (scope.startsWith("type:")) {
+      const type = scope.slice("type:".length);
+      await publish({
+        accommodationType: type,
+        publish: true,
+        label: `Publish all ${TYPE_LABEL(type)} rooms`,
+      });
+    } else if (scope.startsWith("building:")) {
+      const building = scope.slice("building:".length);
+      await publish({ building, publish: true, label: `Publish ${building}` });
     }
   };
 
@@ -442,25 +481,38 @@ export function RoomsTab() {
         <Button size="sm" variant="outline" onClick={() => setRoomingOpen(true)} disabled={list.length === 0}>
           <Printer className="size-4" /> Rooming list
         </Button>
-        {buildings.length > 0 && (
-          <Select
-            onValueChange={(value) => {
-              const building = typeof value === "string" ? value : "";
-              if (building) void publish(null, building, true);
-            }}
-          >
-            <SelectTrigger className="h-9 w-40" aria-label="Publish a block">
-              <SelectValue placeholder="Publish block…" />
-            </SelectTrigger>
-            <SelectContent>
-              {buildings.map((building) => (
-                <SelectItem key={building} value={building}>
-                  Publish {building}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
+        <Select
+          value={publishScopeValue}
+          onValueChange={(value) => {
+            const scope = typeof value === "string" ? value : "";
+            setPublishScopeValue(scope);
+            void publishScope(scope);
+            setPublishScopeValue("");
+          }}
+          disabled={busy || list.length === 0}
+        >
+          <SelectTrigger className="h-9 w-56" aria-label="Publish rooms in bulk">
+            <SelectValue placeholder="Publish…" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">
+              Publish all {list.length} room(s)
+            </SelectItem>
+            {TYPES.filter((type) =>
+              list.some((room) => room.accommodationType === type),
+            ).map((type) => (
+              <SelectItem key={type} value={`type:${type}`}>
+                Publish all {TYPE_LABEL(type)} (
+                {list.filter((room) => room.accommodationType === type).length})
+              </SelectItem>
+            ))}
+            {buildings.map((building) => (
+              <SelectItem key={building} value={`building:${building}`}>
+                Publish block — {building}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <span className="grow" />
         <span className="text-sm text-muted-foreground tabular-nums">
           {usedBeds}/{totalBeds} {list.some((r) => r.accommodationType === "ebpv") ? "spaces" : "beds"} filled · {guests.length} awaiting a room
@@ -576,10 +628,13 @@ export function RoomsTab() {
                 <button
                   type="button"
                   className="text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
-                  onClick={async () => {
-                    if (room.publishedAt) await publish([room._id], null, false);
-                    else await publish([room._id], null, true);
-                  }}
+                  onClick={() =>
+                    void publish({
+                      roomIds: [room._id],
+                      publish: !room.publishedAt,
+                      label: room.name,
+                    })
+                  }
                 >
                   {published ? "unpublish" : "publish"}
                 </button>

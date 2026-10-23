@@ -46,9 +46,12 @@ Route: **Accommodation → Rooms tab** (Steps 7–12).
    exceed a pool; fix the sheet or the pool first.
 3. **Commit** — same-named rows update capacity/building in place, others are
    created. EBPV rows over 4 delegates are rejected at commit.
-4. **Publish** — rooms (or the whole block) become visible to hub reps the
-   moment you publish. Reps see only published rooms and only their own
-   delegates (§8). Publish per building as rooms become ready.
+4. **Publish** — rooms become visible to hub reps the moment you publish. Reps
+   see only published rooms and only their own delegates (§8). The **Publish…**
+   menu on the Rooms tab does it in one pass: *all rooms*, *every room of one
+   type*, or *a single block* when rooms carry a building. Unpublishing is per
+   room from its card; publishing never blocks assignment or check-in — it only
+   controls what reps can see.
 
 If a room is wrong after the fact: `Move`/`change room` writes an append-only
 history row — the old assignment is never deleted (§9).

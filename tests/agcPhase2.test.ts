@@ -412,6 +412,76 @@ test("publishing gates rep visibility, hub-scoped", async () => {
   expect(otherRooms).toHaveLength(0);
 });
 
+test("bulk publish works by type or for every room, and a repeat pass is a no-op", async () => {
+  const t = createTestConvex();
+  const { token } = await seedStaff(t, "accommodation");
+
+  await seedRoom(t, { accommodationType: "hostel", name: "Hostel A", capacity: 4 });
+  await seedRoom(t, { accommodationType: "hostel", name: "Hostel B", capacity: 4 });
+  await seedRoom(t, { accommodationType: "wise_serpents", name: "WASL 1", capacity: 2 });
+  await seedRoom(t, { accommodationType: "good_general", name: "GGL 1", capacity: 2 });
+
+  // One type at a time — the rest stay hidden from reps.
+  const byType = await t.mutation(api.agcRoomAssignments.publishRooms, {
+    sessionToken: token,
+    accommodationType: "hostel",
+    publish: true,
+  });
+  expect(byType.count).toBe(2);
+
+  let rooms = await t.query(api.agcRoomAssignments.listRoomsAdmin, {
+    sessionToken: token,
+  });
+  expect(
+    rooms
+      .filter((room) => room.publishedAt !== null)
+      .map((room) => room.name)
+      .sort(),
+  ).toEqual(["Hostel A", "Hostel B"]);
+
+  // Every room at once picks up the ones left behind.
+  const everything = await t.mutation(api.agcRoomAssignments.publishRooms, {
+    sessionToken: token,
+    all: true,
+    publish: true,
+  });
+  expect(everything.count).toBe(2);
+  expect(everything.matched).toBe(4);
+
+  rooms = await t.query(api.agcRoomAssignments.listRoomsAdmin, {
+    sessionToken: token,
+  });
+  expect(rooms.every((room) => room.publishedAt !== null)).toBe(true);
+
+  // A second pass changes nothing and keeps each room's publish timestamp.
+  const stamps = new Map(rooms.map((room) => [room.name, room.publishedAt]));
+  const repeat = await t.mutation(api.agcRoomAssignments.publishRooms, {
+    sessionToken: token,
+    all: true,
+    publish: true,
+  });
+  expect(repeat.count).toBe(0);
+  expect(repeat.matched).toBe(4);
+  rooms = await t.query(api.agcRoomAssignments.listRoomsAdmin, {
+    sessionToken: token,
+  });
+  for (const room of rooms) {
+    expect(room.publishedAt).toBe(stamps.get(room.name));
+  }
+
+  // Whole-type unpublish removes them from rep visibility again.
+  const hidden = await t.mutation(api.agcRoomAssignments.publishRooms, {
+    sessionToken: token,
+    accommodationType: "wise_serpents",
+    publish: false,
+  });
+  expect(hidden.count).toBe(1);
+  rooms = await t.query(api.agcRoomAssignments.listRoomsAdmin, {
+    sessionToken: token,
+  });
+  expect(rooms.find((room) => room.name === "WASL 1")?.publishedAt).toBeNull();
+});
+
 test("check-in: duplicate prevention, unassigned referral, and payment override gating", async () => {
   const t = createTestConvex();
   const checkSeed = await seedStaff(t, "checkin");

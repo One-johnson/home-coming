@@ -808,12 +808,21 @@ export const getGuestRoomHistory = query({
 // Publishing (Phase 2 §8) — Accommodation Admin only
 // ------------------------------------------------------------------
 
-/** Publish one or many rooms (or a whole building) for rep visibility. */
+/**
+ * Publish rooms for rep visibility: explicit room ids, a whole building, one
+ * accommodation type, or every room at once — bulk passes matter because an
+ * imported workbook carries no building column, so blocks are not always
+ * available to scope by.
+ */
 export const publishRooms = mutation({
   args: {
     sessionToken: v.string(),
     roomIds: v.optional(v.array(v.id("agcRooms"))),
     building: v.optional(v.string()),
+    /** Every room of one accommodation type. */
+    accommodationType: v.optional(agcAccommodationType),
+    /** Every room, regardless of type or building. */
+    all: v.optional(v.boolean()),
     publish: v.boolean(),
   },
   handler: async (ctx, args) => {
@@ -828,13 +837,32 @@ export const publishRooms = mutation({
       rooms = (await ctx.db.query("agcRooms").collect()).filter(
         (room) => !room.deletedAt && room.building === args.building,
       );
+    } else if (args.accommodationType) {
+      rooms = (await ctx.db.query("agcRooms").collect()).filter(
+        (room) =>
+          !room.deletedAt && room.accommodationType === args.accommodationType,
+      );
+    } else if (args.all) {
+      rooms = (await ctx.db.query("agcRooms").collect()).filter(
+        (room) => !room.deletedAt,
+      );
     } else {
-      throw new ConvexError("Select rooms or a building to publish");
+      throw new ConvexError("Select rooms, a building, a type or all rooms to publish");
     }
     if (rooms.length === 0) throw new ConvexError("No matching rooms");
+    const matched = rooms.length;
+
+    // Only touch rooms whose visibility actually changes, so a repeat bulk
+    // pass keeps each room's original publish timestamp.
+    const changing = rooms.filter(
+      (room) => (room.publishedAt !== undefined) !== args.publish,
+    );
+    if (changing.length === 0) {
+      return { count: 0, matched };
+    }
 
     const now = Date.now();
-    for (const room of rooms) {
+    for (const room of changing) {
       await ctx.db.patch(room._id, {
         publishedAt: args.publish ? now : undefined,
         publishedBy: args.publish ? actor.email : undefined,
@@ -845,10 +873,15 @@ export const publishRooms = mutation({
       actorEmail: actor.email,
       action: args.publish ? "agc_room.published" : "agc_room.unpublished",
       entityType: "agcRooms",
-      summary: `${args.publish ? "Published" : "Unpublished"} ${rooms.length} room(s) by ${actor.email}`,
-      metadata: { roomIds: rooms.map((room) => room._id), building: args.building ?? null },
+      summary: `${args.publish ? "Published" : "Unpublished"} ${changing.length} room(s) by ${actor.email}`,
+      metadata: {
+        roomIds: changing.map((room) => room._id),
+        building: args.building ?? null,
+        accommodationType: args.accommodationType ?? null,
+        all: args.all ?? false,
+      },
     });
-    return { count: rooms.length };
+    return { count: changing.length, matched };
   },
 });
 
