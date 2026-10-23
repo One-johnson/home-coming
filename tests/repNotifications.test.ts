@@ -1,10 +1,17 @@
 import { describe, expect, test } from "vitest";
 import {
   buildRepNotifications,
+  dismissNotification,
+  emptyNotificationPrefs,
   markNotificationsSeen,
+  notificationPrefsKey,
   notificationSeenKey,
+  parseNotificationPrefs,
   parseSeenIds,
+  restoreDismissedNotifications,
+  snoozeNotification,
   unseenNotifications,
+  visibleNotifications,
 } from "../src/lib/repNotifications";
 import type { NotificationSource } from "../src/lib/repNotifications";
 import type { RepBooking } from "../src/lib/agcBookingTypes";
@@ -210,6 +217,59 @@ describe("seen bookkeeping", () => {
     expect(merged).toHaveLength(200);
     expect(merged.at(-1)).toBe("newest");
     expect(merged[0]).toBe("id-11");
+  });
+
+  test("dismissed entries leave the feed, snoozed entries only until they lapse", () => {
+    const items = buildRepNotifications(
+      source({
+        receiptsPending: 1,
+        publishedRooms: [{ roomId: "r1", name: "Block A" }],
+      }),
+    );
+    const dismissed = dismissNotification(emptyNotificationPrefs(), "rooms-published", NOW);
+    expect(
+      visibleNotifications(items, dismissed, NOW).map((item) => item.id),
+    ).toEqual(["receipts-review"]);
+
+    const snoozed = snoozeNotification(emptyNotificationPrefs(), "receipts-review", NOW);
+    expect(visibleNotifications(items, snoozed, NOW)).toHaveLength(1);
+    expect(visibleNotifications(items, snoozed, NOW).map((item) => item.id)).toEqual([
+      "rooms-published",
+    ]);
+    // Four hours later the snooze has lapsed and the entry is back.
+    expect(
+      visibleNotifications(items, snoozed, NOW + 4 * HOUR).map((item) => item.id),
+    ).toContain("receipts-review");
+  });
+
+  test("dismissing prunes lapsed snoozes, de-duplicates and restores", () => {
+    const prefs = {
+      dismissed: ["a"],
+      snoozed: { lapsed: NOW - 1, live: NOW + HOUR },
+    };
+    const next = dismissNotification(prefs, "a", NOW);
+    expect(next.dismissed).toEqual(["a"]);
+    expect(next.snoozed).toEqual({ live: NOW + HOUR });
+
+    expect(restoreDismissedNotifications(next).dismissed).toEqual([]);
+    expect(notificationPrefsKey("accra")).not.toBe(notificationPrefsKey("kumasi"));
+  });
+
+  test("dismissed ids are capped", () => {
+    let prefs = emptyNotificationPrefs();
+    for (let index = 0; index < 205; index += 1) {
+      prefs = dismissNotification(prefs, `id-${index}`, NOW);
+    }
+    expect(prefs.dismissed).toHaveLength(200);
+    expect(prefs.dismissed.at(-1)).toBe("id-204");
+  });
+
+  test("prefs parsing tolerates junk and non-numeric snoozes", () => {
+    expect(parseNotificationPrefs(null)).toEqual(emptyNotificationPrefs());
+    expect(parseNotificationPrefs("nope")).toEqual(emptyNotificationPrefs());
+    expect(
+      parseNotificationPrefs('{"dismissed":["a",2],"snoozed":{"b":5,"c":"x"}}'),
+    ).toEqual({ dismissed: ["a"], snoozed: { b: 5 } });
   });
 
   test("malformed seen values are ignored", () => {

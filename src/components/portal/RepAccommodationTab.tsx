@@ -601,7 +601,8 @@ function GuestRowEditor({
   expanded?: boolean;
   onToggle?: () => void;
   onChange: (patch: Partial<Draft>) => void;
-  onRemove: () => void;
+  /** Omitted in the add-guest dialog, where there is nothing to remove yet. */
+  onRemove?: () => void;
   currency: string;
   accommodationTypes: AccommodationTypeInfo[] | undefined;
   availabilityFor: (type: string) => { available: number } | undefined;
@@ -660,16 +661,18 @@ function GuestRowEditor({
         ) : (
           <div className="min-w-0 flex-1">{summary}</div>
         )}
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          onClick={onRemove}
-          aria-label={`Remove guest ${index + 1}`}
-          className="shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
-        >
-          <Trash2Icon className="size-4" />
-        </Button>
+        {onRemove ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            onClick={onRemove}
+            aria-label={`Remove guest ${index + 1}`}
+            className="shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
+          >
+            <Trash2Icon className="size-4" />
+          </Button>
+        ) : null}
         {onToggle ? (
           <ChevronDownIcon
             aria-hidden
@@ -1618,6 +1621,43 @@ function ExcelPreviewDialog({
   );
 }
 
+/** The paste box itself: inline on phones, inside a dialog on desktop. */
+function RosterPasteFields({
+  value,
+  onChange,
+  errors,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  errors: string[];
+}) {
+  return (
+    <div className="space-y-2">
+      <Textarea
+        value={value}
+        rows={6}
+        aria-label="Paste your guest list"
+        placeholder={
+          "Mr John Doe, M, Hostel\nMrs Mary Mensah, F, EBPV, bishop rate\nKwame Boateng"
+        }
+        onChange={(e) => onChange(e.target.value)}
+      />
+      <p className="text-[11px] text-muted-foreground">
+        The name is required — gender, title and room type are read when
+        present. Blank lines and “#” comments are ignored.
+      </p>
+      {errors.length > 0 && (
+        <ul className="space-y-0.5 text-[11px] text-amber-700 dark:text-amber-400">
+          {errors.slice(0, 4).map((error) => (
+            <li key={error}>• {error}</li>
+          ))}
+          {errors.length > 4 && <li>• and {errors.length - 4} more…</li>}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 /**
  * `initialFilter` is set by the shell when another tab sends the rep here (the
  * Overview cards). The shell remounts on a new hand-off, so it is read once as
@@ -1740,6 +1780,13 @@ export function RepAccommodationTab({
   // Paste-a-roster (the phone-friendly alternative to the Excel import).
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteText, setPasteText] = useState("");
+
+  // Desktop keeps the reservation card short: adding a guest and pasting a
+  // list each happen in their own dialog instead of growing the page.
+  const isCompact = useIsCompact();
+  const [addGuestOpen, setAddGuestOpen] = useState(false);
+  const [newGuestDraft, setNewGuestDraft] = useState<Draft>(() => emptyDraft());
+  const [pasteDialogOpen, setPasteDialogOpen] = useState(false);
 
   // A roster saved on this device (reload/app switch) is restored and named.
   const [restoredCount, setRestoredCount] = useState(() => drafts.length);
@@ -1873,6 +1920,20 @@ export function RepAccommodationTab({
   const addDraft = () => {
     setExpandedGuest(drafts.length);
     setDrafts((prev) => [...prev, emptyDraft()]);
+  };
+
+  /** Desktop: fill one guest in a dialog instead of growing the page. */
+  const openAddGuestDialog = () => {
+    setNewGuestDraft(emptyDraft());
+    setAddGuestOpen(true);
+  };
+
+  const addNewGuest = () => {
+    if (!draftIsValid(newGuestDraft)) return;
+    setDrafts((previous) => [...previous, newGuestDraft]);
+    setExpandedGuest(null);
+    setAddGuestOpen(false);
+    setNewGuestDraft(emptyDraft());
   };
 
   const updateDraft = (index: number, patch: Partial<Draft>) =>
@@ -2403,6 +2464,7 @@ export function RepAccommodationTab({
     setExpandedGuest(null);
     setPasteText("");
     setPasteOpen(false);
+    setPasteDialogOpen(false);
     setMobileView("book");
     toast.success(
       `Added ${rows.length} guest${rows.length === 1 ? "" : "s"} from your list — check the names and reserve.`,
@@ -2737,100 +2799,96 @@ export function RepAccommodationTab({
             ))}
 
 
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={addDraft}
-                className="w-full border-dashed max-md:min-h-10 sm:w-auto"
-              >
-                + Add guest
-              </Button>
+            <div className="space-y-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => (isCompact ? addDraft() : openAddGuestDialog())}
+                  className="w-full border-dashed max-md:min-h-10"
+                >
+                  <UserPlusIcon className="size-4" /> Add guest
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() =>
+                    isCompact ? setPasteOpen(true) : setPasteDialogOpen(true)
+                  }
+                  className="w-full border-dashed max-md:min-h-10"
+                >
+                  <ClipboardPasteIcon className="size-4" /> Paste a list
+                </Button>
+              </div>
               {drafts.length > 0 && !allDraftsValid && (
-                <p className="self-center text-xs text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                   Fill in every guest&apos;s first and last name to continue.
                 </p>
               )}
             </div>
 
-            {/* Phone-friendly bulk entry: pasting a list beats picking a file. */}
-            <div className="rounded-xl border border-dashed bg-muted/20 p-3">
-              <button
-                type="button"
-                onClick={() => setPasteOpen((open) => !open)}
-                aria-expanded={pasteOpen}
-                className="flex w-full items-center gap-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <ClipboardPasteIcon className="size-4 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-medium">
-                    Paste a list of names
+            {/* Phones keep the paste box inline; desktops open it in a dialog. */}
+            {isCompact && (
+              <div className="rounded-xl border border-dashed bg-muted/20 p-3">
+                <button
+                  type="button"
+                  onClick={() => setPasteOpen((open) => !open)}
+                  aria-expanded={pasteOpen}
+                  className="flex w-full items-center gap-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <ClipboardPasteIcon className="size-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-medium">
+                      Paste a list of names
+                    </span>
+                    <span className="block text-xs text-muted-foreground">
+                      One guest per line — no spreadsheet needed on a phone.
+                    </span>
                   </span>
-                  <span className="block text-xs text-muted-foreground">
-                    One guest per line — no spreadsheet needed on a phone.
-                  </span>
-                </span>
-                <ChevronDownIcon
-                  aria-hidden
-                  className={cn(
-                    "size-4 shrink-0 text-muted-foreground transition-transform",
-                    pasteOpen && "rotate-180",
-                  )}
-                />
-              </button>
-              {pasteOpen && (
-                <div className="mt-3 space-y-2">
-                  <Textarea
-                    value={pasteText}
-                    rows={5}
-                    aria-label="Paste your guest list"
-                    placeholder={
-                      "Mr John Doe, M, Hostel\nMrs Mary Mensah, F, EBPV, bishop rate\nKwame Boateng"
-                    }
-                    onChange={(e) => setPasteText(e.target.value)}
+                  <ChevronDownIcon
+                    aria-hidden
+                    className={cn(
+                      "size-4 shrink-0 text-muted-foreground transition-transform",
+                      pasteOpen && "rotate-180",
+                    )}
                   />
-                  <p className="text-[11px] text-muted-foreground">
-                    The name is required — gender, title and room type are read
-                    when present. Blank lines and “#” comments are ignored.
-                  </p>
-                  {parsedPaste.errors.length > 0 && (
-                    <ul className="space-y-0.5 text-[11px] text-amber-700 dark:text-amber-400">
-                      {parsedPaste.errors.slice(0, 4).map((error) => (
-                        <li key={error}>• {error}</li>
-                      ))}
-                      {parsedPaste.errors.length > 4 && (
-                        <li>• and {parsedPaste.errors.length - 4} more…</li>
-                      )}
-                    </ul>
-                  )}
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button
-                      type="button"
-                      size="sm"
-                      className="max-md:min-h-10"
-                      disabled={parsedPaste.drafts.length === 0}
-                      onClick={addPastedGuests}
-                    >
-                      {parsedPaste.drafts.length > 0
-                        ? `Add ${parsedPaste.drafts.length} guest${parsedPaste.drafts.length === 1 ? "" : "s"}`
-                        : "Add guests"}
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      className="max-md:min-h-10"
-                      onClick={() => {
-                        setPasteText("");
-                        setPasteOpen(false);
-                      }}
-                    >
-                      Cancel
-                    </Button>
+                </button>
+                {pasteOpen && (
+                  <div className="mt-3">
+                    <RosterPasteFields
+                      value={pasteText}
+                      onChange={setPasteText}
+                      errors={parsedPaste.errors}
+                    />
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="max-md:min-h-10"
+                        disabled={parsedPaste.drafts.length === 0}
+                        onClick={addPastedGuests}
+                      >
+                        {parsedPaste.drafts.length > 0
+                          ? `Add ${parsedPaste.drafts.length} guest${parsedPaste.drafts.length === 1 ? "" : "s"}`
+                          : "Add guests"}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="max-md:min-h-10"
+                        onClick={() => {
+                          setPasteText("");
+                          setPasteOpen(false);
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
                   </div>
-                </div>
-              )}
-            </div>
+                )}
+              </div>
+            )}
 
             {/* Payment-on-arrival choice: it lives with the roster, so the term
                 is visible while guests are being added — not only once one is
@@ -3528,6 +3586,83 @@ export function RepAccommodationTab({
           submitting={loading || portalConfig?.locked === true}
         />
       )}
+
+      {/* Add a guest (desktop): the card stays short, the dialog does the work. */}
+      <ResponsiveDialog
+        open={addGuestOpen}
+        onOpenChange={setAddGuestOpen}
+        title="Add a guest"
+        description="One bed per guest — only the first and last name are required."
+        contentClassName="sm:max-w-xl"
+        footer={
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setAddGuestOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={!draftIsValid(newGuestDraft)}
+              onClick={addNewGuest}
+            >
+              <UserPlusIcon className="size-4" /> Add guest
+            </Button>
+          </>
+        }
+      >
+        <GuestRowEditor
+          draft={newGuestDraft}
+          index={drafts.length}
+          variant="edit"
+          expanded
+          onChange={(patch) =>
+            setNewGuestDraft((previous) => ({ ...previous, ...patch }))
+          }
+          currency={currency}
+          accommodationTypes={overview?.accommodationTypes}
+          availabilityFor={availabilityFor}
+          priceFor={priceFor}
+          bishopAmountLabel={bishopAmountLabel}
+        />
+      </ResponsiveDialog>
+
+      {/* Paste a list (desktop): same parser as the phone's inline box. */}
+      <ResponsiveDialog
+        open={pasteDialogOpen}
+        onOpenChange={setPasteDialogOpen}
+        title="Paste a list of names"
+        description="One guest per line — commas, tabs and dashes all separate the fields."
+        contentClassName="sm:max-w-xl"
+        footer={
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setPasteDialogOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={parsedPaste.drafts.length === 0}
+              onClick={addPastedGuests}
+            >
+              {parsedPaste.drafts.length > 0
+                ? `Add ${parsedPaste.drafts.length} guest${parsedPaste.drafts.length === 1 ? "" : "s"}`
+                : "Add guests"}
+            </Button>
+          </>
+        }
+      >
+        <RosterPasteFields
+          value={pasteText}
+          onChange={setPasteText}
+          errors={parsedPaste.errors}
+        />
+      </ResponsiveDialog>
 
       {/* Bulk cancel for the table view's selection */}
       <ResponsiveDialog

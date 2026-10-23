@@ -2,8 +2,21 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "convex/react";
-import { BellIcon, CheckCheckIcon, ChevronRightIcon } from "lucide-react";
+import {
+  BellIcon,
+  CheckCheckIcon,
+  ChevronRightIcon,
+  EllipsisIcon,
+} from "lucide-react";
+import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useRepSession } from "@/components/portal/RepSessionProvider";
 import {
   Popover,
@@ -14,12 +27,19 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import {
   buildRepNotifications,
+  dismissNotification,
   markNotificationsSeen,
+  notificationPrefsKey,
   notificationSeenKey,
+  parseNotificationPrefs,
   parseSeenIds,
+  restoreDismissedNotifications,
+  snoozeNotification,
   unseenNotifications,
+  visibleNotifications,
 } from "@/lib/repNotifications";
 import type {
+  NotificationPrefs,
   RepNotification,
   RepNotificationTab,
   RepNotificationTone,
@@ -78,6 +98,7 @@ export function RepNotificationsBell({
 
   const username = rep?.username ?? "";
   const seenKey = username ? notificationSeenKey(username) : null;
+  const prefsKey = username ? notificationPrefsKey(username) : null;
   const [seenIds, setSeenIds] = useState<string[]>(() => {
     if (typeof window === "undefined") return [];
     const key = rep?.username ? notificationSeenKey(rep.username) : null;
@@ -86,6 +107,17 @@ export function RepNotificationsBell({
       return parseSeenIds(window.localStorage.getItem(key));
     } catch {
       return [];
+    }
+  });
+  // Dismissed and snoozed entries are remembered per hub on this device.
+  const [prefs, setPrefs] = useState<NotificationPrefs>(() => {
+    if (typeof window === "undefined") return { dismissed: [], snoozed: {} };
+    const key = rep?.username ? notificationPrefsKey(rep.username) : null;
+    if (!key) return { dismissed: [], snoozed: {} };
+    try {
+      return parseNotificationPrefs(window.localStorage.getItem(key));
+    } catch {
+      return { dismissed: [], snoozed: {} };
     }
   });
 
@@ -102,8 +134,45 @@ export function RepNotificationsBell({
     [bookings, overview, rooms, now],
   );
 
-  const unseen = unseenNotifications(notifications, seenIds);
+  // What the rep actually sees: dismissed entries never come back, snoozed
+  // ones return when the snooze lapses.
+  const visible = useMemo(
+    () => visibleNotifications(notifications, prefs, now),
+    [notifications, prefs, now],
+  );
+  const unseen = unseenNotifications(visible, seenIds);
   const loading = bookings === undefined && Boolean(sessionToken);
+
+  const persistPrefs = (next: NotificationPrefs) => {
+    setPrefs(next);
+    if (!prefsKey) return;
+    try {
+      window.localStorage.setItem(prefsKey, JSON.stringify(next));
+    } catch {
+      // Private mode / full quota: the choice lasts this visit only.
+    }
+  };
+
+  const dismiss = (item: RepNotification) => {
+    const next = dismissNotification(prefs, item.id, Date.now());
+    persistPrefs(next);
+    toast("Notification dismissed", {
+      description: item.title,
+      action: {
+        label: "Undo",
+        onClick: () =>
+          persistPrefs({
+            dismissed: next.dismissed.filter((id) => id !== item.id),
+            snoozed: next.snoozed,
+          }),
+      },
+    });
+  };
+
+  const snooze = (item: RepNotification) => {
+    persistPrefs(snoozeNotification(prefs, item.id, Date.now()));
+    toast.success("Snoozed for 4 hours", { description: item.title });
+  };
 
   const handleOpenChange = (next: boolean) => {
     setOpen(next);
@@ -111,7 +180,7 @@ export function RepNotificationsBell({
     // Opening the bell counts as reading it; the badge clears, the items stay.
     const merged = markNotificationsSeen(
       seenIds,
-      notifications.map((item) => item.id),
+      visible.map((item) => item.id),
     );
     setSeenIds(merged);
     if (!seenKey) return;
@@ -172,7 +241,7 @@ export function RepNotificationsBell({
               <Skeleton className="h-4 w-40" />
               <Skeleton className="h-3 w-full" />
             </li>
-          ) : notifications.length === 0 ? (
+          ) : visible.length === 0 ? (
             <li className="px-4 py-8 text-center">
               <BellIcon className="mx-auto size-5 text-muted-foreground" />
               <p className="mt-2 text-sm font-medium">Nothing needs you</p>
@@ -181,12 +250,15 @@ export function RepNotificationsBell({
               </p>
             </li>
           ) : (
-            notifications.map((item) => (
-              <li key={item.id}>
+            visible.map((item) => (
+              <li
+                key={item.id}
+                className="flex items-start transition-colors hover:bg-muted/60"
+              >
                 <button
                   type="button"
                   onClick={() => openNotification(item)}
-                  className="flex w-full items-start gap-2.5 px-3 py-2.5 text-left outline-none transition-colors hover:bg-muted/60 focus-visible:bg-muted/60"
+                  className="flex min-w-0 flex-1 items-start gap-2.5 py-2.5 pr-1 pl-3 text-left outline-none focus-visible:bg-muted/60"
                 >
                   <span
                     aria-hidden
@@ -205,14 +277,43 @@ export function RepNotificationsBell({
                   </span>
                   <ChevronRightIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
                 </button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    aria-label={`Options for ${item.title}`}
+                    className="mt-1.5 mr-1.5 inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring max-md:size-9"
+                  >
+                    <EllipsisIcon className="size-4" />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="min-w-44">
+                    <DropdownMenuItem onClick={() => snooze(item)}>
+                      Snooze for 4 hours
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      className="text-destructive focus:text-destructive"
+                      onClick={() => dismiss(item)}
+                    >
+                      Dismiss
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </li>
             ))
           )}
         </ul>
 
-        <p className="border-t border-border px-3 py-2 text-[11px] text-muted-foreground">
-          Built from your hub&apos;s live bookings, receipts and rooming list.
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-3 py-2 text-[11px] text-muted-foreground">
+          <span>Built from your hub&apos;s live bookings, receipts and rooming list.</span>
+          {prefs.dismissed.length > 0 && (
+            <button
+              type="button"
+              onClick={() => persistPrefs(restoreDismissedNotifications(prefs))}
+              className="rounded font-medium text-foreground underline underline-offset-2 outline-none hover:text-foreground/80 focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              Restore {prefs.dismissed.length} dismissed
+            </button>
+          )}
+        </div>
       </PopoverContent>
     </Popover>
   );

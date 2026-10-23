@@ -42,10 +42,109 @@ export type NotificationSource = {
 const HOUR = 3_600_000;
 const DAY = 86_400_000;
 const SEEN_PREFIX = "agc.portal.notifications.seen.";
+const PREFS_PREFIX = "agc.portal.notifications.prefs.";
 const MAX_SEEN = 200;
+const MAX_DISMISSED = 200;
 
 export function notificationSeenKey(hubUsername: string): string {
   return `${SEEN_PREFIX}${hubUsername}`;
+}
+
+/** What the rep did with the feed: dismissed, or postponed for a while. */
+export type NotificationPrefs = {
+  dismissed: string[];
+  /** id -> epoch ms the notification comes back. */
+  snoozed: Record<string, number>;
+};
+
+export function notificationPrefsKey(hubUsername: string): string {
+  return `${PREFS_PREFIX}${hubUsername}`;
+}
+
+export function emptyNotificationPrefs(): NotificationPrefs {
+  return { dismissed: [], snoozed: {} };
+}
+
+export function parseNotificationPrefs(raw: string | null): NotificationPrefs {
+  if (!raw) return emptyNotificationPrefs();
+  try {
+    const value = JSON.parse(raw) as Record<string, unknown>;
+    if (!value || typeof value !== "object") return emptyNotificationPrefs();
+    const dismissed = Array.isArray(value.dismissed)
+      ? value.dismissed.filter(
+          (entry): entry is string => typeof entry === "string",
+        )
+      : [];
+    const snoozed: Record<string, number> = {};
+    if (value.snoozed && typeof value.snoozed === "object") {
+      for (const [id, until] of Object.entries(
+        value.snoozed as Record<string, unknown>,
+      )) {
+        if (typeof until === "number" && Number.isFinite(until)) {
+          snoozed[id] = until;
+        }
+      }
+    }
+    return { dismissed, snoozed };
+  } catch {
+    return emptyNotificationPrefs();
+  }
+}
+
+/** Drops snoozes that have already lapsed, so storage cannot grow forever. */
+function pruneSnoozes(
+  snoozed: Record<string, number>,
+  now: number,
+): Record<string, number> {
+  return Object.fromEntries(
+    Object.entries(snoozed).filter(([, until]) => until > now),
+  );
+}
+
+/** Feed entries the rep has not dismissed or snoozed away. */
+export function visibleNotifications(
+  items: RepNotification[],
+  prefs: NotificationPrefs,
+  now: number,
+): RepNotification[] {
+  const dismissed = new Set(prefs.dismissed);
+  return items.filter(
+    (item) =>
+      !dismissed.has(item.id) && !((prefs.snoozed[item.id] ?? 0) > now),
+  );
+}
+
+export function dismissNotification(
+  prefs: NotificationPrefs,
+  id: string,
+  now: number,
+): NotificationPrefs {
+  const dismissed = Array.from(new Set([...prefs.dismissed, id]));
+  return {
+    dismissed: dismissed.slice(Math.max(0, dismissed.length - MAX_DISMISSED)),
+    snoozed: pruneSnoozes(prefs.snoozed, now),
+  };
+}
+
+export const SNOOZE_MS = 4 * HOUR;
+
+export function snoozeNotification(
+  prefs: NotificationPrefs,
+  id: string,
+  now: number,
+  durationMs: number = SNOOZE_MS,
+): NotificationPrefs {
+  return {
+    dismissed: prefs.dismissed,
+    snoozed: { ...pruneSnoozes(prefs.snoozed, now), [id]: now + durationMs },
+  };
+}
+
+/** Bring every dismissed entry back (the safety valve for a mis-tap). */
+export function restoreDismissedNotifications(
+  prefs: NotificationPrefs,
+): NotificationPrefs {
+  return { dismissed: [], snoozed: prefs.snoozed };
 }
 
 const isClosed = (booking: RepBooking) =>
