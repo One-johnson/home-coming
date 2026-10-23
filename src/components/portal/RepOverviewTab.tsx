@@ -81,13 +81,33 @@ function StatCard({
   label,
   value,
   hint,
+  onClick,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   value: string | number;
   hint?: string;
+  onClick?: () => void;
 }) {
-  return <StatTile icon={Icon} label={label} value={value} hint={hint} />;
+  const tile = (
+    <StatTile
+      icon={Icon}
+      label={label}
+      value={value}
+      hint={hint}
+      className={onClick ? "transition-colors hover:ring-gold/40" : undefined}
+    />
+  );
+  if (!onClick) return tile;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded-xl text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      {tile}
+    </button>
+  );
 }
 
 /** Paid / pending / cancelled delegate trio used for both sections. */
@@ -174,7 +194,14 @@ function RoomTypeBookings({
   );
 }
 
-export function RepOverviewTab() {
+/** Tabs the overview can hand off to, with an optional pre-set filter. */
+export type PortalTargetTab = "overview" | "accommodation" | "registration";
+
+export function RepOverviewTab({
+  onNavigate,
+}: {
+  onNavigate?: (tab: PortalTargetTab, filter?: string) => void;
+} = {}) {
   const { sessionToken, handleSessionError } = useRepSession();
   const overview = useQuery(
     api.agcPortal.getRepOverview,
@@ -264,22 +291,36 @@ export function RepOverviewTab() {
           {daysLeft} day{daysLeft === 1 ? "" : "s"} to deadline
         </Badge>
         {overview.receiptsPending > 0 && (
-          <Badge
-            variant="outline"
-            className="border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300"
+          <button
+            type="button"
+            onClick={() => onNavigate?.("registration", "review")}
+            className="rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            aria-label={`Open registration filtered to the ${overview.receiptsPending} receipts in review`}
           >
-            <ReceiptTextIcon className="mr-1 size-3" />
-            {overview.receiptsPending} receipt
-            {overview.receiptsPending === 1 ? "" : "s"} in review
-          </Badge>
+            <Badge
+              variant="outline"
+              className="border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300"
+            >
+              <ReceiptTextIcon className="mr-1 size-3" />
+              {overview.receiptsPending} receipt
+              {overview.receiptsPending === 1 ? "" : "s"} in review
+            </Badge>
+          </button>
         )}
         {overview.awaitingPayment > 0 && (
-          <Badge
-            variant="outline"
-            className="border-sky-300 bg-sky-50 text-sky-800 dark:border-sky-800 dark:bg-sky-950 dark:text-sky-300"
+          <button
+            type="button"
+            onClick={() => onNavigate?.("accommodation", "awaiting")}
+            className="rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            aria-label={`Open accommodation filtered to the ${overview.awaitingPayment} awaiting payment`}
           >
-            {overview.awaitingPayment} awaiting payment
-          </Badge>
+            <Badge
+              variant="outline"
+              className="border-sky-300 bg-sky-50 text-sky-800 hover:bg-sky-100 dark:border-sky-800 dark:bg-sky-950 dark:text-sky-300"
+            >
+              {overview.awaitingPayment} awaiting payment
+            </Badge>
+          </button>
         )}
       </div>
 
@@ -289,24 +330,28 @@ export function RepOverviewTab() {
           label="Paid delegates"
           value={overview.totalPaidDelegates}
           hint="Counted once payment is confirmed"
+          onClick={() => onNavigate?.("registration", "confirmed")}
         />
         <StatCard
           icon={UsersIcon}
           label="Awaiting payment"
           value={overview.totalPendingDelegates}
           hint="Registrations + accommodation guests"
+          onClick={() => onNavigate?.("accommodation", "awaiting")}
         />
         <StatCard
           icon={BedDoubleIcon}
           label="Confirmed bookings"
           value={overview.accommodation.confirmedBookings}
           hint={`${overview.accommodation.reservedBookings} on hold`}
+          onClick={() => onNavigate?.("accommodation", "confirmed")}
         />
         <StatCard
           icon={BanknoteIcon}
           label="Total paid"
           value={`${overview.currency} ${overview.registrations.paidAmount + overview.accommodation.paidAmount}`}
           hint="Registration + accommodation"
+          onClick={() => onNavigate?.("registration", "all")}
         />
       </div>
 

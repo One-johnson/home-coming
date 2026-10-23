@@ -6,10 +6,15 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import {
   type LucideIcon,
   AlertTriangleIcon,
+  ArrowDownIcon,
+  ArrowUpDownIcon,
+  ArrowUpIcon,
   BedDoubleIcon,
   CalendarClockIcon,
   ChevronDownIcon,
   ClipboardListIcon,
+  ClipboardPasteIcon,
+  CopyIcon,
   DownloadIcon,
   EllipsisIcon,
   FileSpreadsheetIcon,
@@ -82,6 +87,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { uploadFileToConvex } from "@/lib/galleryUpload";
 import {
@@ -91,6 +97,21 @@ import {
 import { compressImageForUpload } from "@/lib/imageCompress";
 import { downloadBase64File } from "@/lib/downloadFile";
 import { friendlyError } from "@/lib/friendlyError";
+import { parseRosterPaste } from "@/lib/portalRosterPaste";
+import {
+  attentionSummary,
+  draftStorageKey,
+  formatHoldLeft,
+  nextSort,
+  parseStoredDrafts,
+  serializeDrafts,
+  sortBookings,
+} from "@/lib/portalBookingsUx";
+import type {
+  BookingSort,
+  BookingSortKey,
+  SortDirection,
+} from "@/lib/portalBookingsUx";
 import { cn } from "@/lib/utils";
 import {
   AGC_ACCOMMODATION_LABELS,
@@ -1067,6 +1088,7 @@ function BookingCard({
   onIou,
   onEvidence,
   onRebook,
+  onCopy,
 }: {
   booking: RepBooking;
   locked: boolean;
@@ -1079,6 +1101,7 @@ function BookingCard({
   onIou: (booking: RepBooking) => void;
   onEvidence: (booking: RepBooking) => void;
   onRebook: (booking: RepBooking) => void;
+  onCopy: (reference: string) => void;
 }) {
   const status = bookingStatusMeta(booking.bookingStatus);
   const payStatus = displayPaymentStatus(booking);
@@ -1100,8 +1123,18 @@ function BookingCard({
     <div className="flex flex-col rounded-xl border bg-card p-4 text-sm">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="font-mono text-xs tracking-wider">
+          <p className="flex items-center gap-1 font-mono text-xs tracking-wider">
             {booking.referenceNumber || "(pending)"}
+            {booking.referenceNumber ? (
+              <button
+                type="button"
+                onClick={() => onCopy(booking.referenceNumber)}
+                aria-label={`Copy reference ${booking.referenceNumber}`}
+                className="rounded p-0.5 text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring max-md:min-h-8 max-md:min-w-8"
+              >
+                <CopyIcon className="size-3" />
+              </button>
+            ) : null}
           </p>
           <p className="mt-0.5 text-[11px] text-muted-foreground">
             Created{" "}
@@ -1183,7 +1216,7 @@ function BookingCard({
                 type="button"
                 variant="link"
                 size="sm"
-                className="h-auto shrink-0 p-0 text-[11px]"
+                className="h-auto shrink-0 rounded-md px-1.5 py-1 text-[11px] max-md:min-h-9 max-md:text-xs"
                 onClick={() => onSubstitute(guest)}
               >
                 Substitute
@@ -1200,7 +1233,7 @@ function BookingCard({
           <Button
             type="button"
             size="sm"
-            className="bg-amber-600 text-white hover:bg-amber-700"
+            className="bg-amber-600 text-white hover:bg-amber-700 max-md:min-h-10"
             onClick={() => onRebook(booking)}
           >
             <RotateCcwIcon className="size-4" /> Book these beds again
@@ -1212,6 +1245,7 @@ function BookingCard({
               type="button"
               variant="outline"
               size="sm"
+              className="max-md:min-h-10"
               onClick={() => onIou(booking)}
             >
               <ReceiptTextIcon className="size-4" />{" "}
@@ -1224,6 +1258,7 @@ function BookingCard({
                 type="button"
                 variant="outline"
                 size="sm"
+                className="max-md:min-h-10"
                 disabled={loading}
                 onClick={() => onEvidence(booking)}
               >
@@ -1240,13 +1275,19 @@ function BookingCard({
             type="button"
             variant="outline"
             size="sm"
+            className="max-md:min-h-10"
             onClick={() => onPay(booking)}
           >
             <ReceiptTextIcon className="size-4" /> Submit receipt
           </Button>
         ) : null}
         {canPayOnline ? (
-          <Button type="button" size="sm" onClick={() => onPay(booking)}>
+          <Button
+            type="button"
+            size="sm"
+            className="max-md:min-h-10"
+            onClick={() => onPay(booking)}
+          >
             Pay online
           </Button>
         ) : null}
@@ -1254,7 +1295,7 @@ function BookingCard({
           <DropdownMenu>
             <DropdownMenuTrigger
               aria-label="More booking actions"
-              className="ml-auto inline-flex min-h-9 items-center justify-center rounded-lg border border-border bg-background px-2.5 outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+              className="ml-auto inline-flex min-h-9 items-center justify-center rounded-lg border border-border bg-background px-2.5 outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring max-md:min-h-10 max-md:min-w-10"
             >
               <EllipsisIcon className="size-4" />
             </DropdownMenuTrigger>
@@ -1324,6 +1365,8 @@ function PaymentDialog({
   );
   const [method] = useState<"bank_transfer" | "momo">("momo");
   const [receipt, setReceipt] = useState<File | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
 
   // Exact-amount rule: the entered amount must equal the system total.
   const amountMatches = amountsMatch(
@@ -1406,10 +1449,49 @@ function PaymentDialog({
             </div>
             <div className="space-y-1.5">
               <Label>Receipt (JPG, PNG or PDF)</Label>
-              <Input
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full max-md:min-h-11"
+                  onClick={() => fileRef.current?.click()}
+                >
+                  <UploadIcon className="size-4" /> Choose file
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full max-md:min-h-11"
+                  onClick={() => cameraRef.current?.click()}
+                >
+                  Take photo
+                </Button>
+              </div>
+              {receipt && (
+                <p className="truncate text-xs text-muted-foreground">
+                  {receipt.name} · ready to upload
+                </p>
+              )}
+              <input
+                ref={fileRef}
                 type="file"
                 accept=".pdf,.jpg,.jpeg,.png"
-                onChange={(e) => setReceipt(e.target.files?.[0] ?? null)}
+                className="hidden"
+                onChange={(e) => {
+                  setReceipt(e.target.files?.[0] ?? null);
+                  e.target.value = "";
+                }}
+              />
+              <input
+                ref={cameraRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={(e) => {
+                  setReceipt(e.target.files?.[0] ?? null);
+                  e.target.value = "";
+                }}
               />
             </div>
           </div>
@@ -1536,8 +1618,17 @@ function ExcelPreviewDialog({
   );
 }
 
-export function RepAccommodationTab() {
-  const { sessionToken, handleSessionError } = useRepSession();
+/**
+ * `initialFilter` is set by the shell when another tab sends the rep here (the
+ * Overview cards). The shell remounts on a new hand-off, so it is read once as
+ * initial state instead of being applied from an effect.
+ */
+export function RepAccommodationTab({
+  initialFilter,
+}: {
+  initialFilter?: string;
+} = {}) {
+  const { sessionToken, handleSessionError, rep } = useRepSession();
   const overview = useQuery(
     api.agcBookings.getAccommodationOverview,
     sessionToken ? { sessionToken } : "skip",
@@ -1584,7 +1675,21 @@ export function RepAccommodationTab() {
 
   const portalConfig = useQuery(api.agcPortal.getPortalConfig);
 
-  const [drafts, setDrafts] = useState<Draft[]>([]);
+  // Restore a roster typed on this device earlier (reload, app switch, locked
+  // screen) as initial state, so the summary bar comes back with it. Runs on
+  // the client only — the shell renders a loading state on the server.
+  const [drafts, setDrafts] = useState<Draft[]>(() => {
+    if (typeof window === "undefined") return [];
+    const username = rep?.username;
+    if (!username) return [];
+    try {
+      return parseStoredDrafts(
+        window.localStorage.getItem(draftStorageKey(username)),
+      );
+    } catch {
+      return [];
+    }
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [lastBooking, setLastBooking] = useState<{
@@ -1618,8 +1723,29 @@ export function RepAccommodationTab() {
   const [subTitle, setSubTitle] = useState("");
 
   // Bookings list filters
-  const [filter, setFilter] = useState<BookingFilter>("all");
+  const [filter, setFilter] = useState<BookingFilter>(() => {
+    const match = BOOKING_FILTERS.find(
+      (option) => option.value === initialFilter,
+    );
+    return match ? match.value : "all";
+  });
   const [search, setSearch] = useState("");
+
+  // Desktop table: optional column sort (null keeps the server order).
+  const [sort, setSort] = useState<BookingSort | null>(null);
+  // Bulk actions on the table view.
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkCancelOpen, setBulkCancelOpen] = useState(false);
+
+  // Paste-a-roster (the phone-friendly alternative to the Excel import).
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pasteText, setPasteText] = useState("");
+
+  // A roster saved on this device (reload/app switch) is restored and named.
+  const [restoredCount, setRestoredCount] = useState(() => drafts.length);
+
+  // Deadline/hold ticking clock (kept out of render for react-hooks/purity).
+  const [now, setNow] = useState(() => Date.now());
 
   // Desktop view mode: comfy cards or dense table (mobile is always cards).
   const [viewMode, setViewMode] = useState<"cards" | "table">("cards");
@@ -1633,12 +1759,68 @@ export function RepAccommodationTab() {
 
   // Mobile: split the tab into two views so phones never scroll past a long
   // builder to reach an existing booking.
-  const [mobileView, setMobileView] = useState<"book" | "bookings">("book");
+  const [mobileView, setMobileView] = useState<"book" | "bookings">(
+    initialFilter ? "bookings" : "book",
+  );
   // Mobile guest rows collapse to a summary; newly added guests auto-expand.
   const [expandedGuest, setExpandedGuest] = useState<number | null>(null);
   // Mobile-only per-line breakdown sheet.
   const [reviewOpen, setReviewOpen] = useState(false);
   const builderRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  // Per-hub so a shared desk phone never restores another hub's roster.
+  const draftKey = rep?.username ? draftStorageKey(rep.username) : null;
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Persist on every edit so a reload can never swallow a half-typed roster.
+  useEffect(() => {
+    if (!draftKey) return;
+    try {
+      if (drafts.length === 0) window.localStorage.removeItem(draftKey);
+      else window.localStorage.setItem(draftKey, serializeDrafts(drafts));
+    } catch {
+      // Private mode or a full quota: the roster simply doesn't persist.
+    }
+  }, [draftKey, drafts]);
+
+  // "/" focuses the search box; ⌘K/Ctrl-K jumps to it from anywhere. Escape
+  // drops focus, so phone keyboards close instead of trapping the rep.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const typing =
+        !!target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable);
+      if (event.key === "Escape") {
+        if (typing && target) target.blur();
+        return;
+      }
+      const focusSearch = () => {
+        setMobileView("bookings");
+        searchRef.current?.focus();
+        searchRef.current?.scrollIntoView({ block: "center" });
+      };
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        focusSearch();
+        return;
+      }
+      if (event.key === "/" && !typing) {
+        event.preventDefault();
+        focusSearch();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   // Excel flow
   const [excelFileName, setExcelFileName] = useState("");
@@ -1739,6 +1921,12 @@ export function RepAccommodationTab() {
       });
       setDrafts([]);
       setExpandedGuest(null);
+      setRestoredCount(0);
+      // Phones keep "New booking" open by default, which would hide the
+      // confirmation below — land on the bookings list instead.
+      setMobileView("bookings");
+      setFilter("all");
+      window.scrollTo({ top: 0, behavior: "smooth" });
       if (result.paymentOnArrival) {
         setPoaIouTarget({ kind: "booking", recordId: result.bookingId });
         toast.success(
@@ -2024,6 +2212,9 @@ export function RepAccommodationTab() {
         expiresAt: Date.now() + (overview?.holdHours ?? 72) * 3_600_000,
       });
       resetExcel();
+      setMobileView("bookings");
+      setFilter("all");
+      window.scrollTo({ top: 0, behavior: "smooth" });
       toast.success(
         `Booked ${result.guestCount} guest(s) from Excel (${result.referenceNumber}).`,
       );
@@ -2141,6 +2332,163 @@ export function RepAccommodationTab() {
     };
   }, [bookings]);
 
+  const attention = useMemo(
+    () => attentionSummary(bookings ?? [], now),
+    [bookings, now],
+  );
+
+  const selectedBookings = useMemo(
+    () => (bookings ?? []).filter((booking) => selectedIds.includes(booking._id)),
+    [bookings, selectedIds],
+  );
+
+  const tableRows = useMemo(
+    () => (sort ? sortBookings(filteredBookings, sort) : filteredBookings),
+    [filteredBookings, sort],
+  );
+
+  const parsedPaste = useMemo(() => parseRosterPaste(pasteText), [pasteText]);
+
+  const copyReference = async (reference: string) => {
+    try {
+      await navigator.clipboard.writeText(reference);
+      toast.success(`Copied ${reference}`);
+    } catch {
+      toast.error("Could not copy — select the reference and copy it by hand.");
+    }
+  };
+
+  const toggleSelected = (id: string, checked: boolean) =>
+    setSelectedIds((previous) =>
+      checked
+        ? Array.from(new Set([...previous, id]))
+        : previous.filter((entry) => entry !== id),
+    );
+
+  const toggleSort = (key: BookingSortKey, direction: SortDirection = "asc") =>
+    setSort((current) =>
+      nextSort(
+        current ?? { key, direction: direction === "asc" ? "desc" : "asc" },
+        key,
+        direction,
+      ),
+    );
+
+  const discardRestoredDrafts = () => {
+    setDrafts([]);
+    setExpandedGuest(null);
+    setRestoredCount(0);
+    toast.success("Cleared the roster saved on this device.");
+  };
+
+  /** Paste-a-roster: the phone-friendly alternative to the Excel import. */
+  const addPastedGuests = () => {
+    const rows = parsedPaste.drafts.map((row) => ({
+      ...emptyDraft(),
+      firstName: row.firstName,
+      lastName: row.lastName,
+      gender: row.gender,
+      title: row.title,
+      accommodationType:
+        (row.accommodationType as AgcAccommodationType | null) ?? "dormitory",
+      isBishopRate: row.isBishopRate,
+    }));
+    if (rows.length === 0) {
+      toast.error("Nothing to add", {
+        description: "Paste one guest per line, e.g. “Mr John Doe, M, Hostel”",
+      });
+      return;
+    }
+    setDrafts((previous) => [...previous, ...rows]);
+    setExpandedGuest(null);
+    setPasteText("");
+    setPasteOpen(false);
+    setMobileView("book");
+    toast.success(
+      `Added ${rows.length} guest${rows.length === 1 ? "" : "s"} from your list — check the names and reserve.`,
+      parsedPaste.errors.length > 0
+        ? { description: parsedPaste.errors.join(" ") }
+        : undefined,
+    );
+  };
+
+  /** Bulk "book these again" for the table view's selection. */
+  const rebookSelected = () => {
+    const rows = selectedBookings.flatMap((booking) => draftsFromBooking(booking));
+    if (rows.length === 0) return;
+    setDrafts((previous) => [...previous, ...rows]);
+    setSelectedIds([]);
+    setMobileView("book");
+    toast.success(
+      `Brought ${rows.length} guest${rows.length === 1 ? "" : "s"} from ${selectedBookings.length} booking${selectedBookings.length === 1 ? "" : "s"} into the form.`,
+    );
+    builderRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  const handleBulkCancel = async () => {
+    if (!sessionToken) return;
+    const targets = selectedBookings.filter(
+      (booking) =>
+        !isClosedBooking(booking) && booking.bookingStatus === "reserved",
+    );
+    if (targets.length === 0) {
+      setBulkCancelOpen(false);
+      toast.info("Only live reservations can be cancelled here.");
+      return;
+    }
+    setLoading(true);
+    let cancelled = 0;
+    const failed: string[] = [];
+    for (const booking of targets) {
+      try {
+        await cancelBooking({
+          sessionToken,
+          bookingId: booking._id as Id<"agcBookings">,
+        });
+        cancelled += 1;
+      } catch (err) {
+        if (handleSessionError(err)) {
+          setLoading(false);
+          return;
+        }
+        failed.push(booking.referenceNumber || "one hold");
+      }
+    }
+    setLoading(false);
+    setBulkCancelOpen(false);
+    setSelectedIds([]);
+    if (cancelled > 0) {
+      toast.success(
+        `Cancelled ${cancelled} reservation${cancelled === 1 ? "" : "s"} — the beds are back in the pool.`,
+      );
+    }
+    if (failed.length > 0) {
+      toast.error(
+        `Could not cancel ${failed.length} reservation${failed.length === 1 ? "" : "s"}`,
+        { description: failed.join(", ") },
+      );
+    }
+  };
+
+  const sortHeader = (label: string, key: BookingSortKey) => (
+    <button
+      type="button"
+      onClick={() => toggleSort(key)}
+      className="inline-flex items-center gap-1 rounded outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      {label}
+      {sort?.key === key ? (
+        sort.direction === "asc" ? (
+          <ArrowUpIcon className="size-3" />
+        ) : (
+          <ArrowDownIcon className="size-3" />
+        )
+      ) : (
+        <ArrowUpDownIcon className="size-3 opacity-40" />
+      )}
+    </button>
+  );
+
   /** Empty-state CTA: jump to the builder with a fresh guest row. */
   const startBooking = () => {
     addDraft();
@@ -2199,6 +2547,78 @@ export function RepAccommodationTab() {
         </Alert>
       )}
 
+      {restoredCount > 0 && drafts.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-900 dark:border-sky-900 dark:bg-sky-950 dark:text-sky-200">
+          <RotateCcwIcon className="size-3.5 shrink-0" />
+          <span className="min-w-0 flex-1">
+            Restored {restoredCount} guest{restoredCount === 1 ? "" : "s"} typed
+            on this device earlier — nothing was lost.
+          </span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="text-sky-900 hover:bg-sky-100 dark:text-sky-200 max-md:min-h-10"
+            onClick={discardRestoredDrafts}
+          >
+            Start fresh
+          </Button>
+        </div>
+      )}
+
+      {/* Needs attention: holds that quietly lose their beds, and receipts
+          finance asked to redo. Both jump straight to the right list. */}
+      {(attention.expiring > 0 || attention.corrections > 0) && (
+        <div className="flex flex-col gap-2 md:flex-row md:flex-wrap">
+          {attention.expiring > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                setFilter("awaiting");
+                setMobileView("bookings");
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+              className="flex w-full flex-wrap items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-left text-xs text-amber-900 transition-colors hover:bg-amber-100 dark:border-amber-900 dark:bg-amber-950/60 dark:text-amber-200 md:w-auto"
+            >
+              <CalendarClockIcon className="size-3.5 shrink-0" />
+              <span className="font-semibold">
+                {attention.expiring} hold{attention.expiring === 1 ? "" : "s"}{" "}
+                expiring within 24h
+              </span>
+              {attention.soonest && (
+                <span className="opacity-80">
+                  — soonest in {formatHoldLeft(attention.soonest.msLeft)}, pay and
+                  upload the receipt to keep the beds
+                </span>
+              )}
+              <span className="ml-auto font-medium underline underline-offset-2">
+                Review
+              </span>
+            </button>
+          )}
+          {attention.corrections > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                setFilter("awaiting");
+                setMobileView("bookings");
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+              className="flex w-full items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-left text-xs text-rose-900 transition-colors hover:bg-rose-100 dark:border-rose-900 dark:bg-rose-950/60 dark:text-rose-200 md:w-auto"
+            >
+              <AlertTriangleIcon className="size-3.5 shrink-0" />
+              <span className="font-semibold">
+                {attention.corrections} payment
+                {attention.corrections === 1 ? "" : "s"} need a new receipt
+              </span>
+              <span className="ml-auto font-medium underline underline-offset-2">
+                Fix
+              </span>
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Mobile: split the tab into two views so phones never scroll past a
           long builder to reach an existing booking. */}
       <Tabs
@@ -2210,7 +2630,7 @@ export function RepAccommodationTab() {
         }}
         className="md:hidden"
       >
-        <TabsList className="w-full">
+        <TabsList className="w-full max-md:h-11">
           <TabsTrigger value="book">New booking</TabsTrigger>
           <TabsTrigger value="bookings">
             Your bookings
@@ -2322,7 +2742,7 @@ export function RepAccommodationTab() {
                 type="button"
                 variant="outline"
                 onClick={addDraft}
-                className="w-full border-dashed sm:w-auto"
+                className="w-full border-dashed max-md:min-h-10 sm:w-auto"
               >
                 + Add guest
               </Button>
@@ -2330,6 +2750,85 @@ export function RepAccommodationTab() {
                 <p className="self-center text-xs text-muted-foreground">
                   Fill in every guest&apos;s first and last name to continue.
                 </p>
+              )}
+            </div>
+
+            {/* Phone-friendly bulk entry: pasting a list beats picking a file. */}
+            <div className="rounded-xl border border-dashed bg-muted/20 p-3">
+              <button
+                type="button"
+                onClick={() => setPasteOpen((open) => !open)}
+                aria-expanded={pasteOpen}
+                className="flex w-full items-center gap-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <ClipboardPasteIcon className="size-4 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-medium">
+                    Paste a list of names
+                  </span>
+                  <span className="block text-xs text-muted-foreground">
+                    One guest per line — no spreadsheet needed on a phone.
+                  </span>
+                </span>
+                <ChevronDownIcon
+                  aria-hidden
+                  className={cn(
+                    "size-4 shrink-0 text-muted-foreground transition-transform",
+                    pasteOpen && "rotate-180",
+                  )}
+                />
+              </button>
+              {pasteOpen && (
+                <div className="mt-3 space-y-2">
+                  <Textarea
+                    value={pasteText}
+                    rows={5}
+                    aria-label="Paste your guest list"
+                    placeholder={
+                      "Mr John Doe, M, Hostel\nMrs Mary Mensah, F, EBPV, bishop rate\nKwame Boateng"
+                    }
+                    onChange={(e) => setPasteText(e.target.value)}
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    The name is required — gender, title and room type are read
+                    when present. Blank lines and “#” comments are ignored.
+                  </p>
+                  {parsedPaste.errors.length > 0 && (
+                    <ul className="space-y-0.5 text-[11px] text-amber-700 dark:text-amber-400">
+                      {parsedPaste.errors.slice(0, 4).map((error) => (
+                        <li key={error}>• {error}</li>
+                      ))}
+                      {parsedPaste.errors.length > 4 && (
+                        <li>• and {parsedPaste.errors.length - 4} more…</li>
+                      )}
+                    </ul>
+                  )}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="max-md:min-h-10"
+                      disabled={parsedPaste.drafts.length === 0}
+                      onClick={addPastedGuests}
+                    >
+                      {parsedPaste.drafts.length > 0
+                        ? `Add ${parsedPaste.drafts.length} guest${parsedPaste.drafts.length === 1 ? "" : "s"}`
+                        : "Add guests"}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="max-md:min-h-10"
+                      onClick={() => {
+                        setPasteText("");
+                        setPasteOpen(false);
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
               )}
             </div>
 
@@ -2586,7 +3085,40 @@ export function RepAccommodationTab() {
         </CardHeader>
         <CardContent className="space-y-4">
           {(bookings?.length ?? 0) > 0 ? (
-            <div className="space-y-3">
+            <div className="sticky top-[calc(env(safe-area-inset-top)+56px)] z-20 space-y-3 rounded-lg bg-card/95 px-1 py-2 backdrop-blur md:top-16">
+              {selectedIds.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2 rounded-lg border border-gold/40 bg-gold/10 px-3 py-2 text-xs">
+                  <span className="font-semibold">
+                    {selectedIds.length} selected
+                  </span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={rebookSelected}
+                  >
+                    <RotateCcwIcon className="size-3.5" /> Book again
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="text-destructive hover:text-destructive"
+                    onClick={() => setBulkCancelOpen(true)}
+                  >
+                    <Trash2Icon className="size-3.5" /> Cancel holds
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="ml-auto"
+                    onClick={() => setSelectedIds([])}
+                  >
+                    Clear
+                  </Button>
+                </div>
+              )}
               <div className="flex flex-wrap items-center gap-2">
                 {BOOKING_FILTERS.filter(
                   // Released holds are hidden until there are some: the filter
@@ -2600,7 +3132,7 @@ export function RepAccommodationTab() {
                     type="button"
                     size="sm"
                     variant={filter === option.value ? "default" : "outline"}
-                    className="rounded-full"
+                    className="rounded-full max-md:min-h-10"
                     aria-pressed={filter === option.value}
                     onClick={() => setFilter(option.value)}
                   >
@@ -2615,10 +3147,12 @@ export function RepAccommodationTab() {
                 <div className="relative min-w-0 flex-1 sm:max-w-xs">
                   <SearchIcon className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
+                    ref={searchRef}
                     type="search"
                     placeholder="Reference or guest name…"
                     className="h-9 w-full pl-8"
                     value={search}
+                    aria-keyshortcuts="/"
                     onChange={(e) => setSearch(e.target.value)}
                   />
                 </div>
@@ -2628,6 +3162,8 @@ export function RepAccommodationTab() {
                   onValueChange={(value) => {
                     const next = value[0] as "cards" | "table" | undefined;
                     if (next === "cards" || next === "table") setViewMode(next);
+                    // Selection only exists in the table, so leaving it drops it.
+                    if (next === "cards") setSelectedIds([]);
                   }}
                   variant="outline"
                   size="sm"
@@ -2742,17 +3278,45 @@ export function RepAccommodationTab() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Reference</TableHead>
-                        <TableHead>Guests</TableHead>
-                        <TableHead>Total</TableHead>
+                        <TableHead className="w-8">
+                          <Checkbox
+                            aria-label="Select every booking in this view"
+                            checked={
+                              tableRows.length > 0 &&
+                              tableRows.every((booking) =>
+                                selectedIds.includes(booking._id),
+                              )
+                            }
+                            onCheckedChange={(checked) =>
+                              setSelectedIds((previous) =>
+                                checked === true
+                                  ? Array.from(
+                                      new Set([
+                                        ...previous,
+                                        ...tableRows.map((booking) => booking._id),
+                                      ]),
+                                    )
+                                  : previous.filter(
+                                      (id) =>
+                                        !tableRows.some(
+                                          (booking) => booking._id === id,
+                                        ),
+                                    ),
+                              )
+                            }
+                          />
+                        </TableHead>
+                        <TableHead>{sortHeader("Reference", "reference")}</TableHead>
+                        <TableHead>{sortHeader("Guests", "guests")}</TableHead>
+                        <TableHead>{sortHeader("Total", "total")}</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>Payment</TableHead>
-                        <TableHead>Hold expires</TableHead>
+                        <TableHead>{sortHeader("Hold expires", "expiry")}</TableHead>
                         <TableHead className="text-right">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {filteredBookings.map((booking) => {
+                      {tableRows.map((booking) => {
                         const status = bookingStatusMeta(booking.bookingStatus);
                         const payStatus = displayPaymentStatus(booking);
                         const canPay =
@@ -2765,8 +3329,31 @@ export function RepAccommodationTab() {
                               booking.paymentStatus === "awaiting_payment"));
                         return (
                           <TableRow key={booking._id}>
+                            <TableCell className="w-8">
+                              <Checkbox
+                                aria-label={`Select ${booking.referenceNumber || "booking"}`}
+                                checked={selectedIds.includes(booking._id)}
+                                onCheckedChange={(checked) =>
+                                  toggleSelected(booking._id, checked === true)
+                                }
+                              />
+                            </TableCell>
                             <TableCell className="font-mono text-xs">
-                              {booking.referenceNumber || "(pending)"}
+                              <span className="inline-flex items-center gap-1">
+                                {booking.referenceNumber || "(pending)"}
+                                {booking.referenceNumber ? (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      void copyReference(booking.referenceNumber)
+                                    }
+                                    aria-label={`Copy reference ${booking.referenceNumber}`}
+                                    className="rounded p-0.5 text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                                  >
+                                    <CopyIcon className="size-3" />
+                                  </button>
+                                ) : null}
+                              </span>
                             </TableCell>
                             <TableCell className="tabular-nums">
                               {rosterGuests(booking).length}
@@ -2867,6 +3454,7 @@ export function RepAccommodationTab() {
                 }
                 onEvidence={(target) => setEvidenceTarget(target._id)}
                 onRebook={openRebook}
+                onCopy={(reference) => void copyReference(reference)}
               />
             ))}
               </div>
@@ -2940,6 +3528,34 @@ export function RepAccommodationTab() {
           submitting={loading || portalConfig?.locked === true}
         />
       )}
+
+      {/* Bulk cancel for the table view's selection */}
+      <ResponsiveDialog
+        open={bulkCancelOpen}
+        onOpenChange={(open) => !open && setBulkCancelOpen(false)}
+        title={`Cancel ${selectedIds.length} reservation${selectedIds.length === 1 ? "" : "s"}?`}
+        description="Every live hold in the selection is released back to the pool immediately. Nothing is deleted — cancelled holds stay under Released with their roster."
+        footer={
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setBulkCancelOpen(false)}
+            >
+              Keep them
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={loading}
+              onClick={() => void handleBulkCancel()}
+            >
+              {loading && <Loader2Icon className="size-4 animate-spin" />}
+              Cancel {selectedIds.length}
+            </Button>
+          </>
+        }
+      />
 
       {/* Cancel confirmation */}
       <ResponsiveDialog

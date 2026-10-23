@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   BedDoubleIcon,
   ClipboardListIcon,
@@ -38,6 +38,19 @@ import { EVENT } from "@/lib/eventConfig";
 import { cn } from "@/lib/utils";
 
 type PortalTab = "overview" | "registration" | "accommodation";
+
+const PORTAL_TABS: PortalTab[] = ["overview", "registration", "accommodation"];
+
+/**
+ * The active tab lives in `?tab=` so a refresh, a bookmark or the browser's
+ * back button keeps the rep where they were. Read lazily on the client only —
+ * the shell renders "Loading your portal…" on the server either way.
+ */
+function tabFromUrl(): PortalTab | null {
+  if (typeof window === "undefined") return null;
+  const value = new URLSearchParams(window.location.search).get("tab");
+  return PORTAL_TABS.includes(value as PortalTab) ? (value as PortalTab) : null;
+}
 
 const NAV_ITEMS: Array<{
   id: PortalTab;
@@ -137,7 +150,7 @@ function PortalSidebar({
                 H
               </div>
               <div className="grid flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-semibold">Homecoming 2026</span>
+                <span className="truncate font-semibold">{EVENT.name}</span>
                 <span className="truncate text-xs text-sidebar-foreground/60">
                   Rep portal
                 </span>
@@ -229,7 +242,31 @@ function PortalBody() {
     clearSession,
     sessionExpiresAt,
   } = useRepSession();
-  const [tab, setTab] = useState<PortalTab>("overview");
+  // ?tab= decides the first render, so a bookmark or refresh lands correctly.
+  const [tab, setTab] = useState<PortalTab>(() => tabFromUrl() ?? "overview");
+  // Cross-tab hand-off: "receipts in review" opens Registration already
+  // filtered. `nonce` makes the same target fire again on a second click.
+  const [intent, setIntent] = useState<{
+    tab: PortalTab;
+    filter?: string;
+    nonce: number;
+  } | null>(null);
+
+  // Follow the back/forward buttons (they change the URL without a render).
+  useEffect(() => {
+    const onPopState = () => setTab(tabFromUrl() ?? "overview");
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  const selectTab = (next: PortalTab, filter?: string) => {
+    setTab(next);
+    setIntent(filter ? { tab: next, filter, nonce: Date.now() } : null);
+    const url = new URL(window.location.href);
+    if (next === "overview") url.searchParams.delete("tab");
+    else url.searchParams.set("tab", next);
+    window.history.replaceState(null, "", url);
+  };
 
   if (!isReady) return <PortalLoading />;
 
@@ -270,9 +307,25 @@ function PortalBody() {
           onSignOut={signOut}
         />
       </div>
-      {tab === "overview" && <RepOverviewTab />}
-      {tab === "registration" && <RepRegistrationTab />}
-      {tab === "accommodation" && <RepAccommodationTab />}
+      {tab === "overview" && <RepOverviewTab onNavigate={selectTab} />}
+      {tab === "registration" && (
+        <RepRegistrationTab
+          key={intent?.tab === "registration" ? `intent-${intent.nonce}` : "tab"}
+          initialFilter={
+            intent?.tab === "registration" ? intent.filter : undefined
+          }
+        />
+      )}
+      {tab === "accommodation" && (
+        <RepAccommodationTab
+          key={
+            intent?.tab === "accommodation" ? `intent-${intent.nonce}` : "tab"
+          }
+          initialFilter={
+            intent?.tab === "accommodation" ? intent.filter : undefined
+          }
+        />
+      )}
     </div>
   );
 
@@ -281,7 +334,7 @@ function PortalBody() {
       <PortalFrame
         rep={rep}
         tab={tab}
-        onSelect={setTab}
+        onSelect={(next) => selectTab(next)}
         onSignOut={signOut}
       >
         {content}

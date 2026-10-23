@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import {
   CalendarClockIcon,
+  CameraIcon,
   CircleAlertIcon,
   CheckIcon,
   CircleCheckIcon,
@@ -153,6 +154,7 @@ function ReceiptDropzone({
 }) {
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
 
   const pick = (picked: File | null) => {
     if (!picked) return;
@@ -225,6 +227,27 @@ function ReceiptDropzone({
           </span>
         </button>
       )}
+      {!file && (
+        // A phone camera roll is the usual source; open the camera directly.
+        <div className="grid grid-cols-2 gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full max-md:min-h-11"
+            onClick={() => inputRef.current?.click()}
+          >
+            <UploadIcon className="size-4" /> Choose file
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full max-md:min-h-11"
+            onClick={() => cameraRef.current?.click()}
+          >
+            <CameraIcon className="size-4" /> Take photo
+          </Button>
+        </div>
+      )}
       <input
         ref={inputRef}
         type="file"
@@ -235,11 +258,31 @@ function ReceiptDropzone({
           e.target.value = "";
         }}
       />
+      <input
+        ref={cameraRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={(e) => {
+          pick(e.target.files?.[0] ?? null);
+          e.target.value = "";
+        }}
+      />
     </div>
   );
 }
 
-export function RepRegistrationTab() {
+/**
+ * `initialFilter` comes from the shell when another tab sends the rep here
+ * (the Overview cards). The shell remounts on a new hand-off, so it is read as
+ * initial state rather than applied from an effect.
+ */
+export function RepRegistrationTab({
+  initialFilter,
+}: {
+  initialFilter?: string;
+} = {}) {
   const { sessionToken, handleSessionError } = useRepSession();
   const rep = useQuery(api.agcPortal.getRepProfile, sessionToken ? { sessionToken } : "skip");
   const portalConfig = useQuery(api.agcPortal.getPortalConfig);
@@ -277,10 +320,18 @@ export function RepRegistrationTab() {
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState("");
   // History filter chips + reference search.
-  const [filter, setFilter] = useState<RegistrationFilterId>("all");
+  const [filter, setFilter] = useState<RegistrationFilterId>(() => {
+    const match = REGISTRATION_FILTERS.find((f) => f.id === initialFilter);
+    return match ? match.id : "all";
+  });
   const [search, setSearch] = useState("");
   // Post-submit success panel (reference number of the new purchase).
   const [lastSubmitted, setLastSubmitted] = useState<string | null>(null);
+  // Which step of the submit is running — phones need to see that a photo is
+  // still uploading rather than guessing.
+  const [submitStage, setSubmitStage] = useState<
+    "idle" | "compressing" | "uploading" | "submitting"
+  >("idle");
 
   // IOU receipt is fetched on demand and never stored server-side.
   const iouDoc = useQuery(
@@ -438,8 +489,11 @@ export function RepRegistrationTab() {
     }
   };
 
-  const handleOfflineSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  /**
+   * Submit the receipt purchase. Separate from the form handler so the error
+   * panel can offer "Try again" without losing the chosen receipt or fields.
+   */
+  const submitRegistration = async () => {
     if (!sessionToken) return;
     if (!receipt) {
       setError("Attach a scan or photo of your payment receipt (JPG, PNG or PDF).");
@@ -448,11 +502,14 @@ export function RepRegistrationTab() {
     setLoading(true);
     setError("");
     try {
+      setSubmitStage("compressing");
       // Photos are compressed client-side; PDFs pass through unchanged.
       const { file: uploadFile } = await compressImageForUpload(receipt);
+      setSubmitStage("uploading");
       const storageId = await uploadFileToConvex(uploadFile, () =>
         generateUploadUrl({ sessionToken }),
       );
+      setSubmitStage("submitting");
       const result = await submitOffline({
         sessionToken,
         quantity: qty,
@@ -483,9 +540,14 @@ export function RepRegistrationTab() {
       toast.error(friendly.title, { description: friendly.detail });
     } finally {
       setLoading(false);
+      setSubmitStage("idle");
     }
   };
 
+  const handleOfflineSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    void submitRegistration();
+  };
 
   return (
     <div className="space-y-8">
@@ -555,7 +617,20 @@ export function RepRegistrationTab() {
           <CardContent className="space-y-5">
             {error && (
               <Alert variant="destructive">
-                <AlertDescription>{error}</AlertDescription>
+                <AlertDescription className="flex flex-wrap items-center gap-2">
+                  <span className="min-w-0 flex-1">{error}</span>
+                  {receipt && !loading && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="max-md:min-h-10"
+                      onClick={() => void submitRegistration()}
+                    >
+                      Try again
+                    </Button>
+                  )}
+                </AlertDescription>
               </Alert>
             )}
 
@@ -605,7 +680,7 @@ export function RepRegistrationTab() {
                       type="button"
                       variant="ghost"
                       size="icon"
-                      className="size-8"
+                      className="size-8 max-md:size-11"
                       onClick={() => setQuantity(String(Math.max(1, qty - 1)))}
                       aria-label="Remove one delegate"
                     >
@@ -625,7 +700,7 @@ export function RepRegistrationTab() {
                       type="button"
                       variant="ghost"
                       size="icon"
-                      className="size-8"
+                      className="size-8 max-md:size-11"
                       onClick={() => setQuantity(String(qty + 1))}
                       aria-label="Add one delegate"
                     >
@@ -640,7 +715,7 @@ export function RepRegistrationTab() {
                       type="button"
                       onClick={() => setQuantity(String(n))}
                       className={cn(
-                        "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                        "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors max-md:min-h-10",
                         qty === n
                           ? "border-gold bg-gold/15 text-ink"
                           : "text-muted-foreground hover:border-gold/40 hover:text-foreground",
@@ -766,7 +841,7 @@ export function RepRegistrationTab() {
                 </section>
                 <Button
                   type="submit"
-                  className="w-full"
+                  className="w-full max-md:min-h-11"
                   disabled={
                     loading ||
                     portalConfig?.locked === true ||
@@ -775,7 +850,13 @@ export function RepRegistrationTab() {
                   }
                 >
                   {loading && <Loader2Icon className="size-4 animate-spin" />}
-                  {loading ? "Submitting…" : "Submit for review"}
+                  {!loading
+                    ? "Submit for review"
+                    : submitStage === "compressing"
+                      ? "Preparing photo…"
+                      : submitStage === "uploading"
+                        ? "Uploading receipt…"
+                        : "Submitting…"}
                 </Button>
               </form>
 
@@ -798,7 +879,7 @@ export function RepRegistrationTab() {
                 <Button
                   type="button"
                   variant="outline"
-                  className="mt-3 w-full border-amber-400"
+                  className="mt-3 w-full border-amber-400 max-md:min-h-11"
                   disabled={poaBusy || portalConfig?.locked === true}
                   onClick={() => void handlePoaSubmit()}
                 >
@@ -846,6 +927,7 @@ export function RepRegistrationTab() {
                     type="button"
                     variant="outline"
                     size="sm"
+                    className="max-md:min-h-10"
                     disabled={exporting}
                     onClick={() => void handleDownloadExcel()}
                   >
@@ -868,7 +950,7 @@ export function RepRegistrationTab() {
                     key={f.id}
                     type="button"
                     onClick={() => setFilter(f.id)}                      className={cn(
-                        "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                        "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors max-md:min-h-10",
                         filter === f.id
                         ? "border-gold bg-gold/15 text-ink"
                         : "text-muted-foreground hover:border-gold/40 hover:text-foreground",
@@ -954,6 +1036,7 @@ export function RepRegistrationTab() {
                         type="button"
                         variant="outline"
                         size="sm"
+                        className="max-md:min-h-10"
                         onClick={() =>
                           setPoaIouTarget({
                             kind: "registration",
@@ -971,6 +1054,7 @@ export function RepRegistrationTab() {
                           type="button"
                           variant="outline"
                           size="sm"
+                          className="max-md:min-h-10"
                           disabled={poaBusy}
                           onClick={() =>
                             setEvidenceTarget({

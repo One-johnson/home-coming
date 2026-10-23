@@ -8,6 +8,13 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AGC_ACCOMMODATION_LABELS } from "@/lib/agcPortal";
+import { EVENT } from "@/lib/eventConfig";
+
+/** Arrival day, taken from the event config instead of a typed-in date. */
+const CHECK_IN_LABEL = new Date(`${EVENT.checkInDate}T12:00:00Z`).toLocaleDateString(
+  "en-US",
+  { day: "numeric", month: "short" },
+);
 
 /**
  * Phase 2 §8 — published room assignments. Only rooms an Accommodation Admin
@@ -100,7 +107,9 @@ export function RepRoomAssignmentsCard() {
                         Checked in
                       </Badge>
                     ) : (
-                      <span className="text-muted-foreground">Arrives Nov 2</span>
+                      <span className="text-muted-foreground">
+                        Arrives {CHECK_IN_LABEL}
+                      </span>
                     )}
                   </span>
                 </li>
@@ -109,7 +118,8 @@ export function RepRoomAssignmentsCard() {
             {room.accommodationType === "ebpv" && room.occupants.length > 0 && (
               <p className="mt-1.5 flex items-center gap-1 text-[11px] text-muted-foreground">
                 <KeyRound className="size-3" />
-                Apartment keys go to the first delegate who check in (capacity 4, rooms chosen by occupants).
+                Apartment keys go to the first delegate who checks in (capacity
+                4; rooms are chosen by the occupants).
               </p>
             )}
           </div>
