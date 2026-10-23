@@ -6,6 +6,8 @@ import {
   ArrowLeftRight,
   BadgeCheckIcon,
   ChevronDown,
+  CircleAlert,
+  CircleCheck,
   ClipboardCheck,
   HandCoins,
   Printer,
@@ -16,7 +18,12 @@ import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import { useAdminSession } from "@/components/admin/AdminSessionProvider";
 import { AgcExcelExportButton } from "@/components/admin/agc/AgcAdminClient";
-import { Badge } from "@/components/ui/badge";
+import {
+  StatTile,
+  StatusBadge,
+  StatusLegend,
+} from "@/components/admin/agc/StatusPrimitives";
+import { TONE_RAIL, TONE_ROW, TONE_TEXT } from "@/lib/agcStatusTone";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -277,31 +284,49 @@ export function DeskCheckinPage() {
       </div>
 
       <div className="grid gap-3 sm:grid-cols-3">
-        <Stat
+        <StatTile
           label="Awaiting collection"
           value={pending}
-          tone={pending > 0 ? "warning" : "default"}
-          hint={`${(rows ?? []).length} POA record(s) on the sheet`}
+          tone={pending > 0 ? "blocked" : "done"}
+          hint={
+            pending > 0
+              ? `${(rows ?? []).length} POA record(s) on the sheet — tick as cash arrives`
+              : "Every POA record is ticked off"
+          }
+          icon={HandCoins}
         />
         {Object.entries(totals)
           .sort(([a], [b]) => a.localeCompare(b))
           .map(([currency, entry]) => (
-            <Stat
+            <StatTile
               key={currency}
               label={`Collected cash (${currency})`}
               value={entry.amount.toLocaleString()}
-              tone="info"
+              tone="done"
               hint={`${entry.ticked}/${entry.rows} row(s) ticked`}
+              icon={BadgeCheckIcon}
             />
           ))}
         {Object.keys(totals).length === 0 && (
-          <Stat label="Collected cash" value="—" hint="no rows" />
+          <StatTile
+            label="Collected cash"
+            value="—"
+            tone="waiting"
+            hint="Nothing on the sheet matches the search"
+          />
         )}
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-2 print:hidden">
+        <StatusLegend tones={["blocked", "done", "info"]} />
+        <p className="text-[11px] text-muted-foreground">
+          Amber rows still owe cash · green rows are ticked off this shift.
+        </p>
       </div>
 
       <div className="overflow-x-auto rounded-xl border">
         <Table>
-          <TableHeader>
+          <TableHeader className="sticky top-16 z-10 bg-card">
             <TableRow>
               <TableHead className="w-10 print:table-cell"></TableHead>
               <TableHead>Reference</TableHead>
@@ -340,8 +365,10 @@ export function DeskCheckinPage() {
                   <TableRow
                     key={row.recordId}
                     className={cn(
-                      "transition-colors",
-                      isTicked && "bg-emerald-50/70 dark:bg-emerald-950/30",
+                      "border-l-4 transition-colors",
+                      isTicked
+                        ? [TONE_RAIL.done, TONE_ROW.done]
+                        : [TONE_RAIL.blocked, TONE_ROW.blocked],
                     )}
                   >
                     <TableCell>
@@ -390,25 +417,21 @@ export function DeskCheckinPage() {
                       {row.currency} {row.totalAmount.toLocaleString()}
                     </TableCell>
                     <TableCell>
-                      <Badge
-                        variant="outline"
-                        className={cn(
-                          "text-[10px]",
-                          row.poaStatus === "evidence_submitted"
-                            ? "border-sky-300 bg-sky-50 text-sky-800 dark:border-sky-800 dark:bg-sky-950 dark:text-sky-300"
-                            : "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300",
-                        )}
+                      <StatusBadge
+                        tone={row.poaStatus === "evidence_submitted" ? "info" : "blocked"}
+                        icon={row.poaStatus === "evidence_submitted" ? CircleCheck : CircleAlert}
+                        className="text-[10px]"
                       >
                         {row.poaStatus === "evidence_submitted"
-                          ? "evidence submitted"
+                          ? "Evidence submitted"
                           : "IOU pending"}
-                      </Badge>
+                      </StatusBadge>
                     </TableCell>
                     <TableCell className="text-right">
                       {row.poaStatus === "confirmed" ? (
-                        <span className="inline-flex items-center gap-1 text-xs text-emerald-700 dark:text-emerald-400">
-                          <BadgeCheckIcon className="size-3.5" /> collected
-                        </span>
+                        <StatusBadge tone="done" icon={BadgeCheckIcon}>
+                          Collected
+                        </StatusBadge>
                       ) : (
                         <Button
                           type="button"
@@ -550,36 +573,6 @@ export function DeskCheckinPage() {
   );
 }
 
-function Stat({
-  label,
-  value,
-  hint,
-  tone,
-}: {
-  label: string;
-  value: number | string;
-  hint?: string;
-  tone?: "default" | "warning" | "info";
-}) {
-  return (
-    <Card>
-      <CardContent className="p-3">
-        <p className="text-xs text-muted-foreground">{label}</p>
-        <p
-          className={cn(
-            "mt-1 text-2xl font-semibold tabular-nums",
-            tone === "warning" && "text-amber-700 dark:text-amber-400",
-            tone === "info" && "text-emerald-700 dark:text-emerald-400",
-          )}
-        >
-          {value}
-        </p>
-        {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
-      </CardContent>
-    </Card>
-  );
-}
-
 /**
  * End-of-day reconciliation: cash confirmed today (desk vs pre-paid with
  * evidence) against the IOUs still outstanding — per hub + currency, with
@@ -668,11 +661,11 @@ function EndOfDayReconciliation() {
                             </TableCell>
                             <TableCell className="text-right tabular-nums">
                               {row.outstandingCount > 0 ? (
-                                <span className="text-amber-700 dark:text-amber-400">
+                                <span className={TONE_TEXT.blocked}>
                                   {row.currency} {row.outstandingAmount.toLocaleString()} ({row.outstandingCount})
                                 </span>
                               ) : (
-                                "—"
+                                <span className={TONE_TEXT.done}>nil</span>
                               )}
                             </TableCell>
                           </TableRow>

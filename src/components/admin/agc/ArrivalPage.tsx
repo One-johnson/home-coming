@@ -1,14 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import {
+  BedDouble,
   CircleAlert,
+  CircleCheck,
+  CircleSlash,
   KeyRound,
   Loader2Icon,
   LogOut,
   RefreshCw,
   Search,
+  ShieldAlert,
   UserCheck,
   Users,
   ListChecks,
@@ -18,7 +22,6 @@ import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import { useAdminSession } from "@/components/admin/AdminSessionProvider";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -50,6 +53,24 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { toastFriendlyErrorParts } from "@/lib/friendlyError";
 import { AGC_ACCOMMODATION_LABELS } from "@/lib/agcPortal";
+import {
+  TONE_BAR,
+  TONE_RAIL,
+  TONE_ROW,
+  TONE_SURFACE,
+  TONE_TEXT,
+  buildingChipClass,
+  checkInState,
+  deskRowState,
+  occupancyTone,
+  paymentState,
+  type StatusTone,
+} from "@/lib/agcStatusTone";
+import {
+  StatTile,
+  StatusBadge,
+  StatusLegend,
+} from "@/components/admin/agc/StatusPrimitives";
 import { cn } from "@/lib/utils";
 
 /**
@@ -158,6 +179,31 @@ export function ArrivalPage() {
   // Search state
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<string>("all");
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  // Desk speed: the search box is focused on load, and "/" brings it back from
+  // anywhere on the page without reaching for the mouse.
+  useEffect(() => {
+    searchRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.target as HTMLElement | null;
+      const tag = target?.tagName?.toLowerCase();
+      if (
+        tag === "input" ||
+        tag === "textarea" ||
+        tag === "select" ||
+        target?.isContentEditable
+      ) {
+        return;
+      }
+      event.preventDefault();
+      searchRef.current?.focus();
+      searchRef.current?.select();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
   const searchResults = useQuery(
     api.agcCheckin.searchDelegates,
     sessionToken && search.trim().length >= 2
@@ -311,6 +357,16 @@ export function ArrivalPage() {
     return  searchResults ?? deskRows ?? [];
   }, [searchResults, deskRows]);
 
+  /**
+   * A single match that is ready to check in: Enter at the desk then works
+   * without reaching for the mouse. Anything else still goes through its row.
+   */
+  const soleReadyRow = useMemo(() => {
+    if (rows.length !== 1) return null;
+    const row = rows[0] as SearchRow;
+    return deskRowState(row).ready ? row : null;
+  }, [rows]);
+
   // --- Group check-in (§13) ---
   const groupRows = useMemo(() => {
     if (!groupHub) return [];
@@ -368,6 +424,7 @@ export function ArrivalPage() {
   return (
     <div className="space-y-4">
       <ArrivalStats data={overview} />
+      <DeskAlerts data={overview} />
 
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="space-y-3 lg:col-span-2">
@@ -394,11 +451,19 @@ export function ArrivalPage() {
             <div className="relative min-w-56 flex-1">
               <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
+                ref={searchRef}
                 type="search"
-                placeholder="Search delegate name or hub… (results below once you type 2+ characters)"
+                placeholder="Search delegate name or hub… (2+ characters, “/” focuses, Enter checks in a single ready match)"
                 className="pl-8"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter" || !soleReadyRow) return;
+                  event.preventDefault();
+                  setCheckinTarget(soleReadyRow);
+                  setOverrideReason("");
+                  setKeyRecipientName(soleReadyRow.name);
+                }}
               />
             </div>
             <Select value={typeFilter} onValueChange={(value) => setTypeFilter(value ?? "all")}>
@@ -414,6 +479,13 @@ export function ArrivalPage() {
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <StatusLegend tones={["done", "blocked", "info", "waiting"]} />
+            <p className="text-[11px] text-muted-foreground">
+              Row colour = what the delegate needs next.
+            </p>
           </div>
 
           <Card>
@@ -440,8 +512,27 @@ export function ArrivalPage() {
                     (rows as SearchRow[]).map((row) => {
                       const alreadyIn = row.checkInStatus === "checked_in";
                       const gone = row.checkInStatus === "checked_out";
+                      const state = deskRowState(row);
+                      const payment = paymentState(row.paymentStatus, row.poaStatus);
+                      const StatusIcon =
+                        state.tone === "done"
+                          ? UserCheck
+                          : state.tone === "blocked"
+                            ? CircleAlert
+                            : state.tone === "info"
+                              ? CircleCheck
+                              : gone
+                                ? LogOut
+                                : CircleSlash;
                       return (
-                        <TableRow key={row.guestId} className={cn(alreadyIn && "bg-emerald-50/50 dark:bg-emerald-950/20")}>
+                        <TableRow
+                          key={row.guestId}
+                          className={cn(
+                            "border-l-4",
+                            TONE_RAIL[state.tone],
+                            TONE_ROW[state.tone],
+                          )}
+                        >
                           <TableCell>
                             <p className="font-medium">{row.name}</p>
                             <p className="text-xs text-muted-foreground">
@@ -455,40 +546,35 @@ export function ArrivalPage() {
                               <span>
                                 {row.roomName}
                                 {row.building ? (
-                                  <span className="text-xs text-muted-foreground"> · {row.building}</span>
+                                  <span
+                                    className={cn(
+                                      "ml-1 inline-block rounded-md border px-1.5 py-0.5 text-[10px] font-medium",
+                                      buildingChipClass(row.building),
+                                    )}
+                                  >
+                                    {row.building}
+                                  </span>
                                 ) : null}
                               </span>
                             ) : (
-                              <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-800">
+                              <StatusBadge tone="blocked" icon={BedDouble}>
                                 Unassigned — refer to room staff
-                              </Badge>
+                              </StatusBadge>
                             )}
                           </TableCell>
                           <TableCell>
-                            {row.poaStatus === "confirmed" ? (
-                              <Badge variant="outline" className="border-emerald-300 bg-emerald-50 text-emerald-700">
-                                POA paid
-                              </Badge>
-                            ) : row.paymentStatus === "confirmed" ? (
-                              <Badge variant="outline" className="border-emerald-300 bg-emerald-50 text-emerald-700">
-                                Paid
-                              </Badge>
-                            ) : (
-                              <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-800">
-                                {row.poaStatus ? `POA ${row.poaStatus.replace("_", " ")}` : row.paymentStatus}
-                              </Badge>
-                            )}
+                            <StatusBadge
+                              tone={payment.tone}
+                              icon={payment.tone === "done" ? CircleCheck : CircleAlert}
+                              title={payment.detail}
+                            >
+                              {payment.label}
+                            </StatusBadge>
                           </TableCell>
                           <TableCell>
-                            {alreadyIn ? (
-                              <Badge variant="outline" className="border-emerald-300 bg-emerald-50 text-emerald-700">
-                                Checked in
-                              </Badge>
-                            ) : gone ? (
-                              <Badge variant="outline">Checked out</Badge>
-                            ) : (
-                              <Badge variant="outline">Not arrived</Badge>
-                            )}
+                            <StatusBadge tone={state.tone} icon={StatusIcon}>
+                              {state.label}
+                            </StatusBadge>
                           </TableCell>
                           <TableCell className="text-right">
                             <div className="flex justify-end gap-1">
@@ -603,8 +689,14 @@ export function ArrivalPage() {
             {checkinTarget &&
               checkinTarget.paymentStatus !== "confirmed" &&
               checkinTarget.poaStatus !== "confirmed" && (
-                <div className="space-y-1.5 rounded-lg border border-amber-300 bg-amber-50 p-3 dark:bg-amber-950/40">
-                  <Label className="text-amber-900 dark:text-amber-200">
+                <div
+                  className={cn(
+                    "space-y-1.5 rounded-lg border border-l-4 p-3",
+                    TONE_SURFACE.blocked,
+                    TONE_RAIL.blocked,
+                  )}
+                >
+                  <Label className={TONE_TEXT.blocked}>
                     Payment override (Accommodation Admin)
                   </Label>
                   <Textarea
@@ -812,60 +904,203 @@ type Overview = {
   }[];
 };
 
+/**
+ * The one-line answer to "is anything waiting on the desk?" — a tinted strip
+ * that turns red for sync exceptions and amber for decisions, and collapses
+ * to a calm green line when the desk is clear.
+ */
+function DeskAlerts({ data }: { data: Overview | undefined }) {
+  if (!data) return null;
+  const unassigned = data.unassigned;
+  const overrides = data.paymentOverrides;
+  const conflicts = data.offlineConflicts;
+  const tone = conflicts > 0 ? "refused" : unassigned > 0 || overrides > 0 ? "blocked" : "done";
+  const Icon = tone === "refused" ? ShieldAlert : tone === "blocked" ? CircleAlert : CircleCheck;
+  const headline =
+    tone === "refused"
+      ? `${conflicts} offline sync exception(s) need review before close-out.`
+      : tone === "blocked"
+        ? "Some delegates need a decision before they can be checked in."
+        : "All clear — nothing is waiting on the desk.";
+  return (
+    <div
+      className={cn(
+        "flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-l-4 px-3 py-2",
+        TONE_SURFACE[tone],
+        TONE_RAIL[tone],
+      )}
+    >
+      <p className={cn("flex items-center gap-1.5 text-sm font-medium", TONE_TEXT[tone])}>
+        <Icon className="size-4 shrink-0" />
+        {headline}
+      </p>
+      <span className="flex flex-wrap items-center gap-1.5">
+        <StatusBadge tone={unassigned > 0 ? "blocked" : "waiting"} icon={BedDouble}>
+          {unassigned} unassigned
+        </StatusBadge>
+        <StatusBadge tone={overrides > 0 ? "blocked" : "waiting"} icon={ShieldAlert}>
+          {overrides} payment override(s)
+        </StatusBadge>
+        <StatusBadge tone={conflicts > 0 ? "refused" : "waiting"} icon={CircleAlert}>
+          {conflicts} sync conflict(s)
+        </StatusBadge>
+      </span>
+    </div>
+  );
+}
+
 function ArrivalStats({ data }: { data: Overview | undefined }) {
   if (!data) {
     return (
-      <div className="grid gap-3 sm:grid-cols-4">
-        {Array.from({ length: 8 }).map((_, i) => (
-          <Skeleton key={i} className="h-16" />
+      <div className="grid gap-3 sm:grid-cols-3">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <Skeleton key={i} className="h-20" />
         ))}
       </div>
     );
   }
-  const stats: Array<{ label: string; value: number | string; warn?: boolean }> = [
-    { label: "Roomable delegates", value: data.totalRoomable },
-    { label: "Assigned", value: data.assigned },
-    { label: "Unassigned", value: data.unassigned, warn: data.unassigned > 0 },
-    { label: "Checked in", value: data.checkedIn },
-    { label: "Not arrived", value: data.notArrived },
-    { label: "Checked out", value: data.checkedOut },
-    { label: "Keys issued", value: data.keysIssued },
-    { label: "Exceptions (unassigned + sync conflicts)", value: data.unresolvedExceptions, warn: data.unresolvedExceptions > 0 },
+
+  // Action first: only the work that needs a human appears in colour.
+  type StatAction = {
+    label: string;
+    value: number;
+    tone: StatusTone;
+    hint: string;
+    icon: typeof BedDouble;
+  };
+  const actions: StatAction[] = [
+    {
+      label: "Unassigned",
+      value: data.unassigned,
+      tone: data.unassigned > 0 ? "blocked" : "done",
+      hint:
+        data.unassigned > 0
+          ? "Send to Room-Assignment Staff or the Accommodation Admin"
+          : "Every roomable delegate has a bed",
+      icon: BedDouble,
+    },
+    {
+      label: "Payment overrides",
+      value: data.paymentOverrides,
+      tone: data.paymentOverrides > 0 ? "blocked" : "done",
+      hint:
+        data.paymentOverrides > 0
+          ? "Checked in without confirmed payment — review the reasons"
+          : "No delegate was checked in on an override",
+      icon: ShieldAlert,
+    },
+    {
+      label: "Sync exceptions",
+      value: data.offlineConflicts,
+      tone: data.offlineConflicts > 0 ? "refused" : "done",
+      hint:
+        data.offlineConflicts > 0
+          ? "Resolve these before end of day"
+          : "No offline action is in dispute",
+      icon: CircleAlert,
+    },
   ];
+
+  const progress = [
+    { label: "Roomable", value: data.totalRoomable, tone: "neutral" as const },
+    { label: "Assigned", value: data.assigned, tone: "info" as const },
+    { label: "Checked in", value: data.checkedIn, tone: "done" as const },
+    { label: "Not arrived", value: data.notArrived, tone: "waiting" as const },
+    { label: "Checked out", value: data.checkedOut, tone: "waiting" as const },
+    { label: "Keys out", value: data.keysIssued, tone: "info" as const },
+  ];
+
   return (
     <div className="space-y-3">
-      <div className="grid gap-3 grid-cols-2 sm:grid-cols-4">
-        {stats.map((stat) => (
-          <Card key={stat.label}>
-            <CardContent className="p-3">
-              <p className={cn("text-xs text-muted-foreground", stat.warn && "text-amber-700 dark:text-amber-400")}>
-                {stat.label}
-              </p>
-              <p className={cn("mt-1 text-2xl font-semibold tabular-nums", stat.warn && "text-amber-700 dark:text-amber-400")}>
-                {stat.value}
-              </p>
-            </CardContent>
-          </Card>
+      <div className="grid gap-3 sm:grid-cols-3">
+        {actions.map((action) => (
+          <StatTile
+            key={action.label}
+            label={action.label}
+            value={action.value}
+            tone={action.tone}
+            hint={action.hint}
+            icon={action.icon}
+          />
         ))}
       </div>
+
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+        {progress.map((stat) => (
+          <div key={stat.label} className="rounded-lg border bg-card px-2.5 py-2">
+            <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              <span
+                aria-hidden
+                className={cn(
+                  "inline-block size-1.5 rounded-full",
+                  stat.tone === "done"
+                    ? "bg-emerald-500"
+                    : stat.tone === "info"
+                      ? "bg-sky-500"
+                      : stat.tone === "waiting"
+                        ? "bg-slate-400"
+                        : "bg-muted-foreground/40",
+                )}
+              />
+              {stat.label}
+            </p>
+            <p
+              className={cn(
+                "text-lg font-semibold tabular-nums",
+                stat.tone === "done"
+                  ? TONE_TEXT.done
+                  : stat.tone === "info"
+                    ? TONE_TEXT.info
+                    : "text-foreground",
+              )}
+            >
+              {stat.value}
+            </p>
+          </div>
+        ))}
+      </div>
+
       <Card>
         <CardContent className="p-3">
-          <p className="mb-2 text-xs font-medium text-muted-foreground">Occupancy by location (§21)</p>
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-medium text-muted-foreground">
+              Occupancy by location (§21)
+            </p>
+            <p className="text-[11px] text-muted-foreground">
+              Green has room · amber is filling · rose is full
+            </p>
+          </div>
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-            {data.perLocation.map((loc) => (
-              <div key={loc.accommodationType} className="rounded-lg border p-2 text-xs">
-                <p className="font-medium">{loc.typeLabel}</p>
-                <p className="text-muted-foreground tabular-nums">
-                  {loc.assigned}/{loc.capacity} assigned · {loc.checkedIn} in · {loc.available} free
-                </p>
-                <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
-                  <div
-                    className="h-full rounded-full bg-primary"
-                    style={{ width: `${Math.min(100, loc.occupancyPercent)}%` }}
-                  />
+            {data.perLocation.map((loc) => {
+              const tone = occupancyTone(loc.occupancyPercent);
+              return (
+                <div
+                  key={loc.accommodationType}
+                  className={cn(
+                    "rounded-lg border border-l-4 p-2 text-xs",
+                    TONE_SURFACE[tone],
+                    TONE_RAIL[tone],
+                  )}
+                >
+                  <p className="flex items-center justify-between gap-2 font-medium">
+                    <span>{loc.typeLabel}</span>
+                    <span className={cn("tabular-nums", TONE_TEXT[tone])}>
+                      {loc.occupancyPercent}%
+                    </span>
+                  </p>
+                  <p className="text-muted-foreground tabular-nums">
+                    {loc.assigned}/{loc.capacity} assigned · {loc.checkedIn} in ·{" "}
+                    {loc.available} free
+                  </p>
+                  <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
+                    <div
+                      className={cn("h-full rounded-full", TONE_BAR[tone])}
+                      style={{ width: `${Math.min(100, loc.occupancyPercent)}%` }}
+                    />
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
             {data.perLocation.length === 0 && (
               <p className="text-xs text-muted-foreground">
                 No rooms imported yet — set up inventory in the Rooms tab.
@@ -975,7 +1210,7 @@ function GroupCheckInPanel({
                   key={row.guestId}
                   className={cn(
                     "flex items-center gap-2 rounded-lg border px-2 py-1.5 text-xs",
-                    isTicked && "border-emerald-300 bg-emerald-50 dark:bg-emerald-950/40",
+                    isTicked && ["border-l-4", TONE_SURFACE.done, TONE_RAIL.done],
                   )}
                 >
                   <Checkbox
@@ -991,9 +1226,13 @@ function GroupCheckInPanel({
                     </p>
                   </div>
                   {!tickable ? (
-                    <Badge variant="outline" className="shrink-0">
+                    <StatusBadge
+                      tone={row.checkInStatus === "checked_in" ? "done" : "waiting"}
+                      icon={row.checkInStatus === "checked_in" ? CircleCheck : CircleSlash}
+                      className="shrink-0"
+                    >
                       {row.checkInStatus === "checked_in" ? "Checked in" : "Not arriving"}
-                    </Badge>
+                    </StatusBadge>
                   ) : null}
                 </li>
               );
@@ -1035,12 +1274,28 @@ function RecentCheckIns({ data }: { data: RecentRow[] }) {
           <ul className="space-y-1.5">
             {data.map((row) => (
               <li key={row._id} className="text-xs">
-                <p className="font-medium">{row.guestName}</p>
+                <p className="flex flex-wrap items-center gap-1.5 font-medium">
+                  {row.guestName}
+                  <StatusBadge
+                    tone={row.checkedOutAt ? "waiting" : "done"}
+                    icon={row.checkedOutAt ? LogOut : CircleCheck}
+                  >
+                    {checkInState(row.checkedOutAt ? "checked_out" : "checked_in").label}
+                  </StatusBadge>
+                  {row.override ? (
+                    <StatusBadge tone="refused" icon={ShieldAlert}>
+                      Override
+                    </StatusBadge>
+                  ) : null}
+                </p>
                 <p className="text-muted-foreground">
                   {row.roomName} · {new Date(row.checkedInAt).toLocaleString()} · {row.checkedInBy}
-                  {row.checkedOutAt ? " · checked out" : ""}
-                  {row.override ? " · OVERRIDE" : ""}
                 </p>
+                {row.override ? (
+                  <p className={cn("mt-0.5", TONE_TEXT.refused)}>
+                    Override reason: {row.override.reason}
+                  </p>
+                ) : null}
               </li>
             ))}
           </ul>
@@ -1074,8 +1329,25 @@ function KeysPanel({
           <ul className="space-y-1.5">
             {open.map((key) => (
               <li key={key._id} className="text-xs">
-                <p className="font-medium">
-                  {key.roomName} <span className="font-normal text-muted-foreground">· {key.typeLabel}</span>
+                <p className="flex flex-wrap items-center gap-1.5 font-medium">
+                  {key.roomName}{" "}
+                  <span className="font-normal text-muted-foreground">· {key.typeLabel}</span>
+                  <StatusBadge
+                    tone={
+                      key.status === "returned"
+                        ? "done"
+                        : key.status === "replaced"
+                          ? "info"
+                          : "blocked"
+                    }
+                    icon={KeyRound}
+                  >
+                    {key.status === "returned"
+                      ? "Returned"
+                      : key.status === "replaced"
+                        ? "Replaced"
+                        : "Key out"}
+                  </StatusBadge>
                 </p>
                 <p className="text-muted-foreground">
                   {key.recipientName ?? "—"} · {key.status} ·{" "}
@@ -1170,17 +1442,13 @@ function OfflinePanel({
           </p>
         ) : (
           <div className="space-y-2 text-xs">
-            <p className="flex items-center gap-2">
-              <Badge
-                variant="outline"
-                className={cn(
-                  online
-                    ? "border-emerald-300 bg-emerald-50 text-emerald-700"
-                    : "border-amber-300 bg-amber-50 text-amber-800",
-                )}
+            <p className="flex flex-wrap items-center gap-2">
+              <StatusBadge
+                tone={online ? "done" : "blocked"}
+                icon={online ? CircleCheck : WifiOff}
               >
                 {online ? "Online" : "Offline"}
-              </Badge>
+              </StatusBadge>
               {station ? (
                 <span>
                   Designated: <strong>{station.stationName}</strong> · {station.pendingTransactions} pending
@@ -1188,7 +1456,10 @@ function OfflinePanel({
                     ? ` · last sync ${new Date(station.lastSuccessfulSync).toLocaleString()}`
                     : ""}
                   {station.conflicts > 0 ? (
-                    <span className="text-amber-700"> · {station.conflicts} conflicts</span>
+                    <span className={TONE_TEXT.refused}>
+                      {" "}
+                      · {station.conflicts} conflicts
+                    </span>
                   ) : null}
                 </span>
               ) : (
@@ -1251,7 +1522,7 @@ function OfflinePanel({
               </div>
             )}
             {!online && (
-              <p className="text-amber-700 dark:text-amber-400">
+              <p className={TONE_TEXT.blocked}>
                 Offline mode: actions taken at this desk while disconnected are kept in
                 the local queue and replay automatically when the connection returns.
               </p>
@@ -1271,14 +1542,24 @@ function ConflictsPanel({ sessionToken }: { sessionToken: string | null }) {
     <Card>
       <CardContent className="p-3">
         <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-          <CircleAlert className="size-3.5" /> Offline sync exceptions ({rows.length})
-        </p>
-        {rows.length === 0 ? (
-          <p className="text-xs text-muted-foreground">No conflicts or rejections to review.</p>
-        ) : (
-          <ul className="space-y-2">
-            {rows.map((c: ConflictRow) => (
-              <li key={c._id} className="rounded-lg border p-2 text-xs">
+          <CircleAlert className={cn("size-3.5", rows.length > 0 ? TONE_TEXT.refused : "")} />
+          Offline sync exceptions ({rows.length})
+        </p>            {rows.length === 0 ? (
+              <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <CircleCheck className="size-3.5 text-emerald-600" /> No conflicts or
+                rejections to review.
+              </p>
+            ) : (
+              <ul className="space-y-2">
+                {rows.map((c: ConflictRow) => (
+                  <li
+                    key={c._id}
+                    className={cn(
+                      "rounded-lg border border-l-4 p-2 text-xs",
+                      TONE_SURFACE.refused,
+                      TONE_RAIL.refused,
+                    )}
+                  >
                 <p className="font-medium">
                   {c.action} · {c.building} · {c.syncStatus}
                 </p>
