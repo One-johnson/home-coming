@@ -117,7 +117,6 @@ type ImportRow = {
   accommodationType: "dormitory" | "hostel" | "wise_serpents" | "good_general" | "ebpv";
   building?: string;
   name: string;
-  gender?: "male" | "female";
   capacity: number;
 };
 
@@ -367,7 +366,6 @@ export function RoomsTab() {
             accommodationType: row.accommodationType,
             building: row.building,
             name: row.name,
-            gender: row.gender,
             capacity: row.capacity,
           })),
         }
@@ -384,7 +382,6 @@ export function RoomsTab() {
           accommodationType: row.accommodationType,
           building: row.building,
           name: row.name,
-          gender: row.gender,
           capacity: row.capacity,
         })),
       });
@@ -838,9 +835,11 @@ export function RoomsTab() {
           <DialogHeader>
             <DialogTitle>Import physical room inventory (§3)</DialogTitle>
             <DialogDescription>
-              Upload the Excel inventory. Unnumbered beds are one row with the
-              bed total; EBPV is one row per apartment (4 delegates). Imports
-              never exceed the confirmed inventory pools.
+              Upload the inventory workbook as the accommodation team keeps it:
+              one sheet per accommodation type, a title row, then the room number
+              / apartment name and capacity headers with one room per row. Staff
+              assign and check in delegates manually, so no gender column is
+              needed. Imports never exceed the confirmed inventory pools.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">

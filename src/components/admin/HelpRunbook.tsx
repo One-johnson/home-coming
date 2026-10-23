@@ -52,10 +52,10 @@ const SECTIONS: RunbookSection[] = [
     title: "1. Import the physical room inventory (before arrival)",
     steps: [
       {
-        text: "Accommodation → Rooms tab → Steps 7–12. Download the template and fill one row per room/apartment: Accommodation location, Building / block, Room number or apartment name, Room capacity, Gender (blank = any).",
+        text: "Accommodation → Rooms tab → Steps 7–12. Download the template or upload your own workbook: one sheet per accommodation type, a title row, then a header row (NO. OF ROOMS, ROOM NUMBER / Apartment name, CAPACITY) with one room per row underneath."
       },
       {
-        text: "Dormitory/hostel: one row per room, or one row with the bed total for unnumbered halls (Mighty Fortress). EBPV: one row per apartment, capacity 4, no gender — apartments are mixed.",
+        text: "Dormitory/hostel: one row per room, or one row with the bed total for unnumbered halls (Mighty Fortress). EBPV: one row per apartment, capacity 4. No gender column — staff assign delegates and check them in manually."
       },
       {
         text: "Preview first: the parser reports invalid rows by row number, and the preview compares the imported total per type against the confirmed inventory pools. An import may never exceed a pool — fix the sheet or the pool first.",

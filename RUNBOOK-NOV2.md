@@ -30,19 +30,22 @@ and override, and shows up in the audit log and reports.
 
 Route: **Accommodation → Rooms tab** (Steps 7–12).
 
-1. **Download template** — button in the Rooms tab. Fill one row per
-   room/apartment: *Accommodation location, Building / block, Room number or
-   apartment name, Room capacity, Gender (blank = any)*.
+1. **Upload the workbook** — the Rooms tab template is the team's own layout.
+   One sheet per accommodation type, a title row, then a header row
+   (*NO. OF ROOMS, ROOM NUMBER / Apartment name, CAPACITY*) with one room per
+   row underneath. The sheet name or title says which type it is; the
+   "NO. OF ROOMS" counter is ignored. There is no gender column — staff assign
+   delegates and check them in manually at the desk.
+   - Hostels with/without heater both import as hostel rooms.
    - Dormitory/hostel: one row per room, or one row with the bed total for
      unnumbered halls (Mighty Fortress).
-   - EBPV: one row per apartment, capacity 4, **no gender** — apartments are
-     mixed.
-2. **Preview import** — the parser reports `invalidRows` by row number (unknown
-   location, missing name, bad capacity) and the preview compares the imported
-   total per type against the Phase 1 confirmed inventory pools. An import may
-   never exceed a pool; fix the sheet or the pool first.
-3. **Commit** — same-named rows update capacity/building/gender in place,
-   others are created. EBPV rows over 4 delegates are rejected at commit.
+   - EBPV: one row per apartment, capacity 4, mixed automatically.
+2. **Preview import** — the parser reports `invalidRows` by sheet and row
+   (missing name, bad capacity) and the preview compares the imported total per
+   type against the Phase 1 confirmed inventory pools. An import may never
+   exceed a pool; fix the sheet or the pool first.
+3. **Commit** — same-named rows update capacity/building in place, others are
+   created. EBPV rows over 4 delegates are rejected at commit.
 4. **Publish** — rooms (or the whole block) become visible to hub reps the
    moment you publish. Reps see only published rooms and only their own
    delegates (§8). Publish per building as rooms become ready.
