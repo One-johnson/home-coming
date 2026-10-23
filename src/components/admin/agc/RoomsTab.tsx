@@ -4,6 +4,8 @@ import { useMemo, useRef, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import {
   BedDouble,
+  ChevronDown,
+  ChevronRight,
   Download,
   DoorOpen,
   Eye,
@@ -121,6 +123,8 @@ type ImportRow = {
 };
 
 const TYPES = ["dormitory", "hostel", "wise_serpents", "good_general", "ebpv"] as const;
+
+type RoomView = "all" | "published" | "unpublished";
 const TYPE_LABEL = (type: string) =>
   AGC_ACCOMMODATION_LABELS[type as keyof typeof AGC_ACCOMMODATION_LABELS] ?? type;
 
@@ -159,6 +163,8 @@ export function RoomsTab() {
   const [roomingOpen, setRoomingOpen] = useState(false);
   const [roomingType, setRoomingType] = useState<string>("all");
   const [publishScopeValue, setPublishScopeValue] = useState("");
+  const [roomView, setRoomView] = useState<RoomView>("all");
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
 
   // Unassigned-queue filters (§5)
   const [guestFilter, setGuestFilter] = useState("");
@@ -185,6 +191,26 @@ export function RoomsTab() {
   const guests = useMemo(() => unassigned ?? [], [unassigned]);
   const totalBeds = list.reduce((sum, room) => sum + room.capacity, 0);
   const usedBeds = list.reduce((sum, room) => sum + room.occupants, 0);
+
+  // Rooms grouped under a heading per accommodation type, narrowed by the
+  // published / unpublished filter.
+  const roomGroups = useMemo(
+    () =>
+      TYPES.map((type) => {
+        const allRooms = list.filter((room) => room.accommodationType === type);
+        const shown = allRooms.filter((room) =>
+          roomView === "all"
+            ? true
+            : roomView === "published"
+              ? room.publishedAt != null
+              : room.publishedAt == null,
+        );
+        return { type, rooms: shown, allRooms };
+      }).filter((group) => group.rooms.length > 0),
+    [list, roomView],
+  );
+
+  const publishedCount = list.filter((room) => room.publishedAt != null).length;
 
   const buildings = useMemo(
     () => [...new Set(list.map((room) => room.building).filter(Boolean) as string[])],
@@ -513,6 +539,21 @@ export function RoomsTab() {
             ))}
           </SelectContent>
         </Select>
+        <Select
+          value={roomView}
+          onValueChange={(value) => setRoomView((value ?? "all") as RoomView)}
+        >
+          <SelectTrigger className="h-9 w-44" aria-label="Filter rooms by publish state">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All rooms ({list.length})</SelectItem>
+            <SelectItem value="published">Published ({publishedCount})</SelectItem>
+            <SelectItem value="unpublished">
+              Unpublished ({list.length - publishedCount})
+            </SelectItem>
+          </SelectContent>
+        </Select>
         <span className="grow" />
         <span className="text-sm text-muted-foreground tabular-nums">
           {usedBeds}/{totalBeds} {list.some((r) => r.accommodationType === "ebpv") ? "spaces" : "beds"} filled · {guests.length} awaiting a room
@@ -582,8 +623,48 @@ export function RoomsTab() {
         )}
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {list.map((room) => {
+      {list.length > 0 && roomGroups.length === 0 && (
+        <p className="rounded-xl border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
+          No {roomView === "published" ? "published" : "unpublished"} rooms —
+          switch the filter to see the rest.
+        </p>
+      )}
+
+      <div className="space-y-4">
+        {roomGroups.map((group) => {
+          const collapsed = collapsedGroups[group.type] ?? false;
+          const groupPublished = group.allRooms.filter(
+            (room) => room.publishedAt != null,
+          ).length;
+          const groupBeds = group.allRooms.reduce((sum, room) => sum + room.capacity, 0);
+          const groupFilled = group.allRooms.reduce((sum, room) => sum + room.occupants, 0);
+          return (
+            <section key={group.type} className="rounded-xl border">
+              <button
+                type="button"
+                aria-expanded={!collapsed}
+                onClick={() =>
+                  setCollapsedGroups({ ...collapsedGroups, [group.type]: !collapsed })
+                }
+                className="flex w-full flex-wrap items-center gap-2 px-3 py-2 text-left"
+              >
+                {collapsed ? (
+                  <ChevronRight className="size-4 text-muted-foreground" />
+                ) : (
+                  <ChevronDown className="size-4 text-muted-foreground" />
+                )}
+                <span className="text-sm font-medium">{TYPE_LABEL(group.type)}</span>
+                <Badge variant="outline" className="text-[10px]">
+                  {group.rooms.length} room(s)
+                </Badge>
+                <span className="text-xs text-muted-foreground tabular-nums">
+                  {groupPublished}/{group.allRooms.length} published · {groupFilled} /
+                  {groupBeds} filled
+                </span>
+              </button>
+              {!collapsed && (
+                <div className="grid gap-3 border-t p-3 sm:grid-cols-2 xl:grid-cols-3">
+                  {group.rooms.map((room) => {
           const full = room.occupants >= room.capacity;
           const isApartment = room.accommodationType === "ebpv";
           const published = room.publishedAt != null;
@@ -592,11 +673,16 @@ export function RoomsTab() {
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium">{room.name}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {TYPE_LABEL(room.accommodationType)}
-                    {room.building ? ` · ${room.building}` : ""}
-                    {room.gender ? ` · ${room.gender} only` : isApartment ? " · mixed" : ""}
-                  </p>
+                  {(room.building || room.gender || isApartment) && (
+                    <p className="text-xs text-muted-foreground">
+                      {[
+                        room.building,
+                        room.gender ? `${room.gender} only` : isApartment ? "mixed" : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </p>
+                  )}
                 </div>
                 <Badge
                   variant="outline"
@@ -705,6 +791,11 @@ export function RoomsTab() {
                 </Button>
               </div>
             </div>
+                  );
+                  })}
+                </div>
+              )}
+            </section>
           );
         })}
       </div>
