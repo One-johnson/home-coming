@@ -5,7 +5,6 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import {
   BedDouble,
   ChevronDown,
-  ChevronRight,
   Download,
   DoorOpen,
   Eye,
@@ -167,7 +166,8 @@ export function RoomsTab() {
   const [publishScopeValue, setPublishScopeValue] = useState("");
   const [roomView, setRoomView] = useState<RoomView>("all");
   const [roomSearch, setRoomSearch] = useState("");
-  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+  /** Accordion: one group open at a time. undefined = pick the first match. */
+  const [openGroup, setOpenGroup] = useState<string | null | undefined>(undefined);
 
   // Unassigned-queue filters (§5)
   const [guestFilter, setGuestFilter] = useState("");
@@ -212,6 +212,12 @@ export function RoomsTab() {
   }, [list, roomView, roomSearch]);
 
   const matchedRooms = roomGroups.reduce((sum, group) => sum + group.rooms.length, 0);
+  const activeGroup =
+    openGroup === undefined ? (roomGroups[0]?.type ?? null) : openGroup;
+
+  /** Opening the group that is already open closes it; another opens alone. */
+  const toggleGroup = (type: string) =>
+    setOpenGroup(activeGroup === type ? null : type);
 
   const publishedCount = list.filter((room) => room.publishedAt != null).length;
 
@@ -552,11 +558,18 @@ export function RoomsTab() {
           aria-label="Search rooms"
           className="h-9 w-48"
           value={roomSearch}
-          onChange={(e) => setRoomSearch(e.target.value)}
+          onChange={(e) => {
+            setRoomSearch(e.target.value);
+            // Re-open the first group that matches what is being searched.
+            setOpenGroup(undefined);
+          }}
         />
         <Select
           value={roomView}
-          onValueChange={(value) => setRoomView((value ?? "all") as RoomView)}
+          onValueChange={(value) => {
+            setRoomView((value ?? "all") as RoomView);
+            setOpenGroup(undefined);
+          }}
         >
           <SelectTrigger className="h-9 w-44" aria-label="Filter rooms by publish state">
             <SelectValue />
@@ -649,27 +662,28 @@ export function RoomsTab() {
 
       <div className="space-y-4">
         {roomGroups.map((group) => {
-          const collapsed = collapsedGroups[group.type] ?? false;
+          const isOpen = activeGroup === group.type;
           const groupPublished = group.allRooms.filter(
             (room) => room.publishedAt != null,
           ).length;
           const groupBeds = group.allRooms.reduce((sum, room) => sum + room.capacity, 0);
           const groupFilled = group.allRooms.reduce((sum, room) => sum + room.occupants, 0);
+          const panelId = `room-group-${group.type}`;
           return (
             <section key={group.type} className="rounded-xl border">
               <button
                 type="button"
-                aria-expanded={!collapsed}
-                onClick={() =>
-                  setCollapsedGroups({ ...collapsedGroups, [group.type]: !collapsed })
-                }
-                className="flex w-full flex-wrap items-center gap-2 px-3 py-2 text-left"
+                aria-expanded={isOpen}
+                aria-controls={panelId}
+                onClick={() => toggleGroup(group.type)}
+                className="flex w-full flex-wrap items-center gap-2 rounded-xl px-3 py-2 text-left transition-colors hover:bg-muted/50"
               >
-                {collapsed ? (
-                  <ChevronRight className="size-4 text-muted-foreground" />
-                ) : (
-                  <ChevronDown className="size-4 text-muted-foreground" />
-                )}
+                <ChevronDown
+                  className={cn(
+                    "size-4 text-muted-foreground transition-transform duration-300 ease-out",
+                    !isOpen && "-rotate-90",
+                  )}
+                />
                 <span className="text-sm font-medium">{TYPE_LABEL(group.type)}</span>
                 <Badge variant="outline" className="text-[10px]">
                   {group.rooms.length} room(s)
@@ -679,8 +693,17 @@ export function RoomsTab() {
                   {groupBeds} filled
                 </span>
               </button>
-              {!collapsed && (
-                <div className="grid gap-3 border-t p-3 sm:grid-cols-2 xl:grid-cols-3">
+              <div
+                id={panelId}
+                aria-hidden={!isOpen}
+                inert={!isOpen}
+                className={cn(
+                  "grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none",
+                  isOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+                )}
+              >
+                <div className="overflow-hidden">
+                  <div className="grid gap-3 border-t p-3 sm:grid-cols-2 xl:grid-cols-3">
                   {group.rooms.map((room) => {
           const full = room.occupants >= room.capacity;
           const isApartment = room.accommodationType === "ebpv";
@@ -810,8 +833,9 @@ export function RoomsTab() {
             </div>
                   );
                   })}
+                  </div>
                 </div>
-              )}
+              </div>
             </section>
           );
         })}
