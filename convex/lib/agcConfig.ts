@@ -146,9 +146,11 @@ export const AGC_INVENTORY_SEED: PoolSeed[] = [
   { accommodationType: "dormitory", scope: "rest_of_world", total: 1500 },
   { accommodationType: "hostel", scope: "africa", total: 700 },
   { accommodationType: "hostel", scope: "rest_of_world", total: 700 },
-  { accommodationType: "wise_serpents", scope: "global", total: 30 },
-  { accommodationType: "good_general", scope: "global", total: 35 },
-  { accommodationType: "ebpv", scope: "global", total: 35 },
+  // Sized to the physical room inventory imported from the accommodation
+  // team's workbook (WASL 25 rooms × 2, GGL 35 rooms × 2, EBPV 20 apartments).
+  { accommodationType: "wise_serpents", scope: "global", total: 50 },
+  { accommodationType: "good_general", scope: "global", total: 70 },
+  { accommodationType: "ebpv", scope: "global", total: 77 },
 ];
 
 /** Region → which regional pool it draws from. */
