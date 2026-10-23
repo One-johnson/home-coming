@@ -11,6 +11,7 @@ import {
   Printer,
   Sparkles,
   Trash2,
+  Undo2,
   Upload,
   UserPlus,
 } from "lucide-react";
@@ -22,6 +23,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -146,6 +148,11 @@ export function RoomsTab() {
   const autoAssign = useMutation(api.agcRoomAssignments.autoAssignGuests);
   const publishRooms = useMutation(api.agcRoomAssignments.publishRooms);
   const deleteRooms = useMutation(api.agcRoomAssignments.deleteRooms);
+  const restoreRooms = useMutation(api.agcRoomAssignments.restoreRooms);
+  const deletedRooms = useQuery(
+    api.agcRoomAssignments.listDeletedRoomsAdmin,
+    sessionToken ? { sessionToken } : "skip",
+  );
   const parseImport = useAction(api.agcRoomsImport.parseRoomImportWorkbook);
   const generateTemplate = useAction(api.agcRoomsImport.generateRoomImportTemplate);
   const importRoomsMutation = useMutation(api.agcRoomAssignments.importRooms);
@@ -170,6 +177,10 @@ export function RoomsTab() {
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [deleteScope, setDeleteScope] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState("");
+
+  // Restore (undo delete) dialog
+  const [restoreOpen, setRestoreOpen] = useState(false);
+  const [restorePicks, setRestorePicks] = useState<string[]>([]);
   const [roomView, setRoomView] = useState<RoomView>("all");
   const [roomSearch, setRoomSearch] = useState("");
   /** Accordion: one group open at a time. undefined = pick the first match. */
@@ -241,6 +252,11 @@ export function RoomsTab() {
   }, [deleteScope, list]);
   const deletableRooms = deleteTargets.filter((room) => room.occupants === 0);
   const occupiedInDeleteScope = deleteTargets.length - deletableRooms.length;
+
+  const deletedList = deletedRooms?.rooms ?? [];
+  const restorablePicks = deletedList.filter(
+    (room) => !room.nameTaken && restorePicks.includes(room._id),
+  ).length;
 
   const buildings = useMemo(
     () => [...new Set(list.map((room) => room.building).filter(Boolean) as string[])],
@@ -430,6 +446,29 @@ export function RoomsTab() {
     }
   };
 
+  const runRestore = async () => {
+    if (!sessionToken || restorablePicks === 0) return;
+    setBusy(true);
+    try {
+      const result = await restoreRooms({
+        sessionToken,
+        roomIds: restorePicks as Id<"agcRooms">[],
+      });
+      toast.success(
+        `Restored ${result.restored} room(s)` +
+          (result.conflictCount > 0
+            ? ` — skipped ${result.conflictCount} whose name is back in use`
+            : ""),
+      );
+      setRestoreOpen(false);
+      setRestorePicks([]);
+    } catch (err) {
+      toast.error(...toastFriendlyErrorParts(err, "Restore failed"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const publishScope = async (scope: string) => {
     if (!scope) return;
     if (scope === "all") {
@@ -582,6 +621,20 @@ export function RoomsTab() {
         >
           <Trash2 className="size-4" /> Bulk delete
         </Button>
+        {deletedList.length > 0 && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setRestorePicks([]);
+              setRestoreOpen(true);
+            }}
+            disabled={busy}
+          >
+            <Undo2 className="size-4" /> Restore deleted (
+            {deletedRooms?.total ?? deletedList.length})
+          </Button>
+        )}
         <Select
           value={publishScopeValue}
           onValueChange={(value) => {
@@ -1178,6 +1231,140 @@ export function RoomsTab() {
                 }
               >
                 <Trash2 className="size-4" /> Delete {deletableRooms.length} room(s)
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Restore deleted rooms */}
+      <Dialog
+        open={restoreOpen}
+        onOpenChange={(open) => {
+          setRestoreOpen(open);
+          if (!open) setRestorePicks([]);
+        }}
+      >
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Restore deleted rooms</DialogTitle>
+            <DialogDescription>
+              Rooms come back exactly as they were — same name, block,
+              capacity, gender lock and published state. If a room with the
+              same name and type has been created since, the live room keeps
+              its place and the old copy is skipped.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs text-muted-foreground">
+                {deletedList.length} deleted · newest first
+              </p>
+              <div className="flex gap-1">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 text-xs"
+                  onClick={() =>
+                    setRestorePicks(
+                      deletedList
+                        .filter((room) => !room.nameTaken)
+                        .map((room) => room._id),
+                    )
+                  }
+                  disabled={deletedList.every((room) => room.nameTaken)}
+                >
+                  Select all
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 text-xs"
+                  onClick={() => setRestorePicks([])}
+                  disabled={restorePicks.length === 0}
+                >
+                  Clear
+                </Button>
+              </div>
+            </div>
+
+            <div className="max-h-72 space-y-1 overflow-y-auto pr-1">
+              {deletedList.map((room) => {
+                const picked = restorePicks.includes(room._id);
+                return (
+                  <label
+                    key={room._id}
+                    className={cn(
+                      "flex items-start gap-2 rounded-lg border p-2 text-xs transition-colors",
+                      room.nameTaken
+                        ? "opacity-60"
+                        : "cursor-pointer hover:bg-muted/50",
+                      picked && "border-primary/50 bg-primary/5",
+                    )}
+                  >
+                    <Checkbox
+                      checked={picked}
+                      disabled={room.nameTaken}
+                      onCheckedChange={(checked) =>
+                        setRestorePicks((picks) =>
+                          checked === true
+                            ? [...picks, room._id]
+                            : picks.filter((id) => id !== room._id),
+                        )
+                      }
+                      aria-label={`Restore ${room.name}`}
+                      className="mt-0.5"
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="flex flex-wrap items-center gap-1.5">
+                        <span className="font-medium">{room.name}</span>
+                        <Badge variant="outline" className="text-[10px]">
+                          {TYPE_LABEL(room.accommodationType)}
+                        </Badge>
+                        {room.publishedAt != null && (
+                          <Badge variant="secondary" className="text-[10px]">
+                            Published
+                          </Badge>
+                        )}
+                        {room.nameTaken && (
+                          <Badge variant="destructive" className="text-[10px]">
+                            Name in use — skipped
+                          </Badge>
+                        )}
+                      </span>
+                      <span className="mt-0.5 block text-muted-foreground">
+                        {[room.building, `${room.capacity} bed(s)`]
+                          .filter(Boolean)
+                          .join(" · ")}{" "}
+                        · deleted {new Date(room.deletedAt).toLocaleString()}
+                      </span>
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+
+            {deletedList.some((room) => room.nameTaken) && (
+              <p className="text-xs text-muted-foreground">
+                Rooms marked “Name in use” cannot come back as a second copy —
+                edit the live room instead.
+              </p>
+            )}
+
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setRestoreOpen(false)}
+                disabled={busy}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={() => void runRestore()}
+                disabled={busy || restorablePicks === 0}
+              >
+                <Undo2 className="size-4" /> Restore {restorablePicks || ""}{" "}
+                room(s)
               </Button>
             </div>
           </div>

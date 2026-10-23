@@ -539,7 +539,7 @@ test("bulk delete retires empty rooms and never orphans delegates", async () => 
   expect(sweep.kept).toBe(1);
   expect(sweep.keptNames).toEqual(["Occupied 1"]);
 
-  let rooms = await t.query(api.agcRoomAssignments.listRoomsAdmin, {
+  const rooms = await t.query(api.agcRoomAssignments.listRoomsAdmin, {
     sessionToken: token,
   });
   expect(rooms.map((room) => room.name).sort()).toEqual(["Occupied 1", "WASL 9"]);
@@ -558,6 +558,76 @@ test("bulk delete retires empty rooms and never orphans delegates", async () => 
     t.mutation(api.agcRoomAssignments.deleteRooms, {
       sessionToken: checker.token,
       all: true,
+    }),
+  ).rejects.toThrow();
+});
+
+test("a delete can be undone unless the room's name is back in use", async () => {
+  const t = createTestConvex();
+  const { token } = await seedStaff(t, "accommodation");
+  await seedRoom(t, { accommodationType: "hostel", name: "Empty 1", capacity: 2 });
+  await seedRoom(t, { accommodationType: "hostel", name: "Empty 2", capacity: 2 });
+
+  await t.mutation(api.agcRoomAssignments.deleteRooms, {
+    sessionToken: token,
+    accommodationType: "hostel",
+  });
+
+  // Both retired rooms are offered back.
+  let undo = await t.query(api.agcRoomAssignments.listDeletedRoomsAdmin, {
+    sessionToken: token,
+  });
+  expect(undo.total).toBe(2);
+  expect(undo.rooms.every((room) => !room.nameTaken)).toBe(true);
+
+  // Re-importing the workbook puts one of them back first — under a name that
+  // only differs by case and spacing, so the old copy cannot come back too.
+  await seedRoom(t, { accommodationType: "hostel", name: "EMPTY  1", capacity: 2 });
+  undo = await t.query(api.agcRoomAssignments.listDeletedRoomsAdmin, {
+    sessionToken: token,
+  });
+  const taken = undo.rooms.find((room) => room.name === "Empty 1");
+  const free = undo.rooms.find((room) => room.name === "Empty 2");
+  expect(taken?.nameTaken).toBe(true);
+  expect(free?.nameTaken).toBe(false);
+  if (!taken || !free) throw new Error("deleted rooms missing from the undo list");
+
+  const result = await t.mutation(api.agcRoomAssignments.restoreRooms, {
+    sessionToken: token,
+    roomIds: [taken._id, free._id],
+  });
+  expect(result.restored).toBe(1);
+  expect(result.conflictCount).toBe(1);
+  expect(result.conflicts).toEqual(["Empty 1"]);
+
+  const rooms = await t.query(api.agcRoomAssignments.listRoomsAdmin, {
+    sessionToken: token,
+  });
+  expect(
+    rooms.map((room) => room.name.toLowerCase().replace(/\s+/g, " ")).sort(),
+  ).toEqual(["empty 1", "empty 2"]);
+  // No duplicate copy of the live room slipped in.
+  expect(rooms).toHaveLength(2);
+
+  // Restoring a room that is already back is refused, not silently repeated.
+  await expect(() =>
+    t.mutation(api.agcRoomAssignments.restoreRooms, {
+      sessionToken: token,
+      roomIds: [free._id],
+    }),
+  ).rejects.toThrow(/already back/);
+
+  // The undo list stays with the accommodation area, not the desk.
+  const checker = await seedStaff(t, "checkin");
+  await expect(() =>
+    t.query(api.agcRoomAssignments.listDeletedRoomsAdmin, {
+      sessionToken: checker.token,
+    }),
+  ).rejects.toThrow();
+  await expect(() =>
+    t.mutation(api.agcRoomAssignments.restoreRooms, {
+      sessionToken: checker.token,
+      roomIds: [taken._id],
     }),
   ).rejects.toThrow();
 });

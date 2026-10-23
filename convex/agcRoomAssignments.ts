@@ -293,6 +293,105 @@ export const deleteRooms = mutation({
   },
 });
 
+/**
+ * Soft-deleted rooms, newest first — the undo list behind a mistaken delete or
+ * bulk sweep. `nameTaken` marks a room whose type and name were re-created
+ * since (typically by re-importing the workbook), so restoring it would
+ * duplicate a live room.
+ */
+export const listDeletedRoomsAdmin = query({
+  args: { sessionToken: sessionTokenValidator },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, args.sessionToken, [...ROOM_AREA_ROLES]);
+    const all = await ctx.db.query("agcRooms").collect();
+    const liveKeys = new Set(
+      all
+        .filter((room) => !room.deletedAt)
+        .map((room) => roomImportKey(room.accommodationType, room.name)),
+    );
+    const deleted = all
+      .filter((room) => room.deletedAt !== undefined)
+      .sort((a, b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0));
+    return {
+      total: deleted.length,
+      rooms: deleted.slice(0, 200).map((room) => ({
+        _id: room._id,
+        accommodationType: room.accommodationType,
+        name: room.name,
+        building: room.building ?? null,
+        capacity: room.capacity,
+        publishedAt: room.publishedAt ?? null,
+        deletedAt: room.deletedAt as number,
+        nameTaken: liveKeys.has(
+          roomImportKey(room.accommodationType, room.name),
+        ),
+      })),
+    };
+  },
+});
+
+/**
+ * Undo a delete. A room comes back exactly as it left — same name, block,
+ * gender lock, capacity and published state. When a room of the same type and
+ * name exists again, the live one keeps its place and the stale copy is
+ * reported rather than duplicating the inventory.
+ */
+export const restoreRooms = mutation({
+  args: { sessionToken: v.string(), roomIds: v.array(v.id("agcRooms")) },
+  handler: async (ctx, args) => {
+    const actor = await requireRole(ctx, args.sessionToken, [...ROOM_AREA_ROLES]);
+    if (args.roomIds.length === 0) {
+      throw new ConvexError("Choose the rooms to restore");
+    }
+    const liveKeys = new Set(
+      (await ctx.db.query("agcRooms").collect())
+        .filter((room) => !room.deletedAt)
+        .map((room) => roomImportKey(room.accommodationType, room.name)),
+    );
+
+    let restored = 0;
+    const conflicts: string[] = [];
+    for (const id of args.roomIds) {
+      const room = await ctx.db.get(id);
+      if (!room || room.deletedAt === undefined) continue;
+      const key = roomImportKey(room.accommodationType, room.name);
+      if (liveKeys.has(key)) {
+        conflicts.push(room.name);
+        continue;
+      }
+      await ctx.db.patch(room._id, { deletedAt: undefined });
+      liveKeys.add(key);
+      restored += 1;
+    }
+
+    if (restored === 0) {
+      throw new ConvexError(
+        conflicts.length > 0
+          ? `Nothing restored — ${conflicts.length} room(s) already exist under the same name`
+          : "Nothing to restore — those rooms are already back",
+      );
+    }
+
+    await writeAuditLog(ctx, {
+      actorUserId: actor._id,
+      actorEmail: actor.email,
+      action: "agc_room.restored",
+      entityType: "agcRooms",
+      summary: `Restored ${restored} deleted room(s) by ${actor.email}${conflicts.length > 0 ? `, skipped ${conflicts.length} with a live namesake` : ""}`,
+      metadata: {
+        restored,
+        conflicts: conflicts.length,
+        conflictNames: conflicts.slice(0, 25),
+      },
+    });
+    return {
+      restored,
+      conflictCount: conflicts.length,
+      conflicts: conflicts.slice(0, 25),
+    };
+  },
+});
+
 // ------------------------------------------------------------------
 // Assignments
 // ------------------------------------------------------------------
