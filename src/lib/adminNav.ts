@@ -54,7 +54,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
       {
         href: "/admin/pre-arrival",
         label: "Pre-arrival",
-        description: "Readiness checks for November 2: imports, pools, publishing, assignments",
+        description: "Readiness checks for November 3: imports, pools, publishing, assignments",
         visibleTo: ["admin", "accommodation", "finance"],
       },
       {

@@ -23,8 +23,8 @@ import { LinkButton } from "@/components/ui/app-button";
 import { cn } from "@/lib/utils";
 
 /**
- * The arrival-day runbook (RUNBOOK-NOV2.md at the repo root), embedded in the
- * console so venue staff can open it from a station on November 2 even if the
+ * The arrival-day runbook (RUNBOOK-NOV3.md at the repo root), embedded in the
+ * console so venue staff can open it from a station on November 3 even if the
  * repo is not at hand. Searchable, colour-coded by phase, and linked straight
  * to the screen each section talks about.
  */
@@ -541,7 +541,7 @@ export function HelpRunbook() {
 
       <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
         <BookOpen className="mt-0.5 size-3.5 shrink-0" />
-        Same document as RUNBOOK-NOV2.md in the repo. If a printed copy and this
+        Same document as RUNBOOK-NOV3.md in the repo. If a printed copy and this
         screen disagree, the screen wins — it ships with the console.
       </p>
     </div>

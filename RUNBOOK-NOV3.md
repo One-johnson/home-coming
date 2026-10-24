@@ -1,4 +1,4 @@
-# Arrival-day runbook — November 2, 2026
+# Arrival-day runbook — November 3, 2026
 
 Who this is for: the Accommodation Admin, venue staff, and finance on
 conference arrival day. Every screen referenced below lives on the admin

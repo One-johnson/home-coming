@@ -88,7 +88,7 @@ const FAQS = [
     category: "Airport Arrival & Local Transportation",
     question: "How do I get from the airport to the Anagkazo Campus?",
     answer:
-      "Shuttle service: Sign up for the round-trip shuttle service between the airport and the Anagkazo Campus for a nominal fee. The service will operate from Monday, November 2, through Saturday, November 7 at scheduled times. Please note that the shuttle service is not available to transport individual homes. This option is especially convenient for those arriving in the evening who prefer to travel with a group. Alternatively, you may use Uber or Bolt and share the cost (approx. GHC 200) with other attendees.",
+      "Shuttle service: Sign up for the round-trip shuttle service between the airport and the Anagkazo Campus for a nominal fee. The service will operate from Tuesday, November 3, through Friday, November 6 at scheduled times. Please note that the shuttle service is not available to transport individual homes. This option is especially convenient for those arriving in the evening who prefer to travel with a group. Alternatively, you may use Uber or Bolt and share the cost (approx. GHC 200) with other attendees.",
     order: 12,
   },
   {
@@ -359,7 +359,7 @@ export const seed = mutation({
     if (!existingAnnouncement) {
       await ctx.db.insert("announcements", {
         title: "Registration Now Open",
-        body: "Register early for Mountain of the Lord — The Homecoming, November 2–8, 2026 at Anagkazo Campus, Mampong, Ghana.",
+        body: "Register early for Mountain of the Lord — The Homecoming, November 3–6, 2026 at Anagkazo Campus, Mampong, Ghana.",
         active: true,
         createdAt: Date.now(),
       });
@@ -398,7 +398,7 @@ export const seedPublic = mutation({
     await syncDefaultTourPackages(ctx);
     await ctx.db.insert("announcements", {
       title: "Registration Now Open",
-      body: "Register early for Mountain of the Lord — The Homecoming, November 2–8, 2026 at Anagkazo Campus, Mampong, Ghana.",
+      body: "Register early for Mountain of the Lord — The Homecoming, November 3–6, 2026 at Anagkazo Campus, Mampong, Ghana.",
       active: true,
       createdAt: Date.now(),
     });

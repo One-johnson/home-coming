@@ -1,6 +1,6 @@
 # Mountain of the Lord — The Homecoming
 
-Convention website for the Homecoming Convention at Anagkazo Campus, Mampong, Ghana (November 1–4, 2026).
+Convention website for the Homecoming Convention at Anagkazo Campus, Mampong, Ghana (November 3–6, 2026).
 
 ## Stack
 

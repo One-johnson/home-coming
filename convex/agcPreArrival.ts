@@ -5,13 +5,13 @@ import { isRoomableBooking } from "./agcRoomAssignments";
 import type { AgcAccommodationType } from "./schemaTypes";
 
 /**
- * Pre-arrival readiness checklist (arrival day: November 2, 2026). One query
+ * Pre-arrival readiness checklist (arrival day: November 3, 2026). One query
  * that answers "are we ready?" — inventory imported vs. confirmed pools,
  * publish coverage, EBPV apartment rules, and roomable-delegate assignment
  * coverage. Admin/accommodation/finance only (read-only).
  */
 
-export const ARRIVAL_DATE = new Date("2026-11-02T00:00:00Z").getTime();
+export const ARRIVAL_DATE = new Date("2026-11-03T00:00:00Z").getTime();
 
 const TYPE_KEYS: AgcAccommodationType[] = [
   "dormitory",

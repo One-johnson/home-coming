@@ -107,8 +107,8 @@ export function PreArrivalChecklist() {
             <p className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
               <CalendarDays className="size-3.5" />
               {readiness.arrivalPassed
-                ? "Arrival day is here — November 2, 2026"
-                : `${readiness.daysUntilArrival} day(s) to November 2, 2026`}
+                ? "Arrival day is here — November 3, 2026"
+                : `${readiness.daysUntilArrival} day(s) to November 3, 2026`}
               <span aria-hidden>·</span>
               {counts.ok}/{readiness.items.length} checks ready
             </p>

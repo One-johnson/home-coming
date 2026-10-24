@@ -1,6 +1,6 @@
 export const EVENT = {
   fullTitle: "Homecoming",
-  dates: "November 2–8, 2026",
+  dates: "November 3–6, 2026",
   venue: "Anagkazo Campus",
   location: "Mampong, Ghana",
   supportEmail: "homecomingisback@gmail.com",
