@@ -22,7 +22,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { friendlyError, loginErrorInfo } from "@/lib/friendlyError";
-import { EVENT } from "@/lib/eventConfig";
 
 /** Shared ghost eye toggle for password fields. */
 function PasswordEye({
@@ -339,13 +338,7 @@ export function RepSignIn() {
           </button>
         </p>
         <p className="mt-3 text-center text-xs text-muted-foreground">
-          Can&rsquo;t get in? Contact the registration desk at{" "}
-          <a
-            href={`mailto:${EVENT.supportEmail}`}
-            className="text-primary hover:underline"
-          >
-            {EVENT.supportEmail}
-          </a>
+          Can&rsquo;t get in? Contact the registration desk for help.
         </p>
       </CardContent>
     </Card>

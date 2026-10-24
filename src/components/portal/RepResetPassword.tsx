@@ -20,7 +20,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { friendlyError } from "@/lib/friendlyError";
-import { EVENT } from "@/lib/eventConfig";
 
 function PasswordEye({
   show,
@@ -198,14 +197,7 @@ export function RepResetPassword() {
               <AlertDescription>
                 If a reset link can be sent for <strong>{username}</strong>, it
                 is on its way. Check your inbox (and spam folder). If your
-                account has no email yet, contact the registration desk at{" "}
-                <a
-                  href={`mailto:${EVENT.supportEmail}`}
-                  className="text-primary hover:underline"
-                >
-                  {EVENT.supportEmail}
-                </a>
-                .
+                account has no email yet, contact the registration desk.
               </AlertDescription>
             </Alert>
             <Button href="/portal" className="w-full">
