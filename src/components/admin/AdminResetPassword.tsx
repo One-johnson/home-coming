@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useAction } from "convex/react";
 import { useState } from "react";
-import { Eye, EyeOff, Lock, Mail } from "lucide-react";
+import { Eye, EyeOff, Loader2, Lock, Mail } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -73,7 +73,7 @@ export function AdminResetPassword() {
 
   if (done) {
     return (
-      <Card className="w-full max-w-md">
+      <Card className="mx-auto w-full max-w-md border-border/70 shadow-elevate">
         <CardHeader className="items-center text-center">
           <CardTitle className="font-display text-2xl">
             Password updated
@@ -94,7 +94,7 @@ export function AdminResetPassword() {
 
   if (token) {
     return (
-      <Card className="w-full max-w-md">
+      <Card className="mx-auto w-full max-w-md border-border/70 shadow-elevate">
         <CardHeader>
           <CardTitle className="font-display text-2xl">
             Choose a new password
@@ -155,7 +155,14 @@ export function AdminResetPassword() {
               />
             </div>
             <Button type="submit" className="h-11 w-full" disabled={busy}>
-              {busy ? "Updating…" : "Update password"}
+              {busy ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" />
+                  Updating…
+                </>
+              ) : (
+                "Update password"
+              )}
             </Button>
             <p className="text-center text-sm text-muted-foreground">
               <Link
@@ -172,7 +179,7 @@ export function AdminResetPassword() {
   }
 
   return (
-    <Card className="w-full max-w-md">
+    <Card className="mx-auto w-full max-w-md border-border/70 shadow-elevate">
       <CardHeader className="items-center text-center">
         <CardTitle className="font-display text-2xl">
           Forgot your password?
@@ -218,7 +225,14 @@ export function AdminResetPassword() {
               </div>
             </div>
             <Button type="submit" className="h-11 w-full" disabled={busy}>
-              {busy ? "Sending…" : "Send reset link"}
+              {busy ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" />
+                  Sending…
+                </>
+              ) : (
+                "Send reset link"
+              )}
             </Button>
             <p className="text-center text-sm text-muted-foreground">
               <Link

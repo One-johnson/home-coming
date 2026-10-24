@@ -10,14 +10,23 @@ import { useState } from "react";
 import { Eye, EyeOff, Loader2, Lock, Mail } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
+import { AuthShell } from "@/components/auth/AuthShell";
 import { LockoutIndicator } from "@/components/auth/LockoutIndicator";
 import { LinkButton as Button } from "@/components/ui/app-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { useAdminSession } from "@/components/admin/AdminSessionProvider";
 import { ROLE_LABELS, type StaffRole } from "@/lib/adminRoles";
 import { isConvexConfigured } from "@/lib/convex-config";
+import { EVENT } from "@/lib/eventConfig";
 import { loginErrorInfo } from "@/lib/friendlyError";
 import {
   TEAM_LOGINS,
@@ -44,12 +53,21 @@ export function AdminSignIn({ team }: { team?: TeamKey } = {}) {
 
   if (!isConvexConfigured()) {
     return (
-      <div className="flex min-h-svh items-center justify-center bg-neutral-800 px-4">
-        <p className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          Admin requires Convex. Run{" "}
-          <code className="font-mono text-xs">npx convex dev</code>.
-        </p>
-      </div>
+      <AuthShell
+        brand={EVENT.name}
+        monogram="H"
+        eyebrow={teamConfig ? `${teamConfig.label} team` : "Admin console"}
+      >
+        <Card className="w-full border-border/70 p-6 shadow-elevate">
+          <p className="text-sm text-muted-foreground">
+            The console requires Convex. Run{" "}
+            <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
+              npx convex dev
+            </code>
+            .
+          </p>
+        </Card>
+      </AuthShell>
     );
   }
 
@@ -95,121 +113,131 @@ export function AdminSignIn({ team }: { team?: TeamKey } = {}) {
   };
 
   return (
-    <div className="flex min-h-svh items-center justify-center bg-neutral-800 px-4 py-16">
-      <div className="w-full max-w-md rounded-2xl border border-border bg-white p-8 shadow-elevate">
-        <h1 className="font-display text-3xl font-normal tracking-tight">
-          {teamConfig ? `${teamConfig.label} team sign in` : "Admin sign in"}
-        </h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          {teamConfig
-            ? teamConfig.description
-            : "Sign in with your staff email and password."}
-        </p>
-
-        <form onSubmit={handleSignIn} className="mt-8 space-y-4">
-          {(attemptsRemaining !== null || lockedUntil !== null) && (
-            <LockoutIndicator
-              attemptsRemaining={attemptsRemaining}
-              lockedUntil={lockedUntil}
-            />
-          )}
-          <div className="space-y-2">
-            <Label htmlFor="admin-email">Email</Label>
-            <div className="relative">
-              <Mail className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-stone" />
-              <Input
-                id="admin-email"
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="h-11 pl-10"
+    <AuthShell
+      brand={EVENT.name}
+      monogram="H"
+      eyebrow={teamConfig ? `${teamConfig.label} team` : "Admin console"}
+    >
+      <Card className="w-full border-border/70 shadow-elevate">
+        <CardHeader className="items-center text-center">
+          <CardTitle className="font-display text-2xl text-primary">
+            {teamConfig ? `${teamConfig.label} team sign in` : "Staff sign in"}
+          </CardTitle>
+          <CardDescription>
+            {teamConfig
+              ? teamConfig.description
+              : "Sign in with your staff email and password."}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSignIn} className="space-y-4">
+            {(attemptsRemaining !== null || lockedUntil !== null) && (
+              <LockoutIndicator
+                attemptsRemaining={attemptsRemaining}
+                lockedUntil={lockedUntil}
               />
-            </div>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="admin-password">Password</Label>
-            <div className="relative">
-              <Lock className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-stone" />
-              <Input
-                id="admin-password"
-                type={showPassword ? "text" : "password"}
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="h-11 pr-11 pl-10"
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="absolute top-1/2 right-2.5 -translate-y-1/2 text-stone hover:bg-muted hover:text-ink"
-                onClick={() => setShowPassword((v) => !v)}
-                aria-label={showPassword ? "Hide password" : "Show password"}
-              >
-                {showPassword ? (
-                  <EyeOff className="size-4" />
-                ) : (
-                  <Eye className="size-4" />
-                )}
-              </Button>
-            </div>
-          </div>
-          {authError && (
-            <Alert variant="destructive">
-              <AlertDescription>{authError}</AlertDescription>
-            </Alert>
-          )}
-          <Button type="submit" className="h-11 w-full" disabled={signingIn}>
-            {signingIn ? (
-              <>
-                <Loader2 className="size-4 animate-spin" />
-                Signing in…
-              </>
-            ) : (
-              "Sign in"
             )}
-          </Button>
-        </form>
+            <div className="space-y-2">
+              <Label htmlFor="admin-email">Email</Label>
+              <div className="relative">
+                <Mail className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-stone" />
+                <Input
+                  id="admin-email"
+                  type="email"
+                  required
+                  autoComplete="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="h-11 pl-10 text-base sm:text-sm"
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="admin-password">Password</Label>
+              <div className="relative">
+                <Lock className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-stone" />
+                <Input
+                  id="admin-password"
+                  type={showPassword ? "text" : "password"}
+                  required
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="h-11 pr-11 pl-10 text-base sm:text-sm"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute top-1/2 right-2.5 -translate-y-1/2 text-stone hover:bg-muted hover:text-ink"
+                  onClick={() => setShowPassword((v) => !v)}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                >
+                  {showPassword ? (
+                    <EyeOff className="size-4" />
+                  ) : (
+                    <Eye className="size-4" />
+                  )}
+                </Button>
+              </div>
+            </div>
+            {authError && (
+              <Alert variant="destructive">
+                <AlertDescription>{authError}</AlertDescription>
+              </Alert>
+            )}
+            <Button type="submit" className="h-11 w-full" disabled={signingIn}>
+              {signingIn ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" />
+                  Signing in…
+                </>
+              ) : (
+                "Sign in"
+              )}
+            </Button>
+          </form>
 
-        <p className="mt-4 text-center text-sm text-muted-foreground">
-          <Link
-            href="/admin/reset-password"
-            className="font-medium text-gold hover:text-gold-dark"
-          >
-            Forgot your password?
-          </Link>
-        </p>
-
-        {teamConfig ? (
-          <p className="mt-6 text-center text-xs text-muted-foreground">
-            {teamConfig.label} team only — accounts are created by an admin in
-            Team.{" "}
-            Other teams:{" "}
-            {otherTeamLogins(teamConfig.key).map((other, index) => (
-              <span key={other.key}>
-                {index > 0 ? " · " : ""}
+          <div className="mt-6 space-y-3 border-t border-border/70 pt-4">
+            <p className="text-center text-sm text-muted-foreground">
+              <Link
+                href="/admin/reset-password"
+                className="font-medium text-gold hover:text-gold-dark"
+              >
+                Forgot your password?
+              </Link>
+            </p>
+            {teamConfig ? (
+              <p className="text-center text-xs text-muted-foreground">
+                {teamConfig.label} team only — accounts are created by an
+                admin on the Team page. Other teams:{" "}
+                {otherTeamLogins(teamConfig.key).map((other, index) => (
+                  <span key={other.key}>
+                    {index > 0 ? " · " : ""}
+                    <Link
+                      href={other.signInPath}
+                      className="font-medium text-gold hover:text-gold-dark"
+                    >
+                      {other.label}
+                    </Link>
+                  </span>
+                ))}
+              </p>
+            ) : (
+              <p className="text-center text-xs text-muted-foreground">
+                Need an account?{" "}
                 <Link
-                  href={other.signInPath}
+                  href="/admin/register"
                   className="font-medium text-gold hover:text-gold-dark"
                 >
-                  {other.label}
-                </Link>
-              </span>
-            ))}
-          </p>
-        ) : (
-          <p className="mt-6 text-center text-sm text-muted-foreground">
-            Need an account?{" "}
-            <Link
-              href="/admin/register"
-              className="font-medium text-gold hover:text-gold-dark"
-            >
-              Create one
-            </Link>
-          </p>
-        )}
-      </div>
-    </div>
+                  Create one
+                </Link>{" "}
+                — the first account bootstraps the console.
+              </p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    </AuthShell>
   );
 }

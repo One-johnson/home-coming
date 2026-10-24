@@ -36,7 +36,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { isConvexConfigured } from "@/lib/convex-config";
-import { EVENT } from "@/lib/eventConfig";
+import { CONFERENCE_MONOGRAM, CONFERENCE_NAME } from "@/lib/eventConfig";
 import { cn } from "@/lib/utils";
 
 type PortalTab = "overview" | "registration" | "accommodation";
@@ -126,14 +126,14 @@ function PortalSidebar({
       <SidebarHeader className="px-2 py-3">
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton size="lg" tooltip={EVENT.name}>
-              <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-gold/20 font-display text-sm font-bold text-gold-dark">
-                H
+            <SidebarMenuButton size="lg" tooltip={CONFERENCE_NAME}>
+              <div className="flex h-8 min-w-8 shrink-0 items-center justify-center rounded-lg bg-gold/20 px-1.5 font-display text-[11px] font-bold tracking-wide text-gold-dark">
+                {CONFERENCE_MONOGRAM}
               </div>
               <div className="grid flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-semibold">{EVENT.name}</span>
+                <span className="font-semibold leading-snug">{CONFERENCE_NAME}</span>
                 <span className="truncate text-xs text-sidebar-foreground/60">
-                  Rep portal
+                  Representative portal
                 </span>
               </div>
             </SidebarMenuButton>

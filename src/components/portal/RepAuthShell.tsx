@@ -1,12 +1,11 @@
 import type { ReactNode } from "react";
-import { EVENT } from "@/lib/eventConfig";
-import { cn } from "@/lib/utils";
+import { AuthShell } from "@/components/auth/AuthShell";
+import { CONFERENCE_MONOGRAM, CONFERENCE_NAME } from "@/lib/eventConfig";
 
 /**
  * Frame for every signed-out rep screen (sign in, first-time setup, username
- * reminder, password reset). Centres the card in the viewport on both axes and
- * carries the event's identity above it, so a rep who lands on a bare
- * /portal URL knows they are in the right place before typing anything.
+ * reminder, password reset). The layout lives in `AuthShell` so the staff
+ * sign-ins look the same; this wrapper only fixes the rep-facing identity.
  */
 export function RepAuthShell({
   children,
@@ -17,36 +16,13 @@ export function RepAuthShell({
   size?: "md" | "lg";
 }) {
   return (
-    <div className="relative flex min-h-svh flex-col overflow-y-auto bg-neutral-100 px-4 sm:px-6">
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_50%_-10%,rgba(212,175,55,0.20),transparent_58%)]"
-      />
-      <div
-        className={cn(
-          "relative m-auto w-full py-8",
-          size === "lg" ? "max-w-lg" : "max-w-md",
-        )}
-      >
-        <header className="mb-6 flex flex-col items-center text-center">
-          <div
-            aria-hidden
-            className="flex size-12 items-center justify-center rounded-2xl bg-gold/15 font-display text-lg font-bold text-gold-dark ring-1 ring-gold/30"
-          >
-            H
-          </div>
-          <p className="mt-3 font-display text-xl text-ink">{EVENT.name}</p>
-          <p className="mt-0.5 text-[11px] font-semibold tracking-[0.18em] text-muted-foreground uppercase">
-            Representative portal
-          </p>
-        </header>
-
-        {children}
-
-        <p className="mt-6 text-center text-xs text-muted-foreground">
-          {EVENT.dates} · {EVENT.venue}, {EVENT.location}
-        </p>
-      </div>
-    </div>
+    <AuthShell
+      brand={CONFERENCE_NAME}
+      monogram={CONFERENCE_MONOGRAM}
+      eyebrow="Representative portal"
+      size={size}
+    >
+      {children}
+    </AuthShell>
   );
 }

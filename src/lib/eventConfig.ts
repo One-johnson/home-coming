@@ -18,6 +18,16 @@ export const EVENT = {
   lastHomecomingYear: 2025,
 } as const;
 
+/**
+ * The gathering's formal name, used on the representative portal and the
+ * staff sign-in screens. The public marketing site still brands itself with
+ * EVENT.name until that copy is migrated separately.
+ */
+export const CONFERENCE_NAME = "Attempt Great Things Conference";
+
+/** Monogram for the portal/staff auth screens (fits a three-letter badge). */
+export const CONFERENCE_MONOGRAM = "AGC";
+
 /** Public site feature switches — flip when a flow is ready to show. */
 export const SITE_FEATURES = {
   /** Optional registration extras (VIP meals, etc.). Off for now. */

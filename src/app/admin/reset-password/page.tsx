@@ -1,6 +1,8 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
+import { AuthShell } from "@/components/auth/AuthShell";
 import { AdminResetPassword } from "@/components/admin/AdminResetPassword";
+import { EVENT } from "@/lib/eventConfig";
 
 export const metadata: Metadata = {
   title: "Admin password reset",
@@ -13,10 +15,14 @@ export const metadata: Metadata = {
 
 export default function AdminResetPasswordPage() {
   return (
-    <div className="flex min-h-svh items-center justify-center bg-neutral-800 px-4 py-16">
-      <Suspense fallback={null}>
+    <AuthShell brand={EVENT.name} monogram="H" eyebrow="Admin console">
+      <Suspense
+        fallback={
+          <p className="text-center text-sm text-muted-foreground">Loading…</p>
+        }
+      >
         <AdminResetPassword />
       </Suspense>
-    </div>
+    </AuthShell>
   );
 }
