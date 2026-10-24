@@ -3,7 +3,7 @@ import { FlaskConical } from "lucide-react";
 /**
  * True when the app was built for the staging environment:
  * - staging sets NEXT_PUBLIC_SITE_URL to https://staging.homecomingconvention.com
- *   (see STAGING.md §3.3); production uses the apex domain.
+ *   (see TESTING.md §2.2); production uses the apex domain.
  * - Any *.{vercel.app} preview build is also staging-like: it is never prod.
  * - Local dev (no SITE_URL at all) is not flagged.
  */

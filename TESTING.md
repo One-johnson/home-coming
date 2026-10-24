@@ -36,7 +36,7 @@ command takes `--deployment staging`:
 
 ```bash
 npx convex env set IMPORT_SECRET <long-random-string> --deployment staging
-npx convex env set SITE_URL https://staging.homecomingconvention.com --deployment staging
+npx convex env set SITE_URL https://<your-preview-url> --deployment staging
 npx convex env set SMTP_HOST mail.yourdomain.com --deployment staging
 npx convex env set SMTP_PORT 587 --deployment staging
 npx convex env set SMTP_SECURE false --deployment staging
@@ -48,19 +48,20 @@ npx convex env set SMTP_FROM "Homecoming <noreply@yourdomain.com>" --deployment 
 
 ### 2.2 Vercel preview env vars
 
-Already configured for this project: 8 vars scoped to the `staging` git
-branch + 4 payment keys covering all previews (inspect with
-`npx vercel env list preview`). To change one:
+There is no separate staging branch: point the Preview scope of the Vercel
+project at the test Convex deployment while the test pass runs, and remove
+these values when it is over. Preview values apply to **every** preview
+deployment, so do this only while a tester is using one.
 
 ```bash
-npx vercel env add <NAME> preview staging --value <v> --force --yes < /dev/null
+npx vercel env add <NAME> preview --value <v> --force --yes < /dev/null
 ```
 
 | Variable | Value |
 |---|---|
-| `NEXT_PUBLIC_CONVEX_URL` | the staging Convex URL from 2.1 |
-| `NEXT_PUBLIC_CONVEX_SITE_URL` | the staging Convex site URL |
-| `NEXT_PUBLIC_SITE_URL` / `SITE_URL` | `https://staging.homecomingconvention.com` |
+| `NEXT_PUBLIC_CONVEX_URL` | the test Convex URL from 2.1 |
+| `NEXT_PUBLIC_CONVEX_SITE_URL` | the test Convex site URL |
+| `NEXT_PUBLIC_SITE_URL` / `SITE_URL` | the preview deployment URL |
 | `PAYSTACK_SECRET_KEY` | Paystack test secret |
 
 Push a branch (or use Vercel's "Redeploy") — the preview URL now runs
