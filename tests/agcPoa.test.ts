@@ -55,7 +55,9 @@ describe("iouReceiptHtml", () => {
     expect(html).toContain("PAID RECEIPT");
     expect(html).not.toContain("IOU RECEIPT");
     expect(html).toContain("Accra Hub &lt;Central&gt;");
-    expect(html).toContain("confirmed by the Homecoming 2026 registration desk");
+    expect(html).toContain(
+      "confirmed by the Attempt Great Things Conference 2026 registration desk",
+    );
   });
 });
 

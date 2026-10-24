@@ -155,7 +155,7 @@ function MessagesGrid({
 
         {!isLoading && !videos.length && (
           <p className="text-center text-muted-foreground">
-            Homecoming videos will appear once Convex is connected.
+            Conference videos will appear once Convex is connected.
           </p>
         )}
       </div>

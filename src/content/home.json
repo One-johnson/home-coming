@@ -1,25 +1,25 @@
 {
   "hero": {
-    "title": "Homecoming",
+    "title": "Attempt Great Things",
     "tagline": "A gathering of all the churches — everyone is coming home.",
-    "countdownLabel": "Countdown to Homecoming 2026",
+    "countdownLabel": "Countdown to Attempt Great Things Conference 2026",
     "accommodationLabel": "Book Accommodation",
     "slides": [
       {
         "src": "/gallery/2025/homecoming-14.jpg",
-        "alt": "Worship and celebration at Homecoming"
+        "alt": "Worship and celebration at the conference"
       },
       {
         "src": "/gallery/2025/homecoming-17.jpg",
-        "alt": "The congregation gathered at Homecoming"
+        "alt": "The congregation gathered at the conference"
       },
       {
         "src": "/gallery/2025/homecoming-19.jpg",
-        "alt": "A Homecoming convention session"
+        "alt": "A conference session"
       },
       {
         "src": "/gallery/2025/homecoming-30.jpg",
-        "alt": "Moments from Homecoming at Anagkazo Campus"
+        "alt": "Moments from the conference at Anagkazo Campus"
       }
     ]
   },
@@ -28,9 +28,9 @@
     "audience": "International attendees, church members, pastors, ministry leaders, groups, families, and guests"
   },
   "highlights": {
-    "subtitle": "Last Year's Homecoming",
+    "subtitle": "Last Year's Convention",
     "title": "Celebrating What God Has Done",
-    "body": "The previous Homecoming Convention brought together believers from across the globe for worship, teaching, and fellowship on the mountain.",
+    "body": "The previous convention brought together believers from across the globe for worship, teaching, and fellowship on the mountain.",
     "stats": [
       { "label": "Attendees", "value": "5000+" },
       { "label": "Countries Represented", "value": "100+" }
@@ -38,7 +38,7 @@
   },
   "registrationCta": {
     "subtitle": "Join Us",
-    "title": "Make the Most of Homecoming",
+    "title": "Make the Most of the Conference",
     "body": "Explore guided tour packages and prepare for an unforgettable gathering on the mountain."
   },
   "venue": {
@@ -94,7 +94,7 @@
     "subtitle": "Founder & Host",
     "image": "/dag-main.jpg",
     "role": "Founder & Lead Speaker",
-    "roleDescription": "Host of Homecoming at Anagkazo Campus.",
+    "roleDescription": "Conference host at Anagkazo Campus.",
     "stats": [
       {
         "value": 80,

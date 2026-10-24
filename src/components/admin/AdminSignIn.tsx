@@ -26,7 +26,7 @@ import {
 import { useAdminSession } from "@/components/admin/AdminSessionProvider";
 import { ROLE_LABELS, type StaffRole } from "@/lib/adminRoles";
 import { isConvexConfigured } from "@/lib/convex-config";
-import { EVENT } from "@/lib/eventConfig";
+import { CONFERENCE_MONOGRAM, CONFERENCE_NAME } from "@/lib/eventConfig";
 import { loginErrorInfo } from "@/lib/friendlyError";
 import {
   TEAM_LOGINS,
@@ -54,8 +54,8 @@ export function AdminSignIn({ team }: { team?: TeamKey } = {}) {
   if (!isConvexConfigured()) {
     return (
       <AuthShell
-        brand={EVENT.name}
-        monogram="H"
+        brand={CONFERENCE_NAME}
+        monogram={CONFERENCE_MONOGRAM}
         eyebrow={teamConfig ? `${teamConfig.label} team` : "Admin console"}
       >
         <Card className="w-full border-border/70 p-6 shadow-elevate">
@@ -114,8 +114,8 @@ export function AdminSignIn({ team }: { team?: TeamKey } = {}) {
 
   return (
     <AuthShell
-      brand={EVENT.name}
-      monogram="H"
+      brand={CONFERENCE_NAME}
+      monogram={CONFERENCE_MONOGRAM}
       eyebrow={teamConfig ? `${teamConfig.label} team` : "Admin console"}
     >
       <Card className="w-full border-border/70 shadow-elevate">

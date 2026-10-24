@@ -208,14 +208,14 @@ async function confirmPoaRecord(
     });
     await queuePoaEmail(ctx, {
       repId: record.repId,
-      subject: `Homecoming 2026 — payment confirmed (${record.referenceNumber ?? ""})`,
+      subject: `Attempt Great Things Conference 2026 — payment confirmed (${record.referenceNumber ?? ""})`,
       body: [
         "Hello,",
         "",
         `Your payment of ${record.currency} ${record.totalAmount} for registration ${record.referenceNumber ?? ""} has been confirmed.`,
         "Your IOU receipt is now a paid receipt in the portal.",
         "",
-        "— Homecoming 2026 Registration Desk",
+        "— Attempt Great Things Conference 2026 Registration Desk",
       ].join("\n"),
       referenceId: record._id,
       type: "agc_poa_confirmed",
@@ -275,14 +275,14 @@ async function confirmPoaRecord(
   });
   await queuePoaEmail(ctx, {
     repId: booking.repId,
-    subject: `Homecoming 2026 — payment confirmed (${booking.referenceNumber ?? ""})`,
+    subject: `Attempt Great Things Conference 2026 — payment confirmed (${booking.referenceNumber ?? ""})`,
     body: [
       "Hello,",
       "",
       `Your payment of ${booking.currency} ${booking.totalAmount} for booking ${booking.referenceNumber ?? ""} has been confirmed.`,
       "Your IOU receipt is now a paid receipt in the portal and your beds are locked in.",
       "",
-      "— Homecoming 2026 Accommodation Desk",
+      "— Attempt Great Things Conference 2026 Accommodation Desk",
     ].join("\n"),
     referenceId: booking._id,
     type: "agc_poa_confirmed",
@@ -501,7 +501,7 @@ export const submitPoaRegistration = mutation({
 
     await queuePoaEmail(ctx, {
       repId: rep._id,
-      subject: `Homecoming 2026 — registration ${referenceNumber} (payment on arrival)`,
+      subject: `Attempt Great Things Conference 2026 — registration ${referenceNumber} (payment on arrival)`,
       body: [
         `Hello ${rep.firstName ?? rep.username},`,
         "",
@@ -510,7 +510,7 @@ export const submitPoaRegistration = mutation({
         "",
         "Your IOU receipt is available in the portal — print it or keep it for",        "your records. When you pay, upload your payment evidence in the portal",        "and the registration desk will confirm the payment.",
         "",
-        "— Homecoming 2026 Registration Desk",
+        "— Attempt Great Things Conference 2026 Registration Desk",
       ].join("\n"),
       referenceId: registrationId,
       type: "agc_registration_poa_created",
@@ -609,14 +609,14 @@ export const submitPoaEvidence = mutation({
 
     await queuePoaEmail(ctx, {
       repId: rep._id,
-      subject: `Homecoming 2026 — payment evidence received (${record.referenceNumber ?? ""})`,
+      subject: `Attempt Great Things Conference 2026 — payment evidence received (${record.referenceNumber ?? ""})`,
       body: [
         `Hello ${rep.firstName ?? rep.username},`,
         "",
         `We have received your payment evidence for ${record.referenceNumber ?? "your record"}.`,
         "The registration desk will confirm the payment and your receipt will",        "change to a paid receipt.",
         "",
-        "— Homecoming 2026 Registration Desk",
+        "— Attempt Great Things Conference 2026 Registration Desk",
       ].join("\n"),
       referenceId: record._id,
       type: "agc_poa_evidence_received",

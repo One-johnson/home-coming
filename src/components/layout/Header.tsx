@@ -12,7 +12,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { Separator } from "@/components/ui/separator";
-import { NAV_LINKS } from "@/lib/eventConfig";
+import { CONFERENCE_NAME, NAV_LINKS } from "@/lib/eventConfig";
 import { cn } from "@/lib/utils";
 
 export function Header() {
@@ -26,8 +26,8 @@ export function Header() {
           <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-gold/10 ring-1 ring-gold/25 transition-colors group-hover:bg-gold/15">
             <Mountain className="h-5 w-5 text-accent" aria-hidden />
           </span>
-          <p className="font-display text-lg font-semibold text-primary">
-            Homecoming
+          <p className="font-display text-base leading-tight font-semibold text-primary sm:text-lg">
+            {CONFERENCE_NAME}
           </p>
         </Link>
 
@@ -86,7 +86,9 @@ export function Header() {
               aria-hidden
             />
             <SheetHeader className="px-2 pt-3 text-left">
-              <SheetTitle className="font-display">Homecoming</SheetTitle>
+              <SheetTitle className="font-display">
+                {CONFERENCE_NAME}
+              </SheetTitle>
             </SheetHeader>
             <Separator className="my-3" />
             <nav

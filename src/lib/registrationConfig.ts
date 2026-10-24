@@ -27,7 +27,7 @@ export interface PricingConfig {
 }
 
 /**
- * Ticket pricing by registration Group (from Homecoming documents).
+ * Ticket pricing by registration Group (from the conference documents).
  * Prefer Convex `registrationGroups` when seeded; this map is the fallback.
  */
 export const GROUP_PRICING: Record<string, PricingConfig> = {

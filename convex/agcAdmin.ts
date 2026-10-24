@@ -289,11 +289,11 @@ export const renameHub = action({
         {
           to: rep.email,
           subject:
-            "Homecoming 2026 — your hub was renamed; your sign-in username has changed",
+            "Attempt Great Things Conference 2026 — your hub was renamed; your sign-in username has changed",
           body: [
             `Hello ${newName} representative,`,
             "",
-            `Your hub "${hub.name}" has been renamed to "${newName}" on the Homecoming representative portal.`,
+            `Your hub "${hub.name}" has been renamed to "${newName}" on the Attempt Great Things Conference representative portal.`,
             "Your sign-in username now matches the new hub name:",
             "",
             `Previous username: ${previousUsername}`,
@@ -303,7 +303,7 @@ export const renameHub = action({
             "",
             "Your password is unchanged, and the previous username keeps working — you can sign in with either.",
             "",
-            "— Homecoming 2026 Registration Desk",
+            "— Attempt Great Things Conference 2026 Registration Desk",
           ].join("\n"),
         },
       );

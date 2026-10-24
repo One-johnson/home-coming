@@ -931,8 +931,8 @@ export function VideoManager() {
         }}
         title={
           editorMode === "edit"
-            ? "Edit Homecoming video"
-            : "Add Homecoming videos"
+            ? "Edit conference video"
+            : "Add conference videos"
         }
         description={
           editorMode === "edit"

@@ -59,7 +59,7 @@ export function CountdownTimer({
         className,
       )}
       role="timer"
-      aria-label="Countdown to Homecoming 2026"
+      aria-label={`Countdown to ${EVENT.name} 2026`}
       aria-live="polite"
     >
       {units.map((unit) => {

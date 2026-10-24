@@ -1,5 +1,5 @@
 export const EVENT = {
-  fullTitle: "Homecoming",
+  fullTitle: "Attempt Great Things Conference",
   dates: "November 3–6, 2026",
   venue: "Anagkazo Campus",
   location: "Mampong, Ghana",

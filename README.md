@@ -1,6 +1,6 @@
-# Mountain of the Lord — The Homecoming
+# Attempt Great Things Conference 2026
 
-Convention website for the Homecoming Convention at Anagkazo Campus, Mampong, Ghana (November 3–6, 2026).
+Conference website for the Attempt Great Things Conference at Anagkazo Campus, Mampong, Ghana (November 3–6, 2026).
 
 ## Stack
 
@@ -154,7 +154,7 @@ Confirmation emails for registration and tours are sent **after payment succeeds
 | `SMTP_SECURE` | `false` for port 587, `true` for 465 |
 | `SMTP_USER` | `noreply@yourdomain.com` |
 | `SMTP_PASS` | your mailbox password |
-| `SMTP_FROM` | `"Homecoming" <noreply@yourdomain.com>` |
+| `SMTP_FROM` | `"Attempt Great Things Conference" <noreply@yourdomain.com>` |
 
 Public support contact in email footers remains `homecomingisback@gmail.com`; use your Bluehost domain address as the **From** sender.
 
@@ -166,7 +166,7 @@ npx convex env set SMTP_PORT 587
 npx convex env set SMTP_SECURE false
 npx convex env set SMTP_USER noreply@yourdomain.com
 npx convex env set SMTP_PASS your-bluehost-mailbox-password
-npx convex env set SMTP_FROM "Homecoming <noreply@yourdomain.com>"
+npx convex env set SMTP_FROM "Attempt Great Things Conference <noreply@yourdomain.com>"
 npx convex env set SITE_URL https://your-production-domain.com
 ```
 

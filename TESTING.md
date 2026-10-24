@@ -42,7 +42,7 @@ npx convex env set SMTP_PORT 587 --deployment staging
 npx convex env set SMTP_SECURE false --deployment staging
 npx convex env set SMTP_USER noreply@yourdomain.com --deployment staging
 npx convex env set SMTP_PASS <mailbox-password> --deployment staging
-npx convex env set SMTP_FROM "Homecoming <noreply@yourdomain.com>" --deployment staging
+npx convex env set SMTP_FROM "Attempt Great Things Conference <noreply@yourdomain.com>" --deployment staging
 # PAYSTACK_SECRET_KEY: set test values only; payments are offline (bank/MoMo)
 ```
 

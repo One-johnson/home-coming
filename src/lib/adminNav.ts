@@ -124,7 +124,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
       {
         href: "/admin/videos",
         label: "Videos",
-        description: "Homecoming message and video links",
+        description: "Conference message and video links",
         area: "content",
       },
       {
@@ -196,7 +196,7 @@ export function getAdminPageMeta(pathname: string): {
     }
   }
 
-  return { title: "Admin", description: "Homecoming admin console" };
+  return { title: "Admin", description: "Conference admin console" };
 }
 
 export function flattenAdminNavItems(): AdminNavItem[] {

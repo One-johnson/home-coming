@@ -55,7 +55,7 @@ export function plainTextFromPayload(payload: ConfirmationEmailPayload): string 
       return [
         `Dear ${payload.recipientName},`,
         "",
-        "Thank you for registering for The Homecoming. Payment confirmed.",
+        "Thank you for registering for the Attempt Great Things Conference. Payment confirmed.",
         `Reference: ${payload.referenceNumber}`,
         `Tickets: ${payload.ticketQuantity}`,
         ...(payload.addOnLines.length
@@ -67,7 +67,7 @@ export function plainTextFromPayload(payload: ConfirmationEmailPayload): string 
       return [
         `Dear ${payload.fullName},`,
         "",
-        "Thank you for booking Homecoming tours. Payment confirmed.",
+        "Thank you for booking conference tours. Payment confirmed.",
         `Reference: ${payload.referenceNumber}`,
         "Tours:",
         ...payload.itemLines.map((l) => `- ${l}`),
@@ -106,7 +106,7 @@ export async function buildConfirmationEmailPayload(
       return {
         kind: "registration_confirmation",
         to: record.email,
-        subject: "Homecoming Registration Confirmation",
+        subject: "Attempt Great Things Conference Registration Confirmation",
         bannerUrl,
         recipientName,
         referenceNumber: record.referenceNumber ?? recordId,
@@ -124,7 +124,7 @@ export async function buildConfirmationEmailPayload(
       return {
         kind: "tour_confirmation",
         to: record.email,
-        subject: "Homecoming Tour Order Confirmation",
+        subject: "Attempt Great Things Conference Tour Order Confirmation",
         bannerUrl,
         fullName: record.fullName,
         referenceNumber: record.referenceNumber ?? recordId,

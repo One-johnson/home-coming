@@ -32,7 +32,7 @@ function PreferredHotelsConnected() {
         </h2>
         <p className="mt-3 text-sm text-muted-foreground">
           Prefer to stay off campus? These preferred hotels are near Anagkazo
-          Campus in Mampong. Contact them directly — mention Homecoming for
+          Campus in Mampong. Contact them directly — mention the conference for
           any listed discount.
         </p>
       </div>

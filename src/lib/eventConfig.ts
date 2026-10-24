@@ -1,7 +1,16 @@
+/**
+ * The gathering's formal name — the single brand string for the public site,
+ * the representative portal and the staff console.
+ */
+export const CONFERENCE_NAME = "Attempt Great Things Conference";
+
+/** Monogram for badges and compact surfaces (three letters fit a small tile). */
+export const CONFERENCE_MONOGRAM = "AGC";
+
 export const EVENT = {
-  name: "Homecoming",
-  subtitle: "Homecoming",
-  fullTitle: "Homecoming",
+  name: CONFERENCE_NAME,
+  subtitle: "Conference 2026",
+  fullTitle: CONFERENCE_NAME,
   dates: "November 3–6, 2026",
   startDate: new Date("2026-11-03T08:00:00+00:00"),
   endDate: new Date("2026-11-06T23:59:59+00:00"),
@@ -17,16 +26,6 @@ export const EVENT = {
   /** Most recent convention with photos and stats on the site */
   lastHomecomingYear: 2025,
 } as const;
-
-/**
- * The gathering's formal name, used on the representative portal and the
- * staff sign-in screens. The public marketing site still brands itself with
- * EVENT.name until that copy is migrated separately.
- */
-export const CONFERENCE_NAME = "Attempt Great Things Conference";
-
-/** Monogram for the portal/staff auth screens (fits a three-letter badge). */
-export const CONFERENCE_MONOGRAM = "AGC";
 
 /** Public site feature switches — flip when a flow is ready to show. */
 export const SITE_FEATURES = {

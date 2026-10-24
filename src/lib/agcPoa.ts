@@ -109,7 +109,7 @@ export function iouReceiptHtml(doc: IouReceiptDoc): string {
   <div class="card">
     <div class="banner">${title}</div>
     <div class="body">
-      <h1>Homecoming 2026 — ${doc.kind === "registration" ? "Registration" : "Accommodation"}</h1>
+      <h1>Attempt Great Things Conference 2026 — ${doc.kind === "registration" ? "Registration" : "Accommodation"}</h1>
       <p class="muted">Reference: <strong>${escapeHtml(doc.referenceNumber)}</strong></p>
       <p class="muted">
         Hub: ${escapeHtml(doc.hubName)} · Representative: ${escapeHtml(doc.repName)} ·
@@ -128,10 +128,10 @@ export function iouReceiptHtml(doc: IouReceiptDoc): string {
       <p class="footer">
         ${
           paid
-            ? "Payment has been received and confirmed by the Homecoming 2026 registration desk. This document is your official paid receipt."
+            ? "Payment has been received and confirmed by the Attempt Great Things Conference 2026 registration desk. This document is your official paid receipt."
             : "This document acknowledges a payment-on-arrival booking. The total above is due on arrival at the convention. Once payment is confirmed by the registration desk, this receipt becomes a paid receipt."
         }<br />
-        Lighthouse Chapel International — Homecoming 2026 · Generated from the representative portal.
+        Lighthouse Chapel International — Attempt Great Things Conference 2026 · Generated from the representative portal.
       </p>
     </div>
   </div>

@@ -22,7 +22,7 @@ export default function RepCredentialsEmail({
 }: RepCredentialsEmailProps) {
   return (
     <EmailLayout
-      preview={`Your Homecoming representative sign-in details — ${hubName}`}
+      preview={`Your Attempt Great Things Conference representative sign-in details — ${hubName}`}
       bannerUrl={bannerUrl}
     >
       <Heading style={emailStyles.heading}>
@@ -34,7 +34,7 @@ export default function RepCredentialsEmail({
       <Text style={emailStyles.paragraph}>
         {isResend
           ? "A new temporary password was issued for your hub's representative account. Your previous password no longer works."
-          : "An account has been created for your hub on the Homecoming representative portal. Use the details below to sign in and complete your first-time setup."}
+          : "An account has been created for your hub on the Attempt Great Things Conference representative portal. Use the details below to sign in and complete your first-time setup."}
       </Text>
 
       <Text style={emailStyles.label}>Portal</Text>

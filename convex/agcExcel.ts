@@ -840,7 +840,7 @@ export const exportInventoryExcel = action({
 
     const notes = workbook.addWorksheet("Notes");
     notes.getColumn("A").width = 100;
-    notes.addRow(["Homecoming 2026 — accommodation inventory report"]).font = {
+    notes.addRow(["Attempt Great Things Conference 2026 — accommodation inventory report"]).font = {
       bold: true,
     };
     notes.addRow(["Generated", new Date(data.generatedAt).toISOString()]);
@@ -944,7 +944,7 @@ export const exportHubsRepsExcel = action({
     const instructions = workbook.addWorksheet("How to use");
     instructions.getColumn("A").width = 100;
     instructions.addRow([
-      "Homecoming 2026 — AGC hubs and representative accounts",
+      "Attempt Great Things Conference 2026 — AGC hubs and representative accounts",
     ]).font = { bold: true };
     instructions.addRow([""]);
     instructions.addRow([
@@ -1579,7 +1579,7 @@ export const exportRepBookingsExcel = action({
     const summary = workbook.addWorksheet("Summary");
     summary.getColumn("A").width = 34;
     summary.getColumn("B").width = 16;
-    summary.addRow(["Homecoming 2026 — Accommodation report"]).font = { bold: true };
+    summary.addRow(["Attempt Great Things Conference 2026 — Accommodation report"]).font = { bold: true };
     summary.addRow(["Hub", data.hubName]);
     summary.addRow(["Representative", data.repName]);
     summary.addRow(["Generated", new Date().toISOString()]);
@@ -1690,7 +1690,7 @@ export const exportRepRegistrationsExcel = action({
     const summary = workbook.addWorksheet("Summary");
     summary.getColumn("A").width = 34;
     summary.getColumn("B").width = 16;
-    summary.addRow(["Homecoming 2026 — Registration report"]).font = { bold: true };
+    summary.addRow(["Attempt Great Things Conference 2026 — Registration report"]).font = { bold: true };
     summary.addRow(["Hub", data.hubName]);
     summary.addRow(["Representative", data.repName]);
     summary.addRow(["Generated", new Date().toISOString()]);

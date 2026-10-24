@@ -497,14 +497,14 @@ export const queueRepCredentialsEmail = internalMutation({
     if (!rep?.email) return { emailLogId: null, shouldSend: false };
 
     const subject = args.isResend
-      ? "Homecoming 2026 — new sign-in details for your representative account"
-      : "Homecoming 2026 — your representative account details";
+      ? "Attempt Great Things Conference 2026 — new sign-in details for your representative account"
+      : "Attempt Great Things Conference 2026 — your representative account details";
     const body = [
       `Hello ${args.hubName} representative,`,
       "",
       args.isResend
         ? "A new temporary password was issued for your representative account. Your previous password no longer works."
-        : "An account has been created for your hub on the Homecoming representative portal.",
+        : "An account has been created for your hub on the Attempt Great Things Conference representative portal.",
       "",
       `Portal: ${args.portalUrl}`,
       `Username: ${args.username}`,
@@ -514,7 +514,7 @@ export const queueRepCredentialsEmail = internalMutation({
       "",
       "Please treat the temporary password as confidential until you have replaced it with your own.",
       "",
-      "— Homecoming 2026 Registration Desk",
+      "— Attempt Great Things Conference 2026 Registration Desk",
     ].join("\n");
 
     const status = isSmtpConfigured() ? ("pending" as const) : ("stub" as const);

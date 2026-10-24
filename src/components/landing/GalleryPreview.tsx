@@ -16,7 +16,7 @@ export function GalleryPreview() {
 
   return (
     <Section
-      subtitle="Last Year's Homecoming"
+      subtitle="Last Year's Convention"
       title={`Homecoming ${EVENT.lastHomecomingYear} Photos`}
       dark
     >

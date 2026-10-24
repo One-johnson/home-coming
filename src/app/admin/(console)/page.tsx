@@ -1650,7 +1650,7 @@ export default function AdminOverviewPage() {
                       {overview.content.videos}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      Homecoming messages and links
+                      Conference messages and links
                     </p>
                   </CardContent>
                 </Card>

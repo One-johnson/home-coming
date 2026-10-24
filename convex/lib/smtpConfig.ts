@@ -21,6 +21,6 @@ export function getSmtpSettings() {
     auth: { user, pass },
     from:
       process.env.SMTP_FROM?.trim() ||
-      `"Homecoming" <${user}>`,
+      `"Attempt Great Things Conference" <${user}>`,
   };
 }

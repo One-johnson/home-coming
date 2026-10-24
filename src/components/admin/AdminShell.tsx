@@ -324,7 +324,7 @@ function AdminSidebar({
                 className="size-8 shrink-0 object-contain"
               />
               <div className="grid flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-semibold">Homecoming</span>
+                <span className="font-semibold leading-snug">{EVENT.name}</span>
                 <span className="truncate text-xs text-sidebar-foreground/60">
                   Admin console
                 </span>

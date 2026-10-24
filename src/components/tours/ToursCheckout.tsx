@@ -356,7 +356,7 @@ function ToursCheckoutInner({
       >
         <div>
           <h2 className="font-display text-xl text-gold-light">
-            Homecoming tour packages
+            Conference tour packages
           </h2>
           <p className="mt-1 text-sm text-white/70">
             {packages === undefined
@@ -706,7 +706,7 @@ function ToursCheckoutInner({
                   />
                   <span className="text-sm text-muted-foreground">
                     I consent to receive event communications about The
-                    Homecoming Convention.
+                    Attempt Great Things Conference.
                   </span>
                 </Label>
               </div>

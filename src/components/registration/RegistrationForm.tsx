@@ -503,7 +503,7 @@ function RegistrationFormInner() {
                 className="mt-1"
               />
               <span className="text-sm text-muted-foreground">
-                I consent to receive event communications about The Homecoming
+                I consent to receive event communications about the Attempt Great Things Conference
                 Convention.
               </span>
             </Label>

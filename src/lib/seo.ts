@@ -14,18 +14,18 @@ export function getSiteUrl() {
 
 export const SITE_NAME = EVENT.name;
 
-export const DEFAULT_DESCRIPTION = `Join ${EVENT.fullTitle}, ${EVENT.dates} at ${EVENT.venue}, ${EVENT.location}. Register for Homecoming with Dag Heward-Mills.`;
+export const DEFAULT_DESCRIPTION = `Join ${EVENT.fullTitle}, ${EVENT.dates} at ${EVENT.venue}, ${EVENT.location}. Register for the conference with Dag Heward-Mills.`;
 
 export const DEFAULT_OG_IMAGE = "/gallery/2025/homecoming-14.jpg";
 
 export const SEO_KEYWORDS = [
-  "Homecoming",
-  "Homecoming Convention",
+  "Attempt Great Things Conference",
+  "Attempt Great Things Conference 2026",
   "Dag Heward-Mills",
   "Anagkazo Campus",
   "Mampong Ghana",
   "Christian conference Ghana",
-  "Homecoming 2026",
+  "AGC 2026",
   "church conference registration",
   "Anagkazo Bible Ministry",
 ] as const;
@@ -99,46 +99,46 @@ export const PAGE_SEO = {
     image: "/gallery/2025/homecoming-14.jpg",
   },
   about: {
-    title: "About Loyalty House & Homecoming",
+    title: "About Loyalty House & the Conference",
     description: `Loyalty House International — a denomination of the Lighthouse Group of Churches — and the story of ${EVENT.fullTitle} at ${EVENT.venue}, ${EVENT.location}.`,
     path: "/about",
     image: "/campus/campus1.jpg",
   },
 
   tours: {
-    title: "Homecoming Tour Packages",
-    description: `Book guided Homecoming tour packages for ${EVENT.fullTitle}. Choose packages by day and purchase tickets separately from registration.`,
+    title: "Conference Tour Packages",
+    description: `Book guided conference tour packages for ${EVENT.fullTitle}. Choose packages by day and purchase tickets separately from registration.`,
     path: "/tours",
     image: "/campus/anagkazo.jpg",
   },
   gallery: {
     title: "Photo Gallery",
-    description: `Photos from previous Homecoming conventions at ${EVENT.venue}, ${EVENT.location}.`,
+    description: `Photos from previous conventions at ${EVENT.venue}, ${EVENT.location}.`,
     path: "/gallery",
     image: "/gallery/2025/homecoming-01.jpg",
   },
   messages: {
     title: "Messages & Videos",
-    description: `Watch Homecoming messages and videos featuring ${EVENT.host} and convention speakers.`,
+    description: `Watch conference messages and videos featuring ${EVENT.host} and convention speakers.`,
     path: "/messages",
     image: "/dag-main.jpg",
   },
   faqs: {
     title: "FAQs & Travel Guide",
-    description: `Homecoming 2026 FAQs and travel guide for registration, accommodation, travel, logistics, and security at ${EVENT.fullTitle} in ${EVENT.location}.`,
+    description: `Attempt Great Things Conference 2026 FAQs and travel guide for registration, accommodation, travel, logistics, and security at ${EVENT.fullTitle} in ${EVENT.location}.`,
     path: "/faqs",
     image: "/hero/slide-02.jpg",
   },
   privacy: {
     title: "Privacy Policy",
     description:
-      "How Loyalty House International collects, uses, shares, and protects personal data for the Homecoming Convention website, registration, and accommodation services.",
+      "How Loyalty House International collects, uses, shares, and protects personal data for the Attempt Great Things Conference website, registration, and accommodation services.",
     path: "/privacy",
   },
   terms: {
     title: "Terms of Service",
     description:
-      "Terms governing use of the Homecoming Convention website and purchases of registration, accommodation, and related services.",
+      "Terms governing use of the Attempt Great Things Conference website and purchases of registration, accommodation, and related services.",
     path: "/terms",
   },
 } as const;

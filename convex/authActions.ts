@@ -283,16 +283,16 @@ export const requestAdminPasswordReset = action({
     );
     const result = await ctx.runMutation(internal.adminAuthData.insertEmailLog, {
       to: user.email,
-      subject: "Homecoming admin — password reset",
+      subject: "Attempt Great Things Conference admin — password reset",
       body: [
         "Hello,",
         "",
-        "A password reset was requested for your Homecoming admin console account.",
+        "A password reset was requested for your Attempt Great Things Conference admin console account.",
         `Open this link within 3 hours to choose a new password: ${url}`,
         "",
         "If you did not request this, you can ignore this email and your password will remain unchanged.",
         "",
-        "— Homecoming Admin",
+        "— Attempt Great Things Conference Admin",
       ].join("\n"),
     });
     if (result.shouldSend) {

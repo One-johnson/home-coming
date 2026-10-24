@@ -8,16 +8,16 @@ import { syncRegistrationCatalogIfEmpty } from "./registrationCatalog";
 const FAQS = [
   {
     category: "General Event & Registration",
-    question: "Who is the Mountain of the Lord/Homecoming Convention for?",
+    question: "Who is the Attempt Great Things Conference for?",
     answer:
       "The convention is for all church members and leaders from Dag Heward-Mills Ministries (DHMM) churches worldwide. This includes the United Denominations (UD) group of churches, the United Organizations (UO/First Love) group of churches, and Affiliated Denominations (AD) churches. The first Homecoming Convention was held in 1995 and resumed in 2024. The 2025 convention attracted more than 16,000 people from Ghana and 81 other nations.",
     order: 1,
   },
   {
     category: "General Event & Registration",
-    question: "When and where is Homecoming 2026?",
+    question: "When and where is Attempt Great Things Conference 2026?",
     answer:
-      "Homecoming 2026 takes place from 3-6 November 2026 at the Anagkazo Bible & Ministry Training Centre (ABMTC) campus in Mampong, Ghana. The campus has hosted the conference and other Lighthouse Chapel events for many years.",
+      "Attempt Great Things Conference 2026 takes place from 3-6 November 2026 at the Anagkazo Bible & Ministry Training Centre (ABMTC) campus in Mampong, Ghana. The campus has hosted the conference and other Lighthouse Chapel events for many years.",
     order: 2,
   },
   {
@@ -416,7 +416,7 @@ export const syncHomecomingMessagesPublic = mutation({
   },
 });
 
-/** Replace all FAQs with the current Homecoming 2026 FAQ seed set. */
+/** Replace all FAQs with the current Attempt Great Things Conference 2026 FAQ seed set. */
 export const replaceFaqs = mutation({
   args: {},
   handler: async (ctx) => {

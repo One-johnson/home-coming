@@ -215,7 +215,7 @@ export const createBooking = mutation({
     if (rep.email) {
       const emailLogId: Id<"emailLogs"> = await ctx.db.insert("emailLogs", {
         to: rep.email,
-        subject: `Homecoming 2026 — accommodation reserved (${referenceNumber})`,
+        subject: `Attempt Great Things Conference 2026 — accommodation reserved (${referenceNumber})`,
         body: isPoa
           ? [
               `Hello ${rep.firstName ?? rep.username},`,
@@ -226,7 +226,7 @@ export const createBooking = mutation({
               "payment-on-arrival holds are not released by the reservation window.",
               "Your IOU receipt is available in the portal. When you pay, upload",              "your payment evidence there and the desk will confirm it.",
               "",
-              "— Homecoming 2026 Accommodation Desk",
+              "— Attempt Great Things Conference 2026 Accommodation Desk",
             ].join("\n")
           : [
               `Hello ${rep.firstName ?? rep.username},`,
@@ -236,7 +236,7 @@ export const createBooking = mutation({
               `Total: ${result.totalAmount} ${result.currency}`,
               "Pay by bank transfer or mobile money, then upload your receipt in the portal.",
               "",
-              "— Homecoming 2026 Accommodation Desk",
+              "— Attempt Great Things Conference 2026 Accommodation Desk",
             ].join("\n"),
         type: "agc_booking_reserved",
         referenceId: result.bookingId,
@@ -553,14 +553,14 @@ export const submitOfflineBookingPayment = mutation({
     if (rep.email) {
       const emailLogId: Id<"emailLogs"> = await ctx.db.insert("emailLogs", {
         to: rep.email,
-        subject: `Homecoming 2026 — receipt received (${booking.referenceNumber ?? ""})`,
+        subject: `Attempt Great Things Conference 2026 — receipt received (${booking.referenceNumber ?? ""})`,
         body: [
           `Hello ${rep.firstName ?? rep.username},`,
           "",
           `We have received your accommodation payment receipt for ${booking.referenceNumber ?? "your booking"}.`,
           "Our finance team will review it and confirm your reservation.",
           "",
-          "— Homecoming 2026 Accommodation Desk",
+          "— Attempt Great Things Conference 2026 Accommodation Desk",
         ].join("\n"),
         type: "agc_booking_receipt_received",
         referenceId: args.bookingId,

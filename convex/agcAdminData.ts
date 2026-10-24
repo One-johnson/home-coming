@@ -1714,7 +1714,7 @@ export const notifyAdminsOfPendingReview = internalMutation({
       .withIndex("by_email")
       .collect();
     const label = args.kind === "registration" ? "Registration" : "Accommodation booking";
-    const subject = `Homecoming 2026 — ${label} awaiting review (${args.referenceNumber ?? args.hubName})`;
+    const subject = `Attempt Great Things Conference 2026 — ${label} awaiting review (${args.referenceNumber ?? args.hubName})`;
     const body = [
       "A payment was submitted and is waiting for review in the AGC console.",
       "",
@@ -1724,7 +1724,7 @@ export const notifyAdminsOfPendingReview = internalMutation({
       "",
       "Open the admin dashboard → AGC 2026 to approve or request a correction.",
       "",
-      "— Homecoming 2026 automated notification",
+      "— Attempt Great Things Conference 2026 automated notification",
     ].join("\n");
 
     const status = isSmtpConfigured() ? ("pending" as const) : ("stub" as const);
@@ -1991,7 +1991,7 @@ function reviewEmailBody(args: {
   if (args.message) {
     lines.push("", `Message from the review team: ${args.message}`);
   }
-  lines.push("", "— Homecoming 2026 Registration Desk");
+  lines.push("", "— Attempt Great Things Conference 2026 Registration Desk");
   return lines.join("\n");
 }
 
@@ -2049,7 +2049,7 @@ export const reviewAgcRegistration = mutation({
 
     await queueReviewEmail(ctx, {
       repId: record.repId,
-      subject: `Homecoming 2026 — registration ${record.referenceNumber ?? ""} ${args.decision.replace(/_/g, " ")}d`,
+      subject: `Attempt Great Things Conference 2026 — registration ${record.referenceNumber ?? ""} ${args.decision.replace(/_/g, " ")}d`,
       body: reviewEmailBody({
         decision: args.decision,
         reference: record.referenceNumber ?? "",
@@ -2131,7 +2131,7 @@ export const reviewAgcBooking = mutation({
 
     await queueReviewEmail(ctx, {
       repId: booking.repId,
-      subject: `Homecoming 2026 — accommodation ${booking.referenceNumber ?? ""} ${args.decision.replace(/_/g, " ")}d`,
+      subject: `Attempt Great Things Conference 2026 — accommodation ${booking.referenceNumber ?? ""} ${args.decision.replace(/_/g, " ")}d`,
       body: reviewEmailBody({
         decision: args.decision,
         reference: booking.referenceNumber ?? "",
@@ -2252,7 +2252,7 @@ export const alertDeskOfPoolRepair = internalMutation({
     );
     if (desk.length === 0) return { notified: 0 };
 
-    const subject = `Homecoming 2026 — ${args.units} bed(s) returned to the pools`;
+    const subject = `Attempt Great Things Conference 2026 — ${args.units} bed(s) returned to the pools`;
     const body = [
       "The nightly inventory check found beds still held by finished bookings and returned them to their pools.",
       "",
@@ -2263,7 +2263,7 @@ export const alertDeskOfPoolRepair = internalMutation({
       "",
       "Open the admin console → AGC 2026 → Pools to see the repair history, or re-check availability there. No action is needed unless the bed counts look wrong.",
       "",
-      "— Homecoming 2026 automated notification",
+      "— Attempt Great Things Conference 2026 automated notification",
     ].join("\n");
 
     const status = isSmtpConfigured() ? ("pending" as const) : ("stub" as const);
@@ -2827,7 +2827,7 @@ export const bulkReviewAgcRegistrations = mutation({
     for (const [repId, count] of reps) {
       await queueReviewEmail(ctx, {
         repId,
-        subject: `Homecoming 2026 — ${count} registration${count === 1 ? "" : "s"} ${args.decision === "approve" ? "approved" : "need correction"}`,
+        subject: `Attempt Great Things Conference 2026 — ${count} registration${count === 1 ? "" : "s"} ${args.decision === "approve" ? "approved" : "need correction"}`,
         body: bulkReviewEmailBody({
           what: "registration",
           count,
@@ -2918,7 +2918,7 @@ export const bulkReviewAgcBookings = mutation({
     for (const [repId, count] of reps) {
       await queueReviewEmail(ctx, {
         repId,
-        subject: `Homecoming 2026 — ${count} accommodation booking${count === 1 ? "" : "s"} ${args.decision === "approve" ? "approved" : "need correction"}`,
+        subject: `Attempt Great Things Conference 2026 — ${count} accommodation booking${count === 1 ? "" : "s"} ${args.decision === "approve" ? "approved" : "need correction"}`,
         body: bulkReviewEmailBody({
           what: "accommodation booking",
           count,
@@ -2954,7 +2954,7 @@ function bulkReviewEmailBody(args: {
     "",
     "Open the representative portal to see each item's status.",
     "",
-    "— Homecoming 2026 Registration Desk",
+    "— Attempt Great Things Conference 2026 Registration Desk",
   );
   return lines.join("\n");
 }

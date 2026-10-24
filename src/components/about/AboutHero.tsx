@@ -52,7 +52,7 @@ export function AboutHero() {
               className="eyebrow eyebrow-light mb-3"
               variants={item}
             >
-              The Homecoming · {EVENT.dates}
+              {EVENT.name} · {EVENT.dates}
             </motion.p>
             <motion.h1
               className="font-display text-3xl font-bold leading-[1.08] text-paper drop-shadow-[0_2px_16px_rgba(0,0,0,0.45)] sm:text-4xl md:text-5xl"

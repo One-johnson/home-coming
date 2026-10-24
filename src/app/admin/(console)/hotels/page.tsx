@@ -139,7 +139,7 @@ export default function AdminHotelsPage() {
   return (
     <div className="space-y-6">
       <AdminPageHeader
-        description="Preferred commercial hotels near campus. Sync from the Homecoming Hotels PDF seed list, then edit details as needed."
+        description="Preferred commercial hotels near campus. Sync from the hotels PDF seed list, then edit details as needed."
         actions={
           <Button onClick={() => void handleSync()} disabled={syncing}>
             {syncing ? "Syncing…" : "Sync from PDF seed"}

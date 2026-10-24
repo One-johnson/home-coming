@@ -12,8 +12,8 @@ export default function GalleryIndexPage() {
 
   return (
     <Section
-      subtitle="Past Homecomings"
-      title="Homecoming Photo Gallery"
+      subtitle="Past Conventions"
+      title="Conference Photo Gallery"
       className="pt-24"
     >
       {albums.length === 0 ? (

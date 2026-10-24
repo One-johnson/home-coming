@@ -182,7 +182,7 @@ export const requestPasswordReset = action({
     );
     await queueRepEmail(ctx, {
       to: rep.email,
-      subject: "Homecoming 2026 — representative password reset",
+      subject: "Attempt Great Things Conference 2026 — representative password reset",
       body: [
         `Hello ${rep.username},`,
         "",
@@ -191,7 +191,7 @@ export const requestPasswordReset = action({
         "",
         "If you did not request this, you can ignore this email.",
         "",
-        "— Homecoming 2026 Registration Desk",
+        "— Attempt Great Things Conference 2026 Registration Desk",
       ].join("\n"),
     });
     return { success: true };
@@ -225,11 +225,11 @@ export const requestUsernameReminder = action({
 
     await queueRepEmail(ctx, {
       to: rep.email,
-      subject: "Homecoming 2026 — your representative username",
+      subject: "Attempt Great Things Conference 2026 — your representative username",
       body: [
         "Hello,",
         "",
-        "You asked us to remind you of the username for your Homecoming 2026 representative portal account.",
+        "You asked us to remind you of the username for your Attempt Great Things Conference 2026 representative portal account.",
         "",
         `Username: ${rep.username}`,
         `Sign in at: ${buildPortalUrl(args.clientOrigin)}`,
@@ -238,7 +238,7 @@ export const requestUsernameReminder = action({
         "",
         "If you did not request this, you can ignore this email.",
         "",
-        "— Homecoming 2026 Registration Desk",
+        "— Attempt Great Things Conference 2026 Registration Desk",
       ].join("\n"),
     });
     return { success: true };

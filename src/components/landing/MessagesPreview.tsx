@@ -40,7 +40,7 @@ function MessagesPreviewContent({ videos }: { videos: VideoItem[] }) {
         ))}
         {!preview.length && (
           <p className="col-span-full text-center text-muted-foreground">
-            Homecoming videos will appear once Convex is connected.
+            Conference videos will appear once Convex is connected.
           </p>
         )}
       </MotionStagger>

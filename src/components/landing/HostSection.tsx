@@ -15,7 +15,7 @@ export function HostSection() {
           <div className="relative min-h-[280px] overflow-hidden rounded-2xl shadow-elevate sm:min-h-[360px]">
             <Image
               src={host.image}
-              alt={`${EVENT.host} speaking at Homecoming`}
+              alt={`${EVENT.host} speaking at the conference`}
               fill
               className="object-cover object-top"
               sizes="(max-width: 1024px) 100vw, 42vw"

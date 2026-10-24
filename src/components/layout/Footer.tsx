@@ -61,7 +61,7 @@ export function Footer() {
         </div>
         <Separator className="my-10 bg-white/10" />
         <div className="text-center font-body text-sm text-white/75">
-          © {new Date().getFullYear()} The Homecoming Convention. All rights reserved.
+          © {new Date().getFullYear()} {EVENT.name}. All rights reserved.
         </div>
       </div>
     </footer>

@@ -350,14 +350,14 @@ export const submitOfflineRegistration = mutation({
     if (rep.email) {
       const emailLogId: Id<"emailLogs"> = await ctx.db.insert("emailLogs", {
         to: rep.email,
-        subject: `Homecoming 2026 — receipt received (${referenceNumber})`,
+        subject: `Attempt Great Things Conference 2026 — receipt received (${referenceNumber})`,
         body: [
           `Hello ${rep.firstName ?? rep.username},`,
           "",
           `We have received your payment receipt for ${args.quantity} registration(s), reference ${referenceNumber}.`,
           "Our finance team will review it and you will receive a confirmation email once it is approved.",
           "",
-          "— Homecoming 2026 Registration Desk",
+          "— Attempt Great Things Conference 2026 Registration Desk",
         ].join("\n"),
         type: "agc_registration_receipt_received",
         referenceId: registrationId,

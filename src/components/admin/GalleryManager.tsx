@@ -397,7 +397,7 @@ export function GalleryManager() {
                 <Input
                   id="gallery-theme"
                   required
-                  placeholder="The Homecoming"
+                  placeholder="The Conference"
                   value={newGallery.theme}
                   onChange={(e) =>
                     setNewGallery({ ...newGallery, theme: e.target.value })
@@ -409,7 +409,7 @@ export function GalleryManager() {
                 <Input
                   id="gallery-title"
                   required
-                  placeholder="Homecoming 2025 Highlights"
+                  placeholder="Attempt Great Things Conference 2026 Highlights"
                   value={newGallery.title}
                   onChange={(e) =>
                     setNewGallery({ ...newGallery, title: e.target.value })
