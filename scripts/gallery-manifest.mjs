@@ -12,9 +12,11 @@
  *   node scripts/gallery-manifest.mjs sync
  *       Regenerates the manifest from public/gallery/ (new year folders are
  *       picked up automatically). Captions, titles, and themes merge from
- *       Convex when reachable, so caption/album edits made in the admin
- *       dashboard flow into the public site; otherwise previous manifest
- *       values are kept.
+ *       Convex so caption/album edits made in the admin dashboard flow into
+ *       the public site. Convex is required: if the admin captions cannot be
+ *       read the sync exits non-zero and writes nothing, because a manifest
+ *       built without them would silently strip working alt text. Albums
+ *       that are not registered in Convex keep their committed values.
  *
  * Year-agnostic by design: adding a new year is just
  *   1. put photos in gallery-import/<year>/ (or public/gallery/<year>/)
@@ -62,41 +64,38 @@ function loadEnvFile(filePath) {
 }
 
 /**
- * Best-effort pull of admin-curated captions/titles/themes from Convex so
- * `sync` publishes edits made in the admin dashboard. Returns {} on any
- * failure (offline, missing env) — file captions remain the fallback.
+ * Pull of admin-curated captions/titles/themes from Convex so `sync`
+ * publishes edits made in the admin dashboard. Throws when the database
+ * can't be read: callers must not write a manifest without it, or every
+ * caption would silently disappear from the public gallery.
  */
 async function loadDbCurations() {
   loadEnvFile(path.join(ROOT, ".env.local"));
-  if (!process.env.NEXT_PUBLIC_CONVEX_URL) {
-    return {};
-  }
-  try {
-    const { ConvexHttpClient } = await import("convex/browser");
-    const { api } = await import("../convex/_generated/api.js");
-    const client = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL);
-    const galleries = await client.query(api.content.listGalleries, {});
-    const byYear = {};
-    for (const gallery of galleries) {
-      const captions = {};
-      for (const image of gallery.images) {
-        if (image.imageUrl && image.caption) {
-          captions[path.basename(image.imageUrl)] = image.caption;
-        }
-      }
-      byYear[gallery.year] = {
-        title: gallery.title,
-        theme: gallery.theme,
-        captions,
-      };
-    }
-    return byYear;
-  } catch (error) {
-    console.warn(
-      `  (note: could not load captions from Convex — ${error instanceof Error ? error.message : error})`,
+  const url = process.env.NEXT_PUBLIC_CONVEX_URL;
+  if (!url) {
+    throw new Error(
+      "NEXT_PUBLIC_CONVEX_URL is not set (checked the environment and .env.local)",
     );
-    return {};
   }
+  const { ConvexHttpClient } = await import("convex/browser");
+  const { api } = await import("../convex/_generated/api.js");
+  const client = new ConvexHttpClient(url);
+  const galleries = await client.query(api.content.listGalleries, {});
+  const byYear = {};
+  for (const gallery of galleries) {
+    const captions = {};
+    for (const image of gallery.images) {
+      if (image.imageUrl && image.caption) {
+        captions[path.basename(image.imageUrl)] = image.caption;
+      }
+    }
+    byYear[gallery.year] = {
+      title: gallery.title,
+      theme: gallery.theme,
+      captions,
+    };
+  }
+  return byYear;
 }
 
 function readManifest() {
@@ -144,10 +143,15 @@ function buildManifest(existing, scanned, dbCurations = {}) {
         title: db?.title ?? prev?.title ?? `Homecoming ${year}`,
         theme: db?.theme ?? prev?.theme ?? "The Homecoming",
         images: files.map((fileName) => {
-          const prevImage = prev?.images.find((i) => i.file === fileName);
+          // A registered album is authoritative: a missing caption there
+          // means an admin cleared it, so no fallback. Only albums that are
+          // not registered in Convex keep the committed caption.
+          const prevImage = prev?.images.find(
+            (i) => path.basename(i.file) === fileName,
+          );
           return {
             file: `/gallery/${year}/${fileName}`,
-            caption: db?.captions?.[fileName] ?? prevImage?.caption,
+            caption: db ? db.captions?.[fileName] : prevImage?.caption,
           };
         }),
       };
@@ -229,7 +233,20 @@ async function sync() {
     fail("No year folders found under public/gallery/ (e.g. public/gallery/2025/).");
   }
 
-  const dbCurations = await loadDbCurations();
+  let dbCurations;
+  try {
+    dbCurations = await loadDbCurations();
+  } catch (error) {
+    fail(
+      `Could not read gallery captions from Convex${
+        process.env.NEXT_PUBLIC_CONVEX_URL
+          ? ` (${process.env.NEXT_PUBLIC_CONVEX_URL})`
+          : ""
+      }: ${error instanceof Error ? error.message : error}\n` +
+        "Refusing to write src/data/galleryManifest.json without them — an offline sync would strip every caption from the public gallery.\n" +
+        "Check NEXT_PUBLIC_CONVEX_URL (env or .env.local) and connectivity, then rerun: npm run gallery:sync",
+    );
+  }
   if (Object.keys(dbCurations).length) {
     console.log(
       `  merged captions/album info from Convex for year(s): ${Object.keys(dbCurations).join(", ")}`,
