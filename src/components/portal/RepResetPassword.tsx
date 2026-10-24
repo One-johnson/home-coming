@@ -107,7 +107,7 @@ export function RepResetPassword() {
 
   if (token && !tokenUsed) {
     return (
-      <Card className="mx-auto w-full max-w-md">
+      <Card className="mx-auto w-full max-w-md border-border/70 shadow-elevate">
         <CardHeader className="items-center text-center">
           <CardTitle className="font-display text-2xl text-primary">
             Choose a new password
@@ -180,7 +180,7 @@ export function RepResetPassword() {
   }
 
   return (
-    <Card className="mx-auto w-full max-w-md">
+    <Card className="mx-auto w-full max-w-md border-border/70 shadow-elevate">
       <CardHeader className="items-center text-center">
         <CardTitle className="font-display text-2xl text-primary">
           {tokenUsed ? "Password updated" : "Forgot your password?"}

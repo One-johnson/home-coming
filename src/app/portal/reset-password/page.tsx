@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
+import { RepAuthShell } from "@/components/portal/RepAuthShell";
 import { RepResetPassword } from "@/components/portal/RepResetPassword";
 import { createPageMetadata } from "@/lib/seo";
 
@@ -12,15 +13,14 @@ export const metadata: Metadata = createPageMetadata({
 
 export default function PortalResetPasswordPage() {
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 py-16">
-      <header className="mb-8 text-center">
-        <h1 className="font-display text-3xl text-primary sm:text-4xl">
-          Representative Portal
-        </h1>
-      </header>
-      <Suspense fallback={null}>
+    <RepAuthShell>
+      <Suspense
+        fallback={
+          <p className="text-center text-sm text-muted-foreground">Loading…</p>
+        }
+      >
         <RepResetPassword />
       </Suspense>
-    </div>
+    </RepAuthShell>
   );
 }

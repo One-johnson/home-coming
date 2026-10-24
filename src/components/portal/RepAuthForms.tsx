@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, Loader2, Lock, User } from "lucide-react";
 import { useAction } from "convex/react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
@@ -86,7 +86,7 @@ function RepForgotUsername({ onBack }: { onBack: () => void }) {
   };
 
   return (
-    <Card className="mx-auto w-full max-w-md">
+    <Card className="mx-auto w-full max-w-md border-border/70 shadow-elevate">
       <CardHeader className="items-center text-center">
         <CardTitle className="font-display text-2xl text-primary">
           Find your username
@@ -227,13 +227,14 @@ export function RepSignIn() {
   }
 
   return (
-    <Card className="mx-auto w-full max-w-md">
+    <Card className="mx-auto w-full max-w-md border-border/70 shadow-elevate">
       <CardHeader className="items-center text-center">
         <CardTitle className="font-display text-2xl text-primary">
-          Representative sign in
+          Sign in
         </CardTitle>
         <CardDescription>
-          Sign in with your hub username and password.
+          Manage your hub&rsquo;s registrations and rooms with your username
+          and password.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -268,25 +269,30 @@ export function RepSignIn() {
           )}
           <div className="space-y-2">
             <Label htmlFor="rep-username">Hub username</Label>
-            <Input
-              id="rep-username"
-              required
-              autoComplete="username"
-              placeholder="e.g. ashanti_mampong"
-              value={username}
-              onChange={(e) => updateUsername(e.target.value)}
-            />
+            <div className="relative">
+              <User className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-stone" />
+              <Input
+                id="rep-username"
+                required
+                autoComplete="username"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                placeholder="e.g. ashanti_mampong"
+                value={username}
+                onChange={(e) => updateUsername(e.target.value)}
+                className="h-11 pl-10 text-base sm:text-sm"
+              />
+            </div>
             <p className="text-xs text-muted-foreground">
-              Your username is your hub name in lowercase — separators are
-              flexible: the hub &ldquo;Ashanti Mampong&rdquo; signs in as{" "}
-              <span className="font-mono">ashanti_mampong</span>,{" "}
-              <span className="font-mono">ashanti-mampong</span> or{" "}
-              <span className="font-mono">ashanti mampong</span>.
+              Your hub name in lowercase — spaces, hyphens or underscores all
+              work.
             </p>
           </div>
           <div className="space-y-2">
             <Label htmlFor="rep-password">Password</Label>
             <div className="relative">
+              <Lock className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-stone" />
               <Input
                 id="rep-password"
                 type={showPassword ? "text" : "password"}
@@ -294,7 +300,7 @@ export function RepSignIn() {
                 autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="pr-11"
+                className="h-11 pr-11 pl-10 text-base sm:text-sm"
               />
               <PasswordEye
                 show={showPassword}
@@ -303,26 +309,37 @@ export function RepSignIn() {
               />
             </div>
           </div>
-          <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? "Signing in…" : "Sign in"}
+          <Button type="submit" className="h-11 w-full" disabled={loading}>
+            {loading ? (
+              <>
+                <Loader2 className="size-4 animate-spin" />
+                Signing in…
+              </>
+            ) : (
+              "Sign in"
+            )}
           </Button>
         </form>
-        <p className="mt-6 text-center text-sm text-muted-foreground">
+        <p className="mt-6 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm text-muted-foreground">
           <Link
             href="/portal/reset-password"
             className="font-medium text-primary hover:underline"
           >
             Forgot your password?
-          </Link>{" "}
-          ·{" "}
+          </Link>
+          <span aria-hidden className="text-border">
+            ·
+          </span>
           <button
             type="button"
             className="font-medium text-primary hover:underline"
             onClick={() => setShowForgotUsername(true)}
           >
             Forgot your username?
-          </button>{" "}
-          · Contact the registration desk at{" "}
+          </button>
+        </p>
+        <p className="mt-3 text-center text-xs text-muted-foreground">
+          Can&rsquo;t get in? Contact the registration desk at{" "}
           <a
             href={`mailto:${EVENT.supportEmail}`}
             className="text-primary hover:underline"

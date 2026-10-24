@@ -13,6 +13,7 @@ import {
   RepSignIn,
 } from "@/components/portal/RepAuthForms";
 import { SessionExpiryBanner } from "@/components/auth/SessionExpiryBanner";
+import { RepAuthShell } from "@/components/portal/RepAuthShell";
 import { RepOverviewTab } from "@/components/portal/RepOverviewTab";
 import { RepRegistrationTab } from "@/components/portal/RepRegistrationTab";
 import { RepAccommodationTab } from "@/components/portal/RepAccommodationTab";
@@ -247,15 +248,35 @@ function PortalBody() {
 
   if (!isReady) return <PortalLoading />;
 
-  if (!sessionToken) return <RepSignIn />;
+  // Every signed-out screen is centred in the viewport with the event's
+  // identity above it, so a rep who lands on a bare /portal URL knows where
+  // they are before typing a password.
+  if (!sessionToken) {
+    return (
+      <RepAuthShell>
+        <RepSignIn />
+      </RepAuthShell>
+    );
+  }
 
   if (rep === undefined) return <PortalLoading />;
 
-  if (!rep) return <RepSignIn />;
+  if (!rep) {
+    return (
+      <RepAuthShell>
+        <RepSignIn />
+      </RepAuthShell>
+    );
+  }
 
   if (rep.profileComplete === false) {
     return (
-      <RepFirstTimeSetup username={rep.username} onSetupComplete={setSession} />
+      <RepAuthShell size="lg">
+        <RepFirstTimeSetup
+          username={rep.username}
+          onSetupComplete={setSession}
+        />
+      </RepAuthShell>
     );
   }
 
