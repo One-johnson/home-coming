@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useMutation, useQuery } from "convex/react";
 import {
   BedDouble,
   CircleAlert,
   CircleCheck,
   CircleSlash,
+  Flag,
   KeyRound,
   Loader2Icon,
   LogOut,
@@ -22,7 +24,7 @@ import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import { useAdminSession } from "@/components/admin/AdminSessionProvider";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -52,14 +54,13 @@ import {
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { toastFriendlyErrorParts } from "@/lib/friendlyError";
+import { canAccessArea } from "@/lib/adminRoles";
 import { AGC_ACCOMMODATION_LABELS } from "@/lib/agcPortal";
 import {
   TONE_BAR,
   TONE_RAIL,
-  TONE_ROW,
   TONE_SURFACE,
   TONE_TEXT,
-  buildingChipClass,
   checkInState,
   deskRowState,
   occupancyTone,
@@ -107,6 +108,7 @@ type SearchRow = {
   bookingStatus: string;
   poaStatus: string | null;
   assignmentStatus: "assigned" | "unassigned";
+  roomId: string | null;
   roomName: string | null;
   building: string | null;
   checkInStatus: "checked_in" | "checked_out" | "not_arrived";
@@ -115,6 +117,24 @@ type SearchRow = {
   checkedInBy: string | null;
   checkedOutAt: number | null;
   pendingKeyRoom: boolean;
+  bedNumber: number | null;
+  keyStatus: "issued" | "returned" | "pending" | null;
+  needsKey: boolean;
+  /** Open "review this record" flag raised by the desk, or null. */
+  reviewFlag: ReviewFlag | null;
+};
+
+type ReviewFlag = {
+  _id: string;
+  note: string;
+  raisedAt: number;
+  raisedBy: string;
+};
+
+const KEY_LABEL: Record<"issued" | "returned" | "pending", string> = {
+  issued: "Issued",
+  returned: "Returned",
+  pending: "Pending",
 };
 
 type KeyRow = {
@@ -176,9 +196,12 @@ export function ArrivalPage() {
   );
   const keys = useQuery(api.agcCheckin.listKeys, sessionToken ? { sessionToken } : "skip");
 
-  // Search state
+  // Search + roster filters
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [genderFilter, setGenderFilter] = useState<"any" | "male" | "female">("any");
+  const [hubFilter, setHubFilter] = useState<string>("all");
+  const [selectedGuestId, setSelectedGuestId] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
   // Desk speed: the search box is focused on load, and "/" brings it back from
@@ -229,7 +252,11 @@ export function ArrivalPage() {
   const checkInGroup = useMutation(api.agcCheckin.checkInGroup);
   const checkOutGuest = useMutation(api.agcCheckin.checkOutGuest);
   const correctCheckIn = useMutation(api.agcCheckin.correctCheckIn);
+  const flagCheckInRecord = useMutation(api.agcCheckin.flagCheckInRecord);
+  const resolveCheckinFlag = useMutation(api.agcCheckin.resolveCheckinFlag);
   const changeRoom = useMutation(api.agcRoomAssignments.changeRoom);
+  const returnRoomKey = useMutation(api.agcCheckin.returnKey);
+  const [keyBusy, setKeyBusy] = useState(false);
   const publishedRooms = useQuery(
     api.agcRoomAssignments.listRoomsAdmin,
     sessionToken ? { sessionToken } : "skip",
@@ -253,6 +280,11 @@ export function ArrivalPage() {
   const [keyReturnStatus, setKeyReturnStatus] = useState<string>("not_applicable");
   const [correctTarget, setCorrectTarget] = useState<SearchRow | null>(null);
   const [correctReason, setCorrectReason] = useState("");
+  const [flagTarget, setFlagTarget] = useState<SearchRow | null>(null);
+  const [flagNote, setFlagNote] = useState("");
+  const [resolveTarget, setResolveTarget] = useState<SearchRow | null>(null);
+  const [resolveNote, setResolveNote] = useState("");
+  const [flagBusy, setFlagBusy] = useState(false);
   const [roomChangeTarget, setRoomChangeTarget] = useState<SearchRow | null>(null);
   const [changeRoomId, setChangeRoomId] = useState<string>("");
   const [changeReason, setChangeReason] = useState("");
@@ -331,6 +363,44 @@ export function ArrivalPage() {
     }
   };
 
+  const doFlagRecord = async () => {
+    if (!sessionToken || !flagTarget) return;
+    setFlagBusy(true);
+    try {
+      await flagCheckInRecord({
+        sessionToken,
+        guestId: flagTarget.guestId as Id<"agcGuests">,
+        note: flagNote.trim(),
+      });
+      toast.success("Flagged for review — the Accommodation Admin sees the note.");
+      setFlagTarget(null);
+      setFlagNote("");
+    } catch (err) {
+      toast.error(...toastFriendlyErrorParts(err, "Could not flag this record"));
+    } finally {
+      setFlagBusy(false);
+    }
+  };
+
+  const doResolveFlag = async () => {
+    if (!sessionToken || !resolveTarget?.reviewFlag) return;
+    setFlagBusy(true);
+    try {
+      await resolveCheckinFlag({
+        sessionToken,
+        flagId: resolveTarget.reviewFlag._id as Id<"agcCheckinFlags">,
+        resolutionNote: resolveNote.trim(),
+      });
+      toast.success("Review flag cleared — the record stays in the log.");
+      setResolveTarget(null);
+      setResolveNote("");
+    } catch (err) {
+      toast.error(...toastFriendlyErrorParts(err, "Could not clear the flag"));
+    } finally {
+      setFlagBusy(false);
+    }
+  };
+
   const doRoomChange = async () => {
     if (!sessionToken || !roomChangeTarget || !changeRoomId || !changeReason.trim()) return;
     setBusyGuest(roomChangeTarget.guestId);
@@ -352,29 +422,82 @@ export function ArrivalPage() {
     }
   };
 
-  const rows = useMemo(() => {
-    // The searchable list: search first, else the grounded desk sheet.
-    return  searchResults ?? deskRows ?? [];
-  }, [searchResults, deskRows]);
+  const doReturnKey = async (roomId: Id<"agcRooms">) => {
+    if (!sessionToken) return;
+    setKeyBusy(true);
+    try {
+      await returnRoomKey({ sessionToken, roomId });
+      toast.success("Key marked returned.");
+    } catch (err) {
+      toast.error(...toastFriendlyErrorParts(err, "Could not return key"));
+    } finally {
+      setKeyBusy(false);
+    }
+  };
+
+  /**
+   * Search first, else the grounded desk sheet. The roster then applies the
+   * gender / hub / room-type pills on top, so the desk can narrow the sheet
+   * without re-querying.
+   */
+  const baseRows = useMemo<SearchRow[]>(() => {
+    if (search.trim().length >= 2) return (searchResults ?? []) as SearchRow[];
+    return (deskRows ?? []) as SearchRow[];
+  }, [search, searchResults, deskRows]);
+
+  const rosterRows = useMemo(() => {
+    const filtered = baseRows.filter((row) => {
+      if (genderFilter !== "any" && row.gender !== genderFilter) return false;
+      if (hubFilter !== "all" && row.hubName !== hubFilter) return false;
+      if (typeFilter !== "all" && row.accommodationType !== typeFilter) return false;
+      return true;
+    });
+    // Room order reads like the building does: 101 bed 1, 101 bed 2, then
+    // unassigned delegates at the bottom.
+    return [...filtered].sort((a, b) => {
+      const roomA = a.roomName ?? "\uffff";
+      const roomB = b.roomName ?? "\uffff";
+      if (roomA !== roomB) return roomA.localeCompare(roomB);
+      const bedA = a.bedNumber ?? 0;
+      const bedB = b.bedNumber ?? 0;
+      if (bedA !== bedB) return bedA - bedB;
+      return a.name.localeCompare(b.name);
+    });
+  }, [baseRows, genderFilter, hubFilter, typeFilter]);
+
+  const selectedRow = useMemo(
+    () => rosterRows.find((row) => row.guestId === selectedGuestId) ?? null,
+    [rosterRows, selectedGuestId],
+  );
+
+  const filtersActive =
+    genderFilter !== "any" || hubFilter !== "all" || typeFilter !== "all";
+  const clearFilters = () => {
+    setGenderFilter("any");
+    setHubFilter("all");
+    setTypeFilter("all");
+    setSearch("");
+    setSelectedGuestId(null);
+  };
 
   /**
    * A single match that is ready to check in: Enter at the desk then works
    * without reaching for the mouse. Anything else still goes through its row.
    */
   const soleReadyRow = useMemo(() => {
-    if (rows.length !== 1) return null;
-    const row = rows[0] as SearchRow;
+    if (rosterRows.length !== 1) return null;
+    const row = rosterRows[0];
     return deskRowState(row).ready ? row : null;
-  }, [rows]);
+  }, [rosterRows]);
 
   // --- Group check-in (§13) ---
   const groupRows = useMemo(() => {
     if (!groupHub) return [];
-    return (rows as SearchRow[]).filter((row) => row.hubName === groupHub);
-  }, [rows, groupHub]);
+    return rosterRows.filter((row) => row.hubName === groupHub);
+  }, [rosterRows, groupHub]);
   const hubOptions = useMemo(
-    () => [...new Set((rows as SearchRow[]).map((row) => row.hubName))].sort(),
-    [rows],
+    () => [...new Set(baseRows.map((row) => row.hubName))].sort(),
+    [baseRows],
   );
   const tickGroup = (guestId: string, wanted: boolean) =>
     setGroupTicked((prev) =>
@@ -423,251 +546,478 @@ export function ArrivalPage() {
 
   return (
     <div className="space-y-4">
-      <ArrivalStats data={overview} />
       <DeskAlerts data={overview} />
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <div className="space-y-3 lg:col-span-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <Select value={location} onValueChange={(value) => setLocation(value ?? "central")}>
-              <SelectTrigger className="w-52" aria-label="Desk location">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="central">Central check-in desk</SelectItem>
-                {[
-                  ...new Set(
-                    (deskRows ?? [])
-                      .map((row) => row.building)
-                      .filter((b): b is string => typeof b === "string"),
-                  ),
-                ].map((building) => (
-                  <SelectItem key={building} value={building}>
-                    {building}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <div className="relative min-w-56 flex-1">
-              <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                ref={searchRef}
-                type="search"
-                placeholder="Search delegate name or hub… (2+ characters, “/” focuses, Enter checks in a single ready match)"
-                className="pl-8"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key !== "Enter" || !soleReadyRow) return;
-                  event.preventDefault();
-                  setCheckinTarget(soleReadyRow);
-                  setOverrideReason("");
-                  setKeyRecipientName(soleReadyRow.name);
-                }}
-              />
-            </div>
-            <Select value={typeFilter} onValueChange={(value) => setTypeFilter(value ?? "all")}>
-              <SelectTrigger className="w-44" aria-label="Accommodation type filter">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All types</SelectItem>
-                {TYPE_KEYS.map((type) => (
-                  <SelectItem key={type} value={type}>
-                    {TYPE_LABEL(type)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+      {/* Search + filters — the roster reads left to right, the selected
+          delegate's full record opens beside it. */}
+      <div className="space-y-3">
+        <div className="flex items-stretch gap-2">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              ref={searchRef}
+              type="search"
+              className="h-11 pl-9 text-base"
+              placeholder="Search name, hub, room number or booking ref"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" || !soleReadyRow) return;
+                event.preventDefault();
+                setSelectedGuestId(soleReadyRow.guestId);
+                setCheckinTarget(soleReadyRow);
+                setOverrideReason("");
+                setKeyRecipientName(soleReadyRow.name);
+              }}
+            />
           </div>
-
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <StatusLegend tones={["done", "blocked", "info", "waiting"]} />
-            <p className="text-[11px] text-muted-foreground">
-              Row colour = what the delegate needs next.
-            </p>
-          </div>
-
-          <Card>
-            <CardContent className="overflow-x-auto p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Delegate</TableHead>
-                    <TableHead className="hidden sm:table-cell">Hub</TableHead>
-                    <TableHead className="hidden md:table-cell">Room</TableHead>
-                    <TableHead>Payment</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rows.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={6} className="py-10 text-center text-sm text-muted-foreground">
-                        No delegates match — search by name or hub (min 2 characters).
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    (rows as SearchRow[]).map((row) => {
-                      const alreadyIn = row.checkInStatus === "checked_in";
-                      const gone = row.checkInStatus === "checked_out";
-                      const state = deskRowState(row);
-                      const payment = paymentState(row.paymentStatus, row.poaStatus);
-                      const StatusIcon =
-                        state.tone === "done"
-                          ? UserCheck
-                          : state.tone === "blocked"
-                            ? CircleAlert
-                            : state.tone === "info"
-                              ? CircleCheck
-                              : gone
-                                ? LogOut
-                                : CircleSlash;
-                      return (
-                        <TableRow
-                          key={row.guestId}
-                          className={cn(
-                            "border-l-4",
-                            TONE_RAIL[state.tone],
-                            TONE_ROW[state.tone],
-                          )}
-                        >
-                          <TableCell>
-                            <p className="font-medium">{row.name}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {row.gender} · {TYPE_LABEL(row.accommodationType)}
-                              {row.bookingRef ? ` · ${row.bookingRef}` : ""}
-                            </p>
-                          </TableCell>
-                          <TableCell className="hidden sm:table-cell">{row.hubName}</TableCell>
-                          <TableCell className="hidden md:table-cell">
-                            {row.roomName ? (
-                              <span>
-                                {row.roomName}
-                                {row.building ? (
-                                  <span
-                                    className={cn(
-                                      "ml-1 inline-block rounded-md border px-1.5 py-0.5 text-[10px] font-medium",
-                                      buildingChipClass(row.building),
-                                    )}
-                                  >
-                                    {row.building}
-                                  </span>
-                                ) : null}
-                              </span>
-                            ) : (
-                              <StatusBadge tone="blocked" icon={BedDouble}>
-                                Unassigned — refer to room staff
-                              </StatusBadge>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            <StatusBadge
-                              tone={payment.tone}
-                              icon={payment.tone === "done" ? CircleCheck : CircleAlert}
-                              title={payment.detail}
-                            >
-                              {payment.label}
-                            </StatusBadge>
-                          </TableCell>
-                          <TableCell>
-                            <StatusBadge tone={state.tone} icon={StatusIcon}>
-                              {state.label}
-                            </StatusBadge>
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex justify-end gap-1">
-                              {alreadyIn ? (
-                                <>
-                                  {isApprover && (
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      className="h-7 text-xs"
-                                      onClick={() => {
-                                        setCorrectTarget(row);
-                                        setCorrectReason("");
-                                      }}
-                                    >
-                                      Correct
-                                    </Button>
-                                  )}
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="h-7 text-xs"
-                                    disabled={busyGuest === row.guestId}
-                                    onClick={() => {
-                                      setCheckoutTarget(row);
-                                      setKeyReturnStatus("not_applicable");
-                                    }}
-                                  >
-                                    <LogOut className="size-3" /> Check out
-                                  </Button>
-                                </>
-                              ) : gone ? null : (
-                                <Button
-                                  size="sm"
-                                  className="h-7 text-xs"
-                                  disabled={busyGuest === row.guestId || row.assignmentStatus !== "assigned"}
-                                  onClick={() => {
-                                    setCheckinTarget(row);
-                                    setOverrideReason("");
-                                    setKeyRecipientName(row.name);
-                                  }}
-                                >
-                                  <UserCheck className="size-3" /> Check in
-                                </Button>
-                              )}
-                              {row.assignmentStatus === "assigned" && !gone && role !== "checkin" && (
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-7 text-xs"
-                                  onClick={() => {
-                                    setRoomChangeTarget(row);
-                                    setChangeRoomId("");
-                                    setChangeReason("");
-                                  }}
-                                >
-                                  Move
-                                </Button>
-                              )}
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })
-                  )}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-          <GroupCheckInPanel
-            hubOptions={hubOptions}
-            selectedHub={groupHub}
-            onHubChange={(hub) => {
-              setGroupHub(hub ?? "");
-              setGroupTicked([]);
+          <Button
+            type="button"
+            className="h-11 px-6"
+            onClick={() => {
+              // Search is live; the button still applies the trimmed term and
+              // returns focus, which is how the desk operates with a mouse.
+              setSearch((term) => term.trim());
+              searchRef.current?.focus();
             }}
-            rows={groupRows as SearchRow[]}
-            ticked={groupTicked}
-            onTick={tickGroup}
-            assignable={tickableInGroup.map((r) => r.guestId)}
-            onTickAll={(ids) => setGroupTicked(ids)}
-            busy={groupBusy}
-            onSubmit={() => void doGroupCheckIn()}
-          />
+          >
+            Search
+          </Button>
         </div>
 
-        <div className="space-y-3">
-          <OfflinePanel sessionToken={sessionToken} location={location} isApprover={isApprover} />
-          <KeysPanel keys={keys ?? []} sessionToken={sessionToken} />
-          <RecentCheckIns data={recent ?? []} />
-          {(isApprover) && <ConflictsPanel sessionToken={sessionToken} />}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs font-medium text-muted-foreground">Gender:</span>
+            {(["any", "male", "female"] as const).map((value) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={genderFilter === value}
+                onClick={() => setGenderFilter(value)}
+                className={cn(
+                  "h-8 rounded-full border px-3 text-xs font-medium capitalize transition-colors",
+                  genderFilter === value
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "bg-background hover:bg-muted",
+                )}
+              >
+                {value}
+              </button>
+            ))}
+          </div>
+
+          <Select value={hubFilter} onValueChange={(value) => setHubFilter(value ?? "all")}>
+            <SelectTrigger
+              className="h-8 w-auto min-w-32 gap-1 rounded-full px-3 text-xs"
+              aria-label="Filter by hub"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Hub: Any</SelectItem>
+              {hubOptions.map((hub) => (
+                <SelectItem key={hub} value={hub}>
+                  Hub: {hub}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select value={typeFilter} onValueChange={(value) => setTypeFilter(value ?? "all")}>
+            <SelectTrigger
+              className="h-8 w-auto min-w-36 gap-1 rounded-full px-3 text-xs"
+              aria-label="Filter by room type"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Room type: Any</SelectItem>
+              {TYPE_KEYS.map((type) => (
+                <SelectItem key={type} value={type}>
+                  Room type: {TYPE_LABEL(type)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select value={location} onValueChange={(value) => setLocation(value ?? "central")}>
+            <SelectTrigger
+              className="h-8 w-auto min-w-36 gap-1 rounded-full px-3 text-xs"
+              aria-label="Desk location"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="central">Location: Central desk</SelectItem>
+              {[
+                ...new Set(
+                  (deskRows ?? [])
+                    .map((row) => row.building)
+                    .filter((b): b is string => typeof b === "string"),
+                ),
+              ].map((building) => (
+                <SelectItem key={building} value={building}>
+                  Location: {building}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Button
+            type="button"
+            variant="link"
+            className="h-8 px-1 text-xs font-medium"
+            onClick={clearFilters}
+            disabled={!filtersActive && !search}
+          >
+            Clear filters
+          </Button>
+
+          {canAccessArea(role, "accommodation") && (
+            <Link
+              href="/admin/accommodation?tab=rooms"
+              className={cn(
+                buttonVariants({ variant: "outline", size: "sm" }),
+                "ml-auto h-8 gap-1.5 text-xs",
+              )}
+            >
+              <BedDouble className="size-3.5" /> Bulk assign
+            </Link>
+          )}
         </div>
       </div>
+
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+        <Card className="overflow-hidden">
+          <CardContent className="overflow-x-auto p-0">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/50 hover:bg-muted/50">
+                  <TableHead className="w-16">Room</TableHead>
+                  <TableHead className="w-12">Bed</TableHead>
+                  <TableHead>Name</TableHead>
+                  <TableHead className="hidden sm:table-cell">Gender</TableHead>
+                  <TableHead className="hidden md:table-cell">Hub</TableHead>
+                  <TableHead>Check-in</TableHead>
+                  <TableHead className="hidden sm:table-cell">Key</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rosterRows.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="py-12 text-center text-sm text-muted-foreground">
+                      {filtersActive || search
+                        ? "No delegate matches these filters — clear them to see the full sheet."
+                        : "No delegates on the desk yet — rooms and bookings feed this sheet."}
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  rosterRows.map((row) => {
+                    const selected = row.guestId === selectedGuestId;
+                    const cell = checkInCell(row);
+                    return (
+                      <TableRow
+                        key={row.guestId}
+                        onClick={() => setSelectedGuestId(row.guestId)}
+                        aria-selected={selected}
+                        className={cn(
+                          "cursor-pointer",
+                          selected ? "bg-sky-50 dark:bg-sky-950/40" : "hover:bg-muted/50",
+                        )}
+                      >
+                        <TableCell className="font-medium tabular-nums">
+                          {row.roomName ?? "—"}
+                        </TableCell>
+                        <TableCell className="tabular-nums text-muted-foreground">
+                          {row.bedNumber ?? "—"}
+                        </TableCell>
+                        <TableCell>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setSelectedGuestId(row.guestId);
+                            }}
+                            className={cn(
+                              "text-left font-semibold underline decoration-dotted underline-offset-4 hover:decoration-solid",
+                              selected && "text-sky-800 dark:text-sky-300",
+                            )}
+                          >
+                            {row.name}
+                          </button>
+                          {row.assignmentStatus !== "assigned" && (
+                            <span className="ml-2 rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-950/60 dark:text-amber-300">
+                              Unassigned
+                            </span>
+                          )}
+                          {row.reviewFlag && (
+                            <span
+                              title={`Flagged for review by ${row.reviewFlag.raisedBy}: ${row.reviewFlag.note}`}
+                              className="ml-2 inline-flex items-center gap-1 rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-950/60 dark:text-amber-300"
+                            >
+                              <Flag className="size-2.5" /> Review
+                            </span>
+                          )}
+                        </TableCell>
+                        <TableCell className="hidden capitalize sm:table-cell">{row.gender}</TableCell>
+                        <TableCell className="hidden md:table-cell">{row.hubName}</TableCell>
+                        <TableCell className={cn("text-sm font-medium", cell.className)}>
+                          {cell.label}
+                        </TableCell>
+                        <TableCell className="hidden text-sm sm:table-cell">
+                          {row.keyStatus ? KEY_LABEL[row.keyStatus] : "—"}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
+                )}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+
+        <Card className="h-fit lg:sticky lg:top-20">
+          <CardContent className="p-4">
+            {!selectedRow ? (
+              <div className="py-10 text-center">
+                <UserCheck className="mx-auto size-6 text-muted-foreground" />
+                <p className="mt-2 text-sm font-medium">Select a delegate</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Click a name to see the room, payment and key, then check them in.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div>
+                  <h2 className="text-lg font-semibold leading-tight">{selectedRow.name}</h2>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    <span className="capitalize">{selectedRow.gender}</span>
+                    {" · "}Hub {selectedRow.hubName}
+                    {selectedRow.bookingRef ? ` · Ref ${selectedRow.bookingRef}` : ""}
+                  </p>
+                </div>
+
+                <dl className="space-y-1.5 text-sm">
+                  <DetailLine label="Paid room type" value={TYPE_LABEL(selectedRow.accommodationType)} />
+                  <DetailLine
+                    label="Location"
+                    value={
+                      selectedRow.assignmentStatus === "assigned"
+                        ? [
+                            selectedRow.building,
+                            selectedRow.roomName,
+                            selectedRow.bedNumber ? `Bed ${selectedRow.bedNumber}` : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")
+                        : "No room yet"
+                    }
+                  />
+                  <DetailLine label="Status" value={deskRowState(selectedRow).label} />
+                  <DetailLine
+                    label="Payment"
+                    value={paymentState(selectedRow.paymentStatus, selectedRow.poaStatus).label}
+                  />
+                  <DetailLine
+                    label="Key"
+                    value={
+                      selectedRow.keyStatus
+                        ? KEY_LABEL[selectedRow.keyStatus]
+                        : "Not tracked (wristband)"
+                    }
+                  />
+                </dl>
+
+                {selectedRow.reviewFlag && (
+                  <div
+                    className={cn(
+                      "space-y-1 rounded-lg border border-l-4 px-3 py-2 text-xs",
+                      TONE_SURFACE.blocked,
+                      TONE_RAIL.blocked,
+                    )}
+                  >
+                    <p className={cn("flex items-center gap-1.5 font-medium", TONE_TEXT.blocked)}>
+                      <Flag className="size-3.5 shrink-0" /> Flagged for review
+                    </p>
+                    <p className="text-foreground/80">{selectedRow.reviewFlag.note}</p>
+                    <p className="text-muted-foreground">
+                      Raised by {selectedRow.reviewFlag.raisedBy} ·{" "}
+                      {new Date(selectedRow.reviewFlag.raisedAt).toLocaleString()}
+                    </p>
+                    {isApprover && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="mt-1 w-full"
+                        onClick={() => {
+                          setResolveTarget(selectedRow);
+                          setResolveNote("");
+                        }}
+                      >
+                        Clear flag
+                      </Button>
+                    )}
+                  </div>
+                )}
+
+                {selectedRow.checkInStatus === "not_arrived" &&
+                  selectedRow.assignmentStatus !== "assigned" && (
+                    <p className="rounded-lg border border-l-4 border-amber-200 bg-amber-50/70 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-200">
+                      No bed yet — the room-assignment team must assign this
+                      delegate before the desk can check them in.
+                    </p>
+                  )}
+
+                {selectedRow.keyStatus === "pending" && (
+                  <p className="text-xs text-muted-foreground">
+                    The key is issued in the check-in step — name the recipient
+                    on the next screen.
+                  </p>
+                )}
+
+                <div className="space-y-2 pt-1">
+                  {selectedRow.checkInStatus === "not_arrived" ? (
+                    <Button
+                      className="w-full"
+                      disabled={
+                        busyGuest === selectedRow.guestId ||
+                        selectedRow.assignmentStatus !== "assigned"
+                      }
+                      onClick={() => {
+                        setCheckinTarget(selectedRow);
+                        setOverrideReason("");
+                        setKeyRecipientName(selectedRow.name);
+                      }}
+                    >
+                      <UserCheck className="size-4" />
+                      Check in
+                    </Button>
+                  ) : selectedRow.checkInStatus === "checked_in" ? (
+                    <>
+                      <Button
+                        variant="outline"
+                        className="w-full"
+                        disabled={busyGuest === selectedRow.guestId}
+                        onClick={() => {
+                          setCheckoutTarget(selectedRow);
+                          setKeyReturnStatus("not_applicable");
+                        }}
+                      >
+                        <LogOut className="size-4" /> Check out
+                      </Button>
+                      {isApprover && (
+                        <Button
+                          variant="outline"
+                          className="w-full"
+                          onClick={() => {
+                            setCorrectTarget(selectedRow);
+                            setCorrectReason("");
+                          }}
+                        >
+                          Correct check-in
+                        </Button>
+                      )}
+                    </>
+                  ) : (
+                    <p className="rounded-lg border px-3 py-2 text-center text-sm text-muted-foreground">
+                      Checked out — the record stays for audit.
+                    </p>
+                  )}
+
+                  {selectedRow.keyStatus === "issued" && selectedRow.roomId && (
+                    <Button
+                      variant="outline"
+                      className="w-full"
+                      disabled={keyBusy}
+                      onClick={() => void doReturnKey(selectedRow.roomId as Id<"agcRooms">)}
+                    >
+                      <KeyRound className="size-4" /> Mark key returned
+                    </Button>
+                  )}
+
+                  {role !== "checkin" &&
+                    selectedRow.assignmentStatus === "assigned" &&
+                    selectedRow.checkInStatus !== "checked_out" && (
+                      <Button
+                        variant="ghost"
+                        className="w-full"
+                        onClick={() => {
+                          setRoomChangeTarget(selectedRow);
+                          setChangeRoomId("");
+                          setChangeReason("");
+                        }}
+                      >
+                        Move delegate
+                      </Button>
+                    )}
+
+                  {/* Anyone on the desk can ask for a second look at a record;
+                      the note is the reason and is required. */}
+                  {!selectedRow.reviewFlag && (
+                    <Button
+                      variant="ghost"
+                      className="w-full gap-1.5 text-amber-800 hover:text-amber-900 dark:text-amber-300"
+                      disabled={busyGuest === selectedRow.guestId}
+                      onClick={() => {
+                        setFlagTarget(selectedRow);
+                        setFlagNote("");
+                      }}
+                    >
+                      <Flag className="size-4" /> Flag for review
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <p className="text-xs text-muted-foreground">
+        Press <kbd className="rounded border px-1">/</kbd> to jump to search.
+        Enter checks in a single ready match. Row colour follows the desk
+        legend: green ready, amber blocked, sky already in, slate waiting.
+      </p>
+
+      <details className="group rounded-xl border bg-card">
+        <summary className="flex cursor-pointer list-none flex-wrap items-center gap-2 px-4 py-3 text-sm font-medium">
+          <BedDouble className="size-4 text-muted-foreground" />
+          Desk overview &amp; tools
+          <span className="text-xs font-normal text-muted-foreground">
+            occupancy, group check-in, keys, offline station and sync exceptions
+          </span>
+          <span className="grow" />
+          <StatusLegend tones={["done", "blocked", "info", "waiting"]} />
+        </summary>
+        <div className="space-y-3 border-t p-3">
+          <ArrivalStats data={overview} />
+          <div className="grid gap-3 lg:grid-cols-2">
+            <GroupCheckInPanel
+              hubOptions={hubOptions}
+              selectedHub={groupHub}
+              onHubChange={(hub) => {
+                setGroupHub(hub ?? "");
+                setGroupTicked([]);
+              }}
+              rows={groupRows}
+              ticked={groupTicked}
+              onTick={tickGroup}
+              assignable={tickableInGroup.map((r) => r.guestId)}
+              onTickAll={(ids) => setGroupTicked(ids)}
+              busy={groupBusy}
+              onSubmit={() => void doGroupCheckIn()}
+            />
+            <div className="space-y-3">
+              <OfflinePanel sessionToken={sessionToken} location={location} isApprover={isApprover} />
+              <KeysPanel keys={keys ?? []} sessionToken={sessionToken} />
+            </div>
+          </div>
+          <div className="grid gap-3 lg:grid-cols-2">
+            <RecentCheckIns data={recent ?? []} />
+            {isApprover && <ConflictsPanel sessionToken={sessionToken} />}
+          </div>
+        </div>
+      </details>
 
       {/* Check-in dialog */}
       <Dialog
@@ -871,6 +1221,77 @@ export function ArrivalPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Flag for review dialog — the note is what the reviewer acts on. */}
+      <Dialog open={flagTarget !== null} onOpenChange={(open) => !open && setFlagTarget(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Flag for review — {flagTarget?.name}</DialogTitle>
+            <DialogDescription>
+              The record stays on the desk and the delegate can still be checked
+              in. The Accommodation Admin reads your note and decides.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>What needs checking? (required)</Label>
+              <Textarea
+                rows={3}
+                placeholder="e.g. payment receipt does not match the booking, name on the ID differs…"
+                value={flagNote}
+                onChange={(e) => setFlagNote(e.target.value)}
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setFlagTarget(null)}>
+                Cancel
+              </Button>
+              <Button
+                disabled={!flagNote.trim() || flagBusy}
+                onClick={() => void doFlagRecord()}
+              >
+                {flagBusy ? <Loader2Icon className="size-4 animate-spin" /> : <Flag className="size-4" />}
+                Flag for review
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Clear the flag — approver only, and the note is the outcome. */}
+      <Dialog open={resolveTarget !== null} onOpenChange={(open) => !open && setResolveTarget(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Clear review flag — {resolveTarget?.name}</DialogTitle>
+            <DialogDescription>
+              Raised by {resolveTarget?.reviewFlag?.raisedBy}: “{resolveTarget?.reviewFlag?.note}”
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>Review outcome (required)</Label>
+              <Textarea
+                rows={3}
+                placeholder="e.g. payment verified against the transfer, no further action…"
+                value={resolveNote}
+                onChange={(e) => setResolveNote(e.target.value)}
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setResolveTarget(null)}>
+                Cancel
+              </Button>
+              <Button
+                disabled={!resolveNote.trim() || flagBusy}
+                onClick={() => void doResolveFlag()}
+              >
+                {flagBusy ? <Loader2Icon className="size-4 animate-spin" /> : <CircleCheck className="size-4" />}
+                Clear flag
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -878,6 +1299,39 @@ export function ArrivalPage() {
 // ------------------------------------------------------------------
 // Sub-components
 // ------------------------------------------------------------------
+
+/**
+ * Check-in column as the desk reads it: "Not yet" when the delegate is ready,
+ * but the blocking reason (no bed, payment first) stays visible in the list so
+ * staff do not have to open each record to find out why.
+ */
+function checkInCell(row: SearchRow): { label: string; className: string } {
+  if (row.checkInStatus === "checked_in") {
+    return { label: "Checked in", className: "text-emerald-700 dark:text-emerald-400" };
+  }
+  if (row.checkInStatus === "checked_out") {
+    return { label: "Checked out", className: "text-muted-foreground" };
+  }
+  if (row.assignmentStatus !== "assigned") {
+    return { label: "No room", className: "text-amber-800 dark:text-amber-400" };
+  }
+  const paid =
+    row.paymentStatus === "confirmed" || row.poaStatus === "confirmed";
+  if (!paid) {
+    return { label: "Payment first", className: "text-amber-800 dark:text-amber-400" };
+  }
+  return { label: "Not yet", className: "text-slate-600 dark:text-slate-400" };
+}
+
+/** One label/value line in the delegate detail panel. */
+function DetailLine({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex gap-2 text-sm">
+      <dt className="text-muted-foreground">{label}:</dt>
+      <dd className="min-w-0 font-medium">{value}</dd>
+    </div>
+  );
+}
 
 type Overview = {
   totalRoomable: number;
@@ -892,6 +1346,7 @@ type Overview = {
   unresolvedExceptions: number;
   paymentOverrides: number;
   offlineConflicts: number;
+  reviewFlags: number;
   perLocation: {
     accommodationType: string;
     typeLabel: string;
@@ -914,7 +1369,13 @@ function DeskAlerts({ data }: { data: Overview | undefined }) {
   const unassigned = data.unassigned;
   const overrides = data.paymentOverrides;
   const conflicts = data.offlineConflicts;
-  const tone = conflicts > 0 ? "refused" : unassigned > 0 || overrides > 0 ? "blocked" : "done";
+  const flagged = data.reviewFlags;
+  const tone =
+    conflicts > 0
+      ? "refused"
+      : unassigned > 0 || overrides > 0 || flagged > 0
+        ? "blocked"
+        : "done";
   const Icon = tone === "refused" ? ShieldAlert : tone === "blocked" ? CircleAlert : CircleCheck;
   const headline =
     tone === "refused"
@@ -943,6 +1404,9 @@ function DeskAlerts({ data }: { data: Overview | undefined }) {
         </StatusBadge>
         <StatusBadge tone={conflicts > 0 ? "refused" : "waiting"} icon={CircleAlert}>
           {conflicts} sync conflict(s)
+        </StatusBadge>
+        <StatusBadge tone={flagged > 0 ? "blocked" : "waiting"} icon={Flag}>
+          {flagged} flagged for review
         </StatusBadge>
       </span>
     </div>

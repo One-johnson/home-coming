@@ -20,8 +20,15 @@ function AdminAccommodationInner() {
   }
 
   const showPoa = user?.role === "admin" || user?.role === "finance";
+  const tab = searchParams.get("tab");
+  // Deep links: the POA queue (admin/finance) and the rooms grid with the
+  // bulk-assign panel (the arrival desk's "Bulk assign" shortcut).
   const initialSection =
-    searchParams.get("tab") === "poa" && showPoa ? ("poa" as const) : undefined;
+    tab === "poa" && showPoa
+      ? ("poa" as const)
+      : tab === "rooms"
+        ? ("rooms" as const)
+        : undefined;
 
   return (
     <div className="space-y-4">

@@ -1119,3 +1119,125 @@ test("group check-in: only individually ticked delegates are checked in (§13)",
   });
   expect(after.checkedIn).toBe(3);
 });
+
+test("flag this record for review: a note is required, and only the admin clears it", async () => {
+  const t = createTestConvex();
+  const desk = await seedStaff(t, "checkin");
+  const admin = await seedStaff(t, "admin");
+  const booking = await seedConfirmedBooking(t, {
+    accommodationType: "hostel",
+    gender: "male",
+    count: 1,
+  });
+  const guestId = booking.guestIds[0] as Id<"agcGuests">;
+  const room = await seedRoom(t, {
+    accommodationType: "hostel",
+    name: "Flag Room",
+    capacity: 2,
+  });
+  await t.run(async (ctx) => {
+    await ctx.db.insert("agcRoomAssignments", {
+      roomId: room as Id<"agcRooms">,
+      guestId,
+      bookingId: booking.bookingId,
+      assignedBy: "seed",
+      createdAt: Date.now(),
+    });
+  });
+
+  // The note is the reason — an empty one is refused.
+  await expect(() =>
+    t.mutation(api.agcCheckin.flagCheckInRecord, {
+      sessionToken: desk.token,
+      guestId,
+      note: "   ",
+    }),
+  ).rejects.toThrow(/note is required/);
+
+  const flagged = await t.mutation(api.agcCheckin.flagCheckInRecord, {
+    sessionToken: desk.token,
+    guestId,
+    note: "Receipt does not match the booking",
+  });
+  expect(flagged.flagId).toBeTruthy();
+
+  // The desk sheet and the search both carry the flag with its note.
+  const sheet = await t.query(api.agcCheckin.listArrivalDesk, {
+    sessionToken: desk.token,
+  });
+  const sheetRow = sheet.find((row) => row.guestId === guestId);
+  expect(sheetRow?.reviewFlag?.note).toBe("Receipt does not match the booking");
+  expect(sheetRow?.reviewFlag?.raisedBy).toBe("checkin@example.com");
+  const searched = await t.query(api.agcCheckin.searchDelegates, {
+    sessionToken: desk.token,
+    search: "Guest0",
+  });
+  expect(searched.find((row) => row.guestId === guestId)?.reviewFlag?._id).toBe(
+    flagged.flagId,
+  );
+
+  // A second flag on the same record is refused with the open reason.
+  await expect(() =>
+    t.mutation(api.agcCheckin.flagCheckInRecord, {
+      sessionToken: desk.token,
+      guestId,
+      note: "Again",
+    }),
+  ).rejects.toThrow(/ALREADY FLAGGED/);
+
+  // A flag asks for a second look; it never blocks the desk.
+  const checkIn = await t.mutation(api.agcCheckin.checkInGuest, {
+    sessionToken: desk.token,
+    guestId,
+    location: "central",
+  });
+  expect(checkIn.checkInId).toBeTruthy();
+
+  let overview = await t.query(api.agcCheckin.getArrivalOverview, {
+    sessionToken: admin.token,
+  });
+  expect(overview.reviewFlags).toBe(1);
+
+  // Clearing it is an Accommodation Admin decision, and needs its own note.
+  await expect(() =>
+    t.mutation(api.agcCheckin.resolveCheckinFlag, {
+      sessionToken: desk.token,
+      flagId: flagged.flagId,
+      resolutionNote: "Checked at the desk",
+    }),
+  ).rejects.toThrow(/Unauthorized/);
+  await expect(() =>
+    t.mutation(api.agcCheckin.resolveCheckinFlag, {
+      sessionToken: admin.token,
+      flagId: flagged.flagId,
+      resolutionNote: "  ",
+    }),
+  ).rejects.toThrow(/note is required/);
+
+  await t.mutation(api.agcCheckin.resolveCheckinFlag, {
+    sessionToken: admin.token,
+    flagId: flagged.flagId,
+    resolutionNote: "Receipt verified against the transfer",
+  });
+
+  overview = await t.query(api.agcCheckin.getArrivalOverview, {
+    sessionToken: admin.token,
+  });
+  expect(overview.reviewFlags).toBe(0);
+  const cleared = await t.query(api.agcCheckin.listArrivalDesk, {
+    sessionToken: desk.token,
+  });
+  expect(cleared.find((row) => row.guestId === guestId)?.reviewFlag).toBeNull();
+
+  // The closed flag stays in the record and cannot be closed twice.
+  const stored = await t.run(async (ctx) => await ctx.db.get(flagged.flagId));
+  expect(stored?.resolutionNote).toBe("Receipt verified against the transfer");
+  expect(stored?.note).toBe("Receipt does not match the booking");
+  await expect(() =>
+    t.mutation(api.agcCheckin.resolveCheckinFlag, {
+      sessionToken: admin.token,
+      flagId: flagged.flagId,
+      resolutionNote: "Again",
+    }),
+  ).rejects.toThrow(/already closed/);
+});

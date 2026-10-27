@@ -654,6 +654,31 @@ export default defineSchema({
     .index("by_room", ["roomId"])
     .index("by_checked_in_at", ["checkedInAt"]),
 
+  /**
+   * A desk-raised "review this record" flag on a delegate's arrival record.
+   * Any check-in role may raise one; the note is the reason and is required.
+   * An Accommodation Admin clears it with a review note — the row is kept, so
+   * the flag stays in the audit trail after it is closed.
+   */
+  agcCheckinFlags: defineTable({
+    guestId: v.id("agcGuests"),
+    bookingId: v.id("agcBookings"),
+    /** Snapshot of the room the record sat in when it was flagged. */
+    roomId: v.optional(v.id("agcRooms")),
+    roomName: v.optional(v.string()),
+    checkInId: v.optional(v.id("agcCheckIns")),
+    /** Required reason the record needs a second look. */
+    note: v.string(),
+    raisedAt: v.number(),
+    raisedBy: v.string(),
+    raisedByRole: v.optional(v.string()),
+    resolvedAt: v.optional(v.number()),
+    resolvedBy: v.optional(v.string()),
+    resolutionNote: v.optional(v.string()),
+  })
+    .index("by_guest", ["guestId"])
+    .index("by_raised_at", ["raisedAt"]),
+
   /** Designated offline station per building (Phase 2 §19) — one per building. */
   agcOfflineStations: defineTable({
     building: v.string(),

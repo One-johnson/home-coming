@@ -59,6 +59,54 @@ async function activeCheckIn(
   return rows.find((row) => !row.correctedAt) ?? null;
 }
 
+/**
+ * An open "review this record" flag as the desk reads it. The desk raises
+ * these; the Accommodation Admin clears them.
+ */
+export type CheckinReviewFlag = {
+  _id: string;
+  note: string;
+  raisedAt: number;
+  raisedBy: string;
+};
+
+function reviewFlagView(flag: Doc<"agcCheckinFlags">): CheckinReviewFlag {
+  return {
+    _id: flag._id,
+    note: flag.note,
+    raisedAt: flag.raisedAt,
+    raisedBy: flag.raisedBy,
+  };
+}
+
+/** Latest open review flag for a guest, or null. */
+async function openReviewFlag(
+  ctx: Ctx,
+  guestId: Id<"agcGuests">,
+): Promise<Doc<"agcCheckinFlags"> | null> {
+  const rows = await ctx.db
+    .query("agcCheckinFlags")
+    .withIndex("by_guest", (q) => q.eq("guestId", guestId))
+    .collect();
+  return rows
+    .filter((row) => row.resolvedAt === undefined)
+    .sort((a, b) => b.raisedAt - a.raisedAt)[0] ?? null;
+}
+
+/** Open review flags keyed by guest, for the desk sheet. */
+function openReviewFlagsByGuest(
+  flags: Doc<"agcCheckinFlags">[],
+): Map<string, CheckinReviewFlag> {
+  const map = new Map<string, CheckinReviewFlag>();
+  for (const flag of flags) {
+    if (flag.resolvedAt !== undefined) continue;
+    const current = map.get(flag.guestId);
+    if (current && current.raisedAt > flag.raisedAt) continue;
+    map.set(flag.guestId, reviewFlagView(flag));
+  }
+  return map;
+}
+
 /** Room types where a physical key is tracked (§14). */
 function roomNeedsKey(
   type: Doc<"agcRooms">["accommodationType"],
@@ -72,6 +120,41 @@ function roomNeedsKey(
 
 function guestLabel(guest: Doc<"agcGuests">): string {
   return `${guest.title} ${guest.firstName} ${guest.lastName}`.trim();
+}
+
+/**
+ * Bed number per guest: the guest's position among the room's open
+ * assignments (oldest first). Beds are not stored — the roster shows where a
+ * delegate sits in the room, and the count stays stable as guests move out.
+ */
+function bedNumbersByGuest(
+  assignments: Doc<"agcRoomAssignments">[],
+): Map<string, number> {
+  const byRoom = new Map<string, Doc<"agcRoomAssignments">[]>();
+  for (const assignment of assignments) {
+    if (assignment.endedAt !== undefined) continue;
+    const rows = byRoom.get(assignment.roomId) ?? [];
+    rows.push(assignment);
+    byRoom.set(assignment.roomId, rows);
+  }
+  const beds = new Map<string, number>();
+  for (const rows of byRoom.values()) {
+    rows.sort((a, b) => a.createdAt - b.createdAt);
+    rows.forEach((assignment, index) => beds.set(assignment.guestId, index + 1));
+  }
+  return beds;
+}
+
+/** The key column as the desk reads it: issued, returned, or awaiting issue. */
+export type ArrivalKeyState = "issued" | "returned" | "pending";
+
+function keyStateForRoom(
+  room: Doc<"agcRooms"> | undefined,
+  key: Doc<"agcKeys"> | undefined,
+): ArrivalKeyState | null {
+  if (!room || !roomNeedsKey(room.accommodationType)) return null;
+  if (!key) return "pending";
+  return key.status === "returned" ? "returned" : "issued";
 }
 
 /** Viewing identity for check-in operations — a staff member or a synced
@@ -103,6 +186,7 @@ export type ArrivalSearchRow = {
   bookingStatus: string;
   poaStatus: string | null;
   assignmentStatus: "assigned" | "unassigned";
+  roomId: string | null;
   roomName: string | null;
   building: string | null;
   checkInStatus: "checked_in" | "checked_out" | "not_arrived";
@@ -110,6 +194,14 @@ export type ArrivalSearchRow = {
   checkedInAt: number | null;
   checkedInBy: string | null;
   checkedOutAt: number | null;
+  /** Position within the room's open assignments; null when unassigned. */
+  bedNumber: number | null;
+  /** Key state for keyed rooms (WSL, Good General, EBPV); null otherwise. */
+  keyStatus: ArrivalKeyState | null;
+  /** Whether this room type tracks a physical key at all. */
+  needsKey: boolean;
+  /** Open review flag raised by the desk; null when the record is unflagged. */
+  reviewFlag: CheckinReviewFlag | null;
 };
 
 /** Search delegates by name/hub/type for the check-in desk. */
@@ -144,6 +236,11 @@ export const searchDelegates = query({
     for (const a of assignments) {
       if (a.endedAt === undefined) openByGuest.set(a.guestId, a);
     }
+    const bedByGuest = bedNumbersByGuest(assignments);
+    const keyByRoom = new Map<string, Doc<"agcKeys">>();
+    for (const key of await ctx.db.query("agcKeys").collect()) {
+      keyByRoom.set(key.roomId, key);
+    }
     const checkIns = await ctx.db.query("agcCheckIns").collect();
     const checkInByGuest = new Map<string, Doc<"agcCheckIns">>();
     for (const c of checkIns) {
@@ -151,6 +248,9 @@ export const searchDelegates = query({
     }
     const hubs = await ctx.db.query("agcHubs").collect();
     const hubNameById = new Map(hubs.map((h) => [h._id, h.name]));
+    const flagByGuest = openReviewFlagsByGuest(
+      await ctx.db.query("agcCheckinFlags").collect(),
+    );
 
     let guests = await ctx.db.query("agcGuests").collect();
     if (args.accommodationType) {
@@ -181,12 +281,24 @@ export const searchDelegates = query({
         continue;
       }
       const hubName = hubNameById.get(guest.hubId) ?? "(unknown)";
-      if (term) {
-        const haystack = `${name} ${guest.firstName} ${guest.lastName} ${hubName}`.toLowerCase();
-        if (!tokens.every((token) => haystack.includes(token))) continue;
-      }
       const assignment = openByGuest.get(guest._id);
       const room = assignment ? rooms.get(assignment.roomId) : undefined;
+      if (term) {
+        // The desk searches the way it reads the roster: name, hub, room,
+        // building and the booking reference on the receipt.
+        const haystack = [
+          name,
+          guest.firstName,
+          guest.lastName,
+          hubName,
+          room?.name ?? "",
+          room?.building ?? "",
+          booking?.referenceNumber ?? "",
+        ]
+          .join(" ")
+          .toLowerCase();
+        if (!tokens.every((token) => haystack.includes(token))) continue;
+      }
       const checkIn = checkInByGuest.get(guest._id);
       const bookingStatus = booking?.bookingStatus ?? "unknown";
       const poa = booking?.poa ?? undefined;
@@ -202,8 +314,13 @@ export const searchDelegates = query({
         bookingStatus,
         poaStatus: poa?.status ?? null,
         assignmentStatus: room ? "assigned" : "unassigned",
+        roomId: room?._id ?? null,
         roomName: room?.name ?? null,
         building: room?.building ?? null,
+        bedNumber: bedByGuest.get(guest._id) ?? null,
+        keyStatus: keyStateForRoom(room, room ? keyByRoom.get(room._id) : undefined),
+        needsKey: room ? roomNeedsKey(room.accommodationType) : false,
+        reviewFlag: flagByGuest.get(guest._id) ?? null,
         checkInStatus: checkIn
           ? checkIn.checkedOutAt
             ? "checked_out"
@@ -635,6 +752,124 @@ export const correctCheckIn = mutation({
 });
 
 // ------------------------------------------------------------------
+// Review flags — "flag this record for review"
+// ------------------------------------------------------------------
+
+/**
+ * Raise a review flag on a delegate's arrival record. Any desk role may raise
+ * one; the note is mandatory because a flag without a reason gives the
+ * Accommodation Admin nothing to act on. The record stays on the desk — a flag
+ * never blocks a check-in, it just asks for a second look.
+ */
+export const flagCheckInRecord = mutation({
+  args: {
+    sessionToken: v.string(),
+    guestId: v.id("agcGuests"),
+    note: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireRole(ctx, args.sessionToken, [...CHECKIN_ROLES]);
+    const note = args.note.trim();
+    if (!note) throw new ConvexError("A note is required to flag a record for review");
+
+    const guest = await ctx.db.get(args.guestId);
+    if (!guest || guest.status !== "active") {
+      throw new ConvexError("Delegate not found or no longer active");
+    }
+    const existing = await openReviewFlag(ctx, guest._id);
+    if (existing) {
+      throw new ConvexError(
+        `ALREADY FLAGGED — ${existing.note} (raised by ${existing.raisedBy})`,
+      );
+    }
+
+    // Snapshot where the record sat when it was flagged, so the review still
+    // reads correctly after a room move.
+    const assignment = await ctx.db
+      .query("agcRoomAssignments")
+      .withIndex("by_guest", (q) => q.eq("guestId", guest._id))
+      .unique();
+    const room =
+      assignment && assignment.endedAt === undefined
+        ? await ctx.db.get(assignment.roomId)
+        : null;
+    const checkIn = await activeCheckIn(ctx, guest._id);
+
+    const flagId = await ctx.db.insert("agcCheckinFlags", {
+      guestId: guest._id,
+      bookingId: guest.bookingId,
+      roomId: room?._id,
+      roomName: room?.name,
+      checkInId: checkIn?._id,
+      note,
+      raisedAt: Date.now(),
+      raisedBy: actor.email,
+      raisedByRole: actor.role,
+    });
+
+    await writeAuditLog(ctx, {
+      actorUserId: actor._id,
+      actorEmail: actor.email,
+      action: "agc_checkin.review_flagged",
+      entityType: "agcCheckinFlags",
+      entityId: flagId,
+      summary: `Flagged ${guestLabel(guest)} for review by ${actor.email} — ${note}`,
+      metadata: {
+        guestId: guest._id,
+        roomId: room?._id,
+        checkInId: checkIn?._id,
+        note,
+      },
+    });
+
+    return { flagId };
+  },
+});
+
+/**
+ * Clear a review flag with the outcome of the review — Accommodation Admin
+ * only. The flag row is kept with both notes, so what the desk raised and what
+ * the reviewer decided stay in the record.
+ */
+export const resolveCheckinFlag = mutation({
+  args: {
+    sessionToken: v.string(),
+    flagId: v.id("agcCheckinFlags"),
+    resolutionNote: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireRole(ctx, args.sessionToken, [...APPROVER_ROLES]);
+    const note = args.resolutionNote.trim();
+    if (!note) throw new ConvexError("A note is required to clear a review flag");
+
+    const flag = await ctx.db.get(args.flagId);
+    if (!flag) throw new ConvexError("Review flag not found");
+    if (flag.resolvedAt !== undefined) {
+      throw new ConvexError("This review flag is already closed");
+    }
+
+    await ctx.db.patch(flag._id, {
+      resolvedAt: Date.now(),
+      resolvedBy: actor.email,
+      resolutionNote: note,
+    });
+
+    const guest = await ctx.db.get(flag.guestId);
+    await writeAuditLog(ctx, {
+      actorUserId: actor._id,
+      actorEmail: actor.email,
+      action: "agc_checkin.review_cleared",
+      entityType: "agcCheckinFlags",
+      entityId: flag._id,
+      summary: `Cleared the review flag on ${guest ? guestLabel(guest) : "delegate"} by ${actor.email} — ${note}`,
+      metadata: { guestId: flag.guestId, raisedBy: flag.raisedBy, note },
+    });
+
+    return { success: true as const };
+  },
+});
+
+// ------------------------------------------------------------------
 // Key management (§15)
 // ------------------------------------------------------------------
 
@@ -745,12 +980,18 @@ export type ArrivalDeskRow = {
   paymentStatus: string;
   poaStatus: string | null;
   assignmentStatus: "assigned" | "unassigned";
+  roomId: string | null;
   roomName: string | null;
   building: string | null;
   checkInStatus: "checked_in" | "not_arrived";
   checkInId: string | null;
   checkedInAt: number | null;
   pendingKeyRoom: boolean;
+  bedNumber: number | null;
+  keyStatus: ArrivalKeyState | null;
+  needsKey: boolean;
+  /** Open review flag raised by the desk; null when the record is unflagged. */
+  reviewFlag: CheckinReviewFlag | null;
 };
 
 /** Everything the arrival desk needs in one query: your location's delegates. */
@@ -771,6 +1012,7 @@ export const listArrivalDesk = query({
     for (const a of assignments) {
       if (a.endedAt === undefined) openByGuest.set(a.guestId, a);
     }
+    const bedByGuest = bedNumbersByGuest(assignments);
     const checkIns = await ctx.db.query("agcCheckIns").collect();
     const checkInByGuest = new Map<string, Doc<"agcCheckIns">>();
     for (const c of checkIns) {
@@ -785,6 +1027,9 @@ export const listArrivalDesk = query({
     const bookingById = new Map(bookings.map((b) => [b._id, b]));
     const hubNameById = new Map(
       (await ctx.db.query("agcHubs").collect()).map((h) => [h._id, h.name]),
+    );
+    const flagByGuest = openReviewFlagsByGuest(
+      await ctx.db.query("agcCheckinFlags").collect(),
     );
 
     const rows: (ArrivalDeskRow & { _t: string })[] = [];
@@ -814,6 +1059,7 @@ export const listArrivalDesk = query({
         paymentStatus: booking.paymentStatus,
         poaStatus: booking.poa?.status ?? null,
         assignmentStatus: room ? "assigned" : "unassigned",
+        roomId: room?._id ?? null,
         roomName: room?.name ?? null,
         building: room?.building ?? null,
         checkInStatus: checkIn ? "checked_in" : "not_arrived",
@@ -822,6 +1068,10 @@ export const listArrivalDesk = query({
         // Key flow needed before/with check-in: lodges without a key record,
         // or any EBPV first-arrival in an apartment without a key (§14).
         pendingKeyRoom: needsKey && !keyOpen,
+        bedNumber: bedByGuest.get(guest._id) ?? null,
+        keyStatus: keyStateForRoom(room, key),
+        needsKey,
+        reviewFlag: flagByGuest.get(guest._id) ?? null,
         _t: `${guest.lastName} ${guest.firstName}`.toLowerCase(),
       });
     }
@@ -847,6 +1097,8 @@ export type ArrivalOverview = {
   unresolvedExceptions: number;
   paymentOverrides: number;
   offlineConflicts: number;
+  /** Desk-raised records still waiting on an Accommodation Admin review. */
+  reviewFlags: number;
   perLocation: {
     accommodationType: string;
     typeLabel: string;
@@ -945,6 +1197,10 @@ export const getArrivalOverview = query({
         .collect()
     ).length;
 
+    const reviewFlags = (await ctx.db.query("agcCheckinFlags").collect()).filter(
+      (flag) => flag.resolvedAt === undefined,
+    ).length;
+
     return {
       totalRoomable: roomableGuests.length,
       assigned,
@@ -958,6 +1214,7 @@ export const getArrivalOverview = query({
       unresolvedExceptions: unassigned + offlineConflicts,
       paymentOverrides: overrides,
       offlineConflicts,
+      reviewFlags,
       perLocation: [...perType.values()].sort((a, b) =>
         a.typeLabel.localeCompare(b.typeLabel),
       ),

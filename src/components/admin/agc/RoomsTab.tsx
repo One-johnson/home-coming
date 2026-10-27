@@ -19,6 +19,7 @@ import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import { useAdminSession } from "@/components/admin/AdminSessionProvider";
+import { BulkAssignPanel } from "@/components/admin/agc/BulkAssignPanel";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -186,12 +187,6 @@ export function RoomsTab() {
   /** Accordion: one group open at a time. undefined = pick the first match. */
   const [openGroup, setOpenGroup] = useState<string | null | undefined>(undefined);
 
-  // Unassigned-queue filters (§5)
-  const [guestFilter, setGuestFilter] = useState("");
-  const [guestHub, setGuestHub] = useState("all");
-  const [guestGender, setGuestGender] = useState("all");
-  const [guestType, setGuestType] = useState("all");
-
   // Import dialog
   const [importOpen, setImportOpen] = useState(false);
   const [importRows, setImportRows] = useState<ImportRow[] | null>(null);
@@ -262,22 +257,6 @@ export function RoomsTab() {
     () => [...new Set(list.map((room) => room.building).filter(Boolean) as string[])],
     [list],
   );
-  const hubs = useMemo(
-    () => [...new Set(guests.map((g) => g.hubName))],
-    [guests],
-  );
-
-  const filteredGuests = useMemo(() => {
-    const term = guestFilter.trim().toLowerCase();
-    return guests.filter((g) => {
-      if (guestHub !== "all" && g.hubName !== guestHub) return false;
-      if (guestGender !== "all" && g.gender !== guestGender) return false;
-      if (guestType !== "all" && g.accommodationType !== guestType) return false;
-      if (term && !`${g.name}`.toLowerCase().includes(term)) return false;
-      return true;
-    });
-  }, [guests, guestFilter, guestHub, guestGender, guestType]);
-
   const openRoomForm = (room: RoomRow | null) => {
     setEditingRoom(room);
     setRoomForm(
@@ -710,61 +689,8 @@ export function RoomsTab() {
         </p>
       )}
 
-      {/* Unassigned delegates (§5A) */}
-      <div className="rounded-xl border p-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <p className="text-sm font-medium">Unassigned delegates ({filteredGuests.length})</p>
-          <Input
-            placeholder="Name…"
-            className="h-8 w-40"
-            value={guestFilter}
-            onChange={(e) => setGuestFilter(e.target.value)}
-          />
-          <Select value={guestHub} onValueChange={(value) => setGuestHub(value ?? "all")}>
-            <SelectTrigger className="h-8 w-36"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All hubs</SelectItem>
-              {hubs.map((hub) => (
-                <SelectItem key={hub} value={hub}>{hub}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={guestGender} onValueChange={(value) => setGuestGender(value ?? "all")}>
-            <SelectTrigger className="h-8 w-28"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Any gender</SelectItem>
-              <SelectItem value="male">Male</SelectItem>
-              <SelectItem value="female">Female</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={guestType} onValueChange={(value) => setGuestType(value ?? "all")}>
-            <SelectTrigger className="h-8 w-44"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All types</SelectItem>
-              {TYPES.map((type) => (
-                <SelectItem key={type} value={type}>{TYPE_LABEL(type)}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        {filteredGuests.length > 0 && (
-          <ul className="mt-2 grid gap-1 sm:grid-cols-2 xl:grid-cols-3">
-            {filteredGuests.slice(0, 60).map((guest) => (
-              <li key={guest._id} className="flex items-center justify-between gap-2 rounded-lg border px-2 py-1 text-xs">
-                <span className="min-w-0">
-                  <span className="block truncate font-medium">{guest.name}</span>
-                  <span className="text-muted-foreground">
-                    {guest.hubName} · {guest.gender} · {TYPE_LABEL(guest.accommodationType)}
-                  </span>
-                </span>
-                <Badge variant="outline" className="shrink-0 text-[10px]">
-                  {guest.bookingRef || "—"}
-                </Badge>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+      {/* Bulk assignment (§5A/§6) — tick delegates, pick a room, assign. */}
+      <BulkAssignPanel guests={guests} rooms={list} />
 
       {list.length > 0 && roomGroups.length === 0 && (
         <p className="rounded-xl border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
