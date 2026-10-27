@@ -1321,3 +1321,391 @@ test("the review queue lists every open flag for the admin, newest first", async
   });
   expect(after.map((row) => row.guestId)).toEqual([firstGuest]);
 });
+test("the reviewer beds a delegate and pre-authorizes the override from the queue", async () => {
+  const t = createTestConvex();
+  const desk = await seedStaff(t, "checkin");
+  const admin = await seedStaff(t, "accommodation");
+
+  // 1. A bed from the queue — a confirmed delegate who has no room yet.
+  const booking = await seedConfirmedBooking(t, {
+    accommodationType: "hostel",
+    gender: "male",
+    count: 1,
+  });
+  const guestId = booking.guestIds[0] as Id<"agcGuests">;
+  const maleRoom = await seedRoom(t, {
+    accommodationType: "hostel",
+    name: "Block 4 Room 12",
+    building: "Block 4",
+    capacity: 2,
+  });
+  // A room locked to women must not be offered to this male delegate.
+  await seedRoom(t, {
+    accommodationType: "hostel",
+    name: "Block 4 Room 13",
+    building: "Block 4",
+    capacity: 2,
+    gender: "female",
+  });
+  const bedFlag = await t.mutation(api.agcCheckin.flagCheckInRecord, {
+    sessionToken: desk.token,
+    guestId,
+    note: "Arrived without a bed",
+  });
+
+  let queue = await t.query(api.agcCheckin.listReviewFlags, {
+    sessionToken: admin.token,
+  });
+  expect(queue).toHaveLength(1);
+  expect(queue[0].assignmentStatus).toBe("unassigned");
+  expect(queue[0].roomable).toBe(true);
+  expect(queue[0].bookingLive).toBe(true);
+  expect(queue[0].paymentOverride).toBeNull();
+
+  // The rooms the reviewer may pick from: same type, a free bed, and no gender
+  // lock against the delegate (the server still owns the shared-room rule).
+  const roomRows = await t.query(api.agcRoomAssignments.listRoomsAdmin, {
+    sessionToken: admin.token,
+  });
+  const pickable = roomRows.filter(
+    (room) =>
+      room.accommodationType === "hostel" &&
+      room.capacity - room.occupants > 0 &&
+      (!room.gender || room.gender === "male"),
+  );
+  expect(pickable.map((room) => room.name)).toEqual(["Block 4 Room 12"]);
+
+  await t.mutation(api.agcRoomAssignments.assignGuests, {
+    sessionToken: admin.token,
+    roomId: maleRoom as Id<"agcRooms">,
+    guestIds: [guestId],
+  });
+  queue = await t.query(api.agcCheckin.listReviewFlags, {
+    sessionToken: admin.token,
+  });
+  expect(queue[0].assignmentStatus).toBe("assigned");
+  expect(queue[0].roomName).toBe("Block 4 Room 12");
+  expect(queue[0].building).toBe("Block 4");
+  // Bedding the delegate is not the review decision — the flag stays open.
+  expect(queue[0].note).toBe("Arrived without a bed");
+  expect(queue[0].paymentOverride).toBeNull();
+
+  // An override is for unconfirmed payments only.
+  await expect(() =>
+    t.mutation(api.agcCheckin.authorizeCheckinOverride, {
+      sessionToken: admin.token,
+      flagId: bedFlag.flagId,
+      reason: "Not needed here",
+    }),
+  ).rejects.toThrow(/payment is in order/);
+
+  // 2. The override — a delegate whose receipt the desk could not verify.
+  const unpaid = await seedConfirmedBooking(t, {
+    accommodationType: "dormitory",
+    gender: "male",
+    count: 1,
+  });
+  const unpaidGuest = unpaid.guestIds[0] as Id<"agcGuests">;
+  const dorm = await seedRoom(t, {
+    accommodationType: "dormitory",
+    name: "Dorm A",
+    capacity: 4,
+  });
+  await t.run(async (ctx) => {
+    await ctx.db.patch(unpaid.bookingId, {
+      paymentStatus: "pending_verification",
+      bookingStatus: "pending_verification",
+    });
+    await ctx.db.insert("agcRoomAssignments", {
+      roomId: dorm as Id<"agcRooms">,
+      guestId: unpaidGuest,
+      bookingId: unpaid.bookingId,
+      assignedBy: "seed",
+      createdAt: Date.now(),
+    });
+  });
+  const flag = await t.mutation(api.agcCheckin.flagCheckInRecord, {
+    sessionToken: desk.token,
+    guestId: unpaidGuest,
+    note: "Receipt not verified",
+  });
+
+  // The desk cannot check the delegate in on unconfirmed payment (§18).
+  await expect(() =>
+    t.mutation(api.agcCheckin.checkInGuest, {
+      sessionToken: desk.token,
+      guestId: unpaidGuest,
+      location: "central",
+    }),
+  ).rejects.toThrow(/Payment not confirmed/);
+
+  // Authorizing it is an Accommodation Admin decision, and the reason is the
+  // record of why the debt was let through.
+  await expect(() =>
+    t.mutation(api.agcCheckin.authorizeCheckinOverride, {
+      sessionToken: desk.token,
+      flagId: flag.flagId,
+      reason: "Receipt verified",
+    }),
+  ).rejects.toThrow(/Unauthorized/);
+  await expect(() =>
+    t.mutation(api.agcCheckin.authorizeCheckinOverride, {
+      sessionToken: admin.token,
+      flagId: flag.flagId,
+      reason: "   ",
+    }),
+  ).rejects.toThrow(/reason is required/);
+
+  await t.mutation(api.agcCheckin.authorizeCheckinOverride, {
+    sessionToken: admin.token,
+    flagId: flag.flagId,
+    reason: "Receipt verified against the transfer",
+  });
+  await expect(() =>
+    t.mutation(api.agcCheckin.authorizeCheckinOverride, {
+      sessionToken: admin.token,
+      flagId: flag.flagId,
+      reason: "Again",
+    }),
+  ).rejects.toThrow(/already authorized/);
+
+  const withOverride = await t.query(api.agcCheckin.listReviewFlags, {
+    sessionToken: admin.token,
+  });
+  const unpaidRow = withOverride.find((row) => row.guestId === unpaidGuest);
+  expect(unpaidRow?.roomable).toBe(false);
+  expect(unpaidRow?.bookingLive).toBe(true);
+  expect(unpaidRow?.paymentOverride?.authorizedBy).toBe("accommodation@example.com");
+  expect(unpaidRow?.paymentOverride?.reason).toBe(
+    "Receipt verified against the transfer",
+  );
+
+  // The desk's own row carries it, so the counter knows the override is in
+  // place and does not need an approver to type one in.
+  const searched = await t.query(api.agcCheckin.searchDelegates, {
+    sessionToken: desk.token,
+    search: "Guest0",
+  });
+  expect(
+    searched.find((row) => row.guestId === unpaidGuest)?.reviewFlag
+      ?.overrideAuthorizedBy,
+  ).toBe("accommodation@example.com");
+
+  // The desk finishes the arrival; the check-in records the authorizer.
+  const checkIn = await t.mutation(api.agcCheckin.checkInGuest, {
+    sessionToken: desk.token,
+    guestId: unpaidGuest,
+    location: "central",
+  });
+  const stored = await t.run(async (ctx) => await ctx.db.get(checkIn.checkInId));
+  expect(stored?.paymentOverride?.authorizedBy).toBe("accommodation@example.com");
+  expect(stored?.paymentOverride?.reason).toBe(
+    "Receipt verified against the transfer",
+  );
+  expect(stored?.checkedInBy).toBe("checkin@example.com");
+
+  const overview = await t.query(api.agcCheckin.getArrivalOverview, {
+    sessionToken: admin.token,
+  });
+  expect(overview.paymentOverrides).toBe(1);
+  const audit = await t.run(async (ctx) =>
+    (await ctx.db.query("auditLogs").collect()).filter(
+      (log) => log.action === "agc_checkin.override_approved",
+    ),
+  );
+  expect(audit[0].summary).toContain(
+    "pre-authorized by accommodation@example.com",
+  );
+});
+
+test("a super admin corrects a delegate's name and gender, but never into an invalid room", async () => {
+  const t = createTestConvex();
+  const admin = await seedStaff(t, "admin");
+  const accommodation = await seedStaff(t, "accommodation");
+  const booking = await seedConfirmedBooking(t, {
+    accommodationType: "hostel",
+    gender: "male",
+    count: 2,
+  });
+  const [firstGuest, secondGuest] = booking.guestIds as Id<"agcGuests">[];
+  const room = await seedRoom(t, {
+    accommodationType: "hostel",
+    name: "Block 4 Room 12",
+    capacity: 2,
+  });
+  await t.run(async (ctx) => {
+    for (const guestId of [firstGuest, secondGuest]) {
+      await ctx.db.insert("agcRoomAssignments", {
+        roomId: room as Id<"agcRooms">,
+        guestId,
+        bookingId: booking.bookingId,
+        assignedBy: "seed",
+        createdAt: Date.now(),
+      });
+    }
+  });
+
+  // Correcting a confirmed reservation is a super admin power, and the reason
+  // and the names are both required.
+  await expect(() =>
+    t.mutation(api.agcAdminData.correctBookingGuest, {
+      sessionToken: accommodation.token,
+      guestId: firstGuest,
+      firstName: "Kofi",
+      lastName: "Boateng",
+      gender: "male",
+      reason: "Substituted on arrival",
+    }),
+  ).rejects.toThrow(/Unauthorized/);
+  await expect(() =>
+    t.mutation(api.agcAdminData.correctBookingGuest, {
+      sessionToken: admin.token,
+      guestId: firstGuest,
+      firstName: "Kofi",
+      lastName: "Boateng",
+      gender: "male",
+      reason: "   ",
+    }),
+  ).rejects.toThrow(/reason is required/);
+  await expect(() =>
+    t.mutation(api.agcAdminData.correctBookingGuest, {
+      sessionToken: admin.token,
+      guestId: firstGuest,
+      firstName: "   ",
+      lastName: "Boateng",
+      gender: "male",
+      reason: "Typo",
+    }),
+  ).rejects.toThrow(/name/);
+  await expect(() =>
+    t.mutation(api.agcAdminData.correctBookingGuest, {
+      sessionToken: admin.token,
+      guestId: firstGuest,
+      firstName: "Guest0",
+      lastName: "Mensah",
+      gender: "male",
+      reason: "No change",
+    }),
+  ).rejects.toThrow(/already on the booking/);
+
+  // A name-only correction goes through: the type never changes (§43), the
+  // title survives, and the previous details are kept.
+  await t.mutation(api.agcAdminData.correctBookingGuest, {
+    sessionToken: admin.token,
+    guestId: firstGuest,
+    firstName: "Kofi",
+    lastName: "Boateng",
+    gender: "male",
+    reason: "Original delegate could not travel",
+  });
+  let stored = await t.run(async (ctx) => await ctx.db.get(firstGuest));
+  expect(stored?.firstName).toBe("Kofi");
+  expect(stored?.lastName).toBe("Boateng");
+  expect(stored?.title).toBe("Member");
+  expect(stored?.accommodationType).toBe("hostel");
+  expect(stored?.status).toBe("active");
+  let history = await t.run(async (ctx) =>
+    await ctx.db
+      .query("agcSubstitutions")
+      .withIndex("by_guest", (q) => q.eq("guestId", firstGuest))
+      .collect(),
+  );
+  expect(history).toHaveLength(1);
+  expect(history[0]).toMatchObject({
+    previousFirstName: "Guest0",
+    previousLastName: "Mensah",
+    newFirstName: "Kofi",
+    newLastName: "Boateng",
+    overrideByAdmin: true,
+    actorAdminEmail: "admin@example.com",
+    reason: "Original delegate could not travel",
+  });
+
+  // The room is single-gender, so the delegate cannot become female while a
+  // male delegate shares it (Phase 2 §4).
+  await expect(() =>
+    t.mutation(api.agcAdminData.correctBookingGuest, {
+      sessionToken: admin.token,
+      guestId: firstGuest,
+      firstName: "Kofi",
+      lastName: "Boateng",
+      gender: "female",
+      reason: "Gender recorded in error",
+    }),
+  ).rejects.toThrow(/single-gender/);
+
+  // With the other bed vacated the correction is allowed, and the gender the
+  // rooming list reads is the corrected one.
+  await t.run(async (ctx) => {
+    const rows = await ctx.db
+      .query("agcRoomAssignments")
+      .withIndex("by_guest", (q) => q.eq("guestId", secondGuest))
+      .collect();
+    for (const row of rows) {
+      await ctx.db.patch(row._id, {
+        endedAt: Date.now(),
+        endBy: "seed",
+        endReason: "Moved for the test",
+      });
+    }
+  });
+  await t.mutation(api.agcAdminData.correctBookingGuest, {
+    sessionToken: admin.token,
+    guestId: firstGuest,
+    firstName: "Kofi",
+    lastName: "Boateng",
+    gender: "female",
+    reason: "Gender recorded in error",
+  });
+  stored = await t.run(async (ctx) => await ctx.db.get(firstGuest));
+  expect(stored?.gender).toBe("female");
+  history = await t.run(async (ctx) =>
+    await ctx.db
+      .query("agcSubstitutions")
+      .withIndex("by_guest", (q) => q.eq("guestId", firstGuest))
+      .collect(),
+  );
+  expect(history).toHaveLength(2);
+  expect(
+    history.some(
+      (row) => row.previousGender === "male" && row.newGender === "female",
+    ),
+  ).toBe(true);
+
+  // A room locked to one gender is the other half of the rule.
+  const locked = await seedRoom(t, {
+    accommodationType: "hostel",
+    name: "Block 5 Room 2",
+    capacity: 2,
+    gender: "male",
+  });
+  await t.run(async (ctx) => {
+    await ctx.db.insert("agcRoomAssignments", {
+      roomId: locked as Id<"agcRooms">,
+      guestId: secondGuest,
+      bookingId: booking.bookingId,
+      assignedBy: "seed",
+      createdAt: Date.now(),
+    });
+  });
+  await expect(() =>
+    t.mutation(api.agcAdminData.correctBookingGuest, {
+      sessionToken: admin.token,
+      guestId: secondGuest,
+      firstName: "Guest1",
+      lastName: "Mensah",
+      gender: "female",
+      reason: "Gender recorded in error",
+    }),
+  ).rejects.toThrow(/reserved for male guests/);
+
+  // Every correction is in the audit trail.
+  const audit = await t.run(async (ctx) =>
+    (await ctx.db.query("auditLogs").collect()).filter(
+      (log) => log.action === "agc_guest.corrected",
+    ),
+  );
+  expect(audit).toHaveLength(2);
+  expect(audit[0].actorEmail).toBe("admin@example.com");
+  expect(audit[0].summary).toContain("Kofi Boateng");
+});

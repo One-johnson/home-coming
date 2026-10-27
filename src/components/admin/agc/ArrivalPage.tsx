@@ -129,6 +129,9 @@ type ReviewFlag = {
   note: string;
   raisedAt: number;
   raisedBy: string;
+  /** §18 override the reviewer pre-authorized from the queue, if any. */
+  overrideAuthorizedBy: string | null;
+  overrideReason: string | null;
 };
 
 const KEY_LABEL: Record<"issued" | "returned" | "pending", string> = {
@@ -543,6 +546,19 @@ export function ArrivalPage() {
       setGroupBusy(false);
     }
   };
+
+  /**
+   * The payment gate the desk shows is the same one the server enforces, so a
+   * delegate whose override the Accommodation Admin pre-authorized from the
+   * review queue checks in without an approver typing a reason at the counter.
+   */
+  const paymentOutstanding = checkinTarget
+    ? checkinTarget.paymentStatus !== "confirmed" &&
+      checkinTarget.poaStatus !== "confirmed"
+    : false;
+  const preAuthorizedOverride = checkinTarget?.reviewFlag?.overrideAuthorizedBy
+    ? checkinTarget.reviewFlag
+    : null;
 
   return (
     <div className="space-y-4">
@@ -1043,27 +1059,46 @@ export function ArrivalPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
-            {checkinTarget &&
-              checkinTarget.paymentStatus !== "confirmed" &&
-              checkinTarget.poaStatus !== "confirmed" && (
-                <div
-                  className={cn(
-                    "space-y-1.5 rounded-lg border border-l-4 p-3",
-                    TONE_SURFACE.blocked,
-                    TONE_RAIL.blocked,
-                  )}
-                >
-                  <Label className={TONE_TEXT.blocked}>
-                    Payment override (Accommodation Admin)
-                  </Label>
-                  <Textarea
-                    rows={2}
-                    placeholder="Reason for checking in without confirmed payment…"
-                    value={overrideReason}
-                    onChange={(e) => setOverrideReason(e.target.value)}
-                  />
-                </div>
-              )}
+            {paymentOutstanding && preAuthorizedOverride && (
+              <div
+                className={cn(
+                  "space-y-1 rounded-lg border border-l-4 p-3 text-xs",
+                  TONE_SURFACE.done,
+                  TONE_RAIL.done,
+                )}
+              >
+                <p className={cn("font-medium", TONE_TEXT.done)}>
+                  Payment override pre-authorized
+                </p>
+                <p className="text-foreground/80">
+                  {preAuthorizedOverride.overrideReason}
+                </p>
+                <p className="text-muted-foreground">
+                  Authorized by {preAuthorizedOverride.overrideAuthorizedBy} — check
+                  the delegate in on these terms and the override is recorded against
+                  the arrival.
+                </p>
+              </div>
+            )}
+            {paymentOutstanding && !preAuthorizedOverride && (
+              <div
+                className={cn(
+                  "space-y-1.5 rounded-lg border border-l-4 p-3",
+                  TONE_SURFACE.blocked,
+                  TONE_RAIL.blocked,
+                )}
+              >
+                <Label className={TONE_TEXT.blocked}>
+                  Payment override (Accommodation Admin)
+                </Label>
+                <Textarea
+                  rows={2}
+                  placeholder="Reason for checking in without confirmed payment…"
+                  value={overrideReason}
+                  onChange={(e) => setOverrideReason(e.target.value)}
+                />
+              </div>
+            )}
             {checkinTarget?.pendingKeyRoom && (
               <div className="space-y-1.5">
                 <Label>Key recipient (first arrival in this room/apartment)</Label>
@@ -1079,15 +1114,8 @@ export function ArrivalPage() {
                 disabled={
                   busyGuest === checkinTarget?.guestId ||
                   checkinTarget?.assignmentStatus !== "assigned" ||
-                  (checkinTarget != null &&
-                    checkinTarget.paymentStatus !== "confirmed" &&
-                    checkinTarget.poaStatus !== "confirmed" &&
-                    !overrideReason.trim() &&
-                    !isApprover) ||
-                  (checkinTarget != null &&
-                    checkinTarget.paymentStatus !== "confirmed" &&
-                    checkinTarget.poaStatus !== "confirmed" &&
-                    isApprover &&
+                  (paymentOutstanding &&
+                    !preAuthorizedOverride &&
                     !overrideReason.trim())
                 }
               >
@@ -1099,14 +1127,12 @@ export function ArrivalPage() {
                 Confirm check-in
               </Button>
             </div>
-            {checkinTarget &&
-              checkinTarget.paymentStatus !== "confirmed" &&
-              checkinTarget.poaStatus !== "confirmed" &&
-              !isApprover && (
-                <p className="text-xs text-muted-foreground">
-                  Ordinary check-in staff cannot authorize overrides (§18).
-                </p>
-              )}
+            {paymentOutstanding && !preAuthorizedOverride && !isApprover && (
+              <p className="text-xs text-muted-foreground">
+                Ordinary check-in staff cannot authorize overrides (§18). Ask the
+                Accommodation Admin to authorize one from the review queue.
+              </p>
+            )}
           </div>
         </DialogContent>
       </Dialog>

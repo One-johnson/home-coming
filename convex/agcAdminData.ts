@@ -26,9 +26,10 @@ import {
   AGC_INVENTORY_SEED,
   AGC_SETTING_KEYS,
 } from "./lib/agcConfig";
-import { agcRegion, type AgcAccommodationType } from "./schemaTypes";
+import { agcGender, agcRegion, type AgcAccommodationType } from "./schemaTypes";
 import { getSmtpSettings, isSmtpConfigured } from "./lib/smtpConfig";
 import {
+  applySubstitution,
   confirmBookingInventory,
   holdDeadline,
   holdsReservedUnits,
@@ -1994,6 +1995,142 @@ function reviewEmailBody(args: {
   lines.push("", "— Attempt Great Things Conference 2026 Registration Desk");
   return lines.join("\n");
 }
+
+/**
+ * Why a delegate cannot hold `gender` in the room they currently sit in, or
+ * null when nothing stands in the way. Rooming enforces one gender per
+ * dormitory/hostel room and any room-level lock when the bed is allocated, so
+ * a later gender correction has to respect the same rules — otherwise a bed
+ * would silently become a mixed one the rooming list no longer justifies.
+ */
+async function roomGenderConflict(
+  ctx: MutationCtx,
+  guest: Doc<"agcGuests">,
+  gender: "male" | "female",
+): Promise<string | null> {
+  const rows = await ctx.db
+    .query("agcRoomAssignments")
+    .withIndex("by_guest", (q) => q.eq("guestId", guest._id))
+    .collect();
+  const open = rows.find((row) => row.endedAt === undefined);
+  if (!open) return null;
+  const room = await ctx.db.get(open.roomId);
+  if (!room || room.deletedAt) return null;
+
+  if (room.gender && room.gender !== gender) {
+    return `${room.name} is reserved for ${room.gender} guests — move the delegate out of it first`;
+  }
+  if (
+    room.accommodationType !== "dormitory" &&
+    room.accommodationType !== "hostel"
+  ) {
+    return null;
+  }
+
+  const residents = await ctx.db
+    .query("agcRoomAssignments")
+    .withIndex("by_room", (q) => q.eq("roomId", room._id))
+    .collect();
+  for (const resident of residents) {
+    if (resident.endedAt !== undefined) continue;
+    if (resident.guestId === guest._id) continue;
+    const other = await ctx.db.get(resident.guestId);
+    if (other && other.gender !== gender) {
+      return `${room.name} holds ${other.gender} delegates and must stay single-gender — move the delegate out of it first`;
+    }
+  }
+  return null;
+}
+
+/**
+ * Correct a delegate's name and/or gender on a live booking — super admin only
+ * (SRS §42–44).
+ *
+ * Reps can only substitute while a booking is still theirs to change, so once a
+ * reservation is confirmed a name that changed hands or a gender recorded in
+ * error can only be put right here. The accommodation type never changes (§43),
+ * the values that were on file are kept in the substitution history, and a
+ * gender change is refused while the delegate sits in a room it would make
+ * invalid — the rooming rules hold at allocation time and are not rewritten
+ * afterwards.
+ */
+export const correctBookingGuest = mutation({
+  args: {
+    sessionToken: sessionTokenValidator,
+    guestId: v.id("agcGuests"),
+    firstName: v.string(),
+    lastName: v.string(),
+    title: v.optional(v.string()),
+    gender: agcGender,
+    reason: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireAdmin(ctx, args.sessionToken);
+    const reason = args.reason.trim();
+    if (!reason) {
+      throw new ConvexError("A reason is required to correct a delegate's details");
+    }
+    const firstName = args.firstName.trim();
+    const lastName = args.lastName.trim();
+    if (!firstName || !lastName) {
+      throw new ConvexError("First and last name are both required");
+    }
+
+    const guest = await ctx.db.get(args.guestId);
+    if (!guest) throw new ConvexError("Delegate not found");
+    if (guest.status !== "active") {
+      throw new ConvexError("This delegate is no longer active on the booking");
+    }
+    if (
+      firstName === guest.firstName &&
+      lastName === guest.lastName &&
+      args.gender === guest.gender
+    ) {
+      throw new ConvexError("These details are already on the booking");
+    }
+
+    if (args.gender !== guest.gender) {
+      const conflict = await roomGenderConflict(ctx, guest, args.gender);
+      if (conflict) throw new ConvexError(conflict);
+    }
+
+    // The substitution history records the change either way (§43), with the
+    // admin override that lets the gender move.
+    const result = await applySubstitution(ctx, {
+      guest,
+      next: {
+        firstName,
+        lastName,
+        title: args.title?.trim() || guest.title,
+        gender: args.gender,
+        phone: guest.phone,
+        email: guest.email,
+      },
+      allowOverride: true,
+      actorAdminEmail: actor.email,
+      reason,
+    });
+    if (!result.ok) throw new ConvexError(result.reason);
+
+    await writeAuditLog(ctx, {
+      actorUserId: actor._id,
+      actorEmail: actor.email,
+      action: "agc_guest.corrected",
+      entityType: "agcGuests",
+      entityId: guest._id,
+      summary: `Corrected ${guest.firstName} ${guest.lastName} (${guest.gender}) to ${firstName} ${lastName} (${args.gender}) by ${actor.email} — reason: ${reason}`,
+      metadata: {
+        bookingId: guest.bookingId,
+        previousFirstName: guest.firstName,
+        previousLastName: guest.lastName,
+        previousGender: guest.gender,
+        reason,
+      },
+    });
+
+    return { success: true as const };
+  },
+});
 
 // Finance holds a read-only financial view (SRS §58): approvals stay with the
 // super admin. listAgcRegistrationsAdmin remains finance-readable.

@@ -672,6 +672,12 @@ export default defineSchema({
     raisedAt: v.number(),
     raisedBy: v.string(),
     raisedByRole: v.optional(v.string()),
+    /**
+     * §18 payment override pre-authorized by the reviewer from the queue. The
+     * desk then checks the delegate in on those terms, and the authorization
+     * is what the check-in records as the override.
+     */
+    override: v.optional(agcPaymentOverride),
     resolvedAt: v.optional(v.number()),
     resolvedBy: v.optional(v.string()),
     resolutionNote: v.optional(v.string()),

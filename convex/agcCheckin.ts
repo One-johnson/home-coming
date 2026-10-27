@@ -68,6 +68,9 @@ export type CheckinReviewFlag = {
   note: string;
   raisedAt: number;
   raisedBy: string;
+  /** §18 override the reviewer pre-authorized from the queue, if any. */
+  overrideAuthorizedBy: string | null;
+  overrideReason: string | null;
 };
 
 function reviewFlagView(flag: Doc<"agcCheckinFlags">): CheckinReviewFlag {
@@ -76,6 +79,8 @@ function reviewFlagView(flag: Doc<"agcCheckinFlags">): CheckinReviewFlag {
     note: flag.note,
     raisedAt: flag.raisedAt,
     raisedBy: flag.raisedBy,
+    overrideAuthorizedBy: flag.override?.authorizedBy ?? null,
+    overrideReason: flag.override?.reason ?? null,
   };
 }
 
@@ -91,6 +96,21 @@ async function openReviewFlag(
   return rows
     .filter((row) => row.resolvedAt === undefined)
     .sort((a, b) => b.raisedAt - a.raisedAt)[0] ?? null;
+}
+
+/**
+ * §18 override the reviewer pre-authorized on an open flag, in the shape the
+ * check-in record stores. Undefined when the flag carries none.
+ */
+function preAuthorizedOverride(
+  flag: Doc<"agcCheckinFlags"> | null,
+): Doc<"agcCheckIns">["paymentOverride"] {
+  if (!flag?.override) return undefined;
+  return {
+    authorizedBy: flag.override.authorizedBy,
+    reason: flag.override.reason,
+    authorizedAt: flag.override.authorizedAt,
+  };
 }
 
 /** Open review flags keyed by guest, for the desk sheet. */
@@ -433,10 +453,13 @@ export async function performCheckIn(
     }
 
     // Booking/payment gate (§18): POA bookings are valid check-ins; other
-    // unconfirmed bookings require an authorized override.
+    // unconfirmed bookings require an authorized override. The override may be
+    // issued here by an approver, or already pre-authorized by the Accommodation
+    // Admin from the review queue — in which case the desk checks the delegate
+    // in on those terms without needing an approver at the counter.
     const booking = await ctx.db.get(guest.bookingId);
     const paymentOk = !!booking && isRoomableBooking(booking);
-    const override = args.override
+    let override = args.override
       ? {
           authorizedBy: actor.email,
           reason: args.override.reason.trim(),
@@ -445,6 +468,10 @@ export async function performCheckIn(
       : undefined;
     if (override && !override.reason) {
       throw new ConvexError("A reason is required for the payment override");
+    }
+    const preAuthorized = preAuthorizedOverride(await openReviewFlag(ctx, guest._id));
+    if (!paymentOk && !override && preAuthorized) {
+      override = preAuthorized;
     }
     if (!paymentOk && !override) {
       throw new ConvexError(
@@ -514,7 +541,11 @@ export async function performCheckIn(
       entityType: "agcCheckIns",
       entityId: checkInId,
       summary: override
-        ? `Checked in ${guestLabel(guest)} with PAYMENT OVERRIDE (${override.reason}) by ${actor.email}`
+        ? `Checked in ${guestLabel(guest)} at ${room.name} with PAYMENT OVERRIDE (${override.reason}) ${
+            args.override
+              ? `authorized by ${actor.email}`
+              : `pre-authorized by ${override.authorizedBy}`
+          }`
         : `Checked in ${guestLabel(guest)} at ${room.name} by ${actor.email}`,
       metadata: {
         guestId: guest._id,
@@ -522,6 +553,7 @@ export async function performCheckIn(
         roomId: room._id,
         location: args.location,
         override: override ?? undefined,
+        preAuthorized: !args.override && override ? true : undefined,
         offlineTxId: args.offlineTxId,
       },
     });
@@ -869,6 +901,86 @@ export const resolveCheckinFlag = mutation({
   },
 });
 
+/**
+ * Pre-authorize the §18 payment override on a flagged record — Accommodation
+ * Admin only. The desk raises the flag when a delegate arrives without a
+ * confirmed payment, and this is the reviewer's answer: it lets the desk check
+ * that delegate in without an approver standing at the counter, because the
+ * check-in honours the authorization. The decision stays on the flag row, so
+ * the review keeps what was authorized and why.
+ */
+export const authorizeCheckinOverride = mutation({
+  args: {
+    sessionToken: v.string(),
+    flagId: v.id("agcCheckinFlags"),
+    reason: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireRole(ctx, args.sessionToken, [...APPROVER_ROLES]);
+    const reason = args.reason.trim();
+    if (!reason) {
+      throw new ConvexError("A reason is required to authorize a payment override");
+    }
+
+    const flag = await ctx.db.get(args.flagId);
+    if (!flag) throw new ConvexError("Review flag not found");
+    if (flag.resolvedAt !== undefined) {
+      throw new ConvexError("This review flag is already closed");
+    }
+    if (flag.override) {
+      throw new ConvexError(
+        `A payment override is already authorized by ${flag.override.authorizedBy}`,
+      );
+    }
+
+    const guest = await ctx.db.get(flag.guestId);
+    if (!guest || guest.status !== "active") {
+      throw new ConvexError("Delegate not found or no longer active");
+    }
+    const booking = await ctx.db.get(guest.bookingId);
+    if (
+      !booking ||
+      booking.deletedAt ||
+      booking.bookingStatus === "expired" ||
+      booking.bookingStatus === "cancelled"
+    ) {
+      throw new ConvexError(
+        "This booking no longer stands — no payment override applies to it",
+      );
+    }
+    if (isRoomableBooking(booking)) {
+      throw new ConvexError(
+        "This booking's payment is in order — no override is needed",
+      );
+    }
+
+    await ctx.db.patch(flag._id, {
+      override: {
+        authorizedBy: actor.email,
+        reason,
+        authorizedAt: Date.now(),
+      },
+    });
+
+    await writeAuditLog(ctx, {
+      actorUserId: actor._id,
+      actorEmail: actor.email,
+      action: "agc_checkin.override_authorized",
+      entityType: "agcCheckinFlags",
+      entityId: flag._id,
+      summary: `Pre-authorized a payment override for ${guestLabel(guest)} by ${actor.email} — ${reason}`,
+      metadata: {
+        guestId: guest._id,
+        bookingId: guest.bookingId,
+        flagId: flag._id,
+        reason,
+      },
+    });
+
+    return { success: true as const };
+  },
+});
+
 export type ReviewFlagRow = {
   _id: string;
   note: string;
@@ -886,6 +998,18 @@ export type ReviewFlagRow = {
   roomName: string | null;
   building: string | null;
   checkInStatus: "checked_in" | "checked_out" | "not_arrived";
+  /** Whether the delegate currently sits in a room (an open assignment). */
+  assignmentStatus: "assigned" | "unassigned";
+  /** Whether the booking allows rooming (confirmed, or on POA terms). */
+  roomable: boolean;
+  /** Whether the booking still stands (not expired, cancelled or trashed). */
+  bookingLive: boolean;
+  /** §18 override the reviewer has already authorized for this record. */
+  paymentOverride: {
+    authorizedBy: string;
+    reason: string;
+    authorizedAt: number;
+  } | null;
 };
 
 /**
@@ -956,6 +1080,14 @@ export const listReviewFlags = query({
         poaStatus: booking?.poa?.status ?? null,
         roomName: room?.name ?? flag.roomName ?? null,
         building: room?.building ?? null,
+        assignmentStatus: assignment ? "assigned" : "unassigned",
+        roomable: !!booking && isRoomableBooking(booking),
+        bookingLive:
+          !!booking &&
+          !booking.deletedAt &&
+          booking.bookingStatus !== "expired" &&
+          booking.bookingStatus !== "cancelled",
+        paymentOverride: flag.override ?? null,
         checkInStatus: checkIn
           ? checkIn.checkedOutAt
             ? "checked_out"

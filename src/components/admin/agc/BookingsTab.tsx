@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { ColumnDef } from "@tanstack/react-table";
-import { Download, Eye, EyeOff, Trash2 } from "lucide-react";
+import { Download, Eye, EyeOff, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
@@ -13,6 +13,10 @@ import {
   ReviewActions,
   type ReviewDecision,
 } from "@/components/admin/agc/AgcAdminClient";
+import {
+  GuestCorrectionDialog,
+  type CorrectableGuest,
+} from "@/components/admin/agc/GuestCorrectionDialog";
 import {
   RowDetailDialog,
   RowDetailItem,
@@ -100,6 +104,9 @@ export function BookingsTab() {
   // Finance sees bookings read-only (financial data only) — approvals and
   // deletions stay with admin/accommodation (enforced server-side too).
   const canManage = user?.role === "admin" || user?.role === "accommodation";
+  // Correcting who a confirmed bed belongs to is a super admin power: the rep
+  // can no longer substitute once the reservation is locked in.
+  const canCorrect = user?.role === "admin";
   const bookings = useQuery(
     api.agcAdminData.listAgcBookingsAdmin,
     sessionToken ? { sessionToken } : "skip",
@@ -109,6 +116,10 @@ export function BookingsTab() {
   const [busyId, setBusyId] = useState<string | null>(null);
   // Row shown in the detail dialog (opened by clicking a table row).
   const [detailRow, setDetailRow] = useState<AdminBookingRow | null>(null);
+  // Delegate being corrected from the detail dialog (super admin only).
+  const [correctTarget, setCorrectTarget] = useState<CorrectableGuest | null>(
+    null,
+  );
   const [deleting, setDeleting] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<BookingDeleteTarget | null>(null);
 
@@ -326,19 +337,42 @@ export function BookingsTab() {
       <RowDetailSection title={`Guests (${row.guests.length})`}>
         <div className="space-y-1 text-xs">
           {row.guests.map((guest) => (
-            <p key={guest._id}>
-              {guest.title} {guest.firstName} {guest.lastName} · {guest.gender} ·{" "}
-              {AGC_ACCOMMODATION_LABELS[
-                guest.accommodationType as keyof typeof AGC_ACCOMMODATION_LABELS
-              ] ?? guest.accommodationType}
-              {guest.isBishopRate ? " · Bishop rate" : ""}
-              {guest.status !== "active" ? ` · ${guest.status}` : ""}
-            </p>
+            <div
+              key={guest._id}
+              className="flex items-start justify-between gap-2"
+            >
+              <p>
+                {guest.title} {guest.firstName} {guest.lastName} · {guest.gender} ·{" "}
+                {AGC_ACCOMMODATION_LABELS[
+                  guest.accommodationType as keyof typeof AGC_ACCOMMODATION_LABELS
+                ] ?? guest.accommodationType}
+                {guest.isBishopRate ? " · Bishop rate" : ""}
+                {guest.status !== "active" ? ` · ${guest.status}` : ""}
+              </p>
+              {canCorrect && guest.status === "active" && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 shrink-0 gap-1 px-1.5 text-[11px]"
+                  onClick={() => setCorrectTarget(guest)}
+                >
+                  <Pencil className="size-3" />
+                  Correct
+                </Button>
+              )}
+            </div>
           ))}
           {row.guests.length === 0 && (
             <p className="text-muted-foreground">No guests recorded.</p>
           )}
         </div>
+        {canCorrect && row.guests.length > 0 && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            Correct fixes a name that changed hands or a gender recorded in error
+            on a live reservation — the previous details stay in the history.
+          </p>
+        )}
         <div className="mt-3">
           <Button
             type="button"
@@ -562,6 +596,13 @@ export function BookingsTab() {
       >
         {detailRow ? bookingDetail(detailRow) : null}
       </RowDetailDialog>
+
+      <GuestCorrectionDialog
+        key={correctTarget?._id ?? "none"}
+        guest={correctTarget}
+        sessionToken={sessionToken}
+        onClose={() => setCorrectTarget(null)}
+      />
 
       <ConfirmDeleteDialog
         open={deleteTarget !== null}
