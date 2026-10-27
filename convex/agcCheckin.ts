@@ -996,6 +996,13 @@ export type ReviewFlagRow = {
   raisedByRole: string | null;
   guestId: string;
   guestName: string;
+  /**
+   * The parts of the name, so a correction form opens pre-filled. Empty when
+   * the delegate is no longer on file — nothing to correct then.
+   */
+  title: string;
+  firstName: string;
+  lastName: string;
   gender: string;
   hubName: string;
   accommodationType: string;
@@ -1079,6 +1086,9 @@ export const listReviewFlags = query({
         raisedByRole: flag.raisedByRole ?? null,
         guestId: flag.guestId,
         guestName: guest ? guestLabel(guest) : "(delegate no longer on file)",
+        title: guest?.title ?? "",
+        firstName: guest?.firstName ?? "",
+        lastName: guest?.lastName ?? "",
         gender: guest?.gender ?? "",
         hubName: guest ? hubNameById.get(guest.hubId) ?? "(unknown)" : "(unknown)",
         accommodationType: guest?.accommodationType ?? "",

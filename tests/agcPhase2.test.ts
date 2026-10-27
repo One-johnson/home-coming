@@ -1785,3 +1785,132 @@ test("the desk row carries the delegate's name parts so a super admin can correc
   expect(audit[0].actorEmail).toBe("admin@example.com");
   expect(audit[0].summary).toContain("reason: Substituted on arrival");
 });
+test("the reviewer corrects a flagged delegate's details from the queue, and the room filter follows", async () => {
+  const t = createTestConvex();
+  const desk = await seedStaff(t, "checkin");
+  const admin = await seedStaff(t, "admin");
+  const accommodation = await seedStaff(t, "accommodation");
+  const booking = await seedConfirmedBooking(t, {
+    accommodationType: "hostel",
+    gender: "male",
+    count: 1,
+  });
+  const guestId = booking.guestIds[0] as Id<"agcGuests">;
+  const flag = await t.mutation(api.agcCheckin.flagCheckInRecord, {
+    sessionToken: desk.token,
+    guestId,
+    note: "Name does not match the ID presented",
+  });
+
+  // The queue row carries the parts of the name, not just the joined label, so
+  // the correction opens pre-filled with what is on file.
+  let queue = await t.query(api.agcCheckin.listReviewFlags, {
+    sessionToken: admin.token,
+  });
+  expect(queue).toHaveLength(1);
+  expect(queue[0]).toMatchObject({
+    title: "Member",
+    firstName: "Guest0",
+    lastName: "Mensah",
+    gender: "male",
+  });
+
+  // The queue belongs to the Accommodation Admin, but correcting the record is
+  // still a super admin decision, just as it is on the desk.
+  await expect(() =>
+    t.mutation(api.agcAdminData.correctBookingGuest, {
+      sessionToken: accommodation.token,
+      guestId,
+      firstName: "Ama",
+      lastName: "Boateng",
+      gender: "female",
+      reason: "Arrived as somebody else",
+    }),
+  ).rejects.toThrow(/Unauthorized/);
+
+  // Corrected from the list, next to the room and override actions: the queue
+  // re-reads with the new details.
+  await t.mutation(api.agcAdminData.correctBookingGuest, {
+    sessionToken: admin.token,
+    guestId,
+    firstName: "Ama",
+    lastName: "Boateng",
+    gender: "female",
+    reason: "Arrived as somebody else",
+  });
+  queue = await t.query(api.agcCheckin.listReviewFlags, {
+    sessionToken: admin.token,
+  });
+  expect(queue[0]).toMatchObject({
+    title: "Member",
+    firstName: "Ama",
+    lastName: "Boateng",
+    gender: "female",
+  });
+  expect(queue[0].guestName).toContain("Ama Boateng");
+  expect(queue[0].guestName).not.toContain("Guest0");
+
+  // The correction is not the review decision: the flag stays open with the
+  // desk's note until the reviewer clears it.
+  expect(queue[0]._id).toBe(flag.flagId);
+  expect(queue[0].note).toBe("Name does not match the ID presented");
+
+  // The room filter the reviewer applies next follows the corrected gender —
+  // the bed offered is a women's one now, not the men's room.
+  await seedRoom(t, {
+    accommodationType: "hostel",
+    name: "Block 4 Room 12",
+    capacity: 2,
+    gender: "male",
+  });
+  await seedRoom(t, {
+    accommodationType: "hostel",
+    name: "Block 4 Room 13",
+    capacity: 2,
+    gender: "female",
+  });
+  const roomRows = await t.query(api.agcRoomAssignments.listRoomsAdmin, {
+    sessionToken: admin.token,
+  });
+  const pickable = roomRows.filter(
+    (room) =>
+      room.accommodationType === "hostel" &&
+      room.capacity - room.occupants > 0 &&
+      (!room.gender || room.gender === queue[0].gender),
+  );
+  expect(pickable.map((room) => room.name)).toEqual(["Block 4 Room 13"]);
+
+  // A flag whose delegate has gone from the file has nothing to correct, so the
+  // queue offers no form rather than an empty one.
+  const other = await seedConfirmedBooking(t, {
+    accommodationType: "dormitory",
+    gender: "female",
+    count: 1,
+  });
+  const gone = other.guestIds[0] as Id<"agcGuests">;
+  await t.mutation(api.agcCheckin.flagCheckInRecord, {
+    sessionToken: desk.token,
+    guestId: gone,
+    note: "ID not checked",
+  });
+  await t.run(async (ctx) => {
+    await ctx.db.delete(gone);
+  });
+  const after = await t.query(api.agcCheckin.listReviewFlags, {
+    sessionToken: admin.token,
+  });
+  const goneRow = after.find((row) => row.guestId === gone);
+  expect(goneRow?.guestName).toBe("(delegate no longer on file)");
+  expect(goneRow?.firstName).toBe("");
+  expect(goneRow?.lastName).toBe("");
+
+  // Both corrections are audited with the admin and the reason.
+  const audit = await t.run(async (ctx) =>
+    (await ctx.db.query("auditLogs").collect()).filter(
+      (log) => log.action === "agc_guest.corrected",
+    ),
+  );
+  expect(audit).toHaveLength(1);
+  expect(audit[0].actorEmail).toBe("admin@example.com");
+  expect(audit[0].summary).toContain("reason: Arrived as somebody else");
+});

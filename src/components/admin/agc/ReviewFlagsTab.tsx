@@ -8,11 +8,16 @@ import {
   Flag,
   HandCoins,
   Loader2Icon,
+  Pencil,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import { useAdminSession } from "@/components/admin/AdminSessionProvider";
+import {
+  GuestCorrectionDialog,
+  type CorrectableGuest,
+} from "@/components/admin/agc/GuestCorrectionDialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -55,11 +60,13 @@ import { TONE_RAIL, TONE_SURFACE } from "@/lib/agcStatusTone";
  * state), so a decision can be made without opening the arrival desk.
  *
  * The reviewer acts from the dialog, not from another screen: a delegate with
- * no bed can be given one out of the rooms that fit them, and a record the desk
+ * no bed can be given one out of the rooms that fit them, a record the desk
  * could not check in for want of a confirmed payment can have that §18 override
  * pre-authorized here — which is what lets the desk finish the arrival without
- * an approver standing at the counter. Clearing the flag asks for the review
- * outcome, and the flag keeps both notes.
+ * an approver standing at the counter — and a name or gender that is simply
+ * wrong on the record can be corrected, since a delegate who arrives as
+ * somebody else is exactly the kind of thing the desk flags. Clearing the flag
+ * asks for the review outcome, and the flag keeps both notes.
  */
 
 type FlagRow = {
@@ -70,6 +77,10 @@ type FlagRow = {
   raisedByRole: string | null;
   guestId: string;
   guestName: string;
+  /** Parts of the name — empty when the delegate is no longer on file. */
+  title: string;
+  firstName: string;
+  lastName: string;
   gender: string;
   hubName: string;
   accommodationType: string;
@@ -129,7 +140,10 @@ function roomLabel(row: FlagRow): string {
 }
 
 export function ReviewFlagsTab() {
-  const { sessionToken } = useAdminSession();
+  const { sessionToken, user } = useAdminSession();
+  // Correcting who a bed belongs to stays a super admin power, the same as on
+  // the desk and the bookings list; the queue explains that to everyone else.
+  const isSuperAdmin = user?.role === "admin";
   const flags = useQuery(
     api.agcCheckin.listReviewFlags,
     sessionToken ? { sessionToken } : "skip",
@@ -180,6 +194,8 @@ export function ReviewFlagsTab() {
           }))
       : [];
 
+  const [guestCorrectTarget, setGuestCorrectTarget] =
+    useState<CorrectableGuest | null>(null);
   const [roomId, setRoomId] = useState<string>("");
   const [roomBusy, setRoomBusy] = useState(false);
   const [overrideReason, setOverrideReason] = useState("");
@@ -540,6 +556,59 @@ export function ReviewFlagsTab() {
               )}
             </div>
 
+            <div
+              className={cn(
+                "space-y-2 rounded-lg border border-l-4 p-3",
+                TONE_SURFACE.neutral,
+                TONE_RAIL.neutral,
+              )}
+            >
+              <p className="flex items-center gap-1.5 text-sm font-medium">
+                <Pencil className="size-4 shrink-0" />
+                Delegate details
+              </p>
+              <p className="text-xs text-foreground/80">
+                {targetRow?.firstName
+                  ? `${targetRow.title} ${targetRow.firstName} ${targetRow.lastName} · ${targetRow.gender}`
+                  : "The delegate is no longer on file."}
+              </p>
+              {!targetRow?.firstName ? null : !targetRow.bookingLive ? (
+                <p className="text-xs text-muted-foreground">
+                  This booking no longer stands, so there is nothing to correct.
+                </p>
+              ) : isSuperAdmin ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!sessionToken}
+                  onClick={() =>
+                    setGuestCorrectTarget({
+                      _id: targetRow.guestId,
+                      title: targetRow.title,
+                      firstName: targetRow.firstName,
+                      lastName: targetRow.lastName,
+                      gender: targetRow.gender,
+                      status: "active",
+                    })
+                  }
+                >
+                  <Pencil className="size-4" /> Correct name / gender
+                </Button>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  A delegate&apos;s name or gender can only be corrected by a super
+                  admin — raise it with them if the record is wrong.
+                </p>
+              )}
+              {isSuperAdmin && targetRow?.firstName && targetRow.bookingLive ? (
+                <p className="text-xs text-muted-foreground">
+                  The correction is saved against the booking with its reason, and the
+                  desk reads the corrected record straight afterwards. The flag stays
+                  open until you clear it here.
+                </p>
+              ) : null}
+            </div>
+
             <div className="space-y-1.5">
               <Label>Review outcome (required)</Label>
               <Textarea
@@ -568,6 +637,16 @@ export function ReviewFlagsTab() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Correcting the record is a second dialog, so the reviewer can fix the
+          name the desk flagged without losing the review they are part-way
+          through. Keyed per delegate, so it opens with the right details. */}
+      <GuestCorrectionDialog
+        key={guestCorrectTarget?._id ?? "none"}
+        guest={guestCorrectTarget}
+        sessionToken={sessionToken}
+        onClose={() => setGuestCorrectTarget(null)}
+      />
     </div>
   );
 }
