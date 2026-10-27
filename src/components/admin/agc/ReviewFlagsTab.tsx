@@ -140,10 +140,11 @@ function roomLabel(row: FlagRow): string {
 }
 
 export function ReviewFlagsTab() {
-  const { sessionToken, user } = useAdminSession();
-  // Correcting who a bed belongs to stays a super admin power, the same as on
-  // the desk and the bookings list; the queue explains that to everyone else.
-  const isSuperAdmin = user?.role === "admin";
+  const { sessionToken } = useAdminSession();
+  // No role branch on the correction below: this tab is the accommodation area
+  // and the server's approver check, so everyone who can open it is admin or
+  // Accommodation Admin — and both hold the power, as on the desk and the
+  // bookings list. Ordinary desk staff raise the flag instead.
   const flags = useQuery(
     api.agcCheckin.listReviewFlags,
     sessionToken ? { sessionToken } : "skip",
@@ -576,7 +577,7 @@ export function ReviewFlagsTab() {
                 <p className="text-xs text-muted-foreground">
                   This booking no longer stands, so there is nothing to correct.
                 </p>
-              ) : isSuperAdmin ? (
+              ) : (
                 <Button
                   size="sm"
                   variant="outline"
@@ -594,13 +595,8 @@ export function ReviewFlagsTab() {
                 >
                   <Pencil className="size-4" /> Correct name / gender
                 </Button>
-              ) : (
-                <p className="text-xs text-muted-foreground">
-                  A delegate&apos;s name or gender can only be corrected by a super
-                  admin — raise it with them if the record is wrong.
-                </p>
               )}
-              {isSuperAdmin && targetRow?.firstName && targetRow.bookingLive ? (
+              {targetRow?.firstName && targetRow.bookingLive ? (
                 <p className="text-xs text-muted-foreground">
                   The correction is saved against the booking with its reason, and the
                   desk reads the corrected record straight afterwards. The flag stays

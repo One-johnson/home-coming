@@ -27,15 +27,17 @@ import { Textarea } from "@/components/ui/textarea";
 import { toastFriendlyErrorParts } from "@/lib/friendlyError";
 
 /**
- * Correct a delegate's name and gender on a booking — super admin only.
+ * Correct a delegate's name and gender on a booking — the accommodation team.
  *
  * A rep can only substitute while the booking is still theirs to change, so a
  * reservation whose delegate was swapped at the desk, or whose gender was
- * recorded in error, can only be put right here. The old values go into the
- * substitution history rather than disappearing, a reason is required, and the
- * accommodation type is never touched (§43). A gender change is refused while
- * the delegate sits in a room it would make invalid, so the rooming rules the
- * bed was allocated under still hold.
+ * recorded in error, can only be put right here. A super admin and an
+ * Accommodation Admin both hold the power; ordinary desk staff do not, and are
+ * told so rather than shown a button that would fail. The old values go into
+ * the substitution history rather than disappearing, a reason is required, and
+ * the accommodation type is never touched (§43). A gender change is refused
+ * while the delegate sits in a room it would make invalid, so the rooming rules
+ * the bed was allocated under still hold.
  */
 
 export type CorrectableGuest = {
@@ -118,7 +120,7 @@ export function GuestCorrectionDialog({
           <DialogTitle>Correct delegate details</DialogTitle>
           <DialogDescription>
             {guest
-              ? `${guest.title} ${guest.firstName} ${guest.lastName} — a super admin correction on a live reservation.`
+              ? `${guest.title} ${guest.firstName} ${guest.lastName} — a correction on a live reservation, recorded with your reason.`
               : ""}
           </DialogDescription>
         </DialogHeader>

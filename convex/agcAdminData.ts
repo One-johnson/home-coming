@@ -2043,16 +2043,19 @@ async function roomGenderConflict(
 }
 
 /**
- * Correct a delegate's name and/or gender on a live booking — super admin only
- * (SRS §42–44).
+ * Correct a delegate's name and/or gender on a live booking — the accommodation
+ * team (SRS §42–44).
  *
  * Reps can only substitute while a booking is still theirs to change, so once a
  * reservation is confirmed a name that changed hands or a gender recorded in
- * error can only be put right here. The accommodation type never changes (§43),
- * the values that were on file are kept in the substitution history, and a
- * gender change is refused while the delegate sits in a room it would make
- * invalid — the rooming rules hold at allocation time and are not rewritten
- * afterwards.
+ * error can only be put right here. The Accommodation Admin holds this power
+ * with the super admin: a wrong name is usually what the desk flagged in the
+ * first place, so the person working that queue has to be able to fix it rather
+ * than route every one through an admin. Ordinary desk staff cannot — they
+ * raise the flag instead. The accommodation type never changes (§43), the
+ * values that were on file are kept in the substitution history, and a gender
+ * change is refused while the delegate sits in a room it would make invalid —
+ * the rooming rules hold at allocation time and are not rewritten afterwards.
  */
 export const correctBookingGuest = mutation({
   args: {
@@ -2065,7 +2068,10 @@ export const correctBookingGuest = mutation({
     reason: v.string(),
   },
   handler: async (ctx, args) => {
-    const actor = await requireAdmin(ctx, args.sessionToken);
+    const actor = await requireRole(ctx, args.sessionToken, [
+      "admin",
+      "accommodation",
+    ]);
     const reason = args.reason.trim();
     if (!reason) {
       throw new ConvexError("A reason is required to correct a delegate's details");

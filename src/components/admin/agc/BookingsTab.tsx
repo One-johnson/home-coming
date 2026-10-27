@@ -104,9 +104,9 @@ export function BookingsTab() {
   // Finance sees bookings read-only (financial data only) — approvals and
   // deletions stay with admin/accommodation (enforced server-side too).
   const canManage = user?.role === "admin" || user?.role === "accommodation";
-  // Correcting who a confirmed bed belongs to is a super admin power: the rep
-  // can no longer substitute once the reservation is locked in.
-  const canCorrect = user?.role === "admin";
+  // Correcting who a confirmed bed belongs to sits with the accommodation team:
+  // the rep can no longer substitute once the reservation is locked in.
+  const canCorrect = canManage;
   const bookings = useQuery(
     api.agcAdminData.listAgcBookingsAdmin,
     sessionToken ? { sessionToken } : "skip",

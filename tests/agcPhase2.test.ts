@@ -1518,10 +1518,11 @@ test("the reviewer beds a delegate and pre-authorizes the override from the queu
   );
 });
 
-test("a super admin corrects a delegate's name and gender, but never into an invalid room", async () => {
+test("the accommodation team corrects a delegate's name and gender, but never into an invalid room", async () => {
   const t = createTestConvex();
   const admin = await seedStaff(t, "admin");
   const accommodation = await seedStaff(t, "accommodation");
+  const desk = await seedStaff(t, "checkin");
   const booking = await seedConfirmedBooking(t, {
     accommodationType: "hostel",
     gender: "male",
@@ -1545,11 +1546,12 @@ test("a super admin corrects a delegate's name and gender, but never into an inv
     }
   });
 
-  // Correcting a confirmed reservation is a super admin power, and the reason
-  // and the names are both required.
+  // Correcting a confirmed reservation sits with the accommodation team, so the
+  // ordinary desk staff who find the wrong name cannot rewrite it themselves —
+  // and the reason and the names are both required.
   await expect(() =>
     t.mutation(api.agcAdminData.correctBookingGuest, {
-      sessionToken: accommodation.token,
+      sessionToken: desk.token,
       guestId: firstGuest,
       firstName: "Kofi",
       lastName: "Boateng",
@@ -1708,6 +1710,39 @@ test("a super admin corrects a delegate's name and gender, but never into an inv
   expect(audit).toHaveLength(2);
   expect(audit[0].actorEmail).toBe("admin@example.com");
   expect(audit[0].summary).toContain("Kofi Boateng");
+
+  // The Accommodation Admin holds the same power — they work the flagged-record
+  // queue, and a wrong name is usually what the desk flagged in the first place
+  // — and the change is attributed to them, not to the admin who did not make
+  // it.
+  await t.mutation(api.agcAdminData.correctBookingGuest, {
+    sessionToken: accommodation.token,
+    guestId: secondGuest,
+    firstName: "Kwesi",
+    lastName: "Mensah",
+    gender: "male",
+    reason: "Name recorded incorrectly at registration",
+  });
+  const accommodationAudit = await t.run(async (ctx) =>
+    (await ctx.db.query("auditLogs").collect()).filter(
+      (log) => log.action === "agc_guest.corrected",
+    ),
+  );
+  expect(accommodationAudit).toHaveLength(3);
+  expect(accommodationAudit[2].actorEmail).toBe("accommodation@example.com");
+  const accommodationHistory = await t.run(async (ctx) =>
+    await ctx.db
+      .query("agcSubstitutions")
+      .withIndex("by_guest", (q) => q.eq("guestId", secondGuest))
+      .collect(),
+  );
+  expect(accommodationHistory).toHaveLength(1);
+  expect(accommodationHistory[0]).toMatchObject({
+    previousFirstName: "Guest1",
+    newFirstName: "Kwesi",
+    actorAdminEmail: "accommodation@example.com",
+    reason: "Name recorded incorrectly at registration",
+  });
 });
 test("the desk row carries the delegate's name parts so a super admin can correct them where they are found", async () => {
   const t = createTestConvex();
@@ -1741,8 +1776,8 @@ test("the desk row carries the delegate's name parts so a super admin can correc
     lastName: "Mensah",
   });
 
-  // The desk can raise the correction, but making it is still a super admin
-  // decision — the counter staff cannot rewrite a record on their own.
+  // The desk can raise the correction, but making it is the accommodation
+  // team's decision — the counter staff cannot rewrite a record on their own.
   await expect(() =>
     t.mutation(api.agcAdminData.correctBookingGuest, {
       sessionToken: desk.token,
@@ -1815,11 +1850,11 @@ test("the reviewer corrects a flagged delegate's details from the queue, and the
     gender: "male",
   });
 
-  // The queue belongs to the Accommodation Admin, but correcting the record is
-  // still a super admin decision, just as it is on the desk.
+  // The desk raises the flag but does not rewrite the record; the Accommodation
+  // Admin who owns this queue can correct it without waiting on a super admin.
   await expect(() =>
     t.mutation(api.agcAdminData.correctBookingGuest, {
-      sessionToken: accommodation.token,
+      sessionToken: desk.token,
       guestId,
       firstName: "Ama",
       lastName: "Boateng",
@@ -1828,10 +1863,10 @@ test("the reviewer corrects a flagged delegate's details from the queue, and the
     }),
   ).rejects.toThrow(/Unauthorized/);
 
-  // Corrected from the list, next to the room and override actions: the queue
-  // re-reads with the new details.
+  // Corrected from the list, next to the room and override actions, by the
+  // reviewer the queue belongs to: it re-reads with the new details.
   await t.mutation(api.agcAdminData.correctBookingGuest, {
-    sessionToken: admin.token,
+    sessionToken: accommodation.token,
     guestId,
     firstName: "Ama",
     lastName: "Boateng",
@@ -1904,13 +1939,13 @@ test("the reviewer corrects a flagged delegate's details from the queue, and the
   expect(goneRow?.firstName).toBe("");
   expect(goneRow?.lastName).toBe("");
 
-  // Both corrections are audited with the admin and the reason.
+  // The queue's own correction is audited with the reviewer and the reason.
   const audit = await t.run(async (ctx) =>
     (await ctx.db.query("auditLogs").collect()).filter(
       (log) => log.action === "agc_guest.corrected",
     ),
   );
   expect(audit).toHaveLength(1);
-  expect(audit[0].actorEmail).toBe("admin@example.com");
+  expect(audit[0].actorEmail).toBe("accommodation@example.com");
   expect(audit[0].summary).toContain("reason: Arrived as somebody else");
 });

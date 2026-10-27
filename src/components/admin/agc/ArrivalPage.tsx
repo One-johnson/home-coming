@@ -969,10 +969,11 @@ export function ArrivalPage() {
                     </Button>
                   )}
 
-                  {/* A name that changed hands, or a gender recorded in error,
-                      is a super admin correction — the rep can no longer touch
-                      a confirmed reservation. */}
-                  {role === "admin" ? (
+                  {/* A name that changed hands, or a gender recorded in error, is
+                      corrected by the accommodation team — the rep can no
+                      longer touch a confirmed reservation, and ordinary desk
+                      staff raise a flag instead. */}
+                  {isApprover && (
                     <Button
                       variant="ghost"
                       className="w-full gap-1.5"
@@ -990,12 +991,7 @@ export function ArrivalPage() {
                     >
                       <Pencil className="size-4" /> Correct name / gender
                     </Button>
-                  ) : role === "accommodation" ? (
-                    <p className="text-xs text-muted-foreground">
-                      A delegate&apos;s name or gender can only be corrected by a
-                      super admin.
-                    </p>
-                  ) : null}
+                  )}
 
                   {role !== "checkin" &&
                     selectedRow.assignmentStatus === "assigned" &&
