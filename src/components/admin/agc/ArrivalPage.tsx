@@ -12,6 +12,7 @@ import {
   KeyRound,
   Loader2Icon,
   LogOut,
+  Pencil,
   RefreshCw,
   Search,
   ShieldAlert,
@@ -24,6 +25,10 @@ import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import { useAdminSession } from "@/components/admin/AdminSessionProvider";
+import {
+  GuestCorrectionDialog,
+  type CorrectableGuest,
+} from "@/components/admin/agc/GuestCorrectionDialog";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -100,6 +105,10 @@ type SearchRow = {
   guestId: string;
   bookingId: string;
   name: string;
+  /** The parts of the name, so a correction form opens pre-filled. */
+  title: string;
+  firstName: string;
+  lastName: string;
   gender: string;
   hubName: string;
   accommodationType: string;
@@ -287,6 +296,8 @@ export function ArrivalPage() {
   const [flagNote, setFlagNote] = useState("");
   const [resolveTarget, setResolveTarget] = useState<SearchRow | null>(null);
   const [resolveNote, setResolveNote] = useState("");
+  const [guestCorrectTarget, setGuestCorrectTarget] =
+    useState<CorrectableGuest | null>(null);
   const [flagBusy, setFlagBusy] = useState(false);
   const [roomChangeTarget, setRoomChangeTarget] = useState<SearchRow | null>(null);
   const [changeRoomId, setChangeRoomId] = useState<string>("");
@@ -958,6 +969,34 @@ export function ArrivalPage() {
                     </Button>
                   )}
 
+                  {/* A name that changed hands, or a gender recorded in error,
+                      is a super admin correction — the rep can no longer touch
+                      a confirmed reservation. */}
+                  {role === "admin" ? (
+                    <Button
+                      variant="ghost"
+                      className="w-full gap-1.5"
+                      disabled={busyGuest === selectedRow.guestId}
+                      onClick={() =>
+                        setGuestCorrectTarget({
+                          _id: selectedRow.guestId,
+                          title: selectedRow.title,
+                          firstName: selectedRow.firstName,
+                          lastName: selectedRow.lastName,
+                          gender: selectedRow.gender,
+                          status: "active",
+                        })
+                      }
+                    >
+                      <Pencil className="size-4" /> Correct name / gender
+                    </Button>
+                  ) : role === "accommodation" ? (
+                    <p className="text-xs text-muted-foreground">
+                      A delegate&apos;s name or gender can only be corrected by a
+                      super admin.
+                    </p>
+                  ) : null}
+
                   {role !== "checkin" &&
                     selectedRow.assignmentStatus === "assigned" &&
                     selectedRow.checkInStatus !== "checked_out" && (
@@ -1254,6 +1293,15 @@ export function ArrivalPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Delegate correction — the desk discovers a wrong name or gender at the
+          counter, so the fix happens here rather than in the bookings list. */}
+      <GuestCorrectionDialog
+        key={guestCorrectTarget?._id ?? "none"}
+        guest={guestCorrectTarget}
+        sessionToken={sessionToken}
+        onClose={() => setGuestCorrectTarget(null)}
+      />
 
       {/* Flag for review dialog — the note is what the reviewer acts on. */}
       <Dialog open={flagTarget !== null} onOpenChange={(open) => !open && setFlagTarget(null)}>

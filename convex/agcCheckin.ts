@@ -198,6 +198,10 @@ export type ArrivalSearchRow = {
   guestId: string;
   bookingId: string;
   name: string;
+  /** The parts of the name, so a correction form opens pre-filled. */
+  title: string;
+  firstName: string;
+  lastName: string;
   gender: string;
   hubName: string;
   accommodationType: string;
@@ -326,6 +330,9 @@ export const searchDelegates = query({
         guestId: guest._id,
         bookingId: guest.bookingId,
         name,
+        title: guest.title,
+        firstName: guest.firstName,
+        lastName: guest.lastName,
         gender: guest.gender,
         hubName,
         accommodationType: guest.accommodationType,
@@ -1202,6 +1209,10 @@ export const listKeys = query({
 export type ArrivalDeskRow = {
   guestId: string;
   name: string;
+  /** The parts of the name, so a correction form opens pre-filled. */
+  title: string;
+  firstName: string;
+  lastName: string;
   hubName: string;
   gender: string;
   accommodationType: string;
@@ -1281,6 +1292,9 @@ export const listArrivalDesk = query({
       rows.push({
         guestId: guest._id,
         name: guestLabel(guest),
+        title: guest.title,
+        firstName: guest.firstName,
+        lastName: guest.lastName,
         hubName: hubNameById.get(guest.hubId) ?? "(unknown)",
         gender: guest.gender,
         accommodationType: guest.accommodationType,

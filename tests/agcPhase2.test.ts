@@ -1709,3 +1709,79 @@ test("a super admin corrects a delegate's name and gender, but never into an inv
   expect(audit[0].actorEmail).toBe("admin@example.com");
   expect(audit[0].summary).toContain("Kofi Boateng");
 });
+test("the desk row carries the delegate's name parts so a super admin can correct them where they are found", async () => {
+  const t = createTestConvex();
+  const desk = await seedStaff(t, "checkin");
+  const admin = await seedStaff(t, "admin");
+  const booking = await seedConfirmedBooking(t, {
+    accommodationType: "hostel",
+    gender: "male",
+    count: 1,
+  });
+  const guestId = booking.guestIds[0] as Id<"agcGuests">;
+
+  // The desk sheet and the search both carry the parts of the name, not just the
+  // joined label, so the correction form opens pre-filled with what is on file
+  // instead of asking staff to retype a name they are trying to fix.
+  const sheet = await t.query(api.agcCheckin.listArrivalDesk, {
+    sessionToken: desk.token,
+  });
+  const sheetRow = sheet.find((row) => row.guestId === guestId);
+  expect(sheetRow?.title).toBe("Member");
+  expect(sheetRow?.firstName).toBe("Guest0");
+  expect(sheetRow?.lastName).toBe("Mensah");
+  expect(sheetRow?.name).toContain("Guest0");
+  const searched = await t.query(api.agcCheckin.searchDelegates, {
+    sessionToken: desk.token,
+    search: "Guest0",
+  });
+  expect(searched[0]).toMatchObject({
+    title: "Member",
+    firstName: "Guest0",
+    lastName: "Mensah",
+  });
+
+  // The desk can raise the correction, but making it is still a super admin
+  // decision — the counter staff cannot rewrite a record on their own.
+  await expect(() =>
+    t.mutation(api.agcAdminData.correctBookingGuest, {
+      sessionToken: desk.token,
+      guestId,
+      firstName: "Ama",
+      lastName: "Boateng",
+      gender: "female",
+      reason: "Substituted on arrival",
+    }),
+  ).rejects.toThrow(/Unauthorized/);
+
+  // Corrected where the desk found it: the counter keeps looking at the same
+  // delegate and now sees the name and gender that actually arrived.
+  await t.mutation(api.agcAdminData.correctBookingGuest, {
+    sessionToken: admin.token,
+    guestId,
+    firstName: "Ama",
+    lastName: "Boateng",
+    gender: "female",
+    reason: "Substituted on arrival",
+  });
+  const after = await t.query(api.agcCheckin.listArrivalDesk, {
+    sessionToken: desk.token,
+  });
+  const afterRow = after.find((row) => row.guestId === guestId);
+  expect(afterRow?.firstName).toBe("Ama");
+  expect(afterRow?.lastName).toBe("Boateng");
+  expect(afterRow?.gender).toBe("female");
+  expect(afterRow?.name).toContain("Ama");
+  expect(afterRow?.name).not.toContain("Guest0");
+
+  // The desk-driven correction is recorded like any other, so the reviewer can
+  // see who changed the record and why.
+  const audit = await t.run(async (ctx) =>
+    (await ctx.db.query("auditLogs").collect()).filter(
+      (log) => log.action === "agc_guest.corrected",
+    ),
+  );
+  expect(audit).toHaveLength(1);
+  expect(audit[0].actorEmail).toBe("admin@example.com");
+  expect(audit[0].summary).toContain("reason: Substituted on arrival");
+});
