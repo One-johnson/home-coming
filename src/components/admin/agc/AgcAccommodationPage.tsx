@@ -1,15 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { BedDouble, Boxes, ClipboardList, HandCoins } from "lucide-react";
+import { BedDouble, Boxes, ClipboardList, Flag, HandCoins } from "lucide-react";
 import { BookingsTab } from "@/components/admin/agc/BookingsTab";
 import { PoolsTab } from "@/components/admin/agc/PoolsTab";
 import { PoaTab } from "@/components/admin/agc/PoaTab";
+import { ReviewFlagsTab } from "@/components/admin/agc/ReviewFlagsTab";
 import { RoomsTab } from "@/components/admin/agc/RoomsTab";
 import { useAdminSession } from "@/components/admin/AdminSessionProvider";
 import { cn } from "@/lib/utils";
 
-type AccommodationSection = "bookings" | "poa" | "pools" | "rooms";
+type AccommodationSection = "bookings" | "poa" | "pools" | "rooms" | "flags";
 
 const SECTIONS: Array<{
   id: AccommodationSection;
@@ -20,6 +21,7 @@ const SECTIONS: Array<{
   { id: "poa", label: "Payment on arrival", icon: HandCoins },
   { id: "pools", label: "Pools", icon: Boxes },
   { id: "rooms", label: "Rooms", icon: BedDouble },
+  { id: "flags", label: "Review flags", icon: Flag },
 ];
 
 /** Accommodation page content: bookings review + capacity pools. */
@@ -68,8 +70,10 @@ export function AgcAccommodationPage({
         <PoaTab kind="booking" />
       ) : section === "pools" ? (
         <PoolsTab />
-      ) : (
+      ) : section === "rooms" ? (
         <RoomsTab />
+      ) : (
+        <ReviewFlagsTab />
       )}
     </div>
   );

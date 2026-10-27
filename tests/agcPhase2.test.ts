@@ -1241,3 +1241,83 @@ test("flag this record for review: a note is required, and only the admin clears
     }),
   ).rejects.toThrow(/already closed/);
 });
+
+test("the review queue lists every open flag for the admin, newest first", async () => {
+  const t = createTestConvex();
+  const desk = await seedStaff(t, "checkin");
+  const admin = await seedStaff(t, "accommodation");
+  const booking = await seedConfirmedBooking(t, {
+    accommodationType: "hostel",
+    gender: "female",
+    count: 2,
+  });
+  const [firstGuest, secondGuest] = booking.guestIds as Id<"agcGuests">[];
+  const room = await seedRoom(t, {
+    accommodationType: "hostel",
+    name: "Queue Room",
+    building: "Block B",
+    capacity: 2,
+  });
+  await t.run(async (ctx) => {
+    for (const guestId of [firstGuest, secondGuest]) {
+      await ctx.db.insert("agcRoomAssignments", {
+        roomId: room as Id<"agcRooms">,
+        guestId,
+        bookingId: booking.bookingId,
+        assignedBy: "seed",
+        createdAt: Date.now(),
+      });
+    }
+  });
+
+  const first = await t.mutation(api.agcCheckin.flagCheckInRecord, {
+    sessionToken: desk.token,
+    guestId: firstGuest,
+    note: "ID does not match the booking name",
+  });
+  const second = await t.mutation(api.agcCheckin.flagCheckInRecord, {
+    sessionToken: desk.token,
+    guestId: secondGuest,
+    note: "Room was double-let at the desk",
+  });
+  // Fixed timestamps so the newest-first order is deterministic.
+  await t.run(async (ctx) => {
+    await ctx.db.patch(first.flagId, { raisedAt: 1_000 });
+    await ctx.db.patch(second.flagId, { raisedAt: 2_000 });
+  });
+
+  const queue = await t.query(api.agcCheckin.listReviewFlags, {
+    sessionToken: admin.token,
+  });
+  expect(queue).toHaveLength(2);
+  expect(queue.map((row) => row.guestId)).toEqual([secondGuest, firstGuest]);
+  // Each row carries enough of the record to decide without opening the desk.
+  expect(queue[0].note).toBe("Room was double-let at the desk");
+  expect(queue[0].guestName).toBe("Member Guest1 Mensah");
+  expect(queue[0].gender).toBe("female");
+  expect(queue[0].hubName).toBe("Test Hub");
+  expect(queue[0].roomName).toBe("Queue Room");
+  expect(queue[0].building).toBe("Block B");
+  expect(queue[0].bookingRef).toBe("AGC-BK-0001");
+  expect(queue[0].accommodationType).toBe("hostel");
+  expect(queue[0].paymentStatus).toBe("confirmed");
+  expect(queue[0].checkInStatus).toBe("not_arrived");
+  expect(queue[0].raisedBy).toBe("checkin@example.com");
+  expect(queue[0].raisedByRole).toBe("checkin");
+
+  // The queue is the reviewer's screen — the desk cannot read it.
+  await expect(() =>
+    t.query(api.agcCheckin.listReviewFlags, { sessionToken: desk.token }),
+  ).rejects.toThrow(/Unauthorized/);
+
+  // Working a record takes it off the queue; the other one stays.
+  await t.mutation(api.agcCheckin.resolveCheckinFlag, {
+    sessionToken: admin.token,
+    flagId: queue[0]._id as Id<"agcCheckinFlags">,
+    resolutionNote: "Re-let the bed, the second delegate moved to B-12",
+  });
+  const after = await t.query(api.agcCheckin.listReviewFlags, {
+    sessionToken: admin.token,
+  });
+  expect(after.map((row) => row.guestId)).toEqual([firstGuest]);
+});

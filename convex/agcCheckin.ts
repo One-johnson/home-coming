@@ -869,6 +869,103 @@ export const resolveCheckinFlag = mutation({
   },
 });
 
+export type ReviewFlagRow = {
+  _id: string;
+  note: string;
+  raisedAt: number;
+  raisedBy: string;
+  raisedByRole: string | null;
+  guestId: string;
+  guestName: string;
+  gender: string;
+  hubName: string;
+  accommodationType: string;
+  bookingRef: string;
+  paymentStatus: string;
+  poaStatus: string | null;
+  roomName: string | null;
+  building: string | null;
+  checkInStatus: "checked_in" | "checked_out" | "not_arrived";
+};
+
+/**
+ * Every open review flag in one list — newest first — for the Accommodation
+ * Admin's queue. Each row carries enough of the delegate's record (room, hub,
+ * payment, check-in state) to decide from the list itself, because the whole
+ * point of the queue is not having to open each record to find out what the
+ * desk was worried about.
+ */
+export const listReviewFlags = query({
+  args: { sessionToken: v.string(), limit: v.optional(v.number()) },
+  handler: async (ctx, args): Promise<ReviewFlagRow[]> => {
+    await requireRole(ctx, args.sessionToken, [...APPROVER_ROLES]);
+
+    const flags = (await ctx.db.query("agcCheckinFlags").collect())
+      .filter((flag) => flag.resolvedAt === undefined)
+      .sort((a, b) => b.raisedAt - a.raisedAt)
+      .slice(0, args.limit ?? 200);
+
+    const guestById = new Map(
+      (await ctx.db.query("agcGuests").collect()).map((g) => [g._id, g]),
+    );
+    const bookingById = new Map(
+      (await ctx.db.query("agcBookings").collect()).map((b) => [b._id, b]),
+    );
+    const hubNameById = new Map(
+      (await ctx.db.query("agcHubs").collect()).map((h) => [h._id, h.name]),
+    );
+    const roomById = new Map(
+      (await ctx.db.query("agcRooms").collect())
+        .filter((room) => !room.deletedAt)
+        .map((room) => [room._id, room]),
+    );
+    const assignmentByGuest = new Map<string, Doc<"agcRoomAssignments">>();
+    for (const assignment of await ctx.db.query("agcRoomAssignments").collect()) {
+      if (assignment.endedAt === undefined) {
+        assignmentByGuest.set(assignment.guestId, assignment);
+      }
+    }
+    const checkInByGuest = new Map<string, Doc<"agcCheckIns">>();
+    for (const checkIn of await ctx.db.query("agcCheckIns").collect()) {
+      if (!checkIn.correctedAt) checkInByGuest.set(checkIn.guestId, checkIn);
+    }
+
+    return flags.map((flag) => {
+      const guest = guestById.get(flag.guestId);
+      const booking = bookingById.get(flag.bookingId);
+      const assignment = assignmentByGuest.get(flag.guestId);
+      // Where the delegate is now, falling back to the room snapshotted when
+      // they were flagged.
+      const room =
+        (assignment ? roomById.get(assignment.roomId) : undefined) ??
+        (flag.roomId ? roomById.get(flag.roomId) : undefined);
+      const checkIn = checkInByGuest.get(flag.guestId);
+      return {
+        _id: flag._id,
+        note: flag.note,
+        raisedAt: flag.raisedAt,
+        raisedBy: flag.raisedBy,
+        raisedByRole: flag.raisedByRole ?? null,
+        guestId: flag.guestId,
+        guestName: guest ? guestLabel(guest) : "(delegate no longer on file)",
+        gender: guest?.gender ?? "",
+        hubName: guest ? hubNameById.get(guest.hubId) ?? "(unknown)" : "(unknown)",
+        accommodationType: guest?.accommodationType ?? "",
+        bookingRef: booking?.referenceNumber ?? "",
+        paymentStatus: booking?.paymentStatus ?? "unknown",
+        poaStatus: booking?.poa?.status ?? null,
+        roomName: room?.name ?? flag.roomName ?? null,
+        building: room?.building ?? null,
+        checkInStatus: checkIn
+          ? checkIn.checkedOutAt
+            ? "checked_out"
+            : "checked_in"
+          : "not_arrived",
+      };
+    });
+  },
+});
+
 // ------------------------------------------------------------------
 // Key management (§15)
 // ------------------------------------------------------------------

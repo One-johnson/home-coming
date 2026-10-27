@@ -546,7 +546,14 @@ export function ArrivalPage() {
 
   return (
     <div className="space-y-4">
-      <DeskAlerts data={overview} />
+      <DeskAlerts
+        data={overview}
+        reviewQueueHref={
+          isApprover && (overview?.reviewFlags ?? 0) > 0
+            ? "/admin/accommodation?tab=flags"
+            : null
+        }
+      />
 
       {/* Search + filters — the roster reads left to right, the selected
           delegate's full record opens beside it. */}
@@ -1364,7 +1371,14 @@ type Overview = {
  * that turns red for sync exceptions and amber for decisions, and collapses
  * to a calm green line when the desk is clear.
  */
-function DeskAlerts({ data }: { data: Overview | undefined }) {
+function DeskAlerts({
+  data,
+  reviewQueueHref,
+}: {
+  data: Overview | undefined;
+  /** Where the reviewer works the flagged records; null hides the link. */
+  reviewQueueHref?: string | null;
+}) {
   if (!data) return null;
   const unassigned = data.unassigned;
   const overrides = data.paymentOverrides;
@@ -1408,6 +1422,17 @@ function DeskAlerts({ data }: { data: Overview | undefined }) {
         <StatusBadge tone={flagged > 0 ? "blocked" : "waiting"} icon={Flag}>
           {flagged} flagged for review
         </StatusBadge>
+        {reviewQueueHref && flagged > 0 && (
+          <Link
+            href={reviewQueueHref}
+            className={cn(
+              buttonVariants({ variant: "outline", size: "sm" }),
+              "h-7 gap-1 text-xs",
+            )}
+          >
+            <Flag className="size-3.5" /> Review the queue
+          </Link>
+        )}
       </span>
     </div>
   );
