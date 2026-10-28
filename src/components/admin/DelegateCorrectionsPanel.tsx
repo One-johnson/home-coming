@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import { useQuery } from "convex/react";
 import { History } from "lucide-react";
 import { api } from "@convex/_generated/api";
@@ -7,7 +8,17 @@ import {
   useAdminSession,
   useSessionArgs,
 } from "@/components/admin/AdminSessionProvider";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -32,6 +43,12 @@ import { ROLE_LABELS, type StaffRole } from "@/lib/adminRoles";
  * A rep's own substitution while the booking was still open is recorded on the
  * booking and is deliberately not listed: it needed no review to begin with.
  */
+
+type ActorOption = {
+  email: string;
+  count: number;
+  role: string | null;
+};
 
 type CorrectionRow = {
   _id: string;
@@ -63,20 +80,52 @@ function roleLabel(role: string | null): string {
   return ROLE_LABELS[role as StaffRole] ?? role;
 }
 
+/** Start of the picked day in the viewer's own timezone, or undefined. */
+function startOfDay(value: string): number | undefined {
+  if (!value) return undefined;
+  const at = new Date(`${value}T00:00:00`).getTime();
+  return Number.isNaN(at) ? undefined : at;
+}
+
+/** End of the picked day — a range is inclusive of both dates it names. */
+function endOfDay(value: string): number | undefined {
+  if (!value) return undefined;
+  const at = new Date(`${value}T23:59:59.999`).getTime();
+  return Number.isNaN(at) ? undefined : at;
+}
+
 export function DelegateCorrectionsPanel() {
   const { user } = useAdminSession();
-  const sessionArgs = useSessionArgs();
   // The audit area also admits finance, who hold a read-only financial view, so
   // the panel stays with the super admin the query answers to.
   const isSuperAdmin = user?.role === "admin";
+
+  // Who changed it (the account, not the team) and when it happened. Both go to
+  // the server: the list is capped, so filtering the loaded page would hide
+  // older corrections that match.
+  const [actorEmail, setActorEmail] = useState<string>("");
+  const [fromDate, setFromDate] = useState<string>("");
+  const [toDate, setToDate] = useState<string>("");
+  const filtersActive = actorEmail !== "" || fromDate !== "" || toDate !== "";
+
+  const filters = useMemo(
+    () => ({
+      actorEmail: actorEmail || undefined,
+      from: startOfDay(fromDate),
+      to: endOfDay(toDate),
+    }),
+    [actorEmail, fromDate, toDate],
+  );
+  const sessionArgs = useSessionArgs(filters);
   const corrections = useQuery(
     api.admin.listDelegateCorrections,
     isSuperAdmin ? sessionArgs : "skip",
   );
 
-  if (!isSuperAdmin) return null;
+  const actors = (corrections?.actors ?? []) as ActorOption[];
+  const rows = (corrections?.rows ?? []) as CorrectionRow[];
 
-  const rows = (corrections ?? []) as CorrectionRow[];
+  if (!isSuperAdmin) return null;
 
   return (
     <Card>
@@ -88,7 +137,9 @@ export function DelegateCorrectionsPanel() {
               Delegate corrections
               {corrections !== undefined && rows.length > 0 && (
                 <span className="ml-2 rounded-full border px-2 py-0.5 text-xs font-normal text-muted-foreground">
-                  {rows.length}
+                  {filtersActive
+                    ? `${rows.length} of ${corrections.total}`
+                    : rows.length}
                 </span>
               )}
             </p>
@@ -100,6 +151,75 @@ export function DelegateCorrectionsPanel() {
               here.
             </p>
           </div>
+        </div>
+
+        {/* Filters sit under the description: who made the change, and over
+            which days. */}
+        <div className="flex flex-wrap items-end gap-3 border-b px-4 py-3">
+          <div className="space-y-1">
+            <Label htmlFor="corrections-actor" className="text-xs">
+              Changed by
+            </Label>
+            <Select
+              value={actorEmail || "all"}
+              onValueChange={(value) =>
+                setActorEmail(!value || value === "all" ? "" : value)
+              }
+            >
+              <SelectTrigger
+                id="corrections-actor"
+                className="h-8 w-64 text-xs"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Anyone</SelectItem>
+                {actors.map((actor) => (
+                  <SelectItem key={actor.email} value={actor.email}>
+                    {actor.email} · {roleLabel(actor.role)} ({actor.count})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="corrections-from" className="text-xs">
+              From
+            </Label>
+            <Input
+              id="corrections-from"
+              type="date"
+              className="h-8 w-36 text-xs"
+              value={fromDate}
+              onChange={(event) => setFromDate(event.target.value)}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="corrections-to" className="text-xs">
+              To
+            </Label>
+            <Input
+              id="corrections-to"
+              type="date"
+              className="h-8 w-36 text-xs"
+              value={toDate}
+              onChange={(event) => setToDate(event.target.value)}
+            />
+          </div>
+          {filtersActive && (
+            <Button
+              type="button"
+              variant="link"
+              className="h-8 px-1 text-xs font-medium"
+              onClick={() => {
+                setActorEmail("");
+                setFromDate("");
+                setToDate("");
+              }}
+            >
+              Clear filters
+            </Button>
+          )}
         </div>
 
         {corrections === undefined ? (
@@ -125,9 +245,9 @@ export function DelegateCorrectionsPanel() {
                       colSpan={5}
                       className="py-10 text-center text-sm text-muted-foreground"
                     >
-                      No delegate has been corrected from the console yet — a
-                      name or gender changed at the desk, in the review queue or
-                      on a booking appears here with its reason.
+                      {filtersActive
+                        ? `No correction matches these filters${corrections.total > 0 ? ` — clear them to see all ${corrections.total}` : ""}.`
+                        : "No delegate has been corrected from the console yet — a name or gender changed at the desk, in the review queue or on a booking appears here with its reason."}
                     </TableCell>
                   </TableRow>
                 ) : (

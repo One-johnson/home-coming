@@ -283,21 +283,23 @@ export const listAuditLogs = query({
  * so rows with no staff actor are left out.
  */
 export const listDelegateCorrections = query({
-  args: { sessionToken: sessionTokenValidator, limit: v.optional(v.number()) },
+  args: {
+    sessionToken: sessionTokenValidator,
+    limit: v.optional(v.number()),
+    /** Only corrections made by this staff account (case-insensitive email). */
+    actorEmail: v.optional(v.string()),
+    /** Inclusive epoch-ms bounds on when the correction was made. */
+    from: v.optional(v.number()),
+    to: v.optional(v.number()),
+  },
   handler: async (ctx, args) => {
     await requireRole(ctx, args.sessionToken, ["admin"]);
 
-    const corrections = (await ctx.db.query("agcSubstitutions").collect())
-      .filter(
-        (row): row is typeof row & { actorAdminEmail: string } =>
-          row.actorAdminEmail !== undefined,
-      )
-      .sort((a, b) => b.createdAt - a.createdAt)
-      .slice(0, args.limit ?? 100);
-
-    const bookingById = new Map(
-      (await ctx.db.query("agcBookings").collect()).map((b) => [b._id, b]),
+    const all = (await ctx.db.query("agcSubstitutions").collect()).filter(
+      (row): row is typeof row & { actorAdminEmail: string } =>
+        row.actorAdminEmail !== undefined,
     );
+
     // Which team made the change is the point of the screen, and the role is not
     // denormalised onto the row, so it is resolved from the acting account. The
     // staff list is small and the correction set is small; a null role means the
@@ -309,20 +311,56 @@ export const listDelegateCorrections = query({
       ]),
     );
 
-    return corrections.map((row) => ({
-      _id: row._id,
-      createdAt: row.createdAt,
-      previousFirstName: row.previousFirstName,
-      previousLastName: row.previousLastName,
-      previousGender: row.previousGender as string,
-      newFirstName: row.newFirstName,
-      newLastName: row.newLastName,
-      newGender: row.newGender as string,
-      reason: row.reason ?? null,
-      actorEmail: row.actorAdminEmail,
-      actorRole: roleByEmail.get(row.actorAdminEmail.toLowerCase()) ?? null,
-      bookingRef: bookingById.get(row.bookingId)?.referenceNumber ?? null,
-    }));
+    // The filter offers the people who have actually corrected a delegate, with
+    // how many each of them made, rather than a fixed list of staff accounts.
+    const actorByEmail = new Map<string, { email: string; count: number }>();
+    for (const row of all) {
+      const key = row.actorAdminEmail.toLowerCase();
+      const existing = actorByEmail.get(key);
+      if (existing) existing.count += 1;
+      else actorByEmail.set(key, { email: row.actorAdminEmail, count: 1 });
+    }
+    const actors = [...actorByEmail.entries()]
+      .map(([key, actor]) => ({
+        email: actor.email,
+        count: actor.count,
+        role: roleByEmail.get(key) ?? null,
+      }))
+      .sort(
+        (a, b) => b.count - a.count || a.email.localeCompare(b.email),
+      );
+
+    const wanted = args.actorEmail?.trim().toLowerCase();
+    const filtered = all
+      .filter((row) => !wanted || row.actorAdminEmail.toLowerCase() === wanted)
+      .filter((row) => args.from === undefined || row.createdAt >= args.from)
+      .filter((row) => args.to === undefined || row.createdAt <= args.to)
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, args.limit ?? 100);
+
+    const bookingById = new Map(
+      (await ctx.db.query("agcBookings").collect()).map((b) => [b._id, b]),
+    );
+
+    return {
+      /** Every console correction, before the filters — what the panel counts against. */
+      total: all.length,
+      actors,
+      rows: filtered.map((row) => ({
+        _id: row._id,
+        createdAt: row.createdAt,
+        previousFirstName: row.previousFirstName,
+        previousLastName: row.previousLastName,
+        previousGender: row.previousGender as string,
+        newFirstName: row.newFirstName,
+        newLastName: row.newLastName,
+        newGender: row.newGender as string,
+        reason: row.reason ?? null,
+        actorEmail: row.actorAdminEmail,
+        actorRole: roleByEmail.get(row.actorAdminEmail.toLowerCase()) ?? null,
+        bookingRef: bookingById.get(row.bookingId)?.referenceNumber ?? null,
+      })),
+    };
   },
 });
 

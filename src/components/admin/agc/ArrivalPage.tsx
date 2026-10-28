@@ -722,10 +722,13 @@ export function ArrivalPage() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+        {/* The sheet is the longest thing on the page, so it scrolls in place
+            with its header pinned rather than pushing the record card and the
+            desk tools down the page (the rooms grid reads the same way). */}
         <Card className="overflow-hidden">
-          <CardContent className="overflow-x-auto p-0">
+          <CardContent className="max-h-[60vh] overflow-auto p-0">
             <Table>
-              <TableHeader>
+              <TableHeader className="sticky top-0 z-10 bg-card shadow-[0_1px_0_0_theme(colors.border)]">
                 <TableRow className="bg-muted/50 hover:bg-muted/50">
                   <TableHead className="w-16">Room</TableHead>
                   <TableHead className="w-12">Bed</TableHead>
@@ -810,7 +813,9 @@ export function ArrivalPage() {
           </CardContent>
         </Card>
 
-        <Card className="h-fit lg:sticky lg:top-20">
+        {/* The record card stays in view beside the sheet, and scrolls inside
+            itself when the actions stack up taller than the window. */}
+        <Card className="h-fit lg:sticky lg:top-16 lg:max-h-[calc(100vh-5rem)] lg:overflow-y-auto">
           <CardContent className="p-4">
             {!selectedRow ? (
               <div className="py-10 text-center">

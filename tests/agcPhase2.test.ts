@@ -1984,10 +1984,12 @@ test("the audit area lists console delegate corrections with who made them and w
   });
 
   // Nothing to review yet, and that is an empty list rather than an error.
-  let rows = await t.query(api.admin.listDelegateCorrections, {
+  let result = await t.query(api.admin.listDelegateCorrections, {
     sessionToken: admin.token,
   });
-  expect(rows).toEqual([]);
+  expect(result.rows).toEqual([]);
+  expect(result.total).toBe(0);
+  expect(result.actors).toEqual([]);
 
   // Two corrections on a locked reservation: the super admin's and the
   // Accommodation Admin's. Both are the set this screen exists to show.
@@ -2008,29 +2010,39 @@ test("the audit area lists console delegate corrections with who made them and w
     reason: "Gender recorded in error at registration",
   });
 
-  rows = await t.query(api.admin.listDelegateCorrections, {
+  result = await t.query(api.admin.listDelegateCorrections, {
     sessionToken: admin.token,
   });
-  expect(rows).toHaveLength(2);
+  expect(result.total).toBe(2);
+  expect(result.rows).toHaveLength(2);
+  // The filter offers the people who have actually made a correction, with how
+  // many each of them made and the team they belong to.
+  expect(result.actors.map((actor) => actor.email).sort()).toEqual([
+    "accommodation@example.com",
+    "admin@example.com",
+  ]);
+  expect(
+    result.actors.find((actor) => actor.email === "accommodation@example.com"),
+  ).toMatchObject({ role: "accommodation", count: 1 });
 
   // Newest first: pin the two rows to known times so the order does not depend
   // on the millisecond the two mutations happened to land in.
-  const adminRow = rows.find((row) => row.newFirstName === "Kofi");
-  const accommodationRow = rows.find((row) => row.newFirstName === "Ama");
+  const adminRow = result.rows.find((row) => row.newFirstName === "Kofi");
+  const accommodationRow = result.rows.find((row) => row.newFirstName === "Ama");
   expect(adminRow).toBeTruthy();
   expect(accommodationRow).toBeTruthy();
   await t.run(async (ctx) => {
     await ctx.db.patch(adminRow!._id, { createdAt: 1_000 });
     await ctx.db.patch(accommodationRow!._id, { createdAt: 2_000 });
   });
-  rows = await t.query(api.admin.listDelegateCorrections, {
+  result = await t.query(api.admin.listDelegateCorrections, {
     sessionToken: admin.token,
   });
-  expect(rows.map((row) => row.newFirstName)).toEqual(["Ama", "Kofi"]);
+  expect(result.rows.map((row) => row.newFirstName)).toEqual(["Ama", "Kofi"]);
 
   // Each row says what was replaced, who did it — role included, since that is
   // what tells a super admin which team moved the delegate — and the reason.
-  expect(rows[0]).toMatchObject({
+  expect(result.rows[0]).toMatchObject({
     previousFirstName: "Guest1",
     previousLastName: "Mensah",
     previousGender: "male",
@@ -2042,13 +2054,50 @@ test("the audit area lists console delegate corrections with who made them and w
     actorRole: "accommodation",
     bookingRef: "AGC-BK-0001",
   });
-  expect(rows[1]).toMatchObject({
+  expect(result.rows[1]).toMatchObject({
     previousFirstName: "Guest0",
     newFirstName: "Kofi",
     reason: "Original delegate could not travel",
     actorEmail: "admin@example.com",
     actorRole: "admin",
   });
+
+  // Filtering by who made the change keeps the other corrections out, while the
+  // actor list still offers everyone who has one — so the reviewer can widen
+  // again without clearing the filter and starting over.
+  const byAccommodation = await t.query(api.admin.listDelegateCorrections, {
+    sessionToken: admin.token,
+    actorEmail: "ACCOMMODATION@example.com",
+  });
+  expect(byAccommodation.rows.map((row) => row.newFirstName)).toEqual(["Ama"]);
+  expect(byAccommodation.total).toBe(2);
+  expect(byAccommodation.actors).toHaveLength(2);
+
+  // The date range is inclusive of both days it names, in the viewer's own day
+  // boundaries (the panel sends epoch bounds for the picked dates).
+  const onTheDay = await t.query(api.admin.listDelegateCorrections, {
+    sessionToken: admin.token,
+    from: 2_000,
+    to: 2_000,
+  });
+  expect(onTheDay.rows.map((row) => row.newFirstName)).toEqual(["Ama"]);
+  const afterTheDay = await t.query(api.admin.listDelegateCorrections, {
+    sessionToken: admin.token,
+    from: 2_001,
+  });
+  expect(afterTheDay.rows).toEqual([]);
+  const beforeBoth = await t.query(api.admin.listDelegateCorrections, {
+    sessionToken: admin.token,
+    to: 999,
+  });
+  expect(beforeBoth.rows).toEqual([]);
+  const bothFilters = await t.query(api.admin.listDelegateCorrections, {
+    sessionToken: admin.token,
+    actorEmail: "admin@example.com",
+    from: 1_000,
+    to: 1_000,
+  });
+  expect(bothFilters.rows.map((row) => row.newFirstName)).toEqual(["Kofi"]);
 
   // Reading the corrections is the super admin's view, not the desk's.
   await expect(() =>
