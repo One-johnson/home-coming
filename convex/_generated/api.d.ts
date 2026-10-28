@@ -25,6 +25,7 @@ import type * as agcPoa from "../agcPoa.js";
 import type * as agcPortal from "../agcPortal.js";
 import type * as agcPreArrival from "../agcPreArrival.js";
 import type * as agcRoomAssignments from "../agcRoomAssignments.js";
+import type * as agcRoomIssues from "../agcRoomIssues.js";
 import type * as agcRoomsImport from "../agcRoomsImport.js";
 import type * as authActions from "../authActions.js";
 import type * as content from "../content.js";
@@ -87,6 +88,7 @@ declare const fullApi: ApiFromModules<{
   agcPortal: typeof agcPortal;
   agcPreArrival: typeof agcPreArrival;
   agcRoomAssignments: typeof agcRoomAssignments;
+  agcRoomIssues: typeof agcRoomIssues;
   agcRoomsImport: typeof agcRoomsImport;
   authActions: typeof authActions;
   content: typeof content;

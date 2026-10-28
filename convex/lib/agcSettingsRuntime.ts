@@ -1,6 +1,7 @@
 import type { QueryCtx } from "../_generated/server";
 import {
   AGC_ACCOMMODATION_TYPES,
+  AGC_AUTO_ASSIGN_DEFAULT,
   AGC_BISHOP_RATE,
   AGC_SETTING_KEYS,
   type AccommodationTypeConfig,
@@ -133,4 +134,16 @@ export async function getPoolTotalOverride(
   const overrides = await getPoolTotalOverrides(ctx);
   const value = overrides[`${type}|${scope}`];
   return value === undefined ? null : value;
+}
+
+/**
+ * Whether the one-click rooming button is armed. Off by default: automatic
+ * rooming decides who sleeps where, so an admin has to turn it on deliberately
+ * from Settings (the toggle is audit-logged). Only the explicit string "true"
+ * counts — anything else falls back to off.
+ */
+export async function getAutoAssignEnabled(ctx: QueryCtx): Promise<boolean> {
+  const raw = await readSetting(ctx, AGC_SETTING_KEYS.autoAssign);
+  if (raw === null) return AGC_AUTO_ASSIGN_DEFAULT;
+  return raw.trim().toLowerCase() === "true";
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery } from "convex/react";
 import {
@@ -182,6 +182,97 @@ const TYPE_LABEL = (type: string) =>
 
 const LOCATION_STORAGE_KEY = "homecoming-desk-location-v1";
 
+/**
+ * One row of the desk sheet. Memoised on purpose: the sheet holds up to 400
+ * delegates and clicking one used to re-render every row, which is why
+ * selecting a name felt slow. Only the rows whose highlight actually changed
+ * re-render now.
+ */
+const DeskRosterRow = memo(function DeskRosterRow({
+  row,
+  selected,
+  ticked,
+  tickable,
+  onSelect,
+  onTick,
+}: {
+  row: SearchRow;
+  selected: boolean;
+  ticked: boolean;
+  /** Ready to check in (bed + payment) — only these can be bulk-ticked. */
+  tickable: boolean;
+  onSelect: (guestId: string) => void;
+  onTick: (guestId: string) => void;
+}) {
+  const cell = checkInCell(row);
+  return (
+    <TableRow
+      onClick={() => onSelect(row.guestId)}
+      aria-selected={selected}
+      className={cn(
+        "cursor-pointer",
+        ticked && "bg-emerald-50/70 dark:bg-emerald-950/20",
+        selected ? "bg-sky-50 dark:bg-sky-950/40" : "hover:bg-muted/50",
+      )}
+    >
+      <TableCell onClick={(event) => event.stopPropagation()}>
+        <Checkbox
+          checked={ticked}
+          disabled={!tickable}
+          onCheckedChange={() => onTick(row.guestId)}
+          aria-label={
+            tickable
+              ? `Tick ${row.name} for bulk check-in`
+              : `${row.name} is not ready to check in`
+          }
+        />
+      </TableCell>
+      <TableCell className="font-medium tabular-nums">
+        {row.roomName ?? "—"}
+      </TableCell>
+      <TableCell className="tabular-nums text-muted-foreground">
+        {row.bedNumber ?? "—"}
+      </TableCell>
+      <TableCell>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onSelect(row.guestId);
+          }}
+          className={cn(
+            "text-left font-semibold underline decoration-dotted underline-offset-4 hover:decoration-solid",
+            selected && "text-sky-800 dark:text-sky-300",
+          )}
+        >
+          {row.name}
+        </button>
+        {row.assignmentStatus !== "assigned" && (
+          <span className="ml-2 rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-950/60 dark:text-amber-300">
+            Unassigned
+          </span>
+        )}
+        {row.reviewFlag && (
+          <span
+            title={`Flagged for review by ${row.reviewFlag.raisedBy}: ${row.reviewFlag.note}`}
+            className="ml-2 inline-flex items-center gap-1 rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-950/60 dark:text-amber-300"
+          >
+            <Flag className="size-2.5" /> Review
+          </span>
+        )}
+      </TableCell>
+      <TableCell className="hidden capitalize sm:table-cell">{row.gender}</TableCell>
+      <TableCell className="hidden md:table-cell">{row.hubName}</TableCell>
+      <TableCell className={cn("text-sm font-medium", cell.className)}>
+        {cell.label}
+      </TableCell>
+      <TableCell className="hidden text-sm sm:table-cell">
+        {row.keyStatus ? KEY_LABEL[row.keyStatus] : "—"}
+      </TableCell>
+    </TableRow>
+  );
+});
+
 export function ArrivalPage() {
   const { sessionToken, user } = useAdminSession();
   const role = user?.role ?? "";
@@ -262,6 +353,7 @@ export function ArrivalPage() {
 
   const checkInGuest = useMutation(api.agcCheckin.checkInGuest);
   const checkInGroup = useMutation(api.agcCheckin.checkInGroup);
+  const checkInBatch = useMutation(api.agcCheckin.checkInBatch);
   const checkOutGuest = useMutation(api.agcCheckin.checkOutGuest);
   const correctCheckIn = useMutation(api.agcCheckin.correctCheckIn);
   const flagCheckInRecord = useMutation(api.agcCheckin.flagCheckInRecord);
@@ -307,6 +399,10 @@ export function ArrivalPage() {
   const [groupHub, setGroupHub] = useState<string>("");
   const [groupTicked, setGroupTicked] = useState<string[]>([]);
   const [groupBusy, setGroupBusy] = useState(false);
+
+  // --- Desk bulk check-in: tick ready delegates anywhere on the sheet ---
+  const [batchTicked, setBatchTicked] = useState<string[]>([]);
+  const [batchBusy, setBatchBusy] = useState(false);
 
   const doCheckIn = async () => {
     if (!sessionToken || !checkinTarget) return;
@@ -483,6 +579,66 @@ export function ArrivalPage() {
     () => rosterRows.find((row) => row.guestId === selectedGuestId) ?? null,
     [rosterRows, selectedGuestId],
   );
+
+  /** First visit to the desk: the query has not answered yet. */
+  const deskLoading = search.trim().length < 2 && deskRows === undefined;
+
+  /** Only rows the desk can actually check in right now: bed + payment. */
+  const readyRows = useMemo(
+    () => rosterRows.filter((row) => deskRowState(row).ready),
+    [rosterRows],
+  );
+  const allReadyTicked =
+    readyRows.length > 0 && readyRows.every((row) => batchTicked.includes(row.guestId));
+  /** Stable, so ticking one row does not re-render the whole sheet. */
+  const tickRow = useCallback(
+    (guestId: string) =>
+      setBatchTicked((current) =>
+        current.includes(guestId)
+          ? current.filter((id) => id !== guestId)
+          : [...current, guestId],
+      ),
+    [],
+  );
+
+  const doBatchCheckIn = async () => {
+    if (!sessionToken) return;
+    const ticks = batchTicked
+      .map((guestId) => rosterRows.find((row) => row.guestId === guestId))
+      .filter((row): row is SearchRow => Boolean(row) && deskRowState(row!).ready);
+    if (ticks.length === 0) {
+      toast.info("Tick the ready delegates you want to check in together.");
+      return;
+    }
+    setBatchBusy(true);
+    try {
+      const result = await checkInBatch({
+        sessionToken,
+        location,
+        guests: ticks.map((row) => ({ guestId: row.guestId as Id<"agcGuests"> })),
+      });
+      const rejected = result.results.filter((r) => r.status === "rejected");
+      if (rejected.length > 0) {
+        toast.warning(
+          `Bulk check-in: ${result.checkedInCount} checked in, ${rejected.length} rejected.`,
+          { description: rejected.map((r) => r.reason).join(" · ") },
+        );
+      } else {
+        toast.success(
+          `Checked in ${result.checkedInCount} delegate(s) in one go.`,
+        );
+      }
+      setBatchTicked((current) =>
+        current.filter(
+          (id) => !result.results.some((r) => r.guestId === id && r.status === "checked_in"),
+        ),
+      );
+    } catch (err) {
+      toast.error(...toastFriendlyErrorParts(err, "Bulk check-in failed"));
+    } finally {
+      setBatchBusy(false);
+    }
+  };
 
   const filtersActive =
     genderFilter !== "any" || hubFilter !== "all" || typeFilter !== "all";
@@ -726,10 +882,70 @@ export function ArrivalPage() {
             with its header pinned rather than pushing the record card and the
             desk tools down the page (the rooms grid reads the same way). */}
         <Card className="overflow-hidden">
+          {/* Bulk check-in sits above the sheet: tick the ready delegates in
+              the rows below and check them in one action. */}
+          <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2">
+            <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+              <ListChecks className="size-3.5" /> Bulk check-in
+            </span>
+            {batchTicked.length === 0 ? (
+              <span className="text-xs text-muted-foreground">
+                {deskLoading || readyRows.length === 0
+                  ? "Tick ready delegates below to check them in together."
+                  : `Tick ready delegates below — ${readyRows.length} ready in this view.`}
+              </span>
+            ) : (
+              <span className="text-xs font-medium">{batchTicked.length} ticked</span>
+            )}
+            <span className="grow" />
+            {readyRows.length > 0 && (
+              <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Checkbox
+                  checked={allReadyTicked}
+                  onCheckedChange={(checked) =>
+                    setBatchTicked(
+                      checked ? readyRows.map((row) => row.guestId) : [],
+                    )
+                  }
+                  aria-label="Tick every ready delegate in this view"
+                />
+                Select all ready
+              </label>
+            )}
+            {batchTicked.length > 0 && (
+              <>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 text-xs"
+                  disabled={batchBusy}
+                  onClick={() => setBatchTicked([])}
+                >
+                  Clear
+                </Button>
+                <Button
+                  size="sm"
+                  className="h-7 gap-1 text-xs"
+                  disabled={batchBusy}
+                  onClick={() => void doBatchCheckIn()}
+                >
+                  {batchBusy ? (
+                    <Loader2Icon className="size-3.5 animate-spin" />
+                  ) : (
+                    <UserCheck className="size-3.5" />
+                  )}
+                  Check in {batchTicked.length}
+                </Button>
+              </>
+            )}
+          </div>
           <CardContent className="max-h-[60vh] overflow-auto p-0">
             <Table>
               <TableHeader className="sticky top-0 z-10 bg-card shadow-[0_1px_0_0_theme(colors.border)]">
                 <TableRow className="bg-muted/50 hover:bg-muted/50">
+                  <TableHead className="w-8">
+                    <span className="sr-only">Select for bulk check-in</span>
+                  </TableHead>
                   <TableHead className="w-16">Room</TableHead>
                   <TableHead className="w-12">Bed</TableHead>
                   <TableHead>Name</TableHead>
@@ -740,73 +956,39 @@ export function ArrivalPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {rosterRows.length === 0 ? (
+                {deskLoading ? (
+                  Array.from({ length: 8 }).map((_, i) => (
+                    <TableRow key={`desk-loading-${i}`} aria-hidden>
+                      <TableCell><Skeleton className="size-4 rounded-[4px]" /></TableCell>
+                      <TableCell><Skeleton className="h-4 w-10" /></TableCell>
+                      <TableCell><Skeleton className="h-4 w-8" /></TableCell>
+                      <TableCell><Skeleton className="h-4 w-40" /></TableCell>
+                      <TableCell className="hidden sm:table-cell"><Skeleton className="h-4 w-14" /></TableCell>
+                      <TableCell className="hidden md:table-cell"><Skeleton className="h-4 w-24" /></TableCell>
+                      <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+                      <TableCell className="hidden sm:table-cell"><Skeleton className="h-4 w-14" /></TableCell>
+                    </TableRow>
+                  ))
+                ) : rosterRows.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="py-12 text-center text-sm text-muted-foreground">
+                    <TableCell colSpan={8} className="py-12 text-center text-sm text-muted-foreground">
                       {filtersActive || search
                         ? "No delegate matches these filters — clear them to see the full sheet."
                         : "No delegates on the desk yet — rooms and bookings feed this sheet."}
                     </TableCell>
                   </TableRow>
                 ) : (
-                  rosterRows.map((row) => {
-                    const selected = row.guestId === selectedGuestId;
-                    const cell = checkInCell(row);
-                    return (
-                      <TableRow
-                        key={row.guestId}
-                        onClick={() => setSelectedGuestId(row.guestId)}
-                        aria-selected={selected}
-                        className={cn(
-                          "cursor-pointer",
-                          selected ? "bg-sky-50 dark:bg-sky-950/40" : "hover:bg-muted/50",
-                        )}
-                      >
-                        <TableCell className="font-medium tabular-nums">
-                          {row.roomName ?? "—"}
-                        </TableCell>
-                        <TableCell className="tabular-nums text-muted-foreground">
-                          {row.bedNumber ?? "—"}
-                        </TableCell>
-                        <TableCell>
-                          <button
-                            type="button"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              setSelectedGuestId(row.guestId);
-                            }}
-                            className={cn(
-                              "text-left font-semibold underline decoration-dotted underline-offset-4 hover:decoration-solid",
-                              selected && "text-sky-800 dark:text-sky-300",
-                            )}
-                          >
-                            {row.name}
-                          </button>
-                          {row.assignmentStatus !== "assigned" && (
-                            <span className="ml-2 rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-950/60 dark:text-amber-300">
-                              Unassigned
-                            </span>
-                          )}
-                          {row.reviewFlag && (
-                            <span
-                              title={`Flagged for review by ${row.reviewFlag.raisedBy}: ${row.reviewFlag.note}`}
-                              className="ml-2 inline-flex items-center gap-1 rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-950/60 dark:text-amber-300"
-                            >
-                              <Flag className="size-2.5" /> Review
-                            </span>
-                          )}
-                        </TableCell>
-                        <TableCell className="hidden capitalize sm:table-cell">{row.gender}</TableCell>
-                        <TableCell className="hidden md:table-cell">{row.hubName}</TableCell>
-                        <TableCell className={cn("text-sm font-medium", cell.className)}>
-                          {cell.label}
-                        </TableCell>
-                        <TableCell className="hidden text-sm sm:table-cell">
-                          {row.keyStatus ? KEY_LABEL[row.keyStatus] : "—"}
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })
+                  rosterRows.map((row) => (
+                    <DeskRosterRow
+                      key={row.guestId}
+                      row={row}
+                      selected={row.guestId === selectedGuestId}
+                      ticked={batchTicked.includes(row.guestId)}
+                      tickable={deskRowState(row).ready}
+                      onSelect={setSelectedGuestId}
+                      onTick={tickRow}
+                    />
+                  ))
                 )}
               </TableBody>
             </Table>

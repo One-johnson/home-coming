@@ -701,6 +701,95 @@ export const checkInGroup = mutation({
   },
 });
 
+/**
+ * Desk bulk check-in: tick several ready delegates anywhere on the sheet and
+ * check them in together. Unlike group check-in (§13) the selection may span
+ * hubs, because the desk ticks whoever is standing in front of it.
+ *
+ * Each delegate still goes through the single check-in rules — assignment,
+ * payment gate, duplicate guard, key handling — and one rejection never
+ * blocks the rest. The per-delegate outcomes come back for the toast.
+ */
+export const checkInBatch = mutation({
+  args: {
+    sessionToken: v.string(),
+    location: v.string(),
+    guests: v.array(
+      v.object({
+        guestId: v.id("agcGuests"),
+        override: v.optional(v.object({ reason: v.string() })),
+        keyRecipientName: v.optional(v.string()),
+      }),
+    ),
+  },
+  handler: async (ctx, args): Promise<{
+    checkedInCount: number;
+    rejectedCount: number;
+    results: GroupArrivalResult[];
+  }> => {
+    const user = await requireRole(ctx, args.sessionToken, [...CHECKIN_ROLES]);
+    if (args.guests.length === 0) {
+      throw new ConvexError("Tick at least one delegate to check in");
+    }
+    if (args.guests.length > 100) {
+      throw new ConvexError("Check in at most 100 delegates at a time");
+    }
+    const seen = new Set<string>();
+    for (const entry of args.guests) {
+      if (seen.has(entry.guestId)) {
+        throw new ConvexError("The same delegate was ticked twice");
+      }
+      seen.add(entry.guestId);
+    }
+
+    const actor: CheckinActor = {
+      userId: user._id,
+      email: user.email,
+      role: user.role,
+    };
+    const results: GroupArrivalResult[] = [];
+    for (const entry of args.guests) {
+      try {
+        const checkIn = await performCheckIn(ctx, actor, {
+          guestId: entry.guestId,
+          location: args.location,
+          override: entry.override,
+          keyRecipientName: entry.keyRecipientName,
+        });
+        results.push({
+          guestId: entry.guestId,
+          status: "checked_in",
+          keyIssued: checkIn.keyIssued,
+          keysAlreadyIssuedTo: checkIn.keysAlreadyIssuedTo,
+        });
+      } catch (err) {
+        results.push({
+          guestId: entry.guestId,
+          status: "rejected",
+          reason: err instanceof Error ? err.message : "check-in failed",
+        });
+      }
+    }
+    const checkedInCount = results.filter((r) => r.status === "checked_in").length;
+    const rejectedCount = results.filter((r) => r.status === "rejected").length;
+
+    await writeAuditLog(ctx, {
+      actorUserId: user._id,
+      actorEmail: user.email,
+      action: "agc_checkin.desk_batch",
+      entityType: "agcCheckIns",
+      summary: `Desk bulk check-in: ${checkedInCount} checked in, ${rejectedCount} rejected of ${args.guests.length} ticked by ${user.email}`,
+      metadata: {
+        results: results.map((r) =>
+          r.status === "rejected" ? { guestId: r.guestId, reason: r.reason } : { guestId: r.guestId },
+        ),
+      },
+    });
+
+    return { checkedInCount, rejectedCount, results };
+  },
+});
+
 /** Optional check-out (§20) — never releases paid inventory. */
 export const checkOutGuest = mutation({
   args: {

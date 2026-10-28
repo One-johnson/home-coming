@@ -40,6 +40,7 @@ import {
 } from "./agcAccommodation";
 import {
   getAccommodationTypesConfig,
+  getAutoAssignEnabled,
   getBishopRate,
   getPoolTotalOverrides,
 } from "./lib/agcSettingsRuntime";
@@ -139,6 +140,7 @@ export const getAgcSystemStatus = query({
       : null;
     return {
       locked: lockdown?.value === "true",
+      autoAssignEnabled: await getAutoAssignEnabled(ctx),
       smtp: smtp
         ? {
             configured: true as const,
@@ -192,6 +194,43 @@ export const setRegistrationLockdown = mutation({
   },
 });
 
+/**
+ * Arm or disarm the one-click rooming button (Settings → Operations).
+ * Off by default — automatic rooming is an opt-in shortcut, not the way the
+ * inventory is normally filled. Takes effect immediately and is audit-logged.
+ */
+export const setAutoAssignEnabled = mutation({
+  args: {
+    sessionToken: sessionTokenValidator,
+    enabled: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireAdmin(ctx, args.sessionToken);
+    const key = AGC_SETTING_KEYS.autoAssign;
+    const existing = await ctx.db
+      .query("agcSettings")
+      .withIndex("by_key", (q) => q.eq("key", key))
+      .unique();
+    const value = args.enabled ? "true" : "false";
+    if (existing) {
+      await ctx.db.patch(existing._id, { value, updatedAt: Date.now() });
+    } else {
+      await ctx.db.insert("agcSettings", { key, value, updatedAt: Date.now() });
+    }
+    await writeAuditLog(ctx, {
+      actorUserId: actor._id,
+      actorEmail: actor.email,
+      action: args.enabled
+        ? "agc_settings.auto_assign_enabled"
+        : "agc_settings.auto_assign_disabled",
+      entityType: "agcSettings",
+      entityId: key,
+      summary: `${args.enabled ? "Enabled" : "Disabled"} one-click auto room assignment`,
+    });
+    return { success: true as const, enabled: args.enabled };
+  },
+});
+
 export const setAgcSetting = mutation({
   args: {
     sessionToken: sessionTokenValidator,
@@ -206,6 +245,7 @@ export const setAgcSetting = mutation({
       v.literal("accommodation_labels"),
       v.literal("bishop_rate"),
       v.literal("pool_totals"),
+      v.literal("auto_assign_enabled"),
     ),
     value: v.string(),
   },

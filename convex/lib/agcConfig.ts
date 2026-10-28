@@ -194,7 +194,12 @@ export const AGC_SETTING_KEYS = {
   bishopRate: "bishop_rate",
   /** JSON: { [type|scope]: number } — inventory pool totals, admin-editable. */
   poolTotals: "pool_totals",
+  /** "true" arms the one-click rooming button; off unless an admin opts in. */
+  autoAssign: "auto_assign_enabled",
 } as const;
+
+/** Auto-assign is opt-in: absent, empty or any other value means off. */
+export const AGC_AUTO_ASSIGN_DEFAULT = false;
 
 /** All setting keys accepted by setAgcSetting (type-safe union of values). */
 export const AGC_SETTING_KEY_LIST = Object.values(AGC_SETTING_KEYS) as readonly (

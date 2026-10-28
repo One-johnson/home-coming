@@ -9,6 +9,7 @@ import { agcAccommodationType, agcGender } from "./schemaTypes";
 import type { AgcGender } from "./schemaTypes";
 import { AGC_ACCOMMODATION_LABELS } from "../src/lib/agcPortal";
 import { getRepByToken } from "./agcPortal";
+import { getAutoAssignEnabled } from "./lib/agcSettingsRuntime";
 
 /**
  * Room-assignment workflow (admin accommodation area).
@@ -767,7 +768,27 @@ export const autoAssignGuests = mutation({
   args: { sessionToken: v.string() },
   handler: async (ctx, args) => {
     const actor = await requireArea(ctx, args.sessionToken);
+    // Off unless a super admin arms it in Settings: one click decides who
+    // sleeps where, so it is never the default. Manual assignment and the
+    // explicitly requested bulk panel still work either way.
+    if (!(await getAutoAssignEnabled(ctx))) {
+      throw new ConvexError(
+        "Auto-assign is turned off — a super admin can enable it in Settings → Operations, or assign rooms manually",
+      );
+    }
     return await runAutoAssignment(ctx, actor.email);
+  },
+});
+
+/**
+ * Rooming switches the rooms screen needs, readable by the team that uses the
+ * screen (Settings itself is super-admin only).
+ */
+export const getRoomingSettings = query({
+  args: { sessionToken: v.string() },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, args.sessionToken, [...ASSIGN_ROLES]);
+    return { autoAssignEnabled: await getAutoAssignEnabled(ctx) };
   },
 });
 

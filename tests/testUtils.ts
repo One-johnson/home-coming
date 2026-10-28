@@ -26,6 +26,7 @@ const modules = {
   "convex/agcPortal.ts": () => import("../convex/agcPortal"),
   "convex/agcPoa.ts": () => import("../convex/agcPoa"),
   "convex/agcRoomAssignments.ts": () => import("../convex/agcRoomAssignments"),
+  "convex/agcRoomIssues.ts": () => import("../convex/agcRoomIssues"),
   "convex/lib/agcPoaRuntime.ts": () => import("../convex/lib/agcPoaRuntime"),
   "convex/agcCheckin.ts": () => import("../convex/agcCheckin"),
   "convex/agcOffline.ts": () => import("../convex/agcOffline"),

@@ -163,6 +163,25 @@ export const agcPaymentOverride = v.object({
   authorizedAt: v.number(),
 });
 
+/**
+ * Maintenance problems raised against a physical room — a broken toilet, no
+ * running water, a dead socket. Kept as their own records so a room can carry
+ * several at once and each keeps who raised it and when it was fixed.
+ */
+export const agcRoomIssueCategory = v.union(
+  v.literal("toilet"),
+  v.literal("water"),
+  v.literal("electrical"),
+  v.literal("door_lock"),
+  v.literal("cleaning"),
+  v.literal("other"),
+);
+
+export const agcRoomIssueStatus = v.union(
+  v.literal("open"),
+  v.literal("fixed"),
+);
+
 // ------------------------------------------------------------------
 // Inferred types
 // ------------------------------------------------------------------
@@ -183,3 +202,5 @@ export type AgcKeyReturnStatus = Infer<typeof agcKeyReturnStatus>;
 export type AgcOfflineAction = Infer<typeof agcOfflineAction>;
 export type AgcOfflineSyncStatus = Infer<typeof agcOfflineSyncStatus>;
 export type AgcPaymentOverride = Infer<typeof agcPaymentOverride>;
+export type AgcRoomIssueCategory = Infer<typeof agcRoomIssueCategory>;
+export type AgcRoomIssueStatus = Infer<typeof agcRoomIssueStatus>;

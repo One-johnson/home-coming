@@ -84,6 +84,8 @@ type AgcSettings = {
 
 type AgcSystemStatus = {
   locked: boolean;
+  /** Whether the rooms screen may run the one-click rooming shortcut. */
+  autoAssignEnabled: boolean;
   smtp:
     | { configured: true; host: string; port: number; secure: boolean; from: string }
     | { configured: false };
@@ -388,6 +390,7 @@ function AgcSettingsForm({
   const setSetting = useMutation(api.agcAdminData.setAgcSetting);
   const setPoolTotal = useMutation(api.agcAdminData.setPoolTotal);
   const setLockdown = useMutation(api.agcAdminData.setRegistrationLockdown);
+  const setAutoAssignEnabled = useMutation(api.agcAdminData.setAutoAssignEnabled);
   // Payment-on-arrival hub grants (instant, not part of the save workflow).
   const poaHubs = useQuery(
     api.agcPoa.listPoaHubsAdmin,
@@ -801,6 +804,28 @@ function AgcSettingsForm({
       return;
     }
     void toggleLockdown();
+  };
+
+  // --- Auto-assign (instant; off unless armed here) ---------------------
+  const [autoAssignBusy, setAutoAssignBusy] = useState(false);
+  const toggleAutoAssign = async () => {
+    if (!sessionToken || !systemStatus || autoAssignBusy) return;
+    const next = !systemStatus.autoAssignEnabled;
+    setAutoAssignBusy(true);
+    try {
+      await setAutoAssignEnabled({ sessionToken, enabled: next });
+      toast.success(
+        next
+          ? "Auto-assign is now available on the rooms screen"
+          : "Auto-assign hidden — rooms are filled by hand",
+      );
+    } catch (err) {
+      toast.error(
+        ...toastFriendlyErrorParts(err, "Failed to update auto-assign"),
+      );
+    } finally {
+      setAutoAssignBusy(false);
+    }
   };
 
   return (
@@ -1394,6 +1419,49 @@ function AgcSettingsForm({
               </button>
             )}
           </div>
+
+          <div className="flex flex-wrap items-start justify-between gap-3 rounded-lg border p-3">
+            <div className="max-w-lg space-y-1">
+              <Label className="text-sm">Auto-assign rooms</Label>
+              <p className="text-xs text-muted-foreground">
+                Shows the one-click “Auto-assign guests” button on the rooms
+                screen, which fills every free bed from the matching queue.
+                Off by default — only turn it on for a bulk rooming pass, then
+                switch it back off. Manual and bulk assignment work either way.
+              </p>
+              {systemStatus?.autoAssignEnabled && (
+                <p className="text-xs font-semibold text-amber-700 dark:text-amber-400">
+                  ON — the rooms screen can fill beds automatically.
+                </p>
+              )}
+            </div>
+            {systemStatus === undefined ? (
+              <Skeleton className="h-6 w-11 rounded-full" />
+            ) : (
+              <button
+                type="button"
+                role="switch"
+                aria-checked={systemStatus.autoAssignEnabled}
+                aria-label="Auto-assign rooms"
+                disabled={autoAssignBusy}
+                onClick={() => void toggleAutoAssign()}
+                className={cn(
+                  "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50",
+                  systemStatus.autoAssignEnabled
+                    ? "bg-emerald-600"
+                    : "border border-border bg-muted",
+                )}
+              >
+                <span
+                  className={cn(
+                    "pointer-events-none block size-4 rounded-full bg-white shadow transition-transform",
+                    systemStatus.autoAssignEnabled ? "translate-x-6" : "translate-x-1",
+                  )}
+                />
+              </button>
+            )}
+          </div>
+
           <div className="space-y-1 rounded-lg border p-3">
             <div className="flex flex-wrap items-center gap-2">
               <Label className="text-sm">Email delivery (SMTP)</Label>

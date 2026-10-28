@@ -15,6 +15,8 @@ import {
   agcPaymentStatus,
   agcPoaRecord,
   agcRegion,
+  agcRoomIssueCategory,
+  agcRoomIssueStatus,
 } from "./schemaTypes";
 
 export * from "./schemaTypes";
@@ -595,6 +597,31 @@ export default defineSchema({
     publishedBy: v.optional(v.string()),
     deletedAt: v.optional(v.number()),
   }).index("by_type", ["accommodationType"]),
+
+  /**
+   * Maintenance flag on a physical room — "the toilet is broken". One row per
+   * problem, so a room can carry several; fixing keeps the record for history.
+   */
+  agcRoomIssues: defineTable({
+    roomId: v.id("agcRooms"),
+    /** Snapshot so the flag still reads correctly if the room is renamed. */
+    roomName: v.string(),
+    accommodationType: agcAccommodationType,
+    building: v.optional(v.string()),
+    category: agcRoomIssueCategory,
+    /** What exactly is wrong — required, shown on the room card. */
+    note: v.string(),
+    status: agcRoomIssueStatus,
+    reportedAt: v.number(),
+    reportedBy: v.string(),
+    reportedByRole: v.optional(v.string()),
+    resolvedAt: v.optional(v.number()),
+    resolvedBy: v.optional(v.string()),
+    resolutionNote: v.optional(v.string()),
+  })
+    .index("by_room", ["roomId"])
+    .index("by_status", ["status"])
+    .index("by_reported_at", ["reportedAt"]),
 
   /** Per-room key record — WSL / Good General / EBPV (Phase 2 §14–15). */
   agcKeys: defineTable({

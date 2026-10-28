@@ -8,12 +8,15 @@ import {
   Download,
   DoorOpen,
   Eye,
+  Flag,
+  Loader2Icon,
   Printer,
   Sparkles,
   Trash2,
   Undo2,
   Upload,
   UserPlus,
+  Wrench,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
@@ -25,6 +28,8 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -128,12 +133,34 @@ type ImportRow = {
 
 const TYPES = ["dormitory", "hostel", "wise_serpents", "good_general", "ebpv"] as const;
 
+/** Room problems the team actually raises on site, in the order they check.
+ * The fallback covers a value written by an older build. */
+const ISSUE_CATEGORIES = [
+  "toilet",
+  "water",
+  "electrical",
+  "door_lock",
+  "cleaning",
+  "other",
+] as const;
+const ISSUE_LABEL: Record<string, string> = {
+  toilet: "Toilet",
+  water: "Water",
+  electrical: "Electrical",
+  door_lock: "Door / lock",
+  cleaning: "Cleaning",
+  other: "Other",
+};
+
 type RoomView = "all" | "published" | "unpublished";
 const TYPE_LABEL = (type: string) =>
   AGC_ACCOMMODATION_LABELS[type as keyof typeof AGC_ACCOMMODATION_LABELS] ?? type;
 
 export function RoomsTab() {
-  const { sessionToken } = useAdminSession();
+  const { sessionToken, user } = useAdminSession();
+  // Raising a problem is for everyone who walks the rooms; closing one is the
+  // accommodation team's call (mirrors the server-side role gate).
+  const canFixIssues = user?.role === "admin" || user?.role === "accommodation";
   const rooms = useQuery(
     api.agcRoomAssignments.listRoomsAdmin,
     sessionToken ? { sessionToken } : "skip",
@@ -147,6 +174,16 @@ export function RoomsTab() {
   const assignGuests = useMutation(api.agcRoomAssignments.assignGuests);
   const unassignGuest = useMutation(api.agcRoomAssignments.unassignGuest);
   const autoAssign = useMutation(api.agcRoomAssignments.autoAssignGuests);
+  const roomingSettings = useQuery(
+    api.agcRoomAssignments.getRoomingSettings,
+    sessionToken ? { sessionToken } : "skip",
+  );
+  const roomIssues = useQuery(
+    api.agcRoomIssues.listRoomIssues,
+    sessionToken ? { sessionToken } : "skip",
+  );
+  const flagRoomIssue = useMutation(api.agcRoomIssues.flagRoom);
+  const resolveRoomIssue = useMutation(api.agcRoomIssues.resolveRoomIssue);
   const publishRooms = useMutation(api.agcRoomAssignments.publishRooms);
   const deleteRooms = useMutation(api.agcRoomAssignments.deleteRooms);
   const restoreRooms = useMutation(api.agcRoomAssignments.restoreRooms);
@@ -172,6 +209,13 @@ export function RoomsTab() {
   const [busy, setBusy] = useState(false);
   const [roomingOpen, setRoomingOpen] = useState(false);
   const [roomingType, setRoomingType] = useState<string>("all");
+
+  // Room maintenance flag dialog
+  const [flagTarget, setFlagTarget] = useState<RoomRow | null>(null);
+  const [flagCategory, setFlagCategory] =
+    useState<(typeof ISSUE_CATEGORIES)[number]>("toilet");
+  const [flagNote, setFlagNote] = useState("");
+  const [flagBusy, setFlagBusy] = useState(false);
   const [publishScopeValue, setPublishScopeValue] = useState("");
 
   // Bulk delete dialog
@@ -204,6 +248,21 @@ export function RoomsTab() {
 
   const list = useMemo(() => rooms ?? [], [rooms]);
   const guests = useMemo(() => unassigned ?? [], [unassigned]);
+  // undefined = still loading; an empty array is a genuinely empty inventory.
+  const loadingRooms = rooms === undefined;
+  const loadingGuests = unassigned === undefined;
+  const autoAssignEnabled = roomingSettings?.autoAssignEnabled ?? false;
+
+  /** Open maintenance flags per room, so each card shows its own problems. */
+  const issuesByRoom = useMemo(() => {
+    const map = new Map<string, NonNullable<typeof roomIssues>["issues"]>();
+    for (const issue of roomIssues?.issues ?? []) {
+      const listForRoom = map.get(issue.roomId) ?? [];
+      listForRoom.push(issue);
+      map.set(issue.roomId, listForRoom);
+    }
+    return map;
+  }, [roomIssues]);
   const totalBeds = list.reduce((sum, room) => sum + room.capacity, 0);
   const usedBeds = list.reduce((sum, room) => sum + room.occupants, 0);
 
@@ -340,6 +399,12 @@ export function RoomsTab() {
 
   const runAutoAssign = async () => {
     if (!sessionToken) return;
+    if (!autoAssignEnabled) {
+      toast.info(
+        "Auto-assign is turned off — a super admin can enable it in Settings → Operations.",
+      );
+      return;
+    }
     setBusy(true);
     try {
       const result = await autoAssign({ sessionToken });
@@ -351,6 +416,48 @@ export function RoomsTab() {
       toast.error(...toastFriendlyErrorParts(err, "Auto-assign failed"));
     } finally {
       setBusy(false);
+    }
+  };
+
+  const submitFlag = async () => {
+    if (!sessionToken || !flagTarget) return;
+    if (!flagNote.trim()) {
+      toast.error("Describe the problem so maintenance knows what to fix.");
+      return;
+    }
+    setFlagBusy(true);
+    try {
+      const result = await flagRoomIssue({
+        sessionToken,
+        roomId: flagTarget._id as Id<"agcRooms">,
+        category: flagCategory,
+        note: flagNote.trim(),
+      });
+      toast.success(
+        result.created
+          ? `Flagged ${flagTarget.name} — the room team sees it on this card.`
+          : `${flagTarget.name} already has that flag open.`,
+      );
+      setFlagTarget(null);
+      setFlagNote("");
+      setFlagCategory("toilet");
+    } catch (err) {
+      toast.error(...toastFriendlyErrorParts(err, "Could not flag this room"));
+    } finally {
+      setFlagBusy(false);
+    }
+  };
+
+  const markRoomFixed = async (issueId: string, roomName: string) => {
+    if (!sessionToken) return;
+    try {
+      await resolveRoomIssue({
+        sessionToken,
+        issueId: issueId as Id<"agcRoomIssues">,
+      });
+      toast.success(`Marked fixed on ${roomName} — the flag stays in the log.`);
+    } catch (err) {
+      toast.error(...toastFriendlyErrorParts(err, "Could not update the flag"));
     }
   };
 
@@ -580,14 +687,29 @@ export function RoomsTab() {
         <Button size="sm" variant="outline" onClick={() => setImportOpen(true)}>
           <Upload className="size-4" /> Import inventory
         </Button>
+        {/* Auto rooming stays visible but inactive until a super admin arms
+            it in Settings, so the shortcut is discoverable without ever
+            filling beds by default. */}
         <Button
           size="sm"
           variant="outline"
-          disabled={busy || guests.length === 0 || list.length === 0}
+          disabled={
+            busy || guests.length === 0 || list.length === 0 || !autoAssignEnabled
+          }
+          title={
+            autoAssignEnabled
+              ? "Fill every free bed from the matching queue"
+              : "Turned off — a super admin can enable it in Settings → Operations"
+          }
           onClick={() => void runAutoAssign()}
         >
           <Sparkles className="size-4" /> Auto-assign guests ({guests.length})
         </Button>
+        {roomingSettings && !autoAssignEnabled && (
+          <span className="text-[11px] text-muted-foreground">
+            Off — enable in Settings → Operations
+          </span>
+        )}
         <Button size="sm" variant="outline" onClick={() => setRoomingOpen(true)} disabled={list.length === 0}>
           <Printer className="size-4" /> Rooming list
         </Button>
@@ -677,20 +799,45 @@ export function RoomsTab() {
         </Select>
         <span className="grow" />
         <span className="text-sm text-muted-foreground tabular-nums">
-          {usedBeds}/{totalBeds} {list.some((r) => r.accommodationType === "ebpv") ? "spaces" : "beds"} filled · {guests.length} awaiting a room
-          {roomSearch.trim() ? ` · ${matchedRooms} match(es)` : ""}
+          {loadingRooms
+            ? "Loading rooms…"
+            : `${usedBeds}/${totalBeds} ${list.some((r) => r.accommodationType === "ebpv") ? "spaces" : "beds"} filled · ${guests.length} awaiting a room`}
+          {!loadingRooms && roomSearch.trim() ? ` · ${matchedRooms} match(es)` : ""}
+          {(roomIssues?.openCount ?? 0) > 0
+            ? ` · ${roomIssues?.openCount} open flag(s)`
+            : ""}
         </span>
       </div>
 
-      {list.length === 0 && (
+      {loadingRooms ? (
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-busy="true" aria-label="Loading rooms">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="rounded-xl border p-3">
+              <div className="flex items-start justify-between gap-2">
+                <Skeleton className="h-4 w-28" />
+                <Skeleton className="h-5 w-10" />
+              </div>
+              <Skeleton className="mt-2 h-3 w-36" />
+              <Skeleton className="mt-3 h-7 w-40" />
+            </div>
+          ))}
+        </div>
+      ) : list.length === 0 ? (
         <p className="rounded-xl border border-dashed px-3 py-8 text-center text-sm text-muted-foreground">
           No rooms yet — import the physical inventory from Excel, add rooms
-          manually, then assign guests (or use auto-assign).
+          manually, then assign guests.
         </p>
-      )}
+      ) : null}
 
       {/* Bulk assignment (§5A/§6) — tick delegates, pick a room, assign. */}
-      <BulkAssignPanel guests={guests} rooms={list} />
+      {loadingGuests ? (
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+          <Skeleton className="h-64 rounded-xl" />
+          <Skeleton className="h-64 rounded-xl" />
+        </div>
+      ) : (
+        <BulkAssignPanel guests={guests} rooms={list} />
+      )}
 
       {list.length > 0 && roomGroups.length === 0 && (
         <p className="rounded-xl border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
@@ -808,6 +955,34 @@ export function RoomsTab() {
                   {published ? "unpublish" : "publish"}
                 </button>
               </div>
+              {(issuesByRoom.get(room._id) ?? []).map((issue) => (
+                <div
+                  key={issue._id}
+                  className="mt-2 rounded-lg border border-l-4 border-rose-200 bg-rose-50/70 px-2 py-1.5 text-[11px] text-rose-900 dark:border-rose-900/70 dark:bg-rose-950/30 dark:text-rose-200"
+                >
+                  <p className="flex items-center gap-1 font-medium">
+                    <Wrench className="size-3 shrink-0" />
+                    {ISSUE_LABEL[issue.category] ?? issue.category}
+                  </p>
+                  <p className="mt-0.5 leading-snug">{issue.note}</p>
+                  <div className="mt-1 flex flex-wrap items-center justify-between gap-1">
+                    <span className="text-rose-700/80 dark:text-rose-300/80">
+                      {issue.reportedBy} ·{" "}
+                      {new Date(issue.reportedAt).toLocaleDateString()}
+                    </span>
+                    {canFixIssues && (
+                      <button
+                        type="button"
+                        className="font-medium underline underline-offset-2 hover:text-rose-950 dark:hover:text-rose-100"
+                        onClick={() => void markRoomFixed(issue._id, room.name)}
+                      >
+                        Mark fixed
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+
               {room.assignments.length > 0 && (
                 <ul className="mt-2 space-y-1">
                   {room.assignments.map((a) => {
@@ -854,6 +1029,19 @@ export function RoomsTab() {
                   onClick={() => openRoomForm(room)}
                 >
                   Edit
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 gap-1 text-xs text-rose-700 hover:text-rose-800 dark:text-rose-400"
+                  title="Flag a problem with this room — broken toilet, no water, faulty lock"
+                  onClick={() => {
+                    setFlagTarget(room);
+                    setFlagCategory("toilet");
+                    setFlagNote("");
+                  }}
+                >
+                  <Flag className="size-3" /> Flag issue
                 </Button>
                 <Button
                   size="sm"
@@ -1053,6 +1241,87 @@ export function RoomsTab() {
                 disabled={busy || assignPicks.length === 0}
               >
                 Assign {assignPicks.length || ""}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Flag a room problem — toilet broken, water not flowing, faulty lock */}
+      <Dialog
+        open={flagTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setFlagTarget(null);
+            setFlagNote("");
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Flag {flagTarget?.name}</DialogTitle>
+            <DialogDescription>
+              Record what is wrong so the next delegate is not put in a room
+              with a known problem. The flag stays on the room card until the
+              accommodation team marks it fixed, and a delegate can still be
+              assigned here.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>What is wrong</Label>
+              <Select
+                value={flagCategory}
+                onValueChange={(value) =>
+                  setFlagCategory(
+                    (value ?? "other") as (typeof ISSUE_CATEGORIES)[number],
+                  )
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ISSUE_CATEGORIES.map((category) => (
+                    <SelectItem key={category} value={category}>
+                      {ISSUE_LABEL[category]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Details (required)</Label>
+              <Textarea
+                value={flagNote}
+                onChange={(e) => setFlagNote(e.target.value)}
+                placeholder="e.g. Toilet will not flush; the tap in the bathroom has no water"
+                rows={3}
+                aria-label="Room problem details"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Write it as you would tell a colleague — this is the whole note
+                the room team sees.
+              </p>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setFlagTarget(null)}
+                disabled={flagBusy}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={() => void submitFlag()}
+                disabled={flagBusy || !flagNote.trim()}
+              >
+                {flagBusy ? (
+                  <Loader2Icon className="size-4 animate-spin" />
+                ) : (
+                  <Flag className="size-4" />
+                )}
+                Flag room
               </Button>
             </div>
           </div>

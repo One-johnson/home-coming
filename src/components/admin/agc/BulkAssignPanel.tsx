@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 import { useMutation } from "convex/react";
 import { BedDouble, Loader2Icon, UserPlus } from "lucide-react";
 import { toast } from "sonner";
@@ -44,6 +44,57 @@ const TYPE_LABEL = (type: string) =>
   AGC_ACCOMMODATION_LABELS[type as keyof typeof AGC_ACCOMMODATION_LABELS] ?? type;
 
 /**
+ * One delegate in the waiting list. Memoised on purpose: the desk ticks guests
+ * one at a time through a list of hundreds, and re-rendering every row for a
+ * single tick is what made the click feel slow.
+ */
+const GuestRow = memo(function GuestRow({
+  guest,
+  checked,
+  compatible,
+  onToggle,
+}: {
+  guest: Guest;
+  checked: boolean;
+  compatible: boolean;
+  onToggle: (guestId: string) => void;
+}) {
+  return (
+    <li
+      className={cn(
+        "flex items-center gap-3 px-4 py-2.5 text-sm",
+        !compatible && "opacity-50",
+        checked && "bg-primary/5",
+      )}
+    >
+      <Checkbox
+        checked={checked}
+        disabled={!compatible}
+        onCheckedChange={() => onToggle(guest._id)}
+        aria-label={`Select ${guest.name}`}
+      />
+      <button
+        type="button"
+        disabled={!compatible}
+        onClick={() => onToggle(guest._id)}
+        className="min-w-0 flex-1 truncate text-left font-medium disabled:cursor-not-allowed"
+      >
+        {guest.name}
+      </button>
+      <span className="hidden w-16 capitalize text-muted-foreground sm:block">
+        {guest.gender}
+      </span>
+      <span className="hidden w-24 truncate text-muted-foreground md:block">
+        {guest.hubName}
+      </span>
+      <span className="w-40 truncate text-right text-xs text-muted-foreground">
+        {TYPE_LABEL(guest.accommodationType)}
+      </span>
+    </li>
+  );
+});
+
+/**
  * Bulk assignment (§6) as one screen: tick who is waiting on the left, pick a
  * bed on the right, assign. Capacity, room type and single-gender rules are
  * shown before submitting and still enforced by the server.
@@ -82,7 +133,41 @@ export function BulkAssignPanel({
     });
   }, [guests, gender, hub, type, search]);
 
-  const room = rooms.find((candidate) => candidate._id === roomId) ?? null;
+  /**
+   * The room card follows the same filters as the delegate list. A room-type
+   * filter is literal; a hub filter narrows to the types that hub's delegates
+   * actually booked, because a room of another type could never take them.
+   * The selected room is released if a filter hides it, so the Assign button
+   * never points at a room that is no longer on screen.
+   */
+  const roomsShown = useMemo(() => {
+    const hubTypes =
+      hub === "all"
+        ? null
+        : new Set(
+            guests
+              .filter((guest) => guest.hubName === hub)
+              .map((guest) => guest.accommodationType),
+          );
+    return rooms
+      .filter((candidate) => {
+        if (candidate.occupants >= candidate.capacity) return false;
+        if (type !== "all" && candidate.accommodationType !== type) return false;
+        if (hubTypes && !hubTypes.has(candidate.accommodationType)) return false;
+        return true;
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [guests, hub, rooms, type]);
+
+  /** Changing a filter releases the chosen room, so the button never points
+   * at a room the new filter hid. Resetting in the handlers keeps this out of
+   * a render-time effect (which would cascade renders). */
+  const releaseRoom = () => {
+    setRoomId("");
+    setPicks([]);
+  };
+
+  const room = roomsShown.find((candidate) => candidate._id === roomId) ?? null;
   const free = room ? Math.max(0, room.capacity - room.occupants) : 0;
 
   /** Guests the selected room can physically take (type + gender lock). */
@@ -95,12 +180,15 @@ export function BulkAssignPanel({
 
   const selectable = shown.filter((guest) => fits(guest, room));
 
-  const toggle = (guestId: string) =>
-    setPicks((current) =>
-      current.includes(guestId)
-        ? current.filter((id) => id !== guestId)
-        : [...current, guestId],
-    );
+  const toggle = useCallback(
+    (guestId: string) =>
+      setPicks((current) =>
+        current.includes(guestId)
+          ? current.filter((id) => id !== guestId)
+          : [...current, guestId],
+      ),
+    [],
+  );
 
   /** "Select all shown" never exceeds the chosen room's free beds. */
   const selectAllShown = () => {
@@ -159,7 +247,10 @@ export function BulkAssignPanel({
                   key={value}
                   type="button"
                   aria-pressed={gender === value}
-                  onClick={() => setGender(value)}
+                  onClick={() => {
+                    setGender(value);
+                    releaseRoom();
+                  }}
                   className={cn(
                     "h-8 rounded-full border px-3 text-xs font-medium capitalize transition-colors",
                     gender === value
@@ -171,7 +262,13 @@ export function BulkAssignPanel({
                 </button>
               ))}
             </div>
-            <Select value={hub} onValueChange={(value) => setHub(value ?? "all")}>
+            <Select
+              value={hub}
+              onValueChange={(value) => {
+                setHub(value ?? "all");
+                releaseRoom();
+              }}
+            >
               <SelectTrigger className="h-8 w-auto min-w-32 rounded-full px-3 text-xs" aria-label="Filter by hub">
                 <SelectValue />
               </SelectTrigger>
@@ -182,7 +279,13 @@ export function BulkAssignPanel({
                 ))}
               </SelectContent>
             </Select>
-            <Select value={type} onValueChange={(value) => setType(value ?? "all")}>
+            <Select
+              value={type}
+              onValueChange={(value) => {
+                setType(value ?? "all");
+                releaseRoom();
+              }}
+            >
               <SelectTrigger className="h-8 w-auto min-w-36 rounded-full px-3 text-xs" aria-label="Filter by room type">
                 <SelectValue />
               </SelectTrigger>
@@ -208,6 +311,7 @@ export function BulkAssignPanel({
                 setHub("all");
                 setType("all");
                 setSearch("");
+                setRoomId("");
                 setPicks([]);
               }}
             >
@@ -246,93 +350,88 @@ export function BulkAssignPanel({
           </p>
         ) : (
           <ul className="max-h-[420px] divide-y overflow-y-auto">
-            {shown.map((guest) => {
-              const compatible = fits(guest, room);
-              const checked = picks.includes(guest._id);
-              return (
-                <li
-                  key={guest._id}
-                  className={cn(
-                    "flex items-center gap-3 px-4 py-2.5 text-sm",
-                    !compatible && "opacity-50",
-                    checked && "bg-primary/5",
-                  )}
-                >
-                  <Checkbox
-                    checked={checked}
-                    disabled={!compatible}
-                    onCheckedChange={() => toggle(guest._id)}
-                    aria-label={`Select ${guest.name}`}
-                  />
-                  <button
-                    type="button"
-                    disabled={!compatible}
-                    onClick={() => toggle(guest._id)}
-                    className="min-w-0 flex-1 truncate text-left font-medium disabled:cursor-not-allowed"
-                  >
-                    {guest.name}
-                  </button>
-                  <span className="hidden w-16 capitalize text-muted-foreground sm:block">
-                    {guest.gender}
-                  </span>
-                  <span className="hidden w-24 truncate text-muted-foreground md:block">
-                    {guest.hubName}
-                  </span>
-                  <span className="w-40 truncate text-right text-xs text-muted-foreground">
-                    {TYPE_LABEL(guest.accommodationType)}
-                  </span>
-                </li>
-              );
-            })}
+            {shown.map((guest) => (
+              <GuestRow
+                key={guest._id}
+                guest={guest}
+                checked={picks.includes(guest._id)}
+                compatible={fits(guest, room)}
+                onToggle={toggle}
+              />
+            ))}
           </ul>
         )}
       </div>
 
       <div className="h-fit rounded-xl border bg-card lg:sticky lg:top-20">
         <div className="border-b px-4 py-3">
-          <h2 className="text-base font-semibold">Assign to room</h2>
+          <h2 className="text-base font-semibold">
+            Assign to room
+            <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+              ({roomsShown.length})
+            </span>
+          </h2>
           <p className="text-xs text-muted-foreground">
             Tick delegates, then pick the room they go to.
           </p>
+          {(type !== "all" || hub !== "all") && (
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Following the filters:{" "}
+              {[type !== "all" ? TYPE_LABEL(type) : null, hub !== "all" ? `rooms for ${hub}` : null]
+                .filter(Boolean)
+                .join(" · ")}
+              .{" "}
+              <button
+                type="button"
+                className="font-medium underline underline-offset-2 hover:text-foreground"
+                onClick={() => {
+                  setType("all");
+                  setHub("all");
+                  releaseRoom();
+                }}
+              >
+                Show all rooms
+              </button>
+            </p>
+          )}
         </div>
         <div className="max-h-[420px] space-y-2 overflow-y-auto p-3">
-          {rooms.filter((candidate) => candidate.occupants < candidate.capacity).length === 0 ? (
+          {roomsShown.length === 0 ? (
             <p className="rounded-lg border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
-              No free beds — add or free up rooms first.
+              {type !== "all" || hub !== "all"
+                ? "No room with a free bed matches these filters — clear them to see the rest."
+                : "No free beds — add or free up rooms first."}
             </p>
           ) : (
-            rooms
-              .filter((candidate) => candidate.occupants < candidate.capacity)
-              .sort((a, b) => a.name.localeCompare(b.name))
-              .map((candidate) => {
-                const bedsFree = candidate.capacity - candidate.occupants;
-                const active = candidate._id === roomId;
-                return (
-                  <button
-                    key={candidate._id}
-                    type="button"
-                    aria-pressed={active}
-                    onClick={() => chooseRoom(candidate)}
-                    className={cn(
-                      "w-full rounded-lg border px-3 py-2 text-left transition-colors",
-                      active
-                        ? "border-primary bg-primary/5 ring-1 ring-primary"
-                        : "hover:bg-muted/60",
-                    )}
-                  >
-                    <span className="block text-sm font-semibold">{candidate.name}</span>
-                    <span className="block text-xs text-muted-foreground">
-                      {TYPE_LABEL(candidate.accommodationType)} · {bedsFree} free bed
-                      {bedsFree === 1 ? "" : "s"} ·{" "}
-                      {candidate.gender
-                        ? `${candidate.gender} room`
-                        : candidate.accommodationType === "ebpv"
-                          ? "mixed apartment"
-                          : "No gender yet"}
-                    </span>
-                  </button>
-                );
-              })
+            roomsShown.map((candidate) => {
+              const bedsFree = candidate.capacity - candidate.occupants;
+              const active = candidate._id === roomId;
+              return (
+                <button
+                  key={candidate._id}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => chooseRoom(candidate)}
+                  className={cn(
+                    "w-full rounded-lg border px-3 py-2 text-left transition-colors",
+                    active
+                      ? "border-primary bg-primary/5 ring-1 ring-primary"
+                      : "hover:bg-muted/60",
+                  )}
+                >
+                  <span className="block text-sm font-semibold">{candidate.name}</span>
+                  <span className="block text-xs text-muted-foreground">
+                    {TYPE_LABEL(candidate.accommodationType)} · {bedsFree} free bed
+                    {bedsFree === 1 ? "" : "s"} ·{" "}
+                    {candidate.gender
+                      ? `${candidate.gender} room`
+                      : candidate.accommodationType === "ebpv"
+                        ? "mixed apartment"
+                        : "No gender yet"}
+                  </span>
+                </button>
+              );
+            })
           )}
         </div>
         <div className="space-y-2 border-t p-3">
