@@ -28,6 +28,8 @@ const SYNC_ROLES = ["admin", "accommodation", "room_assignment", "checkin"] as c
  * conflicts too, because they are the ones who find them.
  */
 const APPROVER_ROLES = ["admin", "accommodation", "room_assignment"] as const;
+/** A posted desk may claim its own building's station; moves stay approver-only. */
+const STATION_ROLES = [...APPROVER_ROLES, "checkin"] as const;
 const MAX_BATCH = 25;
 
 export type QueuedTransaction = {
@@ -52,9 +54,7 @@ export const registerStation = mutation({
     stationName: v.string(),
   },
   handler: async (ctx, args) => {
-    const actor = await requireRole(ctx, args.sessionToken, [
-      ...APPROVER_ROLES,
-    ]);
+    const actor = await requireRole(ctx, args.sessionToken, [...STATION_ROLES]);
     const building = args.building.trim();
     const stationName = args.stationName.trim();
     if (!building || !stationName) {
@@ -65,6 +65,30 @@ export const registerStation = mutation({
       .query("agcOfflineStations")
       .withIndex("by_building", (q) => q.eq("building", building))
       .collect();
+
+    // A check-in desk is posted to one building and may claim that building's
+    // station itself, but only on a device nobody has claimed yet: re-pointing
+    // a live station affects another desk's queued work, so that stays with an
+    // approver. Without this the dead-zone desk had to wait for an admin to
+    // turn up before it could take a single offline check-in.
+    if (actor.role === "checkin") {
+      if (!actor.defaultLocation) {
+        throw new ConvexError(
+          "Ask an admin to post you to a building before designating its offline station",
+        );
+      }
+      if (actor.defaultLocation !== building) {
+        throw new ConvexError(
+          `This account is posted to ${actor.defaultLocation} — it can only designate that building's station`,
+        );
+      }
+      const claimed = existing.find((station) => station.active);
+      if (claimed) {
+        throw new ConvexError(
+          `${building} already has a designated station (${claimed.stationName}) — ask an admin to move it`,
+        );
+      }
+    }
     // Only one designated station per building — re-point the marker.
     for (const station of existing) {
       if (!station.active) {

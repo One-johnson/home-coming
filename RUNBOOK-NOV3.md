@@ -117,8 +117,10 @@ only. Dorms/hostels get wristbands — nothing recorded.
 One designated device per building (dorm hexes need this — expect dead zones).
 
 1. On the computer serving that building, open Arrival and pick that building
-   as the location; an Admin (or the first staff member if none exists yet)
-   clicks **Designate this device**.
+   as the location, then click **Designate this device**. A check-in account
+   posted to that building can claim the station on first sign-in (the desk
+   prompts when none exists yet); moving a live station to another device
+   stays with an admin or the room team.
 2. If connectivity drops, the station keeps a local queue; check-ins taken
    while disconnected read **Queued offline** and are sent by **Push and sync**
    (or automatically when the connection returns). Queued transactions are

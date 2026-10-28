@@ -2282,6 +2282,74 @@ test("desk issues a key after check-in and can undo a check-in with a reason", a
   expect(audit.some((log) => log.action === "agc_key.issued")).toBe(true);
 });
 
+test("a posted check-in desk claims its building's offline station once", async () => {
+  const t = createTestConvex();
+  const admin = await seedStaff(t, "admin");
+  const desk = await seedStaff(t, "checkin");
+  const otherDesk = await seedStaff(t, "checkin");
+
+  // Unposted accounts have no building whose station they could claim.
+  await expect(() =>
+    t.mutation(api.agcOffline.registerStation, {
+      sessionToken: desk.token,
+      building: "Blocks 1–4",
+      stationName: "Station Blocks 1–4",
+    }),
+  ).rejects.toThrow(/post you to a building/);
+
+  await t.mutation(api.users.setUserDefaultLocation, {
+    sessionToken: admin.token,
+    userId: desk.userId,
+    defaultLocation: "Blocks 1–4",
+  });
+
+  // Posted there, the desk claims the station itself on first sign-in.
+  await t.mutation(api.agcOffline.registerStation, {
+    sessionToken: desk.token,
+    building: "Blocks 1–4",
+    stationName: "Station Blocks 1–4",
+  });
+  let stations = await t.query(api.agcOffline.listStations, {});
+  expect(
+    stations.filter((s) => s.building === "Blocks 1–4" && s.active).map((s) => s.stationName),
+  ).toEqual(["Station Blocks 1–4"]);
+
+  // It still cannot claim a building it was not posted to.
+  await expect(() =>
+    t.mutation(api.agcOffline.registerStation, {
+      sessionToken: desk.token,
+      building: "Blocks 5–8",
+      stationName: "Station Blocks 5–8",
+    }),
+  ).rejects.toThrow(/only designate that building/);
+
+  // A second desk cannot take over a station that is already claimed.
+  await t.mutation(api.users.setUserDefaultLocation, {
+    sessionToken: admin.token,
+    userId: otherDesk.userId,
+    defaultLocation: "Blocks 1–4",
+  });
+  await expect(() =>
+    t.mutation(api.agcOffline.registerStation, {
+      sessionToken: otherDesk.token,
+      building: "Blocks 1–4",
+      stationName: "Station Blocks 1–4 (hall B)",
+    }),
+  ).rejects.toThrow(/already has a designated station/);
+
+  // Moving a live station stays a deliberate approver action.
+  const approver = await seedStaff(t, "accommodation");
+  await t.mutation(api.agcOffline.registerStation, {
+    sessionToken: approver.token,
+    building: "Blocks 1–4",
+    stationName: "Station Blocks 1–4 (hall B)",
+  });
+  stations = await t.query(api.agcOffline.listStations, {});
+  expect(
+    stations.filter((s) => s.building === "Blocks 1–4" && s.active).map((s) => s.stationName),
+  ).toEqual(["Station Blocks 1–4 (hall B)"]);
+});
+
 test("a super admin posts a staff member to a building the desk then reads", async () => {
   const t = createTestConvex();
   const admin = await seedStaff(t, "admin");

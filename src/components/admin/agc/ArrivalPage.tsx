@@ -371,6 +371,8 @@ export function ArrivalPage() {
     typeof window === "undefined" ? [] : loadQueuedCheckIns(),
   );
   const [flushBusy, setFlushBusy] = useState(false);
+  const registerOfflineStation = useMutation(api.agcOffline.registerStation);
+  const [stationBusy, setStationBusy] = useState(false);
   const station = useMemo(
     () =>
       (stations ?? []).find(
@@ -580,7 +582,7 @@ export function ArrivalPage() {
     if (!station) {
       toast.error(`No designated offline station for ${deskLocation}`, {
         description:
-          "An admin or the room team must designate this device before queued arrivals can be sent.",
+          "Designate this device from the desk before queued arrivals can be sent — a posted check-in account can claim it on first sign-in.",
       });
       return;
     }
@@ -635,6 +637,33 @@ export function ArrivalPage() {
     queueOfflineTransactions,
     syncOfflineTransactions,
   ]);
+
+  /**
+   * Claim this device as the building's offline station. A posted check-in
+   * desk may do this once, on the device it will work from — otherwise a dead
+   * zone means waiting for an admin before the first offline check-in.
+   */
+  const designateDeskStation = async () => {
+    if (!sessionToken) return;
+    setStationBusy(true);
+    try {
+      await registerOfflineStation({
+        sessionToken,
+        building: deskLocation,
+        stationName: `Station ${deskLocation}`,
+      });
+      toast.success(`${deskLocation} is now this device's offline station.`, {
+        description:
+          "Check-ins taken here while disconnected are queued on this device and sent when it reconnects.",
+      });
+    } catch (err) {
+      toast.error(
+        ...toastFriendlyErrorParts(err, "Could not designate this device"),
+      );
+    } finally {
+      setStationBusy(false);
+    }
+  };
 
   // Reconnecting is the whole point of the queue: send it without being asked.
   useEffect(() => {
@@ -1113,6 +1142,37 @@ export function ArrivalPage() {
         reservedBeds={reservedDeskBeds}
         faultyRooms={faultyDeskRooms}
       />
+
+      {/* First sign-in on a dead-zone desk: claim the station before the
+          connection drops, without waiting for an admin to walk over. */}
+      {role === "checkin" &&
+        assignedBuilding &&
+        stations !== undefined &&
+        !station && (
+          <Card>
+            <CardContent className="flex flex-wrap items-center gap-2 p-2.5 text-xs">
+              <WifiOff className="size-4 shrink-0 text-amber-700 dark:text-amber-400" />
+              <span>
+                <strong>{deskLocation}</strong> has no offline station yet. Claim
+                this device before the connection drops, so check-ins taken here
+                are queued on it instead of lost.
+              </span>
+              <Button
+                size="sm"
+                className="ml-auto h-7 gap-1.5 text-xs"
+                disabled={stationBusy}
+                onClick={() => void designateDeskStation()}
+              >
+                {stationBusy ? (
+                  <Loader2Icon className="size-3.5 animate-spin" />
+                ) : (
+                  <WifiOff className="size-3.5" />
+                )}
+                Designate this device
+              </Button>
+            </CardContent>
+          </Card>
+        )}
 
       {/* Search + filters — the roster reads left to right, the selected
           delegate's full record opens beside it. */}
@@ -1760,6 +1820,9 @@ export function ArrivalPage() {
                 queuedCount={queuedCheckIns.length}
                 queueBusy={flushBusy}
                 onFlush={() => void flushOfflineCheckIns()}
+                canRegister={
+                  isApprover || (role === "checkin" && !!assignedBuilding)
+                }
               />
               <KeysPanel keys={keys ?? []} sessionToken={sessionToken} />
             </div>
@@ -3212,6 +3275,7 @@ function OfflinePanel({
   queuedCount,
   queueBusy,
   onFlush,
+  canRegister,
 }: {
   sessionToken: string | null;
   location: string;
@@ -3220,6 +3284,8 @@ function OfflinePanel({
   queuedCount: number;
   queueBusy: boolean;
   onFlush: () => void;
+  /** Approvers, and a posted check-in desk claiming its own building. */
+  canRegister: boolean;
 }) {
   const stations = useQuery(api.agcOffline.listStations, sessionToken ? {} : "skip");
   const registerStation = useMutation(api.agcOffline.registerStation);
@@ -3284,7 +3350,7 @@ function OfflinePanel({
             </p>
             {(isApprover || !station) && (
               <div className="flex gap-1.5">
-                {isApprover && !station && (
+                {canRegister && !station && (
                   <Button
                     size="sm"
                     variant="outline"
