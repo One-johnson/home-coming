@@ -163,6 +163,17 @@ const ROOM_ISSUE_LABEL: Record<string, string> = {
   other: "Other",
 };
 
+const ROOM_ISSUE_KEYS = [
+  "toilet",
+  "water",
+  "electrical",
+  "door_lock",
+  "cleaning",
+  "other",
+] as const;
+
+type RoomIssueCategory = (typeof ROOM_ISSUE_KEYS)[number];
+
 type KeyRow = {
   _id: string;
   roomId: string;
@@ -1343,6 +1354,8 @@ export function ArrivalPage() {
           <div className="grid gap-3 lg:grid-cols-2">
             <FaultsPanel
               issues={roomIssues?.issues ?? []}
+              rooms={publishedRooms ?? []}
+              sessionToken={sessionToken}
               canOpenRooms={canAccessArea(role, "accommodation")}
             />
             <RecentCheckIns data={recent ?? []} />
@@ -2263,6 +2276,8 @@ function KeysPanel({
  */
 function FaultsPanel({
   issues,
+  rooms,
+  sessionToken,
   canOpenRooms,
 }: {
   issues: Array<{
@@ -2277,23 +2292,100 @@ function FaultsPanel({
     reportedAt: number;
     reportedBy: string;
   }>;
+  /** Rooms the desk may raise a fault against. */
+  rooms: Array<{
+    _id: string;
+    name: string;
+    accommodationType: string;
+    building: string | null;
+    faulty?: boolean;
+  }>;
+  sessionToken: string | null;
   /** Room-assignment/accommodation staff can fix these on the rooms screen. */
   canOpenRooms: boolean;
 }) {
   const outOfService = issues.filter((issue) => issue.blocksRoom);
   const otherOpen = issues.length - outOfService.length;
 
+  // Anyone on the desk can raise a fault: the person who finds a broken toilet
+  // is standing in the room, not in front of the rooms grid.
+  const flagRoomIssue = useMutation(api.agcRoomIssues.flagRoom);
+  const [faultOpen, setFaultOpen] = useState(false);
+  const [faultRoomId, setFaultRoomId] = useState("");
+  const [faultCategory, setFaultCategory] = useState<RoomIssueCategory>("toilet");
+  const [faultNote, setFaultNote] = useState("");
+  const [faultBlocks, setFaultBlocks] = useState(true);
+  const [faultBusy, setFaultBusy] = useState(false);
+
+  const roomOptions = useMemo(
+    () => [...rooms].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })),
+    [rooms],
+  );
+
+  const submitFault = async () => {
+    if (!sessionToken || !faultRoomId) return;
+    if (!faultNote.trim()) {
+      toast.error("Describe the problem so maintenance knows what to fix.");
+      return;
+    }
+    setFaultBusy(true);
+    try {
+      const result = await flagRoomIssue({
+        sessionToken,
+        roomId: faultRoomId as Id<"agcRooms">,
+        category: faultCategory,
+        note: faultNote.trim(),
+        blocksRoom: faultBlocks,
+      });
+      const roomName = roomOptions.find((room) => room._id === faultRoomId)?.name ?? "Room";
+      toast.success(
+        result.created
+          ? faultBlocks
+            ? `${roomName} flagged — out of inventory until it is fixed.`
+            : `${roomName} flagged — the room team sees it on the rooms screen.`
+          : `${roomName} already has that fault open.`,
+      );
+      setFaultOpen(false);
+      setFaultRoomId("");
+      setFaultNote("");
+      setFaultCategory("toilet");
+      setFaultBlocks(true);
+    } catch (err) {
+      toast.error(...toastFriendlyErrorParts(err, "Could not flag the room"));
+    } finally {
+      setFaultBusy(false);
+    }
+  };
+
   return (
+    <>
     <Card>
       <CardContent className="p-3">
-        <p className="mb-2 flex flex-wrap items-center gap-1.5 text-xs font-medium text-muted-foreground">
+        <div className="mb-2 flex flex-wrap items-center gap-1.5 text-xs font-medium text-muted-foreground">
           <Wrench className="size-3.5" /> Out of service ({outOfService.length})
           {otherOpen > 0 && (
             <span className="font-normal">
               · {otherOpen} other open fault{otherOpen === 1 ? "" : "s"} don&apos;t block a room
             </span>
           )}
-        </p>
+          <span className="grow" />
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-7 gap-1 text-xs text-rose-700 hover:text-rose-800 dark:text-rose-400"
+            disabled={!sessionToken || roomOptions.length === 0}
+            onClick={() => {
+              setFaultRoomId("");
+              setFaultCategory("toilet");
+              setFaultNote("");
+              setFaultBlocks(true);
+              setFaultOpen(true);
+            }}
+          >
+            <Flag className="size-3" /> Flag a room
+          </Button>
+        </div>
         {outOfService.length === 0 ? (
           <p className="text-xs text-muted-foreground">
             Every room is in service — nothing is withdrawn from the inventory.
@@ -2341,6 +2433,107 @@ function FaultsPanel({
         )}
       </CardContent>
     </Card>
+
+      {/* Raise a fault from the desk — the person who finds it reports it. */}
+      <Dialog open={faultOpen} onOpenChange={setFaultOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Flag a room fault</DialogTitle>
+            <DialogDescription>
+              Record what is wrong. “Take out of inventory” keeps the room out of
+              every assignment until the room team marks it fixed; without it the
+              fault is only a note on the room.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>Room</Label>
+              <Select
+                value={faultRoomId}
+                onValueChange={(value) => setFaultRoomId(value ?? "")}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Choose the room…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {roomOptions.map((room) => (
+                    <SelectItem key={room._id} value={room._id}>
+                      {room.name} · {TYPE_LABEL(room.accommodationType)}
+                      {room.faulty ? " · already out of service" : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>What is wrong</Label>
+              <Select
+                value={faultCategory}
+                onValueChange={(value) =>
+                  setFaultCategory((value ?? "other") as RoomIssueCategory)
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ROOM_ISSUE_KEYS.map((category) => (
+                    <SelectItem key={category} value={category}>
+                      {ROOM_ISSUE_LABEL[category]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Details (required)</Label>
+              <Textarea
+                value={faultNote}
+                onChange={(e) => setFaultNote(e.target.value)}
+                placeholder="e.g. Toilet will not flush; no running water in the bathroom"
+                rows={3}
+                aria-label="Room fault details"
+              />
+            </div>
+            <label className="flex cursor-pointer items-start gap-2 rounded-lg border p-2.5 text-sm">
+              <Checkbox
+                checked={faultBlocks}
+                onCheckedChange={(checked) => setFaultBlocks(checked === true)}
+                className="mt-0.5"
+                aria-label="Take this room out of inventory until it is fixed"
+              />
+              <span>
+                <span className="block font-medium">Take out of inventory</span>
+                <span className="block text-xs text-muted-foreground">
+                  The room cannot be assigned until the fault is fixed. Leave this
+                  unticked for a note that does not withdraw the room.
+                </span>
+              </span>
+            </label>
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setFaultOpen(false)}
+                disabled={faultBusy}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={() => void submitFault()}
+                disabled={faultBusy || !faultRoomId || !faultNote.trim()}
+              >
+                {faultBusy ? (
+                  <Loader2Icon className="size-4 animate-spin" />
+                ) : (
+                  <Flag className="size-4" />
+                )}
+                Flag room
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 

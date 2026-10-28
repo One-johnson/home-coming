@@ -11,7 +11,7 @@ export default function AdminHelpPage() {
   return (
     <>
       <AdminPageHeader
-        description="Arrival-day runbook, November 3, 2026 — import flow, desk check-in, keys, offline stations, and the end-of-day reports. Search it by keyword."
+        description="Arrival-day runbook, November 3, 2026 — import flow, desk check-in, keys, offline stations, rooms (reserving, faults, walk-ins), desk tools and the end-of-day reports. Open a section or search by keyword."
       />
       <HelpRunbook />
     </>

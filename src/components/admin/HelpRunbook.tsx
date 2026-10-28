@@ -6,15 +6,19 @@ import {
   AlertTriangle,
   BedDouble,
   BookOpen,
+  ChevronDown,
   CircleCheck,
   ClipboardList,
   KeyRound,
   ListChecks,
+  Lock,
   Printer,
   Search,
   ShieldAlert,
+  UserPlus,
   Users,
   WifiOff,
+  Wrench,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -84,6 +88,12 @@ const ACCENTS: Record<string, Accent> = {
     icon: "text-indigo-700 dark:text-indigo-400",
     surface: "bg-indigo-50/60 dark:bg-indigo-950/20",
   },
+  rose: {
+    rail: "border-l-rose-500",
+    chip: "border-rose-300 bg-rose-50 text-rose-800 dark:border-rose-800 dark:bg-rose-950/60 dark:text-rose-300",
+    icon: "text-rose-700 dark:text-rose-400",
+    surface: "bg-rose-50/60 dark:bg-rose-950/20",
+  },
 };
 
 const STEP_STYLES: Record<
@@ -135,10 +145,13 @@ const SECTIONS: RunbookSection[] = [
         text: "Accommodation — rooms, import, publishing, overrides, corrections, reports.",
       },
       {
-        text: "Room assignment staff — sign in at /room-assignment: rooms/assignments/changes plus check-in/out and keys.",
+        text: "Room assignment staff — sign in at /room-assignment: they own the room inventory (import, publish, reserve, fault, delete), assign, move and unassign delegates, and run every desk action — overrides, corrections, clearing flags and resolving offline conflicts. They do not review bookings, pools or POA; money screens stay with Admin, Accommodation and Finance.",
       },
       {
-        text: "Check-in staff — sign in at /check-in: search, check-in/out, keys, status views only.",
+        text: "Check-in staff — sign in at /check-in: search, check-in/out, keys, status views only. They cannot assign rooms, change delegate details or clear a flag.",
+      },
+      {
+        text: "Anyone on the desk can raise a room fault (broken toilet, no water) from the Out of service panel, and anyone in the room team can fix it.",
       },
       {
         text: "Finance — registrations/POA verification, cash-collection desk, audit log.",
@@ -215,6 +228,11 @@ const SECTIONS: RunbookSection[] = [
         text: "Group check-in: pick the hub or arrival group, tick ONLY the delegates who physically arrived, then “Check in N arrived”. The rest of the group stays Not Arrived — nothing is auto-checked-in.",
       },
       {
+        heading: "Do",
+        kind: "do",
+        text: "Bulk check-in: tick ready delegates directly in the desk sheet (ready = bed + confirmed payment; other rows cannot be ticked), or “Select all ready”, then “Check in N”. Rejections are listed by name and reason — section 8 covers the details.",
+      },
+      {
         text: "Check-out is optional and never releases paid inventory. Dorms/hostels: wristband, not tracked. Key rooms: record Key returned / not returned.",
       },
     ],
@@ -265,7 +283,7 @@ const SECTIONS: RunbookSection[] = [
       {
         heading: "Never",
         kind: "never",
-        text: "Conflicts (e.g. the delegate was checked in centrally while the station was offline) are never applied silently — resolve them in “Offline sync exceptions” (Admin/Accommodation). Keep it at zero before end of day.",
+        text: "Conflicts (e.g. the delegate was checked in centrally while the station was offline) are never applied silently — resolve them in “Offline sync exceptions” (Admin, Accommodation or Room assignment). Keep it at zero before end of day.",
       },
     ],
     links: [{ href: "/admin/arrival", label: "Open offline station panel" }],
@@ -302,6 +320,121 @@ const SECTIONS: RunbookSection[] = [
       { href: "/admin/desk-checkin", label: "Open desk check-in" },
     ],
   },
+  {
+    id: "rooms",
+    title: "6. Rooms: reserving, faults and the stock numbers",
+    short: "6 · Rooms",
+    icon: Wrench,
+    accent: ACCENTS.rose,
+    steps: [
+      {
+        heading: "Do",
+        kind: "do",
+        text: "Rooms tab → the strip at the top is live stock: Available (beds and rooms), Reserved, Faulty, Occupied, Awaiting a room, and keys out/returned. If a number surprises you, open the room group under it — the cards show who is in each room.",
+      },
+      {
+        heading: "Do",
+        kind: "do",
+        text: "Reserve a room: Rooms → Reserve on an empty room, and write why — the reason is required and shows on the card. A reserved room is held out of Assign, bulk assign and every change-room picker, and auto-assign skips it. Apply reserve to several rooms from the bulk bar and they are held in one step.",
+      },
+      {
+        text: "Release a reservation with Release on the card (or release several from the bulk bar) when the held beds are needed again. A room that still holds delegates cannot be reserved, and a reserved room cannot be assigned into — release it first, then assign.",
+      },
+      {
+        heading: "Do",
+        kind: "do",
+        text: "Flag a fault: Rooms → Flag issue, or the desk's Out of service panel → Flag a room. Pick the category and write what is wrong — the note is required. “Take this room out of inventory” is ticked by default, so the room counts as Faulty and cannot be given to anyone. Untick it for a remark that should not withdraw the room.",
+      },
+      {
+        heading: "If it fails",
+        kind: "if-fails",
+        text: "A faulty room's card turns red, the desk marks the delegate's row Faulty, and the check-in and room-change dialogs repeat the warning. Fix it with Mark fixed on the room card — resolving the last blocking fault puts the room straight back into the available stock.",
+      },
+      {
+        heading: "Never",
+        kind: "never",
+        text: "Never give out a reserved or faulty room from memory or an old list. The server refuses it and the bed would be double-booked; use the live picker, which already excludes both.",
+      },
+      {
+        text: "Auto-assign is off unless a super admin turns it on in Settings → Operations. While it is off the button on the rooms screen is disabled and the server refuses the action; manual assignment works either way. When it is on, it fills free beds from the matching queue and still skips reserved and faulty rooms.",
+      },
+    ],
+    links: [
+      { href: "/admin/accommodation?tab=rooms", label: "Open Rooms tab" },
+      { href: "/admin/arrival", label: "Arrival desk" },
+    ],
+  },
+  {
+    id: "walkin",
+    title: "7. Last-minute delegates (volunteers and substitutions)",
+    short: "7 · Walk-ins",
+    icon: UserPlus,
+    accent: ACCENTS.indigo,
+    steps: [
+      {
+        heading: "Do",
+        kind: "do",
+        text: "Rooms → Add last-minute delegate: hub, title, first name, last name, gender and accommodation type, plus an optional note such as “Volunteer on the media team”. Both names and a hub are required.",
+      },
+      {
+        text: "This creates a confirmed, zero-value booking for one guest. No payment is recorded and no capacity-pool inventory is consumed. From that moment the volunteer behaves like any other delegate: they appear in Assign and the desk queue, take a bed, and check in normally.",
+      },
+      {
+        heading: "If it fails",
+        kind: "if-fails",
+        text: "The hub has to exist with a representative account before it can take a walk-in. If the hub is missing, ask an admin to add it on the Hubs page first — then add the delegate.",
+      },
+      {
+        heading: "Never",
+        kind: "never",
+        text: "Do not enter a paid delegate as a walk-in. Paid delegates come from their hub's booking so their payment, reference number and reports stay correct — use Assign for them.",
+      },
+    ],
+    links: [{ href: "/admin/accommodation?tab=rooms", label: "Open Rooms tab" }],
+  },
+  {
+    id: "desktools",
+    title: "8. Desk tools: bulk check-in, corrections, flags and sync failures",
+    short: "8 · Desk tools",
+    icon: ClipboardList,
+    accent: ACCENTS.violet,
+    steps: [
+      {
+        heading: "Do",
+        kind: "do",
+        text: "Bulk check-in: tick ready delegates in the desk sheet (ready means a bed plus confirmed payment — other rows cannot be ticked), or “Select all ready”, then “Check in N”. One refusal does not stop the rest; the result lists who was rejected and why. Unticked delegates stay Not Arrived.",
+      },
+      {
+        heading: "Do",
+        kind: "do",
+        text: "Undo a wrong check-in: select the delegate → Correct check-in, with a reason. The original stays in the log marked corrected and the delegate goes back to Not Arrived, ready to check in again.",
+      },
+      {
+        heading: "Do",
+        kind: "do",
+        text: "Correct a name or gender: select the delegate → Correct name / gender, with a reason. Super admin, Accommodation, Room assignment and the review queue can all do it; every change lands in the audit trail with the old value, the new value and the reason.",
+      },
+      {
+        heading: "If it fails",
+        kind: "if-fails",
+        text: "A gender change is refused while it would break the room the delegate is already in. Move them to a suitable room first, then correct the record.",
+      },
+      {
+        heading: "Do",
+        kind: "do",
+        text: "Flag a record for review: Flag for review with a note. The delegate can still be checked in; the flag waits in the Accommodation Admin's Review flags tab until someone clears it with a resolution note — from the queue or straight from the desk card.",
+      },
+      {
+        heading: "If it fails",
+        kind: "if-fails",
+        text: "Offline sync exceptions (Desk overview & tools) lists every queued transaction that did not apply. Resolve each one as applied or rejected with a note, and get the list back to zero before close-out. Accommodation and Room assignment staff can do this too.",
+      },
+    ],
+    links: [
+      { href: "/admin/arrival", label: "Arrival desk" },
+      { href: "/admin/accommodation?tab=flags", label: "Review flags" },
+    ],
+  },
 ];
 
 function escapeRegExp(value: string) {
@@ -332,6 +465,9 @@ function Highlight({ text, needle }: { text: string; needle: string }) {
 
 export function HelpRunbook() {
   const [search, setSearch] = useState("");
+  /** Sections the reader has opened. Everything starts folded — a long
+   * runbook is browsed by section, and printing still renders every card. */
+  const [openIds, setOpenIds] = useState<string[]>([]);
   const needle = search.trim().toLowerCase();
 
   const visible = useMemo(() => {
@@ -347,6 +483,23 @@ export function HelpRunbook() {
   }, [needle]);
 
   const stepCount = visible.reduce((sum, section) => sum + section.steps.length, 0);
+
+  /** A search always reveals its hits, even if the reader had them folded. */
+  const isOpen = (id: string) =>
+    needle.length > 0 || openIds.includes(id);
+  const allOpen = visible.length > 0 && visible.every((section) => isOpen(section.id));
+
+  function toggleSection(id: string) {
+    setOpenIds((previous) =>
+      previous.includes(id)
+        ? previous.filter((entry) => entry !== id)
+        : [...previous, id],
+    );
+  }
+
+  function setAllSections(open: boolean) {
+    setOpenIds(open ? visible.map((section) => section.id) : []);
+  }
 
   return (
     <div className="space-y-4 print:space-y-2">
@@ -399,11 +552,20 @@ export function HelpRunbook() {
             );
           })}
         </ul>
-        <p className="text-[11px] text-muted-foreground">
-          {needle
-            ? `${visible.length} section(s) · ${stepCount} matching step(s)`
-            : `${SECTIONS.length} sections · ${stepCount} steps`}
-        </p>
+        <div className="flex items-center gap-2">
+          <p className="text-[11px] text-muted-foreground">
+            {needle
+              ? `${visible.length} section(s) · ${stepCount} matching step(s)`
+              : `${SECTIONS.length} sections · ${stepCount} steps`}
+          </p>
+          <button
+            type="button"
+            onClick={() => setAllSections(!allOpen)}
+            className="inline-flex h-7 items-center gap-1 rounded-md border px-2 text-[11px] font-medium transition-colors hover:bg-muted"
+          >
+            {allOpen ? "Fold all" : "Open all"}
+          </button>
+        </div>
       </div>
 
       {/* Jump chips stay under the console header, so a queue never means scrolling. */}
@@ -417,6 +579,13 @@ export function HelpRunbook() {
             <a
               key={section.id}
               href={`#runbook-${section.id}`}
+              onClick={() =>
+                setOpenIds((previous) =>
+                  previous.includes(section.id)
+                    ? previous
+                    : [...previous, section.id],
+                )
+              }
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors hover:brightness-95",
                 section.accent.chip,
@@ -437,6 +606,7 @@ export function HelpRunbook() {
         <div className="grid gap-4 xl:grid-cols-2 print:grid-cols-1">
           {visible.map((section) => {
             const SectionIcon = section.icon;
+            const open = isOpen(section.id);
             return (
               <Card
                 key={section.id}
@@ -446,22 +616,41 @@ export function HelpRunbook() {
                   section.accent.rail,
                 )}
               >
-                <CardContent className="space-y-2.5 p-4">
-                  <div className="flex flex-wrap items-center gap-2">
+                <CardContent className={cn("p-4", open ? "space-y-2.5" : "py-3")}>
+                  <button
+                    type="button"
+                    onClick={() => toggleSection(section.id)}
+                    aria-expanded={open}
+                    aria-controls={`runbook-body-${section.id}`}
+                    className="flex w-full items-center gap-2 text-left"
+                  >
                     <span
                       className={cn(
-                        "inline-flex size-7 items-center justify-center rounded-lg border",
+                        "inline-flex size-7 shrink-0 items-center justify-center rounded-lg border",
                         section.accent.chip,
                       )}
                     >
                       <SectionIcon className="size-4" />
                     </span>
-                    <p className="flex-1 font-medium">{section.title}</p>
-                    <Badge variant="outline" className="text-[10px] tabular-nums">
+                    <span className="flex-1 font-medium">{section.title}</span>
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] tabular-nums print:hidden"
+                    >
                       {section.steps.length} step(s)
                     </Badge>
-                  </div>
+                    <ChevronDown
+                      className={cn(
+                        "size-4 shrink-0 text-muted-foreground transition-transform print:hidden",
+                        open ? "rotate-180" : null,
+                      )}
+                    />
+                  </button>
 
+                  <div
+                    id={`runbook-body-${section.id}`}
+                    className={cn("space-y-2.5", open ? "block" : "hidden print:block")}
+                  >
                   <ol className="space-y-2">
                     {section.steps.map((step, index) => {
                       const kindStyle = step.kind ? STEP_STYLES[step.kind] : null;
@@ -532,6 +721,7 @@ export function HelpRunbook() {
                       ))}
                     </div>
                   ) : null}
+                  </div>
                 </CardContent>
               </Card>
             );
