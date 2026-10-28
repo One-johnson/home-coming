@@ -895,7 +895,9 @@ export function RoomsTab() {
   );
 
   return (
-    <div className="space-y-4">
+    // The phone assign bar is fixed to the viewport, so the page — not just
+    // the panel — has to end above it or the last room's buttons sit under it.
+    <div className="space-y-4 max-lg:pb-28">
       <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" onClick={() => openRoomForm(null)}>
           <BedDouble className="size-4" /> Add room

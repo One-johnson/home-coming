@@ -317,7 +317,7 @@ export function BulkAssignPanel({
       : "No free beds — reserved and faulty rooms are excluded; release or fix them first.";
 
   return (
-    <div className="grid gap-4 max-lg:pb-28 lg:grid-cols-[minmax(0,1fr)_340px]">
+    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
       <div className="rounded-xl border bg-card">
         <div className="border-b px-4 py-3">
           <h2 className="text-base font-semibold">Unassigned delegates ({shown.length})</h2>
@@ -352,7 +352,9 @@ export function BulkAssignPanel({
               }}
             >
               <SelectTrigger className="h-8 w-auto min-w-32 rounded-full px-3 text-xs" aria-label="Filter by hub">
-                <SelectValue />
+                <SelectValue>
+                  {hub === "all" ? "Hub: Any" : `Hub: ${hub}`}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Hub: Any</SelectItem>
@@ -369,7 +371,9 @@ export function BulkAssignPanel({
               }}
             >
               <SelectTrigger className="h-8 w-auto min-w-36 rounded-full px-3 text-xs" aria-label="Filter by room type">
-                <SelectValue />
+                <SelectValue>
+                  {type === "all" ? "Room type: Any" : `Room type: ${TYPE_LABEL(type)}`}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Room type: Any</SelectItem>
