@@ -2146,3 +2146,129 @@ test("the audit area lists console delegate corrections with who made them and w
   );
   expect(audit).toHaveLength(2);
 });
+
+test("desk issues a key after check-in and can undo a check-in with a reason", async () => {
+  const t = createTestConvex();
+  const staff = await seedStaff(t, "checkin");
+  const approver = await seedStaff(t, "accommodation");
+
+  const booking = await seedConfirmedBooking(t, {
+    accommodationType: "wise_serpents",
+    gender: "male",
+    count: 2,
+  });
+  const room = await seedRoom(t, {
+    accommodationType: "wise_serpents",
+    name: "WSL Room 9",
+    capacity: 2,
+  });
+  await t.run(async (ctx) => {
+    for (const guestId of booking.guestIds) {
+      await ctx.db.insert("agcRoomAssignments", {
+        roomId: room as Id<"agcRooms">,
+        guestId: guestId as Id<"agcGuests">,
+        bookingId: booking.bookingId,
+        assignedBy: "seed",
+        createdAt: Date.now(),
+      });
+    }
+  });
+
+  await t.mutation(api.agcCheckin.checkInGuest, {
+    sessionToken: staff.token,
+    guestId: booking.guestIds[0] as Id<"agcGuests">,
+    location: "central",
+  });
+  // Key handed back at the desk while the delegate stays checked in.
+  await t.mutation(api.agcCheckin.returnKey, {
+    sessionToken: staff.token,
+    roomId: room as Id<"agcRooms">,
+  });
+
+  // Re-issuing is fine once the key is back in the drawer…
+  const issued = await t.mutation(api.agcCheckin.issueKey, {
+    sessionToken: staff.token,
+    guestId: booking.guestIds[0] as Id<"agcGuests">,
+    recipientName: "Hall rep",
+  });
+  expect(issued.recipientName).toBe("Hall rep");
+
+  // …but not while one is already out with someone.
+  await expect(() =>
+    t.mutation(api.agcCheckin.issueKey, {
+      sessionToken: staff.token,
+      guestId: booking.guestIds[0] as Id<"agcGuests">,
+      recipientName: "Someone else",
+    }),
+  ).rejects.toThrow(/already issued/);
+
+  // A delegate who never arrived has no arrival to hang a key on.
+  await expect(() =>
+    t.mutation(api.agcCheckin.issueKey, {
+      sessionToken: staff.token,
+      guestId: booking.guestIds[1] as Id<"agcGuests">,
+    }),
+  ).rejects.toThrow(/Check the delegate in first/);
+
+  const desk = await t.query(api.agcCheckin.listArrivalDesk, {
+    sessionToken: staff.token,
+  });
+  const row = desk.find((entry) => entry.guestId === booking.guestIds[0]);
+  expect(row?.checkInStatus).toBe("checked_in");
+  const checkInId = row?.checkInId as Id<"agcCheckIns">;
+
+  // Undo is the approver's call, and it needs a reason.
+  await expect(() =>
+    t.mutation(api.agcCheckin.undoCheckIn, {
+      sessionToken: staff.token,
+      checkInId,
+      reason: "wrong person",
+    }),
+  ).rejects.toThrow(/Unauthorized/);
+  await expect(() =>
+    t.mutation(api.agcCheckin.undoCheckIn, {
+      sessionToken: approver.token,
+      checkInId,
+      reason: "   ",
+    }),
+  ).rejects.toThrow(/reason is required/);
+
+  const undone = await t.mutation(api.agcCheckin.undoCheckIn, {
+    sessionToken: approver.token,
+    checkInId,
+    reason: "Checked in the wrong delegate at the counter",
+  });
+  // The key was physically handed over, so it is reported rather than erased.
+  expect(undone.keyStillIssuedTo).toBe("Hall rep");
+
+  const after = await t.query(api.agcCheckin.listArrivalDesk, {
+    sessionToken: staff.token,
+  });
+  expect(after.find((entry) => entry.guestId === booking.guestIds[0])?.checkInStatus).toBe(
+    "not_arrived",
+  );
+
+  // With the arrival gone, the desk can check the delegate in properly.
+  await t.mutation(api.agcCheckin.checkInGuest, {
+    sessionToken: staff.token,
+    guestId: booking.guestIds[0] as Id<"agcGuests">,
+    location: "central",
+  });
+  const restored = await t.query(api.agcCheckin.listArrivalDesk, {
+    sessionToken: staff.token,
+  });
+  expect(
+    restored.find((entry) => entry.guestId === booking.guestIds[0])?.checkInStatus,
+  ).toBe("checked_in");
+
+  // Both actions leave a trail: the undo keeps the reason and the snapshot.
+  const audit = await t.run(async (ctx) =>
+    (await ctx.db.query("auditLogs").collect()).filter(
+      (log) => log.action === "agc_checkin.undone" || log.action === "agc_key.issued",
+    ),
+  );
+  const undoneLog = audit.find((log) => log.action === "agc_checkin.undone");
+  expect(undoneLog?.summary).toContain("wrong delegate");
+  expect(JSON.parse(undoneLog?.metadata ?? "{}").keyStillIssuedTo).toBe("Hall rep");
+  expect(audit.some((log) => log.action === "agc_key.issued")).toBe(true);
+});

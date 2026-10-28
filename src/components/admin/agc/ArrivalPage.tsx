@@ -16,6 +16,7 @@ import {
   RefreshCw,
   Search,
   ShieldAlert,
+  Undo2,
   UserCheck,
   Users,
   ListChecks,
@@ -399,6 +400,8 @@ export function ArrivalPage() {
   const resolveCheckinFlag = useMutation(api.agcCheckin.resolveCheckinFlag);
   const changeRoom = useMutation(api.agcRoomAssignments.changeRoom);
   const returnRoomKey = useMutation(api.agcCheckin.returnKey);
+  const issueRoomKey = useMutation(api.agcCheckin.issueKey);
+  const undoArrival = useMutation(api.agcCheckin.undoCheckIn);
   const [keyBusy, setKeyBusy] = useState(false);
   const publishedRooms = useQuery(
     api.agcRoomAssignments.listRoomsAdmin,
@@ -438,6 +441,11 @@ export function ArrivalPage() {
   const [keyRecipientName, setKeyRecipientName] = useState("");
   const [checkoutTarget, setCheckoutTarget] = useState<SearchRow | null>(null);
   const [keyReturnStatus, setKeyReturnStatus] = useState<string>("not_applicable");
+  const [issueKeyTarget, setIssueKeyTarget] = useState<SearchRow | null>(null);
+  const [issueKeyRecipient, setIssueKeyRecipient] = useState("");
+  const [undoTarget, setUndoTarget] = useState<SearchRow | null>(null);
+  const [undoReason, setUndoReason] = useState("");
+  const [undoBusy, setUndoBusy] = useState(false);
   const [correctTarget, setCorrectTarget] = useState<SearchRow | null>(null);
   const [correctReason, setCorrectReason] = useState("");
   const [flagTarget, setFlagTarget] = useState<SearchRow | null>(null);
@@ -598,6 +606,50 @@ export function ArrivalPage() {
       toast.error(...toastFriendlyErrorParts(err, "Could not return key"));
     } finally {
       setKeyBusy(false);
+    }
+  };
+
+  /** Record a key hand-over for a delegate who is already checked in. */
+  const doIssueKey = async () => {
+    if (!sessionToken || !issueKeyTarget) return;
+    setKeyBusy(true);
+    try {
+      const result = await issueRoomKey({
+        sessionToken,
+        guestId: issueKeyTarget.guestId as Id<"agcGuests">,
+        recipientName: issueKeyRecipient.trim() || undefined,
+      });
+      toast.success(`Key issued to ${result.recipientName}.`);
+      setIssueKeyTarget(null);
+      setIssueKeyRecipient("");
+    } catch (err) {
+      toast.error(...toastFriendlyErrorParts(err, "Could not issue the key"));
+    } finally {
+      setKeyBusy(false);
+    }
+  };
+
+  /** Undo a check-in — the delegate goes back to Not Arrived. */
+  const doUndoCheckIn = async () => {
+    if (!sessionToken || !undoTarget?.checkInId) return;
+    setUndoBusy(true);
+    try {
+      const result = await undoArrival({
+        sessionToken,
+        checkInId: undoTarget.checkInId as Id<"agcCheckIns">,
+        reason: undoReason.trim(),
+      });
+      toast.success("Check-in undone — the delegate is back on the Not Arrived list.", {
+        description: result.keyStillIssuedTo
+          ? `A key is still recorded to ${result.keyStillIssuedTo} — mark it returned when it comes back.`
+          : undefined,
+      });
+      setUndoTarget(null);
+      setUndoReason("");
+    } catch (err) {
+      toast.error(...toastFriendlyErrorParts(err, "Could not undo the check-in"));
+    } finally {
+      setUndoBusy(false);
     }
   };
 
@@ -1182,12 +1234,13 @@ export function ArrivalPage() {
                     </p>
                   )}
 
-                {selectedRow.keyStatus === "pending" && (
-                  <p className="text-xs text-muted-foreground">
-                    The key is issued in the check-in step — name the recipient
-                    on the next screen.
-                  </p>
-                )}
+                {selectedRow.keyStatus === "pending" &&
+                  selectedRow.checkInStatus !== "checked_in" && (
+                    <p className="text-xs text-muted-foreground">
+                      The key is issued in the check-in step — name the recipient
+                      on the next screen.
+                    </p>
+                  )}
 
                 <div className="space-y-2 pt-1">
                   {selectedRow.checkInStatus === "not_arrived" ? (
@@ -1220,16 +1273,29 @@ export function ArrivalPage() {
                         <LogOut className="size-4" /> Check out
                       </Button>
                       {isApprover && (
-                        <Button
-                          variant="outline"
-                          className="w-full"
-                          onClick={() => {
-                            setCorrectTarget(selectedRow);
-                            setCorrectReason("");
-                          }}
-                        >
-                          Correct check-in
-                        </Button>
+                        <>
+                          <Button
+                            variant="outline"
+                            className="w-full gap-1.5 text-rose-700 hover:text-rose-800 dark:text-rose-400"
+                            disabled={busyGuest === selectedRow.guestId}
+                            onClick={() => {
+                              setUndoTarget(selectedRow);
+                              setUndoReason("");
+                            }}
+                          >
+                            <Undo2 className="size-4" /> Undo check-in
+                          </Button>
+                          <Button
+                            variant="outline"
+                            className="w-full"
+                            onClick={() => {
+                              setCorrectTarget(selectedRow);
+                              setCorrectReason("");
+                            }}
+                          >
+                            Correct check-in
+                          </Button>
+                        </>
                       )}
                     </>
                   ) : (
@@ -1237,6 +1303,23 @@ export function ArrivalPage() {
                       Checked out — the record stays for audit.
                     </p>
                   )}
+
+                  {selectedRow.checkInStatus === "checked_in" &&
+                    (selectedRow.keyStatus === "pending" ||
+                      selectedRow.keyStatus === "returned") &&
+                    selectedRow.roomId && (
+                      <Button
+                        variant="outline"
+                        className="w-full"
+                        disabled={keyBusy}
+                        onClick={() => {
+                          setIssueKeyTarget(selectedRow);
+                          setIssueKeyRecipient(selectedRow.name);
+                        }}
+                      >
+                        <KeyRound className="size-4" /> Issue key
+                      </Button>
+                    )}
 
                   {selectedRow.keyStatus === "issued" && selectedRow.roomId && (
                     <Button
@@ -1540,6 +1623,90 @@ export function ArrivalPage() {
                 }}
               >
                 Apply correction
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Key hand-over — the delegate is already in, the key follows. */}
+      <Dialog
+        open={issueKeyTarget !== null}
+        onOpenChange={(open) => !open && setIssueKeyTarget(null)}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Issue key — {issueKeyTarget?.name}</DialogTitle>
+            <DialogDescription>
+              Record who physically holds the key for{" "}
+              {issueKeyTarget?.roomName ?? "the room"}. One key is open per room,
+              so return or replace the current one first.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>Key recipient</Label>
+              <Input
+                value={issueKeyRecipient}
+                onChange={(e) => setIssueKeyRecipient(e.target.value)}
+                placeholder="Who takes the key?"
+              />
+              <p className="text-xs text-muted-foreground">
+                Defaults to the delegate if left blank.
+              </p>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setIssueKeyTarget(null)}
+                disabled={keyBusy}
+              >
+                Cancel
+              </Button>
+              <Button onClick={() => void doIssueKey()} disabled={keyBusy}>
+                <KeyRound className="size-4" />
+                {keyBusy ? "Issuing…" : "Issue key"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Undo check-in — the arrival is removed, the reason is kept. */}
+      <Dialog open={undoTarget !== null} onOpenChange={(open) => !open && setUndoTarget(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Undo check-in — {undoTarget?.name}</DialogTitle>
+            <DialogDescription>
+              This removes the arrival from {undoTarget?.roomName ?? "the room"} and
+              puts the delegate back on the Not Arrived list, so they can be
+              checked in again properly. The reason is kept in the audit log;
+              any key recorded to this room stays issued until it is marked
+              returned.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Textarea
+              rows={2}
+              placeholder="Why is this check-in being undone?"
+              value={undoReason}
+              onChange={(e) => setUndoReason(e.target.value)}
+            />
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setUndoTarget(null)}
+                disabled={undoBusy}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                disabled={!undoReason.trim() || undoBusy}
+                onClick={() => void doUndoCheckIn()}
+              >
+                <Undo2 className="size-4" />
+                {undoBusy ? "Undoing…" : "Undo check-in"}
               </Button>
             </div>
           </div>

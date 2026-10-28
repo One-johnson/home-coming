@@ -83,6 +83,24 @@ type RoomRow = {
   assignments: { _id: string; guestId: string; bookingId: string }[];
 };
 
+/** One room-maintenance flag as the rooms screen reads it. */
+type RoomIssueRow = {
+  _id: string;
+  roomId: string;
+  roomName: string;
+  accommodationType: string;
+  building: string | null;
+  category: string;
+  note: string;
+  blocksRoom: boolean;
+  status: string;
+  reportedAt: number;
+  reportedBy: string;
+  resolvedAt: number | null;
+  resolvedBy: string | null;
+  resolutionNote: string | null;
+};
+
 type UnassignedGuest = {
   _id: string;
   bookingId: string;
@@ -163,6 +181,80 @@ type RoomView = "all" | "published" | "unpublished";
 const TYPE_LABEL = (type: string) =>
   AGC_ACCOMMODATION_LABELS[type as keyof typeof AGC_ACCOMMODATION_LABELS] ?? type;
 
+/**
+ * A room's past faults, folded away by default. Open problems stay loud on the
+ * card; this is the record of what was already fixed, so the room team can tell
+ * a room with one old repair from one that keeps breaking. A category that
+ * comes back is named next to the count instead of being left for someone to
+ * notice across three separate entries.
+ */
+function RoomFaultHistory({ issues }: { issues: RoomIssueRow[] }) {
+  const [open, setOpen] = useState(false);
+  if (issues.length === 0) return null;
+
+  const sorted = [...issues].sort(
+    (a, b) => (b.resolvedAt ?? b.reportedAt) - (a.resolvedAt ?? a.reportedAt),
+  );
+  const counts = new Map<string, number>();
+  for (const issue of sorted) {
+    counts.set(issue.category, (counts.get(issue.category) ?? 0) + 1);
+  }
+  const recurring = [...counts.entries()].filter(([, count]) => count > 1);
+  const shown = sorted.slice(0, 6);
+
+  return (
+    <div className="mt-2 text-[11px]">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((prev) => !prev)}
+        className="flex w-full flex-wrap items-center gap-1 text-left text-muted-foreground hover:text-foreground"
+      >
+        <ChevronDown
+          className={cn(
+            "size-3 transition-transform",
+            !open && "-rotate-90",
+          )}
+        />
+        Fault history ({sorted.length})
+        {recurring.length > 0 && (
+          <span className="rounded bg-amber-100 px-1 text-[10px] font-medium text-amber-800 dark:bg-amber-950/60 dark:text-amber-300">
+            recurring:{" "}
+            {recurring
+              .map(([category, count]) => `${ISSUE_LABEL[category] ?? category} ×${count}`)
+              .join(" · ")}
+          </span>
+        )}
+      </button>
+      {open && (
+        <ul className="mt-1.5 space-y-1.5 border-l pl-2">
+          {shown.map((issue) => (
+            <li key={issue._id} className="text-muted-foreground">
+              <p className="leading-snug">
+                <span className="font-medium text-foreground">
+                  {ISSUE_LABEL[issue.category] ?? issue.category}
+                </span>
+                {issue.blocksRoom ? " · out of inventory" : ""} — {issue.note}
+              </p>
+              <p>
+                Fixed {new Date(issue.resolvedAt ?? issue.reportedAt).toLocaleDateString()}
+                {issue.resolvedBy ? ` by ${issue.resolvedBy}` : ""}
+                {issue.resolutionNote ? ` — ${issue.resolutionNote}` : ""}
+              </p>
+            </li>
+          ))}
+          {sorted.length > shown.length && (
+            <li className="text-muted-foreground">
+              +{sorted.length - shown.length} earlier fault
+              {sorted.length - shown.length === 1 ? "" : "s"}
+            </li>
+          )}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 export function RoomsTab() {
   const { sessionToken, user } = useAdminSession();
   // Raising a problem is for everyone who walks the rooms; closing one is the
@@ -188,9 +280,12 @@ export function RoomsTab() {
     api.agcRoomAssignments.getRoomingSettings,
     sessionToken ? { sessionToken } : "skip",
   );
+  // Fixed flags come along too: a room repaired three times in a month is a
+  // different proposition from one with a single old repair, and the card's
+  // fault history is where the room team sees that.
   const roomIssues = useQuery(
     api.agcRoomIssues.listRoomIssues,
-    sessionToken ? { sessionToken } : "skip",
+    sessionToken ? { sessionToken, includeFixed: true } : "skip",
   );
   const flagRoomIssue = useMutation(api.agcRoomIssues.flagRoom);
   const resolveRoomIssue = useMutation(api.agcRoomIssues.resolveRoomIssue);
@@ -290,15 +385,20 @@ export function RoomsTab() {
   const loadingGuests = unassigned === undefined;
   const autoAssignEnabled = roomingSettings?.autoAssignEnabled ?? false;
 
-  /** Open maintenance flags per room, so each card shows its own problems. */
-  const issuesByRoom = useMemo(() => {
-    const map = new Map<string, NonNullable<typeof roomIssues>["issues"]>();
+  /**
+   * Per-room flags, split by state: open problems stay loud on the card, fixed
+   * ones fold into its fault history.
+   */
+  const { openIssuesByRoom, faultHistoryByRoom } = useMemo(() => {
+    const open = new Map<string, RoomIssueRow[]>();
+    const history = new Map<string, RoomIssueRow[]>();
     for (const issue of roomIssues?.issues ?? []) {
-      const listForRoom = map.get(issue.roomId) ?? [];
+      const target = issue.status === "open" ? open : history;
+      const listForRoom = target.get(issue.roomId) ?? [];
       listForRoom.push(issue);
-      map.set(issue.roomId, listForRoom);
+      target.set(issue.roomId, listForRoom);
     }
-    return map;
+    return { openIssuesByRoom: open, faultHistoryByRoom: history };
   }, [roomIssues]);
   const totalBeds = list.reduce((sum, room) => sum + room.capacity, 0);
   const usedBeds = list.reduce((sum, room) => sum + room.occupants, 0);
@@ -1153,7 +1253,7 @@ export function RoomsTab() {
                   {new Date(room.hold.at).toLocaleDateString()}
                 </p>
               )}
-              {(issuesByRoom.get(room._id) ?? []).map((issue) => (
+              {(openIssuesByRoom.get(room._id) ?? []).map((issue) => (
                 <div
                   key={issue._id}
                   className="mt-2 rounded-lg border border-l-4 border-rose-200 bg-rose-50/70 px-2 py-1.5 text-[11px] text-rose-900 dark:border-rose-900/70 dark:bg-rose-950/30 dark:text-rose-200"
@@ -1185,6 +1285,8 @@ export function RoomsTab() {
                   </div>
                 </div>
               ))}
+
+              <RoomFaultHistory issues={faultHistoryByRoom.get(room._id) ?? []} />
 
               {room.assignments.length > 0 && (
                 <ul className="mt-2 space-y-1">

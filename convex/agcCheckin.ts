@@ -885,6 +885,74 @@ export const correctCheckIn = mutation({
   },
 });
 
+/**
+ * Undo a check-in that should never have happened — approver roles only. The
+ * arrival row is removed, so the delegate returns to Not Arrived and can be
+ * checked in again properly (wrong person at the counter, wrong room, wrong
+ * hub). The reason is mandatory and the audit entry keeps a snapshot of the
+ * arrival, because the row itself is gone. A key recorded at that check-in is
+ * left alone: it was physically handed over, so the desk returns it explicitly
+ * rather than the system pretending it never left the drawer.
+ */
+export const undoCheckIn = mutation({
+  args: {
+    sessionToken: v.string(),
+    checkInId: v.id("agcCheckIns"),
+    reason: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireRole(ctx, args.sessionToken, [...APPROVER_ROLES]);
+    const reason = args.reason.trim();
+    if (!reason) throw new ConvexError("A reason is required to undo a check-in");
+
+    const checkIn = await ctx.db.get(args.checkInId);
+    if (!checkIn) throw new ConvexError("Check-in not found");
+    if (checkIn.correctedAt) {
+      throw new ConvexError(
+        "This check-in was already corrected — undo is not available for it",
+      );
+    }
+    const current = await activeCheckIn(ctx, checkIn.guestId);
+    if (!current || current._id !== checkIn._id) {
+      throw new ConvexError("This check-in is no longer the delegate's active arrival");
+    }
+
+    const guest = await ctx.db.get(checkIn.guestId);
+    const key = await keyForRoom(ctx, checkIn.roomId);
+    const keyStillIssuedTo =
+      key && key.status !== "returned"
+        ? key.newRecipientName ?? key.recipientName ?? null
+        : null;
+
+    await ctx.db.delete(checkIn._id);
+
+    await writeAuditLog(ctx, {
+      actorUserId: actor._id,
+      actorEmail: actor.email,
+      action: "agc_checkin.undone",
+      entityType: "agcCheckIns",
+      entityId: checkIn._id,
+      summary: `Undid the check-in of ${
+        guest ? guestLabel(guest) : "delegate"
+      } at ${checkIn.roomName} by ${actor.email} — reason: ${reason}`,
+      metadata: {
+        reason,
+        guestId: checkIn.guestId,
+        bookingId: checkIn.bookingId,
+        roomId: checkIn.roomId,
+        roomName: checkIn.roomName,
+        checkedInAt: checkIn.checkedInAt,
+        checkedInBy: checkIn.checkedInBy,
+        location: checkIn.location,
+        paymentOverride: checkIn.paymentOverride ?? undefined,
+        keyStillIssuedTo: keyStillIssuedTo ?? undefined,
+      },
+    });
+
+    return { success: true as const, keyStillIssuedTo };
+  },
+});
+
 // ------------------------------------------------------------------
 // Review flags — "flag this record for review"
 // ------------------------------------------------------------------
@@ -1278,6 +1346,96 @@ export const returnKey = mutation({
       summary: `Key returned for ${room?.name ?? args.roomId} by ${actor.email}`,
     });
     return { success: true as const };
+  },
+});
+
+/**
+ * Issue a key to a delegate who is already checked in. The desk collects the
+ * recipient name at check-in, but a key is often handed over later (the
+ * delegate went to settle in first), so this records the hand-over without
+ * re-running the check-in. One open key per room: an existing issuance must be
+ * returned or replaced before another is recorded.
+ */
+export const issueKey = mutation({
+  args: {
+    sessionToken: v.string(),
+    guestId: v.id("agcGuests"),
+    /** Who physically holds the key; defaults to the delegate. */
+    recipientName: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireRole(ctx, args.sessionToken, [...CHECKIN_ROLES]);
+    const guest = await ctx.db.get(args.guestId);
+    if (!guest || guest.status !== "active") {
+      throw new ConvexError("Delegate not found or no longer active");
+    }
+    const checkIn = await activeCheckIn(ctx, guest._id);
+    if (!checkIn) {
+      throw new ConvexError(
+        "Check the delegate in first — the key is recorded against the arrival",
+      );
+    }
+    const room = await ctx.db.get(checkIn.roomId);
+    if (!room || room.deletedAt) {
+      throw new ConvexError(
+        "The delegate's room no longer exists — fix the room assignment first",
+      );
+    }
+    if (!roomNeedsKey(room.accommodationType)) {
+      throw new ConvexError(
+        `${room.name} does not track a physical key — wristbands are not recorded`,
+      );
+    }
+
+    const key = await keyForRoom(ctx, room._id);
+    if (key && key.status !== "returned") {
+      throw new ConvexError(
+        `The ${room.name} key is already issued to ${
+          key.newRecipientName ?? key.recipientName ?? "someone else"
+        } — mark it returned or replace it first`,
+      );
+    }
+
+    const recipientName = (args.recipientName ?? "").trim() || guestLabel(guest);
+    let keyId: Id<"agcKeys">;
+    if (key) {
+      await ctx.db.patch(key._id, {
+        recipientGuestId: guest._id,
+        recipientName,
+        newRecipientName: undefined,
+        status: "issued" as AgcKeyStatus,
+        issuedAt: Date.now(),
+        issuedBy: actor.email,
+        returnedAt: undefined,
+        returnedBy: undefined,
+        updatedAt: Date.now(),
+      });
+      keyId = key._id;
+    } else {
+      keyId = await ctx.db.insert("agcKeys", {
+        roomId: room._id,
+        accommodationType: room.accommodationType,
+        roomName: room.name,
+        recipientGuestId: guest._id,
+        recipientName,
+        status: "issued" as AgcKeyStatus,
+        issuedAt: Date.now(),
+        issuedBy: actor.email,
+        updatedAt: Date.now(),
+      });
+    }
+
+    await writeAuditLog(ctx, {
+      actorUserId: actor._id,
+      actorEmail: actor.email,
+      action: "agc_key.issued",
+      entityType: "agcKeys",
+      entityId: keyId,
+      summary: `Key issued for ${room.name} to ${recipientName} by ${actor.email}`,
+      metadata: { roomId: room._id, guestId: guest._id, recipientName },
+    });
+
+    return { keyId, recipientName };
   },
 });
 
