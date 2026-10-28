@@ -135,11 +135,11 @@ crons.daily(
 
 /**
  * Payment receipts and POA evidence are evidence only while the payment is
- * being verified: 10 days after finance confirms it, the image is deleted and
+ * being verified: 15 days after finance confirms it, the image is deleted and
  * an audit entry records what left storage. Runs nightly; idempotent.
  */
 crons.daily(
-  "delete payment images 10 days after confirmation",
+  "delete payment images 15 days after confirmation",
   { hourUTC: 3, minuteUTC: 15 },
   internal.storageMaintenance.purgeExpiredPaymentImages,
   {},

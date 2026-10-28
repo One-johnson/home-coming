@@ -156,7 +156,7 @@ test("discardUploadedFile removes an unclaimed upload but never a live file", as
   expect(gone).toBeNull();
 });
 
-test("payment images delete 10 days after confirmation, one audit entry each", async () => {
+test("payment images delete 15 days after confirmation, one audit entry each", async () => {
   const t = createTestConvex();
   const admin = await seedAdmin(t);
 
@@ -174,7 +174,7 @@ test("payment images delete 10 days after confirmation, one audit entry each", a
   );
 
   const now = Date.now();
-  const elevenDaysAgo = now - 11 * DAY_MS;
+  const sixteenDaysAgo = now - 16 * DAY_MS;
   const threeDaysAgo = now - 3 * DAY_MS;
 
   const { expiredRegId, freshRegId, unverifiedRegId, bookingId } = await t.run(
@@ -231,7 +231,7 @@ test("payment images delete 10 days after confirmation, one audit entry each", a
       const expiredRegId = await registration({
         referenceNumber: "AGC-EXPIRED",
         paymentStatus: "confirmed",
-        confirmedAt: elevenDaysAgo,
+        confirmedAt: sixteenDaysAgo,
         receiptStorageId: expiredId as Id<"_storage">,
       });
       const freshRegId = await registration({
@@ -243,11 +243,11 @@ test("payment images delete 10 days after confirmation, one audit entry each", a
       const unverifiedRegId = await registration({
         referenceNumber: "AGC-UNVERIFIED",
         paymentStatus: "pending_verification",
-        confirmedAt: elevenDaysAgo,
+        confirmedAt: sixteenDaysAgo,
         receiptStorageId: unverifiedId as Id<"_storage">,
       });
 
-      // A booking whose POA evidence was confirmed 11 days ago.
+      // A booking whose POA evidence was confirmed 16 days ago.
       const bookingId = await ctx.db.insert("agcBookings", {
         hubId,
         repId,
@@ -258,12 +258,12 @@ test("payment images delete 10 days after confirmation, one audit entry each", a
         paymentStatus: "confirmed",
         bookingStatus: "confirmed",
         referenceNumber: "ACC-EXPIRED",
-        confirmedAt: elevenDaysAgo,
+        confirmedAt: sixteenDaysAgo,
         poa: {
           status: "confirmed",
           evidenceStorageId: evidenceId as Id<"_storage">,
           evidenceFileName: "evidence.webp",
-          confirmedAt: elevenDaysAgo,
+          confirmedAt: sixteenDaysAgo,
         },
         createdAt: now,
         updatedAt: now,
@@ -326,9 +326,9 @@ test("payment images delete 10 days after confirmation, one audit entry each", a
   const report = await t.query(api.storageMaintenance.getStorageReport, {
     sessionToken: admin.token,
   });
-  expect(report.retentionDays).toBe(10);
+  expect(report.retentionDays).toBe(15);
   expect(report.awaitingExpiry).toBe(1);
-  expect(report.nextExpiryAt).toBe(threeDaysAgo + 10 * DAY_MS);
+  expect(report.nextExpiryAt).toBe(threeDaysAgo + 15 * DAY_MS);
 });
 
 test("only admins can read the storage report or run a sweep", async () => {

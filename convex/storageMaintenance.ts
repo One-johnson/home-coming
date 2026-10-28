@@ -33,7 +33,7 @@ const MAX_BATCH = 500;
  * finance confirms it, the durable facts are the amount, reference, date and
  * reviewer — the photo is kept briefly for disputes, then deleted.
  */
-export const RECEIPT_RETENTION_DAYS = 10;
+export const RECEIPT_RETENTION_DAYS = 15;
 const RECEIPT_RETENTION_MS = RECEIPT_RETENTION_DAYS * 24 * 60 * 60 * 1000;
 
 /**
@@ -89,7 +89,7 @@ async function findOrphans(ctx: QueryCtx | MutationCtx, graceMs: number) {
 }
 
 // ------------------------------------------------------------------
-// Retention: payment images expire 10 days after the payment is confirmed
+// Retention: payment images expire 15 days after the payment is confirmed
 // ------------------------------------------------------------------
 
 type PaymentImageKind = "receipt" | "poa_evidence";
