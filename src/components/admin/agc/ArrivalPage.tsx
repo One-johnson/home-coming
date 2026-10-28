@@ -1433,16 +1433,17 @@ export function ArrivalPage() {
               aria-label="Filter by hub"
             >
               {/* The trigger has to say what is filtered, not echo the raw
-                  value — "all" beside "all" tells a phone user nothing. */}
+                  value — "all" beside "all" tells a phone user nothing. The hub
+                  name is shown on its own: every option here is a hub already. */}
               <SelectValue>
-                {hubFilter === "all" ? "Hub: Any" : `Hub: ${hubFilter}`}
+                {hubFilter === "all" ? "All hubs" : hubFilter}
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Hub: Any</SelectItem>
+              <SelectItem value="all">All hubs</SelectItem>
               {hubOptions.map((hub) => (
                 <SelectItem key={hub} value={hub}>
-                  Hub: {hub}
+                  {hub}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -1708,7 +1709,9 @@ export function ArrivalPage() {
             </ul>
             <div className="hidden sm:block">
             <Table>
-              <TableHeader className="sticky top-0 z-10 bg-card shadow-[0_1px_0_0_theme(colors.border)]">
+              {/* `top-16` clears the console's fixed 64px header — at `top-0`
+                  the pinned row would slide underneath it and vanish. */}
+              <TableHeader className="sticky top-16 z-10 bg-card shadow-[0_1px_0_0_theme(colors.border)]">
                 <TableRow className="bg-muted/50 hover:bg-muted/50">
                   <TableHead className="w-8">
                     <span className="sr-only">Select for bulk check-in</span>

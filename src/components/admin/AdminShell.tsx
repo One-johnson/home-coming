@@ -473,8 +473,11 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     toast.info("Signed out");
   };
 
+  // `clip` rather than `hidden` on both this wrapper and the inset: an
+  // `overflow-x: hidden` box is a scrollport, and every `sticky` inside it then
+  // pins to that box instead of the page — so filter bars never stayed put.
   return (
-    <SidebarProvider defaultOpen className="max-w-full overflow-x-hidden">
+    <SidebarProvider defaultOpen className="max-w-full overflow-x-clip">
       <SessionExpiryBanner
         expiresAt={sessionExpiresAt}
         onSignOut={() => void signOut()}
@@ -527,7 +530,7 @@ function AdminConsoleFrame({
                 onSignOut={onSignOut}
                 badges={badges}
       />
-      <SidebarInset className="min-w-0 overflow-x-hidden bg-neutral-100">
+      <SidebarInset className="min-w-0 overflow-x-clip bg-neutral-100">
         <header
           className="fixed top-0 right-0 z-30 border-b border-border/80 bg-white/95 shadow-[0_1px_0_0_rgba(212,175,55,0.35)] backdrop-blur-md transition-[left] duration-200 ease-linear supports-backdrop-filter:bg-white/85"
           style={{ left: headerLeft }}

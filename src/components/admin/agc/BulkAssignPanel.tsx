@@ -24,6 +24,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import { toastFriendlyErrorParts } from "@/lib/friendlyError";
 import { AGC_ACCOMMODATION_LABELS } from "@/lib/agcPortal";
 import { cn } from "@/lib/utils";
@@ -73,24 +74,31 @@ const GuestRow = memo(function GuestRow({
   return (
     <li
       className={cn(
-        "flex items-center gap-3 px-4 py-2.5 text-sm",
+        "flex items-start gap-3 px-3 py-2.5 text-sm sm:items-center sm:px-4",
         !compatible && "opacity-50",
         checked && "bg-primary/5",
       )}
     >
-      <Checkbox
-        checked={checked}
-        disabled={!compatible}
-        onCheckedChange={() => onToggle(guest._id)}
-        aria-label={`Select ${guest.name}`}
-      />
+      <span className="-m-1 p-1">
+        <Checkbox
+          checked={checked}
+          disabled={!compatible}
+          onCheckedChange={() => onToggle(guest._id)}
+          aria-label={`Select ${guest.name}`}
+        />
+      </span>
+      {/* A phone gets two lines instead of the console's columns, so a name and
+          its room type both survive without a sideways table. */}
       <button
         type="button"
         disabled={!compatible}
         onClick={() => onToggle(guest._id)}
-        className="min-w-0 flex-1 truncate text-left font-medium disabled:cursor-not-allowed"
+        className="min-w-0 flex-1 text-left disabled:cursor-not-allowed"
       >
-        {guest.name}
+        <span className="block truncate font-medium leading-tight">{guest.name}</span>
+        <span className="mt-0.5 block truncate text-[11px] text-muted-foreground sm:hidden">
+          {TYPE_LABEL(guest.accommodationType)} · {guest.hubName} · {guest.gender}
+        </span>
       </button>
       <span className="hidden w-16 capitalize text-muted-foreground sm:block">
         {guest.gender}
@@ -98,7 +106,7 @@ const GuestRow = memo(function GuestRow({
       <span className="hidden w-24 truncate text-muted-foreground md:block">
         {guest.hubName}
       </span>
-      <span className="w-40 truncate text-right text-xs text-muted-foreground">
+      <span className="hidden w-40 truncate text-right text-xs text-muted-foreground sm:block">
         {TYPE_LABEL(guest.accommodationType)}
       </span>
     </li>
@@ -338,6 +346,24 @@ export function BulkAssignPanel({
     onPickerActiveChange?.(pickerActive);
   }, [pickerActive, onPickerActiveChange]);
 
+  /**
+   * Phones get the list in pages rather than one endless scroll: hitting a
+   * 400-delegate list as a single column is unusable on touch, and it is also
+   * 400 rows of DOM for nothing.
+   */
+  const isPhone = useMediaQuery("(max-width: 639px)");
+  /** A phone opens on a short first page, then grows in bigger steps. */
+  const PHONE_FIRST = 12;
+  const PHONE_PAGE = 25;
+  // The page count is keyed to the filters, so changing a filter starts the
+  // list over without a reset effect.
+  const filterKey = `${gender}|${hub}|${type}|${search}`;
+  const [phonePage, setPhonePage] = useState({ key: "", count: PHONE_FIRST });
+  const phoneLimit =
+    phonePage.key === filterKey ? phonePage.count : PHONE_FIRST;
+  const visible = isPhone ? shown.slice(0, phoneLimit) : shown;
+  const hiddenCount = shown.length - visible.length;
+
   return (
     <div
       className={cn(
@@ -346,7 +372,8 @@ export function BulkAssignPanel({
       )}
     >
       <div className="rounded-xl border bg-card">
-        <div className="border-b px-4 py-3">
+        {/* Filters and the name search ride along while the list scrolls. */}
+        <div className="sticky top-16 z-20 rounded-t-xl border-b bg-card px-4 py-3">
           <h2 className="text-base font-semibold">Unassigned delegates ({shown.length})</h2>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <div className="flex items-center gap-1.5">
@@ -379,14 +406,12 @@ export function BulkAssignPanel({
               }}
             >
               <SelectTrigger className="h-8 w-auto min-w-32 rounded-full px-3 text-xs" aria-label="Filter by hub">
-                <SelectValue>
-                  {hub === "all" ? "Hub: Any" : `Hub: ${hub}`}
-                </SelectValue>
+                <SelectValue>{hub === "all" ? "All hubs" : hub}</SelectValue>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Hub: Any</SelectItem>
+                <SelectItem value="all">All hubs</SelectItem>
                 {hubs.map((name) => (
-                  <SelectItem key={name} value={name}>Hub: {name}</SelectItem>
+                  <SelectItem key={name} value={name}>{name}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -434,6 +459,11 @@ export function BulkAssignPanel({
 
           {shown.length > 0 && (
             <div className="mt-2 flex flex-wrap items-center gap-3 text-xs">
+              <span className="text-muted-foreground tabular-nums">
+                {isPhone
+                  ? `Showing ${visible.length} of ${shown.length} — filter or search to narrow`
+                  : `${shown.length} waiting`}
+              </span>
               <button
                 type="button"
                 className="font-medium underline underline-offset-2"
@@ -463,7 +493,7 @@ export function BulkAssignPanel({
           </p>
         ) : (
           <ul className="max-h-[420px] divide-y overflow-y-auto max-lg:max-h-none max-lg:overflow-visible">
-            {shown.map((guest) => (
+            {visible.map((guest) => (
               <GuestRow
                 key={guest._id}
                 guest={guest}
@@ -473,6 +503,20 @@ export function BulkAssignPanel({
               />
             ))}
           </ul>
+        )}
+        {hiddenCount > 0 && (
+          <div className="border-t p-3">
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              onClick={() =>
+                setPhonePage({ key: filterKey, count: phoneLimit + PHONE_PAGE })
+              }
+            >
+              Show {Math.min(PHONE_PAGE, hiddenCount)} more ({hiddenCount} left)
+            </Button>
+          </div>
         )}
       </div>
 

@@ -80,7 +80,13 @@ type RoomRow = {
   faulty: boolean;
   openIssues: number;
   occupants: number;
-  assignments: { _id: string; guestId: string; bookingId: string }[];
+  assignments: {
+    _id: string;
+    guestId: string;
+    bookingId: string;
+    /** Carried by listRoomsAdmin so the card never falls back to a guest id. */
+    guestName?: string | null;
+  }[];
 };
 
 /** One room-maintenance flag as the rooms screen reads it. */
@@ -1301,13 +1307,14 @@ export function RoomsTab() {
                 <ul className="mt-2 space-y-1">
                   {room.assignments.map((a) => {
                     const guest = guests.find((g) => g._id === a.guestId);
+                    const guestName = a.guestName ?? guest?.name ?? "Delegate";
                     return (
                       <li
                         key={a._id}
                         className="flex items-center justify-between gap-2 text-xs"
                       >
                         <span className="truncate">
-                          {guest?.name ?? a.guestId}
+                          {guestName}
                         </span>
                         <button
                           type="button"

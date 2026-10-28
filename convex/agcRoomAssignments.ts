@@ -102,6 +102,19 @@ export const listRoomsAdmin = query({
       list.push(assignment);
       occupiedByRoom.set(assignment.roomId, list);
     }
+    // Room cards list who is in the room, so the name travels with the
+    // assignment — the console only has the unassigned roster to look names up
+    // in, which is why these used to show raw guest ids.
+    const guestNames = new Map<string, string>();
+    for (const guestId of new Set(assignments.map((a) => a.guestId))) {
+      const guest = await ctx.db.get(guestId);
+      if (guest) {
+        guestNames.set(
+          guestId,
+          `${guest.title} ${guest.firstName} ${guest.lastName}`.trim(),
+        );
+      }
+    }
     return rooms
       .map((room) => ({
         _id: room._id,
@@ -124,6 +137,7 @@ export const listRoomsAdmin = query({
           _id: a._id,
           guestId: a.guestId,
           bookingId: a.bookingId,
+          guestName: guestNames.get(a.guestId) ?? null,
         })),
       }))
       .sort(
