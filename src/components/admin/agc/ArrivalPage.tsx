@@ -183,6 +183,27 @@ const ROOM_ISSUE_KEYS = [
 
 type RoomIssueCategory = (typeof ROOM_ISSUE_KEYS)[number];
 
+/** Which desk stat tile is narrowing the sheet — the tiles double as filters. */
+type DeskStatFilter =
+  | "all"
+  | "checked_in"
+  | "checked_out"
+  | "not_arrived"
+  | "unassigned"
+  | "keys_issued"
+  | "keys_returned"
+  | "faulty";
+
+const STAT_FILTER_LABEL: Record<Exclude<DeskStatFilter, "all">, string> = {
+  checked_in: "Checked in",
+  checked_out: "Checked out",
+  not_arrived: "Not arrived",
+  unassigned: "Unassigned",
+  keys_issued: "Keys issued",
+  keys_returned: "Keys returned",
+  faulty: "Faulty rooms",
+};
+
 type KeyRow = {
   _id: string;
   roomId: string;
@@ -398,6 +419,7 @@ export function ArrivalPage() {
 
   // Search + roster filters
   const [search, setSearch] = useState("");
+  const [statFilter, setStatFilter] = useState<DeskStatFilter>("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [genderFilter, setGenderFilter] = useState<"any" | "male" | "female">("any");
   const [hubFilter, setHubFilter] = useState<string>("all");
@@ -446,7 +468,13 @@ export function ArrivalPage() {
   const deskRows = useQuery(
     api.agcCheckin.listArrivalDesk,
     sessionToken
-      ? { sessionToken, location: deskLocation === "central" ? undefined : deskLocation }
+      ? {
+          sessionToken,
+          location: deskLocation === "central" ? undefined : deskLocation,
+          // Departed delegates are off the sheet unless the Checked out tile
+          // is doing the asking.
+          includeCheckedOut: statFilter === "checked_out" ? true : undefined,
+        }
       : "skip",
   );
 
@@ -883,6 +911,34 @@ export function ArrivalPage() {
 
   const rosterRows = useMemo(() => {
     const filtered = baseRows.filter((row) => {
+      // A stat tile narrows the sheet to exactly what its number counts.
+      switch (statFilter) {
+        case "checked_in":
+          if (row.checkInStatus !== "checked_in") return false;
+          break;
+        case "checked_out":
+          if (row.checkInStatus !== "checked_out") return false;
+          break;
+        case "not_arrived":
+          if (row.checkInStatus !== "not_arrived") return false;
+          break;
+        case "unassigned":
+          if (row.assignmentStatus !== "unassigned") return false;
+          break;
+        case "keys_issued":
+          if (row.keyStatus !== "issued") return false;
+          break;
+        case "keys_returned":
+          if (row.keyStatus !== "returned") return false;
+          break;
+        case "faulty": {
+          const issues = row.roomId ? (issuesByRoom.get(row.roomId) ?? []) : [];
+          if (!issues.some((issue) => issue.blocksRoom)) return false;
+          break;
+        }
+        default:
+          break;
+      }
       if (genderFilter !== "any" && row.gender !== genderFilter) return false;
       if (hubFilter !== "all" && row.hubName !== hubFilter) return false;
       if (typeFilter !== "all" && row.accommodationType !== typeFilter) return false;
@@ -899,7 +955,7 @@ export function ArrivalPage() {
       if (bedA !== bedB) return bedA - bedB;
       return a.name.localeCompare(b.name);
     });
-  }, [baseRows, genderFilter, hubFilter, typeFilter]);
+  }, [baseRows, genderFilter, hubFilter, typeFilter, statFilter, issuesByRoom]);
 
   const selectedRow = useMemo(
     () => rosterRows.find((row) => row.guestId === selectedGuestId) ?? null,
@@ -1035,11 +1091,15 @@ export function ArrivalPage() {
   };
 
   const filtersActive =
-    genderFilter !== "any" || hubFilter !== "all" || typeFilter !== "all";
+    genderFilter !== "any" ||
+    hubFilter !== "all" ||
+    typeFilter !== "all" ||
+    statFilter !== "all";
   const clearFilters = () => {
     setGenderFilter("any");
     setHubFilter("all");
     setTypeFilter("all");
+    setStatFilter("all");
     setSearch("");
     setSelectedGuestId(null);
   };
@@ -1141,6 +1201,10 @@ export function ArrivalPage() {
         reservedRooms={reservedDeskRooms.length}
         reservedBeds={reservedDeskBeds}
         faultyRooms={faultyDeskRooms}
+        activeFilter={statFilter}
+        onSelect={(filter) =>
+          setStatFilter((current) => (current === filter ? "all" : filter))
+        }
       />
 
       {/* First sign-in on a dead-zone desk: claim the station before the
@@ -1321,6 +1385,30 @@ export function ArrivalPage() {
           )}
         </div>
       </div>
+
+      {statFilter !== "all" && (
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <StatusBadge tone="info">
+            Showing: {STAT_FILTER_LABEL[statFilter]}
+          </StatusBadge>
+          <span className="text-muted-foreground">
+            {rosterRows.length} delegate{rosterRows.length === 1 ? "" : "s"} on the
+            sheet
+            {statFilter === "keys_issued" || statFilter === "keys_returned"
+              ? " — filtered by the room's key state"
+              : statFilter === "faulty"
+                ? " — filtered to rooms out of inventory"
+                : ""}
+          </span>
+          <Button
+            variant="link"
+            className="h-6 px-1 text-xs"
+            onClick={() => setStatFilter("all")}
+          >
+            Show all
+          </Button>
+        </div>
+      )}
 
       {matchingRooms.length > 0 && (
         <Card>
@@ -2396,11 +2484,16 @@ function DeskStatStrip({
   reservedRooms,
   reservedBeds,
   faultyRooms,
+  activeFilter,
+  onSelect,
 }: {
   data: Overview | undefined;
   reservedRooms: number;
   reservedBeds: number;
   faultyRooms: number;
+  /** The tile currently narrowing the sheet, if any. */
+  activeFilter: DeskStatFilter;
+  onSelect: (filter: DeskStatFilter) => void;
 }) {
   if (!data) {
     return (
@@ -2416,18 +2509,28 @@ function DeskStatStrip({
     );
   }
 
-  const stats = [
+  const stats: Array<{
+    label: string;
+    value: number;
+    hint: string;
+    tone: string;
+    /** Tiles with a filter narrow the sheet; the rest are read-only. */
+    filter?: Exclude<DeskStatFilter, "all">;
+    note?: string;
+  }> = [
     {
       label: "Checked in",
       value: data.checkedIn,
       hint: `${data.assigned} assigned`,
       tone: "text-emerald-700 dark:text-emerald-400",
+      filter: "checked_in",
     },
     {
       label: "Checked out",
       value: data.checkedOut,
       hint: "Beds stay held",
       tone: "text-foreground",
+      filter: "checked_out",
     },
     {
       label: "Not arrived",
@@ -2437,18 +2540,21 @@ function DeskStatStrip({
         data.notArrived > 0
           ? "text-amber-700 dark:text-amber-400"
           : "text-foreground",
+      filter: "not_arrived",
     },
     {
       label: "Keys issued",
       value: data.keysIssued,
       hint: "Out with delegates",
       tone: "text-sky-700 dark:text-sky-400",
+      filter: "keys_issued",
     },
     {
       label: "Keys returned",
       value: data.keysReturned,
       hint: "Back at the desk",
       tone: "text-foreground",
+      filter: "keys_returned",
     },
     {
       label: "Unassigned",
@@ -2458,12 +2564,14 @@ function DeskStatStrip({
         data.unassigned > 0
           ? "text-rose-700 dark:text-rose-400"
           : "text-foreground",
+      filter: "unassigned",
     },
     {
       label: "Reserved rooms",
       value: reservedRooms,
       hint: `${reservedBeds} bed(s) held`,
       tone: "text-sky-700 dark:text-sky-400",
+      note: "Reserved rooms hold no delegates — see the Reserved rooms panel below the sheet.",
     },
     {
       label: "Faulty rooms",
@@ -2473,20 +2581,54 @@ function DeskStatStrip({
         faultyRooms > 0
           ? "text-rose-700 dark:text-rose-400"
           : "text-foreground",
+      filter: "faulty",
     },
   ];
 
   return (
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8">
-      {stats.map((stat) => (
-        <div key={stat.label} className="rounded-lg border bg-card px-2.5 py-2">
-          <p className="text-[11px] text-muted-foreground">{stat.label}</p>
-          <p className={cn("text-lg font-semibold tabular-nums", stat.tone)}>
-            {stat.value}
-          </p>
-          <p className="truncate text-[11px] text-muted-foreground">{stat.hint}</p>
-        </div>
-      ))}
+      {stats.map((stat) => {
+        const active = !!stat.filter && activeFilter === stat.filter;
+        const body = (
+          <>
+            <p className="text-[11px] text-muted-foreground">{stat.label}</p>
+            <p className={cn("text-lg font-semibold tabular-nums", stat.tone)}>
+              {stat.value}
+            </p>
+            <p className="truncate text-[11px] text-muted-foreground">{stat.hint}</p>
+          </>
+        );
+        if (!stat.filter) {
+          return (
+            <div
+              key={stat.label}
+              title={stat.note}
+              className="rounded-lg border bg-card px-2.5 py-2"
+            >
+              {body}
+            </div>
+          );
+        }
+        return (
+          <button
+            key={stat.label}
+            type="button"
+            aria-pressed={active}
+            title={
+              active
+                ? "Clear this filter and show the whole sheet"
+                : `Show only ${STAT_FILTER_LABEL[stat.filter]} in the sheet`
+            }
+            onClick={() => onSelect(stat.filter!)}
+            className={cn(
+              "rounded-lg border bg-card px-2.5 py-2 text-left transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+              active && "border-primary bg-primary/5 ring-1 ring-primary/40",
+            )}
+          >
+            {body}
+          </button>
+        );
+      })}
     </div>
   );
 }

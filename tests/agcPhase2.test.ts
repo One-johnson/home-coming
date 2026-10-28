@@ -829,6 +829,20 @@ test("check-in: duplicate prevention, unassigned referral, and payment override 
   });
   expect(afterCheckout.keysReturned).toBe(1);
   expect(afterCheckout.keysIssued).toBe(1);
+
+  // The desk sheet drops departed delegates, unless the Checked out tile asks
+  // for them — then they come back with their real status.
+  const liveDesk = await t.query(api.agcCheckin.listArrivalDesk, {
+    sessionToken: checkSeed.token,
+  });
+  expect(liveDesk.some((row) => row.guestId === booking.guestIds[0])).toBe(false);
+  const withDeparted = await t.query(api.agcCheckin.listArrivalDesk, {
+    sessionToken: checkSeed.token,
+    includeCheckedOut: true,
+  });
+  expect(
+    withDeparted.find((row) => row.guestId === booking.guestIds[0])?.checkInStatus,
+  ).toBe("checked_out");
 });
 
 test("EBPV keys go to the first arrival; later arrivals are told who holds them", async () => {

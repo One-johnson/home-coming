@@ -211,7 +211,7 @@ const SECTIONS: RunbookSection[] = [
         text: "Pick your desk location (a building, or Central), then search by name or hub (2+ characters). “/” focuses the search and Enter checks in a single ready match. A posted check-in account opens on its own building and cannot switch away.",
       },
       {
-        text: "The strip at the top is the shift at a glance: checked in, checked out, not arrived, keys issued, keys returned, unassigned, and reserved and faulty rooms at this desk. If a number surprises you, the sheet below is the same population.",
+        text: "The strip at the top is the shift at a glance: checked in, checked out, not arrived, keys issued, keys returned, unassigned, and reserved and faulty rooms at this desk. Each delegate tile is also a filter — tap Unassigned or Not arrived to narrow the sheet to exactly those people, tap it again (or “Show all”) to return. The two room tiles are read-only: reserved rooms hold no delegates.",
       },
       {
         heading: "If it fails",

@@ -1490,7 +1490,7 @@ export type ArrivalDeskRow = {
   roomId: string | null;
   roomName: string | null;
   building: string | null;
-  checkInStatus: "checked_in" | "not_arrived";
+  checkInStatus: "checked_in" | "checked_out" | "not_arrived";
   checkInId: string | null;
   checkedInAt: number | null;
   pendingKeyRoom: boolean;
@@ -1506,6 +1506,8 @@ export const listArrivalDesk = query({
   args: {
     sessionToken: v.string(),
     location: v.optional(v.string()),
+    /** The desk's "Checked out" tile asks for departed delegates as well. */
+    includeCheckedOut: v.optional(v.boolean()),
   },
   handler: async (ctx, args): Promise<ArrivalDeskRow[]> => {
     await requireRole(ctx, args.sessionToken, [...CHECKIN_ROLES]);
@@ -1552,7 +1554,9 @@ export const listArrivalDesk = query({
         continue;
       }
       const checkIn = checkInByGuest.get(guest._id);
-      if (checkIn?.checkedOutAt) continue; // departed — off the desk
+      // Departed delegates leave the desk sheet unless the desk is looking them
+      // up (the Checked out tile), so the default view stays the live queue.
+      if (checkIn?.checkedOutAt && !args.includeCheckedOut) continue;
       const needsKey = room ? roomNeedsKey(room.accommodationType) : false;
       const key = room ? keyByRoom.get(room._id) : undefined;
       const keyOpen = key && key.status !== "returned";
@@ -1572,7 +1576,11 @@ export const listArrivalDesk = query({
         roomId: room?._id ?? null,
         roomName: room?.name ?? null,
         building: room?.building ?? null,
-        checkInStatus: checkIn ? "checked_in" : "not_arrived",
+        checkInStatus: checkIn
+          ? checkIn.checkedOutAt
+            ? "checked_out"
+            : "checked_in"
+          : "not_arrived",
         checkInId: checkIn?._id ?? null,
         checkedInAt: checkIn?.checkedInAt ?? null,
         // Key flow needed before/with check-in: lodges without a key record,
