@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/ui/data-table";
 import { ConfirmDeleteDialog } from "@/components/admin/ConfirmDeleteDialog";
 import { DelegateCorrectionsPanel } from "@/components/admin/DelegateCorrectionsPanel";
+import { StorageMaintenancePanel } from "@/components/admin/StorageMaintenancePanel";
 import { auditLogColumns } from "@/components/admin/columns";
 import {
   useAdminSession,
@@ -101,6 +102,9 @@ export default function AdminAuditPage() {
           </Button>
         )}
       />
+
+      {/* Admin-only housekeeping for uploads that no record claimed. */}
+      <StorageMaintenancePanel />
 
       <ConfirmDeleteDialog
         open={deleteTarget !== null}

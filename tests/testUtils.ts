@@ -46,6 +46,7 @@ const modules = {
   "convex/registrationCatalog.ts": () => import("../convex/registrationCatalog"),
   "convex/registrations.ts": () => import("../convex/registrations"),
   "convex/seed.ts": () => import("../convex/seed"),
+  "convex/storageMaintenance.ts": () => import("../convex/storageMaintenance"),
   "convex/tourOrders.ts": () => import("../convex/tourOrders"),
   "convex/tourPackages.ts": () => import("../convex/tourPackages"),
   "convex/users.ts": () => import("../convex/users"),

@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
+import type { Id } from "@convex/_generated/dataModel";
 import { useRepSession } from "@/components/portal/RepSessionProvider";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -295,6 +296,9 @@ export function RepRegistrationTab({
   // Payment-on-arrival flow (only offered when the hub is enrolled).
   const submitPoa = useMutation(api.agcPoa.submitPoaRegistration);
   const submitPoaEvidence = useMutation(api.agcPoa.submitPoaEvidence);
+  // An upload that no record ends up claiming is deleted again, so a rejected
+  // submit never leaves a receipt sitting in file storage forever.
+  const discardUpload = useMutation(api.storageMaintenance.discardUploadedFile);
   const [poaIouTarget, setPoaIouTarget] = useState<{
     kind: "registration" | "booking";
     recordId: string;
@@ -443,11 +447,13 @@ export function RepRegistrationTab({
   const handlePoaEvidence = async (file: File, note: string) => {
     if (!sessionToken || !evidenceTarget) return;
     setPoaBusy(true);
+    let uploadedId: Id<"_storage"> | null = null;
     try {
       const { file: uploadFile } = await compressImageForUpload(file);
       const storageId = await uploadFileToConvex(uploadFile, () =>
         generateUploadUrl({ sessionToken }),
       );
+      uploadedId = storageId;
       await submitPoaEvidence({
         sessionToken,
         kind: evidenceTarget.kind,
@@ -459,11 +465,17 @@ export function RepRegistrationTab({
           note: note.trim() || undefined,
         },
       });
+      uploadedId = null;
       setEvidenceTarget(null);
       toast.success(
         "Payment evidence uploaded — the desk will confirm your payment.",
       );
     } catch (err) {
+      if (uploadedId) {
+        void discardUpload({ sessionToken, storageId: uploadedId }).catch(
+          () => {},
+        );
+      }
       if (handleSessionError(err)) return;
       const friendly = friendlyError(err);
       toast.error(friendly.title, { description: friendly.detail });
@@ -501,6 +513,7 @@ export function RepRegistrationTab({
     }
     setLoading(true);
     setError("");
+    let uploadedId: Id<"_storage"> | null = null;
     try {
       setSubmitStage("compressing");
       // Photos are compressed client-side; PDFs pass through unchanged.
@@ -509,6 +522,7 @@ export function RepRegistrationTab({
       const storageId = await uploadFileToConvex(uploadFile, () =>
         generateUploadUrl({ sessionToken }),
       );
+      uploadedId = storageId;
       setSubmitStage("submitting");
       const result = await submitOffline({
         sessionToken,
@@ -523,6 +537,7 @@ export function RepRegistrationTab({
           receiptContentType: uploadFile.type || undefined,
         },
       });
+      uploadedId = null;
       setLastSubmitted(result.referenceNumber);
       toast.success(
         "Receipt submitted — finance will review it and email you the outcome.",
@@ -531,6 +546,13 @@ export function RepRegistrationTab({
       setAmountPaid("");
       setPaymentRef("");
     } catch (err) {
+      // The file uploaded but no record claimed it (amount mismatch, expired
+      // session, dropped network) — delete the blob instead of leaking it.
+      if (uploadedId) {
+        void discardUpload({ sessionToken, storageId: uploadedId }).catch(
+          () => {},
+        );
+      }
       // Expired/revoked session → bounce to sign-in with a friendly toast.
       if (handleSessionError(err)) return;
       const friendly = friendlyError(err);

@@ -1686,6 +1686,9 @@ export function RepAccommodationTab({
   const substitute = useMutation(api.agcBookings.substituteGuest);
   const generateUploadUrl = useMutation(api.agcPortal.generateReceiptUploadUrl);
   const submitPoaEvidence = useMutation(api.agcPoa.submitPoaEvidence);
+  // An upload that no record ends up claiming is deleted again, so a rejected
+  // submit never leaves a receipt sitting in file storage forever.
+  const discardUpload = useMutation(api.storageMaintenance.discardUploadedFile);
   // Payment-on-arrival (hub-enrolled): book now, pay on arrival, IOU receipt.
   const [usePoa, setUsePoa] = useState(false);
   // The tick only counts while the hub still holds the POA grant: if an admin
@@ -2027,12 +2030,14 @@ export function RepAccommodationTab({
     }
     setLoading(true);
     setError("");
+    let uploadedId: Id<"_storage"> | null = null;
     try {
       // Photos are compressed client-side; PDFs pass through unchanged.
       const { file: uploadFile } = await compressImageForUpload(data.receipt);
       const storageId = await uploadFileToConvex(uploadFile, () =>
         generateUploadUrl({ sessionToken }),
       );
+      uploadedId = storageId;
       await submitOffline({
         sessionToken,
         bookingId: booking._id as Id<"agcBookings">,
@@ -2046,9 +2051,16 @@ export function RepAccommodationTab({
           receiptContentType: uploadFile.type || undefined,
         },
       });
+      uploadedId = null;
       setPayTarget(null);
       toast.success("Receipt submitted — finance will review it.");
     } catch (err) {
+      // The file uploaded but no record claimed it — delete the blob.
+      if (uploadedId) {
+        void discardUpload({ sessionToken, storageId: uploadedId }).catch(
+          () => {},
+        );
+      }
       // Expired/revoked session → bounce to sign-in with a friendly toast.
       if (handleSessionError(err)) return;
       const friendly = friendlyError(err);
@@ -2296,11 +2308,13 @@ export function RepAccommodationTab({
   const handlePoaEvidence = async (file: File, note: string) => {
     if (!sessionToken || !evidenceTarget) return;
     setPoaBusy(true);
+    let uploadedId: Id<"_storage"> | null = null;
     try {
       const { file: uploadFile } = await compressImageForUpload(file);
       const storageId = await uploadFileToConvex(uploadFile, () =>
         generateUploadUrl({ sessionToken }),
       );
+      uploadedId = storageId;
       await submitPoaEvidence({
         sessionToken,
         kind: "booking",
@@ -2312,11 +2326,17 @@ export function RepAccommodationTab({
           note: note.trim() || undefined,
         },
       });
+      uploadedId = null;
       setEvidenceTarget(null);
       toast.success(
         "Payment evidence uploaded — the accommodation desk will confirm your payment.",
       );
     } catch (err) {
+      if (uploadedId) {
+        void discardUpload({ sessionToken, storageId: uploadedId }).catch(
+          () => {},
+        );
+      }
       if (handleSessionError(err)) return;
       const friendly = friendlyError(err);
       toast.error(friendly.title, { description: friendly.detail });

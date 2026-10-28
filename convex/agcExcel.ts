@@ -358,6 +358,16 @@ export const createBookingFromExcel = action({
         paymentOnArrival: args.paymentOnArrival,
       },
     );
+
+    // The workbook is a parse input, never evidence: the booking stores the
+    // guest list, not the file. Drop the blob so repeated imports don't leave
+    // a copy of every spreadsheet in file storage forever.
+    try {
+      await ctx.storage.delete(args.storageId);
+    } catch {
+      // Already gone — the booking itself is what matters.
+    }
+
     return result;
   },
 });

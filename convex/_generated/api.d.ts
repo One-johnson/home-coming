@@ -60,6 +60,7 @@ import type * as registrationCatalog from "../registrationCatalog.js";
 import type * as registrations from "../registrations.js";
 import type * as schemaTypes from "../schemaTypes.js";
 import type * as seed from "../seed.js";
+import type * as storageMaintenance from "../storageMaintenance.js";
 import type * as tourOrders from "../tourOrders.js";
 import type * as tourPackages from "../tourPackages.js";
 import type * as users from "../users.js";
@@ -123,6 +124,7 @@ declare const fullApi: ApiFromModules<{
   registrations: typeof registrations;
   schemaTypes: typeof schemaTypes;
   seed: typeof seed;
+  storageMaintenance: typeof storageMaintenance;
   tourOrders: typeof tourOrders;
   tourPackages: typeof tourPackages;
   users: typeof users;
