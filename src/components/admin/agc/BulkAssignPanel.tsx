@@ -17,6 +17,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { toastFriendlyErrorParts } from "@/lib/friendlyError";
 import { AGC_ACCOMMODATION_LABELS } from "@/lib/agcPortal";
 import { cn } from "@/lib/utils";
@@ -99,9 +106,70 @@ const GuestRow = memo(function GuestRow({
 });
 
 /**
+ * The filtered room inventory. One list backs both the desktop picker and the
+ * phone sheet, so filters, free-bed counts and the selected ring cannot drift
+ * between the two layouts.
+ */
+function RoomOptionList({
+  rooms,
+  selectedId,
+  onChoose,
+  empty,
+}: {
+  rooms: Room[];
+  selectedId: string;
+  onChoose: (room: Room) => void;
+  empty: string;
+}) {
+  if (rooms.length === 0) {
+    return (
+      <p className="rounded-lg border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
+        {empty}
+      </p>
+    );
+  }
+  return (
+    <>
+      {rooms.map((candidate) => {
+        const bedsFree = candidate.capacity - candidate.occupants;
+        const active = candidate._id === selectedId;
+        return (
+          <button
+            key={candidate._id}
+            type="button"
+            aria-pressed={active}
+            onClick={() => onChoose(candidate)}
+            className={cn(
+              "w-full rounded-lg border px-3 py-2 text-left transition-colors",
+              active
+                ? "border-primary bg-primary/5 ring-1 ring-primary"
+                : "hover:bg-muted/60",
+            )}
+          >
+            <span className="block text-sm font-semibold">{candidate.name}</span>
+            <span className="block text-xs text-muted-foreground">
+              {TYPE_LABEL(candidate.accommodationType)} · {bedsFree} free bed
+              {bedsFree === 1 ? "" : "s"} ·{" "}
+              {candidate.gender
+                ? `${candidate.gender} room`
+                : candidate.accommodationType === "ebpv"
+                  ? "mixed apartment"
+                  : "No gender yet"}
+            </span>
+          </button>
+        );
+      })}
+    </>
+  );
+}
+
+/**
  * Bulk assignment (§6) as one screen: tick who is waiting on the left, pick a
  * bed on the right, assign. Capacity, room type and single-gender rules are
  * shown before submitting and still enforced by the server.
+ *
+ * On a phone the picker would otherwise sit below the whole waiting list, so
+ * the same room list opens in a bottom sheet from a fixed action bar.
  */
 export function BulkAssignPanel({
   guests,
@@ -120,6 +188,8 @@ export function BulkAssignPanel({
   const [roomId, setRoomId] = useState<string>("");
   const [picks, setPicks] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  /** Phones reach the room picker through this sheet. */
+  const [roomSheetOpen, setRoomSheetOpen] = useState(false);
 
   const hubs = useMemo(
     () => [...new Set(guests.map((guest) => guest.hubName))].sort(),
@@ -209,6 +279,7 @@ export function BulkAssignPanel({
 
   const chooseRoom = (next: Room) => {
     setRoomId(next._id);
+    setRoomSheetOpen(false);
     // Drop ticks the new room cannot take, so the count never lies.
     setPicks((current) =>
       current.filter((id) => {
@@ -240,8 +311,13 @@ export function BulkAssignPanel({
 
   const overCapacity = room != null && picks.length > free;
 
+  const emptyRoomMessage =
+    type !== "all" || hub !== "all"
+      ? "No available room matches these filters — clear them to see the rest."
+      : "No free beds — reserved and faulty rooms are excluded; release or fix them first.";
+
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+    <div className="grid gap-4 max-lg:pb-28 lg:grid-cols-[minmax(0,1fr)_340px]">
       <div className="rounded-xl border bg-card">
         <div className="border-b px-4 py-3">
           <h2 className="text-base font-semibold">Unassigned delegates ({shown.length})</h2>
@@ -369,7 +445,9 @@ export function BulkAssignPanel({
         )}
       </div>
 
-      <div className="h-fit rounded-xl border bg-card lg:sticky lg:top-20">
+      {/* Desktop keeps the picker beside the list; on phones it is the sheet
+          opened from the bar below. */}
+      <div className="hidden h-fit rounded-xl border bg-card lg:sticky lg:top-20 lg:block">
         <div className="border-b px-4 py-3">
           <h2 className="text-base font-semibold">
             Assign to room
@@ -402,43 +480,12 @@ export function BulkAssignPanel({
           )}
         </div>
         <div className="max-h-[420px] space-y-2 overflow-y-auto p-3">
-          {roomsShown.length === 0 ? (
-            <p className="rounded-lg border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
-              {type !== "all" || hub !== "all"
-                ? "No available room matches these filters — clear them to see the rest."
-                : "No free beds — reserved and faulty rooms are excluded; release or fix them first."}
-            </p>
-          ) : (
-            roomsShown.map((candidate) => {
-              const bedsFree = candidate.capacity - candidate.occupants;
-              const active = candidate._id === roomId;
-              return (
-                <button
-                  key={candidate._id}
-                  type="button"
-                  aria-pressed={active}
-                  onClick={() => chooseRoom(candidate)}
-                  className={cn(
-                    "w-full rounded-lg border px-3 py-2 text-left transition-colors",
-                    active
-                      ? "border-primary bg-primary/5 ring-1 ring-primary"
-                      : "hover:bg-muted/60",
-                  )}
-                >
-                  <span className="block text-sm font-semibold">{candidate.name}</span>
-                  <span className="block text-xs text-muted-foreground">
-                    {TYPE_LABEL(candidate.accommodationType)} · {bedsFree} free bed
-                    {bedsFree === 1 ? "" : "s"} ·{" "}
-                    {candidate.gender
-                      ? `${candidate.gender} room`
-                      : candidate.accommodationType === "ebpv"
-                        ? "mixed apartment"
-                        : "No gender yet"}
-                  </span>
-                </button>
-              );
-            })
-          )}
+          <RoomOptionList
+            rooms={roomsShown}
+            selectedId={roomId}
+            onChoose={chooseRoom}
+            empty={emptyRoomMessage}
+          />
         </div>
         <div className="space-y-2 border-t p-3">
           <p className="text-sm font-medium">
@@ -469,6 +516,81 @@ export function BulkAssignPanel({
           </p>
         </div>
       </div>
+
+      {/* Phones: a fixed bar carries the tick count and the room decision, so
+          assigning never means scrolling past the whole waiting list. */}
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-card px-3 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-[0_-4px_16px_rgba(0,0,0,0.08)] lg:hidden">
+        <div className="flex items-center gap-2">
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-medium">
+              {picks.length === 0 ? "No delegates ticked" : `${picks.length} ticked`}
+              {room ? ` · ${room.name}` : ""}
+            </p>
+            <p className="truncate text-[11px] text-muted-foreground">
+              {overCapacity
+                ? `${picks.length - free} more than the ${free} free bed(s) — untick some.`
+                : room
+                  ? `${free} free bed${free === 1 ? "" : "s"} in ${room.name}`
+                  : "Pick a room to assign them to"}
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant={room ? "default" : "outline"}
+            className="h-10 shrink-0"
+            disabled={room !== null && (picks.length === 0 || overCapacity || busy)}
+            onClick={() =>
+              room ? void assign() : setRoomSheetOpen(true)
+            }
+          >
+            {busy ? (
+              <Loader2Icon className="size-4 animate-spin" />
+            ) : room ? (
+              <UserPlus className="size-4" />
+            ) : (
+              <BedDouble className="size-4" />
+            )}
+            {room ? `Assign ${picks.length}` : "Choose room"}
+          </Button>
+        </div>
+        {room && (
+          <button
+            type="button"
+            className="mt-1 text-[11px] text-muted-foreground underline underline-offset-2"
+            onClick={() => setRoomSheetOpen(true)}
+          >
+            Change room
+          </button>
+        )}
+      </div>
+
+      <Sheet open={roomSheetOpen} onOpenChange={setRoomSheetOpen}>
+        <SheetContent
+          side="bottom"
+          className="flex max-h-[85dvh] w-full flex-col gap-0 rounded-t-2xl p-0 sm:max-w-none"
+        >
+          <div
+            className="mx-auto mt-3 h-1.5 w-12 shrink-0 rounded-full bg-muted-foreground/30"
+            aria-hidden
+          />
+          <SheetHeader className="shrink-0 border-b px-4 py-3 pr-14">
+            <SheetTitle>Choose a room</SheetTitle>
+            <SheetDescription>
+              {picks.length === 0
+                ? "Tick the delegates in the list first, then pick the room they go to."
+                : `${picks.length} delegate${picks.length === 1 ? "" : "s"} waiting for a room.`}
+            </SheetDescription>
+          </SheetHeader>
+          <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-4 pb-6">
+            <RoomOptionList
+              rooms={roomsShown}
+              selectedId={roomId}
+              onChoose={chooseRoom}
+              empty={emptyRoomMessage}
+            />
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

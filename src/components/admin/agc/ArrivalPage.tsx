@@ -15,6 +15,7 @@ import {
   Pencil,
   RefreshCw,
   Search,
+  ChevronRight,
   ShieldAlert,
   Undo2,
   UserCheck,
@@ -23,6 +24,7 @@ import {
   Lock,
   WifiOff,
   Wrench,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
@@ -271,12 +273,15 @@ const DeskRosterRow = memo(function DeskRosterRow({
       onClick={() => onSelect(row.guestId)}
       aria-selected={selected}
       className={cn(
-        "cursor-pointer",
+        "cursor-pointer bg-card",
         ticked && "bg-emerald-50/70 dark:bg-emerald-950/20",
         selected ? "bg-sky-50 dark:bg-sky-950/40" : "hover:bg-muted/50",
       )}
     >
-      <TableCell onClick={(event) => event.stopPropagation()}>
+      <TableCell
+        onClick={(event) => event.stopPropagation()}
+        className="sticky left-0 z-[1] bg-inherit"
+      >
         <Checkbox
           checked={ticked}
           disabled={!tickable}
@@ -288,51 +293,55 @@ const DeskRosterRow = memo(function DeskRosterRow({
           }
         />
       </TableCell>
-      <TableCell className="font-medium tabular-nums">
-        {row.roomName ?? "—"}
-        {faulty && (
-          <span
-            title="This room has an open fault and is out of inventory — check the room before placing anyone here"
-            className="ml-1 inline-flex items-center gap-0.5 rounded bg-rose-100 px-1 py-0.5 text-[10px] font-medium text-rose-800 dark:bg-rose-950/60 dark:text-rose-300"
-          >
-            <Wrench className="size-2.5" /> Faulty
-          </span>
-        )}
+      <TableCell className="sticky left-[2.25rem] z-[1] overflow-hidden bg-inherit font-medium tabular-nums">
+        <div className="flex flex-wrap items-center gap-x-1">
+          <span className="truncate">{row.roomName ?? "—"}</span>
+          {faulty && (
+            <span
+              title="This room has an open fault and is out of inventory — check the room before placing anyone here"
+              className="inline-flex items-center gap-0.5 rounded bg-rose-100 px-1 py-0.5 text-[10px] font-medium text-rose-800 dark:bg-rose-950/60 dark:text-rose-300"
+            >
+              <Wrench className="size-2.5" /> Faulty
+            </span>
+          )}
+        </div>
       </TableCell>
-      <TableCell className="tabular-nums text-muted-foreground">
+      <TableCell className="sticky left-[6.75rem] z-[1] bg-inherit tabular-nums text-muted-foreground">
         {row.bedNumber ?? "—"}
       </TableCell>
-      <TableCell>
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            onSelect(row.guestId);
-          }}
-          className={cn(
-            "text-left font-semibold underline decoration-dotted underline-offset-4 hover:decoration-solid",
-            selected && "text-sky-800 dark:text-sky-300",
-          )}
-        >
-          {row.name}
-        </button>
-        {row.assignmentStatus !== "assigned" && (
-          <span className="ml-2 rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-950/60 dark:text-amber-300">
-            Unassigned
-          </span>
-        )}
-        {row.reviewFlag && (
-          <span
-            title={`Flagged for review by ${row.reviewFlag.raisedBy}: ${row.reviewFlag.note}`}
-            className="ml-2 inline-flex items-center gap-1 rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-950/60 dark:text-amber-300"
+      <TableCell className="sticky left-[9.25rem] z-[1] overflow-hidden bg-inherit">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onSelect(row.guestId);
+            }}
+            className={cn(
+              "min-w-0 truncate text-left font-semibold underline decoration-dotted underline-offset-4 hover:decoration-solid",
+              selected && "text-sky-800 dark:text-sky-300",
+            )}
           >
-            <Flag className="size-2.5" /> Review
-          </span>
-        )}
+            {row.name}
+          </button>
+          {row.assignmentStatus !== "assigned" && (
+            <span className="shrink-0 rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-950/60 dark:text-amber-300">
+              Unassigned
+            </span>
+          )}
+          {row.reviewFlag && (
+            <span
+              title={`Flagged for review by ${row.reviewFlag.raisedBy}: ${row.reviewFlag.note}`}
+              className="inline-flex shrink-0 items-center gap-1 rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-950/60 dark:text-amber-300"
+            >
+              <Flag className="size-2.5" /> Review
+            </span>
+          )}
+        </div>
       </TableCell>
       <TableCell className="hidden capitalize sm:table-cell">{row.gender}</TableCell>
       <TableCell className="hidden md:table-cell">{row.hubName}</TableCell>
-      <TableCell className={cn("text-sm font-medium", cell.className)}>
+      <TableCell className={cn("whitespace-normal text-sm font-medium", cell.className)}>
         {queued ? (
           <span title={`${queued.guestName} was checked in on this device at ${new Date(queued.originalAt).toLocaleTimeString()} — it sends when the station syncs, so do not check them in again`}>
             Queued offline
@@ -357,6 +366,113 @@ const DeskRosterRow = memo(function DeskRosterRow({
         {row.keyStatus ? KEY_LABEL[row.keyStatus] : "—"}
       </TableCell>
     </TableRow>
+  );
+});
+
+/**
+ * The same desk row as a phone-sized card. An eight-column table is unreadable
+ * at that width, so room, bed and name stay on one line and the rest of the
+ * row's state rides underneath it as badges — tapping the card opens the full
+ * record in the bottom sheet. Memoised for the same reason as the table row:
+ * the sheet holds hundreds of delegates and ticking one used to re-render all.
+ */
+const DeskRosterCard = memo(function DeskRosterCard({
+  row,
+  selected,
+  ticked,
+  tickable,
+  faulty,
+  queued,
+  onSelect,
+  onTick,
+}: {
+  row: SearchRow;
+  selected: boolean;
+  ticked: boolean;
+  tickable: boolean;
+  faulty: boolean;
+  queued: QueuedDeskCheckIn | undefined;
+  onSelect: (guestId: string) => void;
+  onTick: (guestId: string) => void;
+}) {
+  const cell = checkInCell(row);
+  return (
+    <li
+      className={cn(
+        "flex items-start gap-3 px-3 py-3 transition-colors",
+        ticked && "bg-emerald-50/70 dark:bg-emerald-950/20",
+        selected && "bg-sky-50 dark:bg-sky-950/40",
+      )}
+    >
+      <span className="pt-0.5">
+        <Checkbox
+          checked={ticked}
+          disabled={!tickable}
+          onCheckedChange={() => onTick(row.guestId)}
+          aria-label={
+            tickable
+              ? `Tick ${row.name} for bulk check-in`
+              : `${row.name} is not ready to check in`
+          }
+        />
+      </span>
+      <button
+        type="button"
+        onClick={() => onSelect(row.guestId)}
+        className="min-w-0 flex-1 text-left"
+        aria-current={selected ? "true" : undefined}
+      >
+        <span className="flex items-center justify-between gap-2">
+          <span
+            className={cn(
+              "truncate text-sm font-semibold",
+              selected && "text-sky-800 dark:text-sky-300",
+            )}
+          >
+            {row.name}
+          </span>
+          <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+        </span>
+        <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+          {row.roomName ? `Room ${row.roomName}` : "No room"}
+          {row.bedNumber ? ` · Bed ${row.bedNumber}` : ""}
+          {" · "}
+          {row.hubName}
+          {" · "}
+          <span className="capitalize">{row.gender}</span>
+        </span>
+        <span className="mt-1 flex flex-wrap items-center gap-1">
+          <span className={cn("text-[11px] font-medium", cell.className)}>
+            {queued ? "Queued offline" : cell.label}
+          </span>
+          {queued && (
+            <span className="inline-flex items-center gap-0.5 rounded bg-sky-100 px-1 py-0.5 text-[10px] font-medium text-sky-800 dark:bg-sky-950/60 dark:text-sky-300">
+              <WifiOff className="size-2.5" /> Local
+            </span>
+          )}
+          {row.keyStatus && (
+            <span className="inline-flex items-center gap-0.5 rounded bg-muted px-1 py-0.5 text-[10px] font-medium text-muted-foreground">
+              <KeyRound className="size-2.5" /> {KEY_LABEL[row.keyStatus]}
+            </span>
+          )}
+          {row.assignmentStatus !== "assigned" && (
+            <span className="rounded bg-amber-100 px-1 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-950/60 dark:text-amber-300">
+              Unassigned
+            </span>
+          )}
+          {row.reviewFlag && (
+            <span className="inline-flex items-center gap-0.5 rounded bg-amber-100 px-1 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-950/60 dark:text-amber-300">
+              <Flag className="size-2.5" /> Review
+            </span>
+          )}
+          {faulty && (
+            <span className="inline-flex items-center gap-0.5 rounded bg-rose-100 px-1 py-0.5 text-[10px] font-medium text-rose-800 dark:bg-rose-950/60 dark:text-rose-300">
+              <Wrench className="size-2.5" /> Room faulty
+            </span>
+          )}
+        </span>
+      </button>
+    </li>
   );
 });
 
@@ -1519,19 +1635,78 @@ export function ArrivalPage() {
             )}
           </div>
           <CardContent className="max-h-[60vh] overflow-auto p-0">
-            <Table>
+            {/* Phones get a list: tapping a delegate opens the record as a
+                bottom sheet rather than scrolling past a sideways table. The
+                tick / fault / queue rules below deliberately mirror the table,
+                so a delegate is checkable the same way in either layout. */}
+            <ul className="divide-y sm:hidden">
+              {deskLoading ? (
+                Array.from({ length: 6 }).map((_, i) => (
+                  <li
+                    key={`desk-card-loading-${i}`}
+                    aria-hidden
+                    className="flex items-start gap-3 px-3 py-3"
+                  >
+                    <Skeleton className="size-4 rounded-[4px]" />
+                    <div className="min-w-0 flex-1 space-y-1.5">
+                      <Skeleton className="h-4 w-36" />
+                      <Skeleton className="h-3 w-24" />
+                    </div>
+                  </li>
+                ))
+              ) : rosterRows.length === 0 ? (
+                <li className="px-4 py-12 text-center text-sm text-muted-foreground">
+                  {filtersActive || search
+                    ? "No delegate matches these filters — clear them to see the full sheet."
+                    : "No delegates on the desk yet — rooms and bookings feed this sheet."}
+                </li>
+              ) : (
+                rosterRows.map((row) => (
+                  <DeskRosterCard
+                    key={row.guestId}
+                    row={row}
+                    selected={row.guestId === selectedGuestId}
+                    ticked={batchTicked.includes(row.guestId)}
+                    tickable={
+                      deskRowState(row).ready && !queuedGuestIds.has(row.guestId)
+                    }
+                    queued={queuedByGuest.get(row.guestId)}
+                    faulty={
+                      row.roomId
+                        ? (issuesByRoom.get(row.roomId) ?? []).some(
+                            (issue) => issue.blocksRoom,
+                          )
+                        : false
+                    }
+                    onSelect={setSelectedGuestId}
+                    onTick={tickRow}
+                  />
+                ))
+              )}
+            </ul>
+            <div className="hidden sm:block">
+            <Table className="min-w-[44rem] table-fixed">
               <TableHeader className="sticky top-0 z-10 bg-card shadow-[0_1px_0_0_theme(colors.border)]">
-                <TableRow className="bg-muted/50 hover:bg-muted/50">
-                  <TableHead className="w-8">
+                {/* Room, bed and name stay pinned while the desk scrolls the
+                    rest of the row into view — on a phone-shaped window the
+                    sheet is wider than the card. */}
+                <TableRow className="bg-muted hover:bg-muted">
+                  <TableHead className="sticky left-0 z-20 w-9 bg-muted">
                     <span className="sr-only">Select for bulk check-in</span>
                   </TableHead>
-                  <TableHead className="w-16">Room</TableHead>
-                  <TableHead className="w-12">Bed</TableHead>
-                  <TableHead>Name</TableHead>
-                  <TableHead className="hidden sm:table-cell">Gender</TableHead>
-                  <TableHead className="hidden md:table-cell">Hub</TableHead>
-                  <TableHead>Check-in</TableHead>
-                  <TableHead className="hidden sm:table-cell">Key</TableHead>
+                  <TableHead className="sticky left-[2.25rem] z-20 w-[4.5rem] bg-muted">
+                    Room
+                  </TableHead>
+                  <TableHead className="sticky left-[6.75rem] z-20 w-10 bg-muted">
+                    Bed
+                  </TableHead>
+                  <TableHead className="sticky left-[9.25rem] z-20 bg-muted">
+                    Name
+                  </TableHead>
+                  <TableHead className="hidden w-[4.5rem] sm:table-cell">Gender</TableHead>
+                  <TableHead className="hidden w-24 md:table-cell">Hub</TableHead>
+                  <TableHead className="w-36">Check-in</TableHead>
+                  <TableHead className="hidden w-[4.5rem] sm:table-cell">Key</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1581,12 +1756,44 @@ export function ArrivalPage() {
                 )}
               </TableBody>
             </Table>
+            </div>
           </CardContent>
         </Card>
 
         {/* The record card stays in view beside the sheet, and scrolls inside
             itself when the actions stack up taller than the window. */}
-        <Card className="h-fit lg:sticky lg:top-16 lg:max-h-[calc(100vh-5rem)] lg:overflow-y-auto">
+        {selectedRow && (
+          <div
+            aria-hidden
+            onClick={() => setSelectedGuestId(null)}
+            className="fixed inset-0 z-30 bg-black/40 lg:hidden"
+          />
+        )}
+        {/* On a phone the same card is the record sheet: pinned to the bottom
+            of the screen over the roster, so a tapped delegate and their
+            actions stay together instead of falling below every row. */}
+        <Card
+          className={cn(
+            "h-fit lg:sticky lg:top-16 lg:max-h-[calc(100vh-5rem)] lg:overflow-y-auto",
+            "max-lg:fixed max-lg:inset-x-0 max-lg:bottom-0 max-lg:z-40 max-lg:max-h-[85dvh] max-lg:overflow-y-auto max-lg:rounded-t-2xl max-lg:rounded-b-none max-lg:border-x-0 max-lg:shadow-2xl",
+            selectedRow ? "max-lg:block" : "max-lg:hidden",
+          )}
+        >
+          {selectedRow && (
+            <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b bg-card px-4 py-2 lg:hidden">
+              <span className="text-xs font-medium text-muted-foreground">
+                Delegate record
+              </span>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => setSelectedGuestId(null)}
+                aria-label="Close delegate record"
+              >
+                <X className="size-4" />
+              </Button>
+            </div>
+          )}
           <CardContent className="p-4">
             {!selectedRow ? (
               <div className="py-10 text-center">
