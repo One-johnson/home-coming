@@ -260,7 +260,25 @@ const SECTIONS: RunbookSection[] = [
         text: "If keys are already out, the desk is told who holds them — direct later arrivals to that person to coordinate access.",
       },
       {
+        heading: "Do",
+        kind: "do",
+        text: "Issue a key after arrival: select the delegate on the desk card → Issue key, and name who holds it (defaults to the delegate). Use this when the delegate went to settle in first and came back for the key — the arrival is already recorded, so the hand-over is added to it without re-running the check-in.",
+      },
+      {
+        text: "One key stays open per room. If it is already out, Issue key refuses and names the holder — mark it returned first, or Replace it in the Keys panel if the key changed hands. A delegate with no arrival yet cannot be given a key, and dormitory/hostel wristbands are never recorded.",
+      },
+      {
+        heading: "Do",
+        kind: "do",
+        text: "Mark key returned from the same card as soon as the key comes back, even if the delegate has not checked out. The room then shows Pending or Returned and the key can be issued again.",
+      },
+      {
         text: "Arrival → Keys panel: Replace (new key holder) and Returned per room. The full ledger is in the key reports.",
+      },
+      {
+        heading: "Never",
+        kind: "never",
+        text: "Undoing a check-in does not take back a key. The key physically left the drawer, so the desk is told who still holds it and must mark it returned when it comes back.",
       },
     ],
     links: [{ href: "/admin/arrival", label: "Open the Keys panel" }],
@@ -351,6 +369,11 @@ const SECTIONS: RunbookSection[] = [
         text: "A faulty room's card turns red, the desk marks the delegate's row Faulty, and the check-in and room-change dialogs repeat the warning. Fix it with Mark fixed on the room card — resolving the last blocking fault puts the room straight back into the available stock.",
       },
       {
+        heading: "Do",
+        kind: "do",
+        text: "Check a room's fault history before giving it out: every card with past repairs carries Fault history (n) under its open problems. Open it to see what was fixed, when, by whom and the fix note. A category that keeps coming back is named in the collapsed line — “recurring: Toilet ×3” — so a room that has been patched repeatedly is not mistaken for a one-off.",
+      },
+      {
         heading: "Never",
         kind: "never",
         text: "Never give out a reserved or faulty room from memory or an old list. The server refuses it and the bed would be double-booked; use the live picker, which already excludes both.",
@@ -407,7 +430,10 @@ const SECTIONS: RunbookSection[] = [
       {
         heading: "Do",
         kind: "do",
-        text: "Undo a wrong check-in: select the delegate → Correct check-in, with a reason. The original stays in the log marked corrected and the delegate goes back to Not Arrived, ready to check in again.",
+        text: "Undo a wrong check-in: select the checked-in delegate → Undo check-in, with a required reason (wrong person at the counter, wrong room, wrong hub). The arrival is removed and the delegate returns to Not Arrived, ready to be checked in again properly. The reason and a snapshot of the arrival — room, time, who did it, location, any payment override — stay in the audit log. Admin, Accommodation and Room assignment only.",
+      },
+      {
+        text: "Correct check-in is the other repair: it keeps the arrival row and marks it corrected, for a record that needs a written reason against it. Both actions put the delegate back on the Not Arrived list, so use Undo when the arrival should never have happened and Correct when you are annotating one that did. Neither reclaims a key — return it separately.",
       },
       {
         heading: "Do",

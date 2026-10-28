@@ -84,6 +84,14 @@ or Central) and then:
 5. **Check-out (§20)** — optional, never releases paid inventory. For dorms/
    hostels a wristband return is not tracked; for key rooms choose
    *Key returned / not returned*.
+6. **Undo a wrong check-in** — select the checked-in delegate → *Undo check-in*
+   and give a reason (wrong person, wrong room, wrong hub). The arrival is
+   removed, the delegate goes back to **Not Arrived** so they can be checked in
+   again properly, and the reason plus a snapshot of the arrival (room, time,
+   who checked them in, payment override) stay in the audit log. Admin,
+   Accommodation and Room assignment only. *Correct check-in* is the other
+   repair: it keeps the arrival row marked corrected. Get a key back with
+   *Mark key returned* — undoing an arrival never takes the key in.
 
 ## 3. Keys (§14–15)
 
@@ -94,7 +102,14 @@ only. Dorms/hostels get wristbands — nothing recorded.
   dialog asks for the key recipient (defaults to the delegate). If keys are
   already out, the desk is told **who holds them** — direct later arrivals to
   that person to coordinate access.
+- **Issue a key after arrival** — the delegate often goes to settle in first
+  and comes back for the key. Select them on the desk card → *Issue key* and
+  name who holds it (defaults to the delegate); the hand-over is added to the
+  arrival already on file. A delegate with no arrival yet cannot be given a
+  key, and a room keeps **one key open at a time**: if it is already out, the
+  desk is told who has it and must mark it returned (or *Replace* it) first.
 - **Arrival → Keys panel**: *Replace* (new key holder) and *Returned* per room.
+  *Mark key returned* on the delegate's card does the same without a check-out.
   The full ledger is in the key issuance/replacement reports.
 
 ## 4. Offline stations (§19)
