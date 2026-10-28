@@ -273,15 +273,12 @@ const DeskRosterRow = memo(function DeskRosterRow({
       onClick={() => onSelect(row.guestId)}
       aria-selected={selected}
       className={cn(
-        "cursor-pointer bg-card",
+        "cursor-pointer",
         ticked && "bg-emerald-50/70 dark:bg-emerald-950/20",
         selected ? "bg-sky-50 dark:bg-sky-950/40" : "hover:bg-muted/50",
       )}
     >
-      <TableCell
-        onClick={(event) => event.stopPropagation()}
-        className="sticky left-0 z-[1] bg-inherit"
-      >
+      <TableCell onClick={(event) => event.stopPropagation()}>
         <Checkbox
           checked={ticked}
           disabled={!tickable}
@@ -293,7 +290,7 @@ const DeskRosterRow = memo(function DeskRosterRow({
           }
         />
       </TableCell>
-      <TableCell className="sticky left-[2.25rem] z-[1] overflow-hidden bg-inherit font-medium tabular-nums">
+      <TableCell className="font-medium tabular-nums">
         <div className="flex flex-wrap items-center gap-x-1">
           <span className="truncate">{row.roomName ?? "—"}</span>
           {faulty && (
@@ -306,10 +303,10 @@ const DeskRosterRow = memo(function DeskRosterRow({
           )}
         </div>
       </TableCell>
-      <TableCell className="sticky left-[6.75rem] z-[1] bg-inherit tabular-nums text-muted-foreground">
+      <TableCell className="tabular-nums text-muted-foreground">
         {row.bedNumber ?? "—"}
       </TableCell>
-      <TableCell className="sticky left-[9.25rem] z-[1] overflow-hidden bg-inherit">
+      <TableCell>
         <div className="flex min-w-0 items-center gap-1.5">
           <button
             type="button"
@@ -341,7 +338,7 @@ const DeskRosterRow = memo(function DeskRosterRow({
       </TableCell>
       <TableCell className="hidden capitalize sm:table-cell">{row.gender}</TableCell>
       <TableCell className="hidden md:table-cell">{row.hubName}</TableCell>
-      <TableCell className={cn("whitespace-normal text-sm font-medium", cell.className)}>
+      <TableCell className={cn("text-sm font-medium", cell.className)}>
         {queued ? (
           <span title={`${queued.guestName} was checked in on this device at ${new Date(queued.originalAt).toLocaleTimeString()} — it sends when the station syncs, so do not check them in again`}>
             Queued offline
@@ -404,7 +401,8 @@ const DeskRosterCard = memo(function DeskRosterCard({
         selected && "bg-sky-50 dark:bg-sky-950/40",
       )}
     >
-      <span className="pt-0.5">
+      {/* Padded so a thumb can hit the tick without opening the record. */}
+      <span className="-m-1 p-1">
         <Checkbox
           checked={ticked}
           disabled={!tickable}
@@ -452,7 +450,9 @@ const DeskRosterCard = memo(function DeskRosterCard({
           )}
           {row.keyStatus && (
             <span className="inline-flex items-center gap-0.5 rounded bg-muted px-1 py-0.5 text-[10px] font-medium text-muted-foreground">
-              <KeyRound className="size-2.5" /> {KEY_LABEL[row.keyStatus]}
+              {/* The table has a "Key" header; on a card the label has to say
+                  so, or "Pending" reads like a payment state. */}
+              <KeyRound className="size-2.5" /> Key: {KEY_LABEL[row.keyStatus]}
             </span>
           )}
           {row.assignmentStatus !== "assigned" && (
@@ -1432,7 +1432,11 @@ export function ArrivalPage() {
               className="h-8 w-auto min-w-32 gap-1 rounded-full px-3 text-xs"
               aria-label="Filter by hub"
             >
-              <SelectValue />
+              {/* The trigger has to say what is filtered, not echo the raw
+                  value — "all" beside "all" tells a phone user nothing. */}
+              <SelectValue>
+                {hubFilter === "all" ? "Hub: Any" : `Hub: ${hubFilter}`}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Hub: Any</SelectItem>
@@ -1449,7 +1453,11 @@ export function ArrivalPage() {
               className="h-8 w-auto min-w-36 gap-1 rounded-full px-3 text-xs"
               aria-label="Filter by room type"
             >
-              <SelectValue />
+              <SelectValue>
+                {typeFilter === "all"
+                  ? "Room type: Any"
+                  : `Room type: ${TYPE_LABEL(typeFilter)}`}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Room type: Any</SelectItem>
@@ -1475,7 +1483,11 @@ export function ArrivalPage() {
                   : undefined
               }
             >
-              <SelectValue />
+              <SelectValue>
+                {deskLocation === "central"
+                  ? "Location: Central desk"
+                  : `Location: ${deskLocation}`}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="central">Location: Central desk</SelectItem>
@@ -1572,7 +1584,14 @@ export function ArrivalPage() {
         </Card>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+      {/* The record column only exists once a delegate is chosen, so the sheet
+          takes the full width of the page until then. */}
+      <div
+        className={cn(
+          "grid gap-4",
+          selectedRow ? "lg:grid-cols-[minmax(0,1fr)_340px]" : "grid-cols-1",
+        )}
+      >
         {/* The sheet is the longest thing on the page, so it scrolls in place
             with its header pinned rather than pushing the record card and the
             desk tools down the page (the rooms grid reads the same way). */}
@@ -1584,7 +1603,7 @@ export function ArrivalPage() {
               <ListChecks className="size-3.5" /> Bulk check-in
             </span>
             {batchTicked.length === 0 ? (
-              <span className="text-xs text-muted-foreground">
+              <span className="hidden text-xs text-muted-foreground sm:inline">
                 {deskLoading || readyRows.length === 0
                   ? "Tick ready delegates below to check them in together."
                   : `Tick ready delegates below — ${readyRows.length} ready in this view.`}
@@ -1634,7 +1653,10 @@ export function ArrivalPage() {
               </>
             )}
           </div>
-          <CardContent className="max-h-[60vh] overflow-auto p-0">
+          {/* Phones scroll the page, not a box inside it — a capped scroller
+              nested in the page is what makes a list feel stuck on a touch
+              screen. From sm up the sheet keeps its own scroll area. */}
+          <CardContent className="p-0 sm:max-h-[60vh] sm:overflow-auto">
             {/* Phones get a list: tapping a delegate opens the record as a
                 bottom sheet rather than scrolling past a sideways table. The
                 tick / fault / queue rules below deliberately mirror the table,
@@ -1685,28 +1707,19 @@ export function ArrivalPage() {
               )}
             </ul>
             <div className="hidden sm:block">
-            <Table className="min-w-[44rem] table-fixed">
+            <Table>
               <TableHeader className="sticky top-0 z-10 bg-card shadow-[0_1px_0_0_theme(colors.border)]">
-                {/* Room, bed and name stay pinned while the desk scrolls the
-                    rest of the row into view — on a phone-shaped window the
-                    sheet is wider than the card. */}
-                <TableRow className="bg-muted hover:bg-muted">
-                  <TableHead className="sticky left-0 z-20 w-9 bg-muted">
+                <TableRow className="bg-muted/50 hover:bg-muted/50">
+                  <TableHead className="w-8">
                     <span className="sr-only">Select for bulk check-in</span>
                   </TableHead>
-                  <TableHead className="sticky left-[2.25rem] z-20 w-[4.5rem] bg-muted">
-                    Room
-                  </TableHead>
-                  <TableHead className="sticky left-[6.75rem] z-20 w-10 bg-muted">
-                    Bed
-                  </TableHead>
-                  <TableHead className="sticky left-[9.25rem] z-20 bg-muted">
-                    Name
-                  </TableHead>
-                  <TableHead className="hidden w-[4.5rem] sm:table-cell">Gender</TableHead>
-                  <TableHead className="hidden w-24 md:table-cell">Hub</TableHead>
-                  <TableHead className="w-36">Check-in</TableHead>
-                  <TableHead className="hidden w-[4.5rem] sm:table-cell">Key</TableHead>
+                  <TableHead className="w-16">Room</TableHead>
+                  <TableHead className="w-12">Bed</TableHead>
+                  <TableHead>Name</TableHead>
+                  <TableHead className="hidden sm:table-cell">Gender</TableHead>
+                  <TableHead className="hidden md:table-cell">Hub</TableHead>
+                  <TableHead>Check-in</TableHead>
+                  <TableHead className="hidden sm:table-cell">Key</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1760,51 +1773,39 @@ export function ArrivalPage() {
           </CardContent>
         </Card>
 
-        {/* The record card stays in view beside the sheet, and scrolls inside
-            itself when the actions stack up taller than the window. */}
+        {/* Nothing selected: there is no record card at all. Once a delegate is
+            chosen it appears beside the sheet (and, on a phone, as the bottom
+            sheet itself). */}
         {selectedRow && (
-          <div
-            aria-hidden
-            onClick={() => setSelectedGuestId(null)}
-            className="fixed inset-0 z-30 bg-black/40 lg:hidden"
-          />
-        )}
-        {/* On a phone the same card is the record sheet: pinned to the bottom
-            of the screen over the roster, so a tapped delegate and their
-            actions stay together instead of falling below every row. */}
-        <Card
-          className={cn(
-            "h-fit lg:sticky lg:top-16 lg:max-h-[calc(100vh-5rem)] lg:overflow-y-auto",
-            "max-lg:fixed max-lg:inset-x-0 max-lg:bottom-0 max-lg:z-40 max-lg:max-h-[85dvh] max-lg:overflow-y-auto max-lg:rounded-t-2xl max-lg:rounded-b-none max-lg:border-x-0 max-lg:shadow-2xl",
-            selectedRow ? "max-lg:block" : "max-lg:hidden",
-          )}
-        >
-          {selectedRow && (
-            <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b bg-card px-4 py-2 lg:hidden">
-              <span className="text-xs font-medium text-muted-foreground">
-                Delegate record
-              </span>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={() => setSelectedGuestId(null)}
-                aria-label="Close delegate record"
-              >
-                <X className="size-4" />
-              </Button>
-            </div>
-          )}
-          <CardContent className="p-4">
-            {!selectedRow ? (
-              <div className="py-10 text-center">
-                <UserCheck className="mx-auto size-6 text-muted-foreground" />
-                <p className="mt-2 text-sm font-medium">Select a delegate</p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Click a name to see the room, payment and key, then check them in.
-                </p>
+          <>
+            <div
+              aria-hidden
+              onClick={() => setSelectedGuestId(null)}
+              className="fixed inset-0 z-30 bg-black/40 lg:hidden"
+            />
+            <Card
+              className={cn(
+                "h-fit lg:sticky lg:top-16 lg:max-h-[calc(100vh-5rem)] lg:overflow-y-auto",
+                "max-lg:fixed max-lg:inset-x-0 max-lg:bottom-0 max-lg:z-40 max-lg:max-h-[85dvh] max-lg:overflow-y-auto max-lg:overscroll-contain max-lg:rounded-t-2xl max-lg:rounded-b-none max-lg:border-x-0 max-lg:pb-[env(safe-area-inset-bottom)] max-lg:shadow-2xl",
+              )}
+            >
+              {/* Closes the record everywhere: on a desktop that hands the
+                  page back to the full-width sheet. */}
+              <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b bg-card px-4 py-1.5 lg:justify-end">
+                <span className="text-xs font-medium text-muted-foreground lg:hidden">
+                  Delegate record
+                </span>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => setSelectedGuestId(null)}
+                  aria-label="Close delegate record"
+                >
+                  <X className="size-4" />
+                </Button>
               </div>
-            ) : (
-              <div className="space-y-3">
+              <CardContent className="p-4">
+                <div className="space-y-3">
                 <div>
                   <h2 className="text-lg font-semibold leading-tight">{selectedRow.name}</h2>
                   <p className="mt-0.5 text-xs text-muted-foreground">
@@ -2081,13 +2082,16 @@ export function ArrivalPage() {
                     </Button>
                   )}
                 </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                </div>
+              </CardContent>
+            </Card>
+          </>
+        )}
       </div>
 
-      <p className="text-xs text-muted-foreground">
+      {/* Keyboard advice is noise on a touch screen — it sits exactly where a
+          phone user is trying to reach the list. */}
+      <p className="hidden text-xs text-muted-foreground sm:block">
         Press <kbd className="rounded border px-1">/</kbd> to jump to search.
         Enter checks in a single ready match. Row colour follows the desk
         legend: green ready, amber blocked, sky already in, slate waiting.
@@ -2696,6 +2700,14 @@ function DeskAlerts({
 }
 
 /**
+ * Eight tiles stacked two-up pushed the desk sheet half a screen down on a
+ * phone, so below sm they become a swipeable strip; from sm up it is the
+ * four/eight-column grid the screens were designed around.
+ */
+const STAT_STRIP_CLASS =
+  "flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:grid sm:grid-cols-4 sm:overflow-visible sm:pb-0 xl:grid-cols-8";
+
+/**
  * The numbers the desk is asked for first, in the same small-tile strip the
  * rooms screen uses: arrivals, departures, both directions of the key ledger,
  * and the rooms that must not be handed out. The drawer below keeps the action
@@ -2720,12 +2732,15 @@ function DeskStatStrip({
   if (!data) {
     return (
       <div
-        className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8"
+        className={STAT_STRIP_CLASS}
         aria-busy="true"
         aria-label="Loading desk statistics"
       >
         {Array.from({ length: 8 }).map((_, index) => (
-          <Skeleton key={index} className="h-16 rounded-lg" />
+          <Skeleton
+            key={index}
+            className="h-16 rounded-lg max-sm:w-36 max-sm:shrink-0"
+          />
         ))}
       </div>
     );
@@ -2808,7 +2823,7 @@ function DeskStatStrip({
   ];
 
   return (
-    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8">
+    <div className={STAT_STRIP_CLASS}>
       {stats.map((stat) => {
         const active = !!stat.filter && activeFilter === stat.filter;
         const body = (
@@ -2825,7 +2840,7 @@ function DeskStatStrip({
             <div
               key={stat.label}
               title={stat.note}
-              className="rounded-lg border bg-card px-2.5 py-2"
+              className="rounded-lg border bg-card px-2.5 py-2 max-sm:w-36 max-sm:shrink-0"
             >
               {body}
             </div>
@@ -2843,7 +2858,7 @@ function DeskStatStrip({
             }
             onClick={() => onSelect(stat.filter!)}
             className={cn(
-              "rounded-lg border bg-card px-2.5 py-2 text-left transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+              "rounded-lg border bg-card px-2.5 py-2 text-left transition-colors max-sm:w-36 max-sm:shrink-0 hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
               active && "border-primary bg-primary/5 ring-1 ring-primary/40",
             )}
           >

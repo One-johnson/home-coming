@@ -431,7 +431,7 @@ export function BulkAssignPanel({
             No unassigned delegate matches these filters.
           </p>
         ) : (
-          <ul className="max-h-[420px] divide-y overflow-y-auto">
+          <ul className="max-h-[420px] divide-y overflow-y-auto max-lg:max-h-none max-lg:overflow-visible">
             {shown.map((guest) => (
               <GuestRow
                 key={guest._id}
