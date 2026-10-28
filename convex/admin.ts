@@ -269,6 +269,63 @@ export const listAuditLogs = query({
   },
 });
 
+/**
+ * Delegate corrections made in the console, newest first — what the accommodation
+ * team (and the super admins) changed on a live reservation while the rep could
+ * no longer touch it, with the details each change replaced and the reason that
+ * was given.
+ *
+ * This is the substitution history read from the staff side: a correction made
+ * from the desk, the review queue or the bookings list is the one that altered a
+ * delegate's identity on a locked booking, so those are the rows that carry an
+ * acting staff member. A rep substituting a delegate while the booking is still
+ * theirs to change is recorded on the booking itself and needs no review here,
+ * so rows with no staff actor are left out.
+ */
+export const listDelegateCorrections = query({
+  args: { sessionToken: sessionTokenValidator, limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, args.sessionToken, ["admin"]);
+
+    const corrections = (await ctx.db.query("agcSubstitutions").collect())
+      .filter(
+        (row): row is typeof row & { actorAdminEmail: string } =>
+          row.actorAdminEmail !== undefined,
+      )
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, args.limit ?? 100);
+
+    const bookingById = new Map(
+      (await ctx.db.query("agcBookings").collect()).map((b) => [b._id, b]),
+    );
+    // Which team made the change is the point of the screen, and the role is not
+    // denormalised onto the row, so it is resolved from the acting account. The
+    // staff list is small and the correction set is small; a null role means the
+    // account has since been removed.
+    const roleByEmail = new Map(
+      (await ctx.db.query("users").collect()).map((user) => [
+        user.email.toLowerCase(),
+        user.role as string,
+      ]),
+    );
+
+    return corrections.map((row) => ({
+      _id: row._id,
+      createdAt: row.createdAt,
+      previousFirstName: row.previousFirstName,
+      previousLastName: row.previousLastName,
+      previousGender: row.previousGender as string,
+      newFirstName: row.newFirstName,
+      newLastName: row.newLastName,
+      newGender: row.newGender as string,
+      reason: row.reason ?? null,
+      actorEmail: row.actorAdminEmail,
+      actorRole: roleByEmail.get(row.actorAdminEmail.toLowerCase()) ?? null,
+      bookingRef: bookingById.get(row.bookingId)?.referenceNumber ?? null,
+    }));
+  },
+});
+
 export const removeAuditLog = mutation({
   args: { sessionToken: sessionTokenValidator, id: v.id("auditLogs") },
   handler: async (ctx, args) => {

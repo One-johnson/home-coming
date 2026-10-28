@@ -14,6 +14,7 @@ const modules = {
   "convex/_generated/api.js": () => import("../convex/_generated/api.js"),
   "convex/schema.ts": () => import("../convex/schema"),
   "convex/schemaTypes.ts": () => import("../convex/schemaTypes"),
+  "convex/admin.ts": () => import("../convex/admin"),
   "convex/adminAuthData.ts": () => import("../convex/adminAuthData"),
   "convex/agcAccommodation.ts": () => import("../convex/agcAccommodation"),
   "convex/agcAdmin.ts": () => import("../convex/agcAdmin"),

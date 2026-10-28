@@ -10,6 +10,7 @@ import { cleanErrorMessage } from "@/lib/friendlyError";
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/ui/data-table";
 import { ConfirmDeleteDialog } from "@/components/admin/ConfirmDeleteDialog";
+import { DelegateCorrectionsPanel } from "@/components/admin/DelegateCorrectionsPanel";
 import { auditLogColumns } from "@/components/admin/columns";
 import {
   useAdminSession,
@@ -64,6 +65,10 @@ export default function AdminAuditPage() {
 
   return (
     <div className="w-full min-w-0 space-y-4">
+      {/* What the accommodation team changed on a locked reservation, with the
+          reasons — the audit log below still holds every event. */}
+      <DelegateCorrectionsPanel />
+
       <DataTable
         columns={auditLogColumns}
         data={logs ?? []}

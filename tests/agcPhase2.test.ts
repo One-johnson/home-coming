@@ -1949,3 +1949,117 @@ test("the reviewer corrects a flagged delegate's details from the queue, and the
   expect(audit[0].actorEmail).toBe("accommodation@example.com");
   expect(audit[0].summary).toContain("reason: Arrived as somebody else");
 });
+test("the audit area lists console delegate corrections with who made them and why", async () => {
+  const t = createTestConvex();
+  const admin = await seedStaff(t, "admin");
+  const accommodation = await seedStaff(t, "accommodation");
+  const desk = await seedStaff(t, "checkin");
+  const booking = await seedConfirmedBooking(t, {
+    accommodationType: "hostel",
+    gender: "male",
+    count: 2,
+  });
+  const [firstGuest, secondGuest] = booking.guestIds as Id<"agcGuests">[];
+
+  // A rep's own substitution, made while the booking was still theirs to change,
+  // is not a console correction — no acting staff member on the row — so it must
+  // not appear on the audit screen.
+  await t.run(async (ctx) => {
+    await ctx.db.insert("agcSubstitutions", {
+      bookingId: booking.bookingId,
+      guestId: secondGuest,
+      previousFirstName: "Guest1",
+      previousLastName: "Mensah",
+      previousGender: "male",
+      previousType: "hostel",
+      newFirstName: "Yaw",
+      newLastName: "Mensah",
+      newGender: "male",
+      newType: "hostel",
+      overrideByAdmin: false,
+      actorRepId: booking.repId,
+      reason: "Delegate swapped before the deadline",
+      createdAt: 500,
+    });
+  });
+
+  // Nothing to review yet, and that is an empty list rather than an error.
+  let rows = await t.query(api.admin.listDelegateCorrections, {
+    sessionToken: admin.token,
+  });
+  expect(rows).toEqual([]);
+
+  // Two corrections on a locked reservation: the super admin's and the
+  // Accommodation Admin's. Both are the set this screen exists to show.
+  await t.mutation(api.agcAdminData.correctBookingGuest, {
+    sessionToken: admin.token,
+    guestId: firstGuest,
+    firstName: "Kofi",
+    lastName: "Boateng",
+    gender: "male",
+    reason: "Original delegate could not travel",
+  });
+  await t.mutation(api.agcAdminData.correctBookingGuest, {
+    sessionToken: accommodation.token,
+    guestId: secondGuest,
+    firstName: "Ama",
+    lastName: "Boateng",
+    gender: "female",
+    reason: "Gender recorded in error at registration",
+  });
+
+  rows = await t.query(api.admin.listDelegateCorrections, {
+    sessionToken: admin.token,
+  });
+  expect(rows).toHaveLength(2);
+
+  // Newest first: pin the two rows to known times so the order does not depend
+  // on the millisecond the two mutations happened to land in.
+  const adminRow = rows.find((row) => row.newFirstName === "Kofi");
+  const accommodationRow = rows.find((row) => row.newFirstName === "Ama");
+  expect(adminRow).toBeTruthy();
+  expect(accommodationRow).toBeTruthy();
+  await t.run(async (ctx) => {
+    await ctx.db.patch(adminRow!._id, { createdAt: 1_000 });
+    await ctx.db.patch(accommodationRow!._id, { createdAt: 2_000 });
+  });
+  rows = await t.query(api.admin.listDelegateCorrections, {
+    sessionToken: admin.token,
+  });
+  expect(rows.map((row) => row.newFirstName)).toEqual(["Ama", "Kofi"]);
+
+  // Each row says what was replaced, who did it — role included, since that is
+  // what tells a super admin which team moved the delegate — and the reason.
+  expect(rows[0]).toMatchObject({
+    previousFirstName: "Guest1",
+    previousLastName: "Mensah",
+    previousGender: "male",
+    newFirstName: "Ama",
+    newLastName: "Boateng",
+    newGender: "female",
+    reason: "Gender recorded in error at registration",
+    actorEmail: "accommodation@example.com",
+    actorRole: "accommodation",
+    bookingRef: "AGC-BK-0001",
+  });
+  expect(rows[1]).toMatchObject({
+    previousFirstName: "Guest0",
+    newFirstName: "Kofi",
+    reason: "Original delegate could not travel",
+    actorEmail: "admin@example.com",
+    actorRole: "admin",
+  });
+
+  // Reading the corrections is the super admin's view, not the desk's.
+  await expect(() =>
+    t.query(api.admin.listDelegateCorrections, { sessionToken: desk.token }),
+  ).rejects.toThrow(/Unauthorized/);
+
+  // The audit log itself still carries every correction as its own event.
+  const audit = await t.run(async (ctx) =>
+    (await ctx.db.query("auditLogs").collect()).filter(
+      (log) => log.action === "agc_guest.corrected",
+    ),
+  );
+  expect(audit).toHaveLength(2);
+});

@@ -1,0 +1,175 @@
+"use client";
+
+import { useQuery } from "convex/react";
+import { History } from "lucide-react";
+import { api } from "@convex/_generated/api";
+import {
+  useAdminSession,
+  useSessionArgs,
+} from "@/components/admin/AdminSessionProvider";
+import { Card, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { ROLE_LABELS, type StaffRole } from "@/lib/adminRoles";
+
+/**
+ * Delegate corrections — the audit area's view of the name and gender changes
+ * made on locked reservations.
+ *
+ * A rep can only substitute while a booking is still theirs to change, so once a
+ * reservation is confirmed a correction happens in the console: at the desk, in
+ * the review queue or on the bookings list. This panel is where a super admin
+ * sees that set — who changed what, what the old details were, and the reason
+ * they gave — without reading the raw audit log line by line.
+ *
+ * A rep's own substitution while the booking was still open is recorded on the
+ * booking and is deliberately not listed: it needed no review to begin with.
+ */
+
+type CorrectionRow = {
+  _id: string;
+  createdAt: number;
+  previousFirstName: string;
+  previousLastName: string;
+  previousGender: string;
+  newFirstName: string;
+  newLastName: string;
+  newGender: string;
+  reason: string | null;
+  actorEmail: string;
+  actorRole: string | null;
+  bookingRef: string | null;
+};
+
+function formatDateTime(ts: number) {
+  return new Date(ts).toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function roleLabel(role: string | null): string {
+  if (!role) return "account removed";
+  return ROLE_LABELS[role as StaffRole] ?? role;
+}
+
+export function DelegateCorrectionsPanel() {
+  const { user } = useAdminSession();
+  const sessionArgs = useSessionArgs();
+  // The audit area also admits finance, who hold a read-only financial view, so
+  // the panel stays with the super admin the query answers to.
+  const isSuperAdmin = user?.role === "admin";
+  const corrections = useQuery(
+    api.admin.listDelegateCorrections,
+    isSuperAdmin ? sessionArgs : "skip",
+  );
+
+  if (!isSuperAdmin) return null;
+
+  const rows = (corrections ?? []) as CorrectionRow[];
+
+  return (
+    <Card>
+      <CardContent className="p-0">
+        <div className="flex flex-wrap items-start gap-2 border-b px-4 py-3">
+          <History className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold">
+              Delegate corrections
+              {corrections !== undefined && rows.length > 0 && (
+                <span className="ml-2 rounded-full border px-2 py-0.5 text-xs font-normal text-muted-foreground">
+                  {rows.length}
+                </span>
+              )}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Names and genders changed on a confirmed reservation by an admin or
+              the Accommodation Admin, with the details each change replaced and
+              the reason given. A rep&apos;s own substitution, made while the
+              booking was still open, is recorded on the booking and not listed
+              here.
+            </p>
+          </div>
+        </div>
+
+        {corrections === undefined ? (
+          <div className="p-4">
+            <Skeleton className="h-24 w-full" />
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead>When</TableHead>
+                  <TableHead>Changed by</TableHead>
+                  <TableHead>Was</TableHead>
+                  <TableHead>Now</TableHead>
+                  <TableHead>Reason</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rows.length === 0 ? (
+                  <TableRow>
+                    <TableCell
+                      colSpan={5}
+                      className="py-10 text-center text-sm text-muted-foreground"
+                    >
+                      No delegate has been corrected from the console yet — a
+                      name or gender changed at the desk, in the review queue or
+                      on a booking appears here with its reason.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  rows.map((row) => (
+                    <TableRow key={row._id}>
+                      <TableCell className="align-top text-xs text-muted-foreground">
+                        {formatDateTime(row.createdAt)}
+                      </TableCell>
+                      <TableCell className="align-top text-sm">
+                        {row.actorEmail}
+                        <span className="mt-0.5 block text-xs text-muted-foreground">
+                          {roleLabel(row.actorRole)}
+                        </span>
+                      </TableCell>
+                      <TableCell className="align-top text-sm">
+                        {`${row.previousFirstName} ${row.previousLastName}`}
+                        <span className="mt-0.5 block text-xs capitalize text-muted-foreground">
+                          {row.previousGender}
+                        </span>
+                      </TableCell>
+                      <TableCell className="align-top text-sm font-medium">
+                        {`${row.newFirstName} ${row.newLastName}`}
+                        <span className="mt-0.5 block text-xs font-normal capitalize text-muted-foreground">
+                          {row.newGender}
+                        </span>
+                      </TableCell>
+                      <TableCell className="max-w-72 whitespace-normal align-top text-sm">
+                        {row.reason ?? "—"}
+                        {row.bookingRef && (
+                          <span className="mt-0.5 block text-xs text-muted-foreground">
+                            Booking ref {row.bookingRef}
+                          </span>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
