@@ -322,6 +322,8 @@ export function RoomsTab() {
   const [busy, setBusy] = useState(false);
   const [roomingOpen, setRoomingOpen] = useState(false);
   const [roomingType, setRoomingType] = useState<string>("all");
+  /** True while the assign panel's phone bar is on screen (see BulkAssignPanel). */
+  const [assignBarActive, setAssignBarActive] = useState(false);
 
   // Room maintenance flag dialog
   const [flagTarget, setFlagTarget] = useState<RoomRow | null>(null);
@@ -897,7 +899,8 @@ export function RoomsTab() {
   return (
     // The phone assign bar is fixed to the viewport, so the page — not just
     // the panel — has to end above it or the last room's buttons sit under it.
-    <div className="space-y-4 max-lg:pb-28">
+    // The padding follows the bar: no bar, no dead space at the end.
+    <div className={cn("space-y-4", assignBarActive && "max-lg:pb-28")}>
       <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" onClick={() => openRoomForm(null)}>
           <BedDouble className="size-4" /> Add room
@@ -1110,7 +1113,11 @@ export function RoomsTab() {
           <Skeleton className="h-64 rounded-xl" />
         </div>
       ) : (
-        <BulkAssignPanel guests={guests} rooms={list} />
+        <BulkAssignPanel
+          guests={guests}
+          rooms={list}
+          onPickerActiveChange={setAssignBarActive}
+        />
       )}
 
       {list.length > 0 && roomGroups.length === 0 && (

@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation } from "convex/react";
 import { BedDouble, Loader2Icon, UserPlus } from "lucide-react";
 import { toast } from "sonner";
@@ -174,9 +174,15 @@ function RoomOptionList({
 export function BulkAssignPanel({
   guests,
   rooms,
+  onPickerActiveChange,
 }: {
   guests: Guest[];
   rooms: Room[];
+  /**
+   * Tells the page whether the phone assign bar is on screen, so it can pad its
+   * own bottom edge only while the bar is there to cover it.
+   */
+  onPickerActiveChange?: (active: boolean) => void;
 }) {
   const { sessionToken } = useAdminSession();
   const assignGuests = useMutation(api.agcRoomAssignments.assignGuests);
@@ -327,6 +333,10 @@ export function BulkAssignPanel({
     type !== "all" ||
     search.trim() !== "" ||
     picks.length > 0;
+
+  useEffect(() => {
+    onPickerActiveChange?.(pickerActive);
+  }, [pickerActive, onPickerActiveChange]);
 
   return (
     <div
