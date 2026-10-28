@@ -151,6 +151,18 @@ export function StorageMaintenancePanel() {
                   </p>
                 </div>
               </div>
+              <p className="text-xs text-muted-foreground">
+                Payment receipts and POA evidence delete on their own{" "}
+                <span className="font-medium text-foreground">
+                  {report.retentionDays} days
+                </span>{" "}
+                after finance confirms the payment. {report.awaitingExpiry} image
+                {report.awaitingExpiry === 1 ? " is" : "s are"} waiting
+                {report.nextExpiryAt
+                  ? `, the next on ${formatDay(report.nextExpiryAt)}`
+                  : ""}
+                .
+              </p>
               {report.sample.length > 0 && (
                 <details className="text-xs text-muted-foreground">
                   <summary className="cursor-pointer select-none">

@@ -134,6 +134,18 @@ crons.daily(
 );
 
 /**
+ * Payment receipts and POA evidence are evidence only while the payment is
+ * being verified: 10 days after finance confirms it, the image is deleted and
+ * an audit entry records what left storage. Runs nightly; idempotent.
+ */
+crons.daily(
+  "delete payment images 10 days after confirmation",
+  { hourUTC: 3, minuteUTC: 15 },
+  internal.storageMaintenance.purgeExpiredPaymentImages,
+  {},
+);
+
+/**
  * Permanently purge representative accounts that were soft-deleted more than
  * 7 days ago (REP_SOFT_DELETE_TTL_MS). Runs hourly; the purge is idempotent.
  */

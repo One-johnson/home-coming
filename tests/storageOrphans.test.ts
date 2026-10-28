@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { api } from "../convex/_generated/api";
+import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { createTestConvex } from "./testUtils";
 
@@ -154,6 +154,181 @@ test("discardUploadedFile removes an unclaimed upload but never a live file", as
 
   const gone = await t.run((ctx) => ctx.db.system.get(strandedId));
   expect(gone).toBeNull();
+});
+
+test("payment images delete 10 days after confirmation, one audit entry each", async () => {
+  const t = createTestConvex();
+  const admin = await seedAdmin(t);
+
+  const expiredId = await t.run((ctx) =>
+    ctx.storage.store(new Blob(["expired receipt"])),
+  );
+  const freshId = await t.run((ctx) =>
+    ctx.storage.store(new Blob(["recent receipt"])),
+  );
+  const unverifiedId = await t.run((ctx) =>
+    ctx.storage.store(new Blob(["still being verified"])),
+  );
+  const evidenceId = await t.run((ctx) =>
+    ctx.storage.store(new Blob(["poa evidence"])),
+  );
+
+  const now = Date.now();
+  const elevenDaysAgo = now - 11 * DAY_MS;
+  const threeDaysAgo = now - 3 * DAY_MS;
+
+  const { expiredRegId, freshRegId, unverifiedRegId, bookingId } = await t.run(
+    async (ctx) => {
+      const hubId = await ctx.db.insert("agcHubs", {
+        name: "Test Hub",
+        region: "ghana",
+        country: "Ghana",
+        active: true,
+        createdAt: now,
+      });
+      const repId = await ctx.db.insert("agcRepresentatives", {
+        hubId,
+        username: "rep_hub",
+        passwordHash: "not-a-real-hash",
+        profileComplete: true,
+        mustChangePassword: false,
+        status: "active",
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      const registration = (opts: {
+        referenceNumber: string;
+        paymentStatus: "confirmed" | "pending_verification";
+        confirmedAt?: number;
+        receiptStorageId: Id<"_storage">;
+      }) =>
+        ctx.db.insert("agcRegistrations", {
+          hubId,
+          repId,
+          region: "ghana",
+          quantity: 1,
+          unitPrice: 100,
+          currency: "GHS",
+          totalAmount: 100,
+          paymentMode: "offline",
+          paymentStatus: opts.paymentStatus,
+          referenceNumber: opts.referenceNumber,
+          confirmedAt: opts.confirmedAt,
+          paidAt: opts.confirmedAt,
+          offline: {
+            amountPaid: 100,
+            referenceNumber: "MOMO-1",
+            paymentDate: "2026-10-01",
+            method: "momo",
+            receiptStorageId: opts.receiptStorageId,
+            receiptFileName: "receipt.webp",
+          },
+          createdAt: now,
+          updatedAt: now,
+        });
+
+      const expiredRegId = await registration({
+        referenceNumber: "AGC-EXPIRED",
+        paymentStatus: "confirmed",
+        confirmedAt: elevenDaysAgo,
+        receiptStorageId: expiredId as Id<"_storage">,
+      });
+      const freshRegId = await registration({
+        referenceNumber: "AGC-FRESH",
+        paymentStatus: "confirmed",
+        confirmedAt: threeDaysAgo,
+        receiptStorageId: freshId as Id<"_storage">,
+      });
+      const unverifiedRegId = await registration({
+        referenceNumber: "AGC-UNVERIFIED",
+        paymentStatus: "pending_verification",
+        confirmedAt: elevenDaysAgo,
+        receiptStorageId: unverifiedId as Id<"_storage">,
+      });
+
+      // A booking whose POA evidence was confirmed 11 days ago.
+      const bookingId = await ctx.db.insert("agcBookings", {
+        hubId,
+        repId,
+        region: "ghana",
+        currency: "GHS",
+        totalAmount: 100,
+        paymentMode: "payment_on_arrival",
+        paymentStatus: "confirmed",
+        bookingStatus: "confirmed",
+        referenceNumber: "ACC-EXPIRED",
+        confirmedAt: elevenDaysAgo,
+        poa: {
+          status: "confirmed",
+          evidenceStorageId: evidenceId as Id<"_storage">,
+          evidenceFileName: "evidence.webp",
+          confirmedAt: elevenDaysAgo,
+        },
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      return { expiredRegId, freshRegId, unverifiedRegId, bookingId };
+    },
+  );
+
+  await t.mutation(internal.storageMaintenance.purgeExpiredPaymentImages, {});
+
+  const [expired, fresh, unverified, evidence] = await t.run((ctx) =>
+    Promise.all([
+      ctx.db.system.get(expiredId),
+      ctx.db.system.get(freshId),
+      ctx.db.system.get(unverifiedId),
+      ctx.db.system.get(evidenceId),
+    ]),
+  );
+  expect(expired).toBeNull();
+  expect(evidence).toBeNull();
+  expect(fresh).not.toBeNull();
+  expect(unverified).not.toBeNull();
+
+  // Pointers are cleared so nothing points at a deleted blob.
+  const [reg, booking, freshReg, unverifiedReg] = await t.run((ctx) =>
+    Promise.all([
+      ctx.db.get(expiredRegId),
+      ctx.db.get(bookingId),
+      ctx.db.get(freshRegId),
+      ctx.db.get(unverifiedRegId),
+    ]),
+  );
+  expect(reg?.offline?.receiptStorageId).toBeUndefined();
+  expect(reg?.offline?.receiptFileName).toBe("receipt.webp");
+  expect(booking?.poa?.evidenceStorageId).toBeUndefined();
+  expect(freshReg?.offline?.receiptStorageId).toBe(freshId);
+  expect(unverifiedReg?.offline?.receiptStorageId).toBe(unverifiedId);
+
+  // One audit entry per deleted image, named against its record.
+  const logs = await t.run((ctx) =>
+    ctx.db
+      .query("auditLogs")
+      .collect()
+      .then((rows) =>
+        rows.filter((row) => row.action === "storage.payment_image_expired"),
+      ),
+  );
+  expect(logs).toHaveLength(2);
+  const entityIds = logs.map((log) => log.entityId).sort();
+  expect(entityIds).toEqual([expiredRegId, bookingId].sort());
+  expect(logs.every((log) => log.actorEmail === "system:receipt-retention")).toBe(
+    true,
+  );
+  expect(logs.map((log) => JSON.parse(log.metadata ?? "{}").kind).sort()).toEqual(
+    ["poa_evidence", "receipt"],
+  );
+
+  // The report tells admins what the rule will remove and when.
+  const report = await t.query(api.storageMaintenance.getStorageReport, {
+    sessionToken: admin.token,
+  });
+  expect(report.retentionDays).toBe(10);
+  expect(report.awaitingExpiry).toBe(1);
+  expect(report.nextExpiryAt).toBe(threeDaysAgo + 10 * DAY_MS);
 });
 
 test("only admins can read the storage report or run a sweep", async () => {

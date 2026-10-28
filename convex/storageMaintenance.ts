@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { requireRole, sessionTokenValidator } from "./users";
@@ -27,6 +27,14 @@ import { writeAuditLog } from "./lib/audit";
 const DEFAULT_GRACE_MS = 24 * 60 * 60 * 1000;
 /** Files deleted per sweep call, so one click can't blow the mutation budget. */
 const MAX_BATCH = 500;
+
+/**
+ * A payment image is evidence only while the payment is being verified. Once
+ * finance confirms it, the durable facts are the amount, reference, date and
+ * reviewer — the photo is kept briefly for disputes, then deleted.
+ */
+export const RECEIPT_RETENTION_DAYS = 10;
+const RECEIPT_RETENTION_MS = RECEIPT_RETENTION_DAYS * 24 * 60 * 60 * 1000;
 
 /**
  * Every storage id that some row currently owns. Keep this in step with
@@ -80,16 +88,109 @@ async function findOrphans(ctx: QueryCtx | MutationCtx, graceMs: number) {
   return { blobs, orphans };
 }
 
+// ------------------------------------------------------------------
+// Retention: payment images expire 10 days after the payment is confirmed
+// ------------------------------------------------------------------
+
+type PaymentImageKind = "receipt" | "poa_evidence";
+
+type PaymentImage = {
+  table: "agcRegistrations" | "agcBookings";
+  recordId: string;
+  kind: PaymentImageKind;
+  storageId: Id<"_storage">;
+  /** When finance confirmed the money — the clock starts here. */
+  confirmedAt: number;
+  /** Deletes at this moment. */
+  expiresAt: number;
+  referenceNumber: string | null;
+  fileName: string | null;
+};
+
+/**
+ * Every payment image still attached to a confirmed record, split into the ones
+ * past their retention window and the ones still inside it. Only confirmed
+ * payments qualify: an image attached to an unverified, rejected or disputed
+ * record is evidence and stays until someone acts on it.
+ */
+async function collectPaymentImages(ctx: QueryCtx | MutationCtx, now: number) {
+  const due: PaymentImage[] = [];
+  const scheduled: PaymentImage[] = [];
+
+  const consider = (image: Omit<PaymentImage, "expiresAt">) => {
+    const expiresAt = image.confirmedAt + RECEIPT_RETENTION_MS;
+    const entry: PaymentImage = { ...image, expiresAt };
+    if (expiresAt <= now) due.push(entry);
+    else scheduled.push(entry);
+  };
+
+  for (const record of await ctx.db.query("agcRegistrations").collect()) {
+    const confirmedAt = record.confirmedAt ?? record.paidAt;
+    if (record.paymentStatus === "confirmed" && record.offline?.receiptStorageId) {
+      consider({
+        table: "agcRegistrations",
+        recordId: record._id,
+        kind: "receipt",
+        storageId: record.offline.receiptStorageId,
+        confirmedAt: confirmedAt ?? record.updatedAt,
+        referenceNumber: record.referenceNumber ?? null,
+        fileName: record.offline.receiptFileName ?? null,
+      });
+    }
+    if (record.poa?.status === "confirmed" && record.poa.evidenceStorageId) {
+      consider({
+        table: "agcRegistrations",
+        recordId: record._id,
+        kind: "poa_evidence",
+        storageId: record.poa.evidenceStorageId,
+        confirmedAt: record.poa.confirmedAt ?? confirmedAt ?? record.updatedAt,
+        referenceNumber: record.referenceNumber ?? null,
+        fileName: record.poa.evidenceFileName ?? null,
+      });
+    }
+  }
+
+  for (const booking of await ctx.db.query("agcBookings").collect()) {
+    const confirmedAt = booking.confirmedAt ?? booking.paidAt;
+    if (booking.paymentStatus === "confirmed" && booking.offline?.receiptStorageId) {
+      consider({
+        table: "agcBookings",
+        recordId: booking._id,
+        kind: "receipt",
+        storageId: booking.offline.receiptStorageId,
+        confirmedAt: confirmedAt ?? booking.updatedAt,
+        referenceNumber: booking.referenceNumber ?? null,
+        fileName: booking.offline.receiptFileName ?? null,
+      });
+    }
+    if (booking.poa?.status === "confirmed" && booking.poa.evidenceStorageId) {
+      consider({
+        table: "agcBookings",
+        recordId: booking._id,
+        kind: "poa_evidence",
+        storageId: booking.poa.evidenceStorageId,
+        confirmedAt: booking.poa.confirmedAt ?? confirmedAt ?? booking.updatedAt,
+        referenceNumber: booking.referenceNumber ?? null,
+        fileName: booking.poa.evidenceFileName ?? null,
+      });
+    }
+  }
+
+  return { due, scheduled };
+}
+
 /**
  * What the console shows before anyone deletes anything: how much storage is
- * live versus stranded, and the oldest offenders so an admin can sanity-check
- * that the list looks like abandoned uploads rather than real records.
+ * live versus stranded, the oldest offenders so an admin can sanity-check that
+ * the list looks like abandoned uploads rather than real records, and how many
+ * payment images the retention rule will remove next.
  */
 export const getStorageReport = query({
   args: { sessionToken: sessionTokenValidator },
   handler: async (ctx, args) => {
     await requireRole(ctx, args.sessionToken, ["admin"]);
     const { blobs, orphans } = await findOrphans(ctx, DEFAULT_GRACE_MS);
+    const { scheduled } = await collectPaymentImages(ctx, Date.now());
 
     let totalBytes = 0;
     for (const blob of blobs) totalBytes += blob.size;
@@ -103,6 +204,12 @@ export const getStorageReport = query({
       orphanedBytes,
       graceHours: DEFAULT_GRACE_MS / 3_600_000,
       oldestOrphanAt: orphans.length > 0 ? orphans[0]._creationTime : null,
+      retentionDays: RECEIPT_RETENTION_DAYS,
+      awaitingExpiry: scheduled.length,
+      nextExpiryAt:
+        scheduled.length > 0
+          ? Math.min(...scheduled.map((image) => image.expiresAt))
+          : null,
       sample: orphans.slice(0, 10).map((blob) => ({
         id: blob._id,
         size: blob.size,
@@ -195,6 +302,110 @@ export const discardUploadedFile = mutation({
       return { discarded: false as const, reason: "missing" as const };
     }
     return { discarded: true as const, reason: "orphaned" as const };
+  },
+});
+
+/**
+ * Retention rule, run nightly by the cron in `convex/crons.ts`.
+ *
+ * Deletes the receipt photo / POA evidence of every confirmed payment once
+ * RECEIPT_RETENTION_DAYS have passed since confirmation, clears the pointer on
+ * the record so it is never processed twice, and writes one audit entry per
+ * deleted image — a super admin can always see exactly what left storage, when,
+ * and which record it belonged to.
+ */
+/** Drop the storage pointer so the record never points at a deleted blob. */
+async function clearPaymentImagePointer(
+  ctx: MutationCtx,
+  image: PaymentImage,
+  now: number,
+) {
+  if (image.table === "agcRegistrations") {
+    const record = await ctx.db.get(image.recordId as Id<"agcRegistrations">);
+    if (!record) return;
+    if (image.kind === "receipt" && record.offline) {
+      await ctx.db.patch(record._id, {
+        offline: { ...record.offline, receiptStorageId: undefined },
+        updatedAt: now,
+      });
+    } else if (image.kind === "poa_evidence" && record.poa) {
+      await ctx.db.patch(record._id, {
+        poa: { ...record.poa, evidenceStorageId: undefined },
+        updatedAt: now,
+      });
+    }
+    return;
+  }
+
+  const booking = await ctx.db.get(image.recordId as Id<"agcBookings">);
+  if (!booking) return;
+  if (image.kind === "receipt" && booking.offline) {
+    await ctx.db.patch(booking._id, {
+      offline: { ...booking.offline, receiptStorageId: undefined },
+      updatedAt: now,
+    });
+  } else if (image.kind === "poa_evidence" && booking.poa) {
+    await ctx.db.patch(booking._id, {
+      poa: { ...booking.poa, evidenceStorageId: undefined },
+      updatedAt: now,
+    });
+  }
+}
+
+export const purgeExpiredPaymentImages = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const { due } = await collectPaymentImages(ctx, now);
+
+    let deleted = 0;
+    let failed = 0;
+    let bytesFreed = 0;
+
+    for (const image of due) {
+      const blob = await ctx.db.system.get(image.storageId);
+      try {
+        await ctx.storage.delete(image.storageId);
+      } catch {
+        // Already gone; still clear the pointer below so it stops showing up.
+        failed += 1;
+      }
+      const size = blob?.size ?? 0;
+      if (blob) bytesFreed += size;
+
+      await clearPaymentImagePointer(ctx, image, now);
+
+      await writeAuditLog(ctx, {
+        actorEmail: "system:receipt-retention",
+        action: "storage.payment_image_expired",
+        entityType: image.table,
+        entityId: image.recordId,
+        summary: `Deleted the ${image.kind === "receipt" ? "payment receipt" : "POA payment evidence"}${
+          image.fileName ? ` "${image.fileName}"` : ""
+        } for ${image.referenceNumber ?? "an unnamed record"} (${formatMb(size)}) — ${RECEIPT_RETENTION_DAYS} days after payment was confirmed`,
+        metadata: {
+          kind: image.kind,
+          storageId: image.storageId,
+          fileName: image.fileName,
+          sizeBytes: size,
+          confirmedAt: image.confirmedAt,
+          confirmedDaysAgo: Math.floor(
+            (now - image.confirmedAt) / (24 * 60 * 60 * 1000),
+          ),
+          retentionDays: RECEIPT_RETENTION_DAYS,
+          blobMissing: !blob,
+        },
+      });
+
+      if (blob) deleted += 1;
+    }
+
+    return {
+      deleted,
+      failed,
+      bytesFreed,
+      retentionDays: RECEIPT_RETENTION_DAYS,
+    };
   },
 });
 
