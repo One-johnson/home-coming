@@ -208,7 +208,10 @@ const SECTIONS: RunbookSection[] = [
     accent: ACCENTS.emerald,
     steps: [
       {
-        text: "Pick your desk location (a building, or Central), then search by name or hub (2+ characters). “/” focuses the search and Enter checks in a single ready match.",
+        text: "Pick your desk location (a building, or Central), then search by name or hub (2+ characters). “/” focuses the search and Enter checks in a single ready match. A posted check-in account opens on its own building and cannot switch away.",
+      },
+      {
+        text: "The strip at the top is the shift at a glance: checked in, checked out, not arrived, keys issued, keys returned, unassigned, and reserved and faulty rooms at this desk. If a number surprises you, the sheet below is the same population.",
       },
       {
         heading: "If it fails",

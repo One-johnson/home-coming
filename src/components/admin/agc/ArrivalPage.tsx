@@ -903,6 +903,18 @@ export function ArrivalPage() {
       ),
     [roomIssues, deskLocation],
   );
+  const reservedDeskRooms = useMemo(
+    () => deskRooms.filter((room) => room.hold),
+    [deskRooms],
+  );
+  const reservedDeskBeds = useMemo(
+    () => reservedDeskRooms.reduce((sum, room) => sum + room.capacity, 0),
+    [reservedDeskRooms],
+  );
+  const faultyDeskRooms = useMemo(
+    () => deskRooms.filter((room) => room.faulty).length,
+    [deskRooms],
+  );
 
   /**
    * Rooms matching the search term. The delegate search already matches a room
@@ -1093,6 +1105,13 @@ export function ArrivalPage() {
             ? "/admin/accommodation?tab=flags"
             : null
         }
+      />
+
+      <DeskStatStrip
+        data={overview}
+        reservedRooms={reservedDeskRooms.length}
+        reservedBeds={reservedDeskBeds}
+        faultyRooms={faultyDeskRooms}
       />
 
       {/* Search + filters — the roster reads left to right, the selected
@@ -2213,6 +2232,8 @@ type Overview = {
   totalCapacity: number;
   remainingCapacity: number;
   keysIssued: number;
+  /** Keys physically back at the desk — the other half of the key count. */
+  keysReturned: number;
   unresolvedExceptions: number;
   paymentOverrides: number;
   offlineConflicts: number;
@@ -2297,6 +2318,112 @@ function DeskAlerts({
           </Link>
         )}
       </span>
+    </div>
+  );
+}
+
+/**
+ * The numbers the desk is asked for first, in the same small-tile strip the
+ * rooms screen uses: arrivals, departures, both directions of the key ledger,
+ * and the rooms that must not be handed out. The drawer below keeps the action
+ * tiles (overrides, review flags, sync exceptions) for the detailed read.
+ */
+function DeskStatStrip({
+  data,
+  reservedRooms,
+  reservedBeds,
+  faultyRooms,
+}: {
+  data: Overview | undefined;
+  reservedRooms: number;
+  reservedBeds: number;
+  faultyRooms: number;
+}) {
+  if (!data) {
+    return (
+      <div
+        className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8"
+        aria-busy="true"
+        aria-label="Loading desk statistics"
+      >
+        {Array.from({ length: 8 }).map((_, index) => (
+          <Skeleton key={index} className="h-16 rounded-lg" />
+        ))}
+      </div>
+    );
+  }
+
+  const stats = [
+    {
+      label: "Checked in",
+      value: data.checkedIn,
+      hint: `${data.assigned} assigned`,
+      tone: "text-emerald-700 dark:text-emerald-400",
+    },
+    {
+      label: "Checked out",
+      value: data.checkedOut,
+      hint: "Beds stay held",
+      tone: "text-foreground",
+    },
+    {
+      label: "Not arrived",
+      value: data.notArrived,
+      hint: "Still expected",
+      tone:
+        data.notArrived > 0
+          ? "text-amber-700 dark:text-amber-400"
+          : "text-foreground",
+    },
+    {
+      label: "Keys issued",
+      value: data.keysIssued,
+      hint: "Out with delegates",
+      tone: "text-sky-700 dark:text-sky-400",
+    },
+    {
+      label: "Keys returned",
+      value: data.keysReturned,
+      hint: "Back at the desk",
+      tone: "text-foreground",
+    },
+    {
+      label: "Unassigned",
+      value: data.unassigned,
+      hint: "No bed yet",
+      tone:
+        data.unassigned > 0
+          ? "text-rose-700 dark:text-rose-400"
+          : "text-foreground",
+    },
+    {
+      label: "Reserved rooms",
+      value: reservedRooms,
+      hint: `${reservedBeds} bed(s) held`,
+      tone: "text-sky-700 dark:text-sky-400",
+    },
+    {
+      label: "Faulty rooms",
+      value: faultyRooms,
+      hint: "Out of inventory",
+      tone:
+        faultyRooms > 0
+          ? "text-rose-700 dark:text-rose-400"
+          : "text-foreground",
+    },
+  ];
+
+  return (
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8">
+      {stats.map((stat) => (
+        <div key={stat.label} className="rounded-lg border bg-card px-2.5 py-2">
+          <p className="text-[11px] text-muted-foreground">{stat.label}</p>
+          <p className={cn("text-lg font-semibold tabular-nums", stat.tone)}>
+            {stat.value}
+          </p>
+          <p className="truncate text-[11px] text-muted-foreground">{stat.hint}</p>
+        </div>
+      ))}
     </div>
   );
 }

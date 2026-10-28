@@ -821,6 +821,14 @@ test("check-in: duplicate prevention, unassigned referral, and payment override 
   const keys = await t.query(api.agcCheckin.listKeys, { sessionToken: adminSeed.token });
   const wslKey = keys.find((key) => key.roomName === "WSL Room 1");
   expect(wslKey?.status).toBe("returned");
+
+  // The desk's key counters read both directions, so the strip can show the
+  // ledger without opening the panel.
+  const afterCheckout = await t.query(api.agcCheckin.getArrivalOverview, {
+    sessionToken: adminSeed.token,
+  });
+  expect(afterCheckout.keysReturned).toBe(1);
+  expect(afterCheckout.keysIssued).toBe(1);
 });
 
 test("EBPV keys go to the first arrival; later arrivals are told who holds them", async () => {

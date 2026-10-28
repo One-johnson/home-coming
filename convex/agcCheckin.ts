@@ -1604,6 +1604,8 @@ export type ArrivalOverview = {
   totalCapacity: number;
   remainingCapacity: number;
   keysIssued: number;
+  /** Keys physically back at the desk — the other half of the key count. */
+  keysReturned: number;
   unresolvedExceptions: number;
   paymentOverrides: number;
   offlineConflicts: number;
@@ -1695,6 +1697,7 @@ export const getArrivalOverview = query({
     const keysIssued = keys.filter(
       (key) => key.status === "issued" || key.status === "replaced",
     ).length;
+    const keysReturned = keys.filter((key) => key.status === "returned").length;
 
     const overrides = (await ctx.db.query("agcCheckIns").collect()).filter(
       (c) => !c.correctedAt && c.paymentOverride,
@@ -1721,6 +1724,7 @@ export const getArrivalOverview = query({
       totalCapacity,
       remainingCapacity: Math.max(0, totalCapacity - totalAssignedToRooms),
       keysIssued,
+      keysReturned,
       unresolvedExceptions: unassigned + offlineConflicts,
       paymentOverrides: overrides,
       offlineConflicts,
