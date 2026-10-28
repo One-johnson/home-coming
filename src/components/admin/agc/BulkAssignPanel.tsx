@@ -316,8 +316,25 @@ export function BulkAssignPanel({
       ? "No available room matches these filters — clear them to see the rest."
       : "No free beds — reserved and faulty rooms are excluded; release or fix them first.";
 
+  /**
+   * The room picker answers a decision in progress, so it only takes screen
+   * space once there is one: a filter narrowing the list, a ticked delegate, or
+   * a room already chosen. Until then the delegate list owns the full width.
+   */
+  const pickerActive =
+    gender !== "any" ||
+    hub !== "all" ||
+    type !== "all" ||
+    search.trim() !== "" ||
+    picks.length > 0;
+
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+    <div
+      className={cn(
+        "grid gap-4",
+        pickerActive ? "lg:grid-cols-[minmax(0,1fr)_340px]" : "grid-cols-1",
+      )}
+    >
       <div className="rounded-xl border bg-card">
         <div className="border-b px-4 py-3">
           <h2 className="text-base font-semibold">Unassigned delegates ({shown.length})</h2>
@@ -451,6 +468,7 @@ export function BulkAssignPanel({
 
       {/* Desktop keeps the picker beside the list; on phones it is the sheet
           opened from the bar below. */}
+      {pickerActive && (
       <div className="hidden h-fit rounded-xl border bg-card lg:sticky lg:top-20 lg:block">
         <div className="border-b px-4 py-3">
           <h2 className="text-base font-semibold">
@@ -520,9 +538,11 @@ export function BulkAssignPanel({
           </p>
         </div>
       </div>
+      )}
 
       {/* Phones: a fixed bar carries the tick count and the room decision, so
           assigning never means scrolling past the whole waiting list. */}
+      {pickerActive && (
       <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-card px-3 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-[0_-4px_16px_rgba(0,0,0,0.08)] lg:hidden">
         <div className="flex items-center gap-2">
           <div className="min-w-0 flex-1">
@@ -567,6 +587,7 @@ export function BulkAssignPanel({
           </button>
         )}
       </div>
+      )}
 
       <Sheet open={roomSheetOpen} onOpenChange={setRoomSheetOpen}>
         <SheetContent
