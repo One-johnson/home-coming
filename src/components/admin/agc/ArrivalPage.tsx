@@ -154,6 +154,15 @@ const KEY_LABEL: Record<"issued" | "returned" | "pending", string> = {
   pending: "Pending",
 };
 
+const ROOM_ISSUE_LABEL: Record<string, string> = {
+  toilet: "Toilet",
+  water: "Water",
+  electrical: "Electrical",
+  door_lock: "Door / lock",
+  cleaning: "Cleaning",
+  other: "Other",
+};
+
 type KeyRow = {
   _id: string;
   roomId: string;
@@ -1302,7 +1311,8 @@ export function ArrivalPage() {
           <BedDouble className="size-4 text-muted-foreground" />
           Desk overview &amp; tools
           <span className="text-xs font-normal text-muted-foreground">
-            occupancy, group check-in, keys, offline station and sync exceptions
+            occupancy, group check-in, keys, room faults, offline station and
+            sync exceptions
           </span>
           <span className="grow" />
           <StatusLegend tones={["done", "blocked", "info", "waiting"]} />
@@ -1331,9 +1341,13 @@ export function ArrivalPage() {
             </div>
           </div>
           <div className="grid gap-3 lg:grid-cols-2">
+            <FaultsPanel
+              issues={roomIssues?.issues ?? []}
+              canOpenRooms={canAccessArea(role, "accommodation")}
+            />
             <RecentCheckIns data={recent ?? []} />
-            {isApprover && <ConflictsPanel sessionToken={sessionToken} />}
           </div>
+          {isApprover && <ConflictsPanel sessionToken={sessionToken} />}
         </div>
       </details>
 
@@ -2236,6 +2250,94 @@ function KeysPanel({
               </li>
             ))}
           </ul>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * Every room that is out of service right now, without opening a delegate.
+ * The desk needs to know which beds it cannot use before the queue forms — a
+ * blocking fault removes the room from the inventory the moment it is raised.
+ */
+function FaultsPanel({
+  issues,
+  canOpenRooms,
+}: {
+  issues: Array<{
+    _id: string;
+    roomId: string;
+    roomName: string;
+    accommodationType: string;
+    building: string | null;
+    category: string;
+    note: string;
+    blocksRoom: boolean;
+    reportedAt: number;
+    reportedBy: string;
+  }>;
+  /** Room-assignment/accommodation staff can fix these on the rooms screen. */
+  canOpenRooms: boolean;
+}) {
+  const outOfService = issues.filter((issue) => issue.blocksRoom);
+  const otherOpen = issues.length - outOfService.length;
+
+  return (
+    <Card>
+      <CardContent className="p-3">
+        <p className="mb-2 flex flex-wrap items-center gap-1.5 text-xs font-medium text-muted-foreground">
+          <Wrench className="size-3.5" /> Out of service ({outOfService.length})
+          {otherOpen > 0 && (
+            <span className="font-normal">
+              · {otherOpen} other open fault{otherOpen === 1 ? "" : "s"} don&apos;t block a room
+            </span>
+          )}
+        </p>
+        {outOfService.length === 0 ? (
+          <p className="text-xs text-muted-foreground">
+            Every room is in service — nothing is withdrawn from the inventory.
+          </p>
+        ) : (
+          <ul className="max-h-64 space-y-1.5 overflow-y-auto">
+            {outOfService.map((issue) => (
+              <li
+                key={issue._id}
+                className={cn(
+                  "space-y-0.5 rounded-lg border border-l-4 px-2.5 py-1.5 text-xs",
+                  TONE_SURFACE.blocked,
+                  "border-rose-200 dark:border-rose-900/70",
+                )}
+              >
+                <p className="flex flex-wrap items-center gap-1.5 font-semibold">
+                  {issue.roomName}
+                  <span className="font-normal text-muted-foreground">
+                    {TYPE_LABEL(issue.accommodationType)}
+                    {issue.building ? ` · ${issue.building}` : ""}
+                  </span>
+                  <span className="rounded bg-rose-200/70 px-1 text-[10px] font-medium uppercase tracking-wide dark:bg-rose-900/60">
+                    {ROOM_ISSUE_LABEL[issue.category] ?? issue.category}
+                  </span>
+                </p>
+                <p className="leading-snug">{issue.note}</p>
+                <p className="text-muted-foreground">
+                  Raised by {issue.reportedBy} ·{" "}
+                  {new Date(issue.reportedAt).toLocaleString()}
+                </p>
+              </li>
+            ))}
+          </ul>
+        )}
+        {canOpenRooms && outOfService.length > 0 && (
+          <Link
+            href="/admin/accommodation?tab=rooms"
+            className={cn(
+              buttonVariants({ variant: "outline", size: "sm" }),
+              "mt-2 h-7 gap-1.5 text-xs",
+            )}
+          >
+            <Wrench className="size-3" /> Fix on the rooms screen
+          </Link>
         )}
       </CardContent>
     </Card>
