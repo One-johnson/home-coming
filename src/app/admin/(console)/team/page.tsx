@@ -41,6 +41,27 @@ export default function AdminTeamPage() {
   const createUser = useAction(api.authActions.adminCreateUser);
   const setUserRole = useMutation(api.users.setUserRole);
   const setUserActive = useMutation(api.users.setUserActive);
+  const setUserLocation = useMutation(api.users.setUserDefaultLocation);
+  // Buildings come from the imported room inventory — a staff member is only
+  // ever posted somewhere the rooms screen knows about.
+  const rooms = useQuery(
+    api.agcRoomAssignments.listRoomsAdmin,
+    allowed ? sessionArgs : "skip",
+  );
+  const buildings = [
+    ...new Set([
+      ...(rooms ?? [])
+        .map((room) => room.building)
+        .filter(
+          (building): building is string =>
+            typeof building === "string" && building !== "",
+        ),
+      // Keep a posting visible even if its building has no rooms yet.
+      ...(teamMembers ?? [])
+        .map((member) => member.defaultLocation)
+        .filter((building): building is string => !!building),
+    ]),
+  ].sort((a, b) => a.localeCompare(b));
 
   const [newUser, setNewUser] = useState({
     name: "",
@@ -87,6 +108,23 @@ export default function AdminTeamPage() {
       toast.success(`Role set to ${ROLE_LABELS[nextRole]}`);
     } catch (err) {
       toast.error(cleanErrorMessage(err) || "Failed to update role");
+    }
+  };
+
+  const handleLocationChange = async (
+    userId: Id<"users">,
+    defaultLocation: string,
+  ) => {
+    if (!sessionToken) return;
+    try {
+      await setUserLocation({ sessionToken, userId, defaultLocation });
+      toast.success(
+        defaultLocation
+          ? `Posted to ${defaultLocation}`
+          : "Returned to the central desk",
+      );
+    } catch (err) {
+      toast.error(cleanErrorMessage(err) || "Failed to update the posting");
     }
   };
 
@@ -231,6 +269,32 @@ export default function AdminTeamPage() {
                         {[...ADMIN_ROLES, ...VENUE_STAFF_ROLES].map((r) => (
                           <SelectItem key={r} value={r}>
                             {ROLE_LABELS[r]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {/* Venue staff are posted to one building; a check-in
+                        account also lands there and cannot switch away. */}
+                    <Select
+                      value={member.defaultLocation ?? "central"}
+                      onValueChange={(value) =>
+                        void handleLocationChange(
+                          member._id,
+                          value === "central" ? "" : (value ?? ""),
+                        )
+                      }
+                    >
+                      <SelectTrigger
+                        className="min-w-[12rem]"
+                        aria-label={`Building for ${member.name}`}
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="central">Building: Central (any)</SelectItem>
+                        {buildings.map((building) => (
+                          <SelectItem key={building} value={building}>
+                            Building: {building}
                           </SelectItem>
                         ))}
                       </SelectContent>

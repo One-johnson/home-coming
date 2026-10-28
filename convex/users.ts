@@ -89,6 +89,8 @@ function publicUser(user: Doc<"users">) {
     name: user.name,
     email: user.email,
     role: user.role,
+    /** Building a venue staff member is posted to; null when not assigned. */
+    defaultLocation: user.defaultLocation ?? null,
     active: user.active !== false,
     disabledAt: user.disabledAt ?? null,
     createdAt: user.createdAt,
@@ -193,6 +195,41 @@ export const setUserRole = mutation({
       entityId: args.userId,
       summary: `Changed role for ${target.email} to ${args.role}`,
       metadata: { previous: target.role, next: args.role },
+    });
+    return { success: true as const };
+  },
+});
+
+/**
+ * Post a staff member to a building (Phase 2 §2). Venue staff then land on
+ * their own building's desk instead of the central one, and see only that
+ * building's rooms and delegates until someone changes it here. Clearing the
+ * field (`""`) puts them back on the central desk.
+ */
+export const setUserDefaultLocation = mutation({
+  args: {
+    sessionToken: sessionTokenValidator,
+    userId: v.id("users"),
+    defaultLocation: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireAdmin(ctx, args.sessionToken);
+    const user = await ctx.db.get(args.userId);
+    if (!user) throw new ConvexError("User not found");
+    const location = args.defaultLocation.trim();
+    await ctx.db.patch(user._id, {
+      defaultLocation: location || undefined,
+    });
+    await writeAuditLog(ctx, {
+      actorUserId: actor._id,
+      actorEmail: actor.email,
+      action: "user.default_location_set",
+      entityType: "users",
+      entityId: user._id,
+      summary: location
+        ? `Posted ${user.email} to ${location}`
+        : `Returned ${user.email} to the central desk`,
+      metadata: { defaultLocation: location || null },
     });
     return { success: true as const };
   },

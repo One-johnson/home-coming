@@ -20,6 +20,7 @@ import {
   UserCheck,
   Users,
   ListChecks,
+  Lock,
   WifiOff,
   Wrench,
 } from "lucide-react";
@@ -60,6 +61,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  enqueueCheckIn,
+  loadQueuedCheckIns,
+  queuedCheckInEntry,
+  removeQueuedCheckIns,
+  type QueuedDeskCheckIn,
+} from "@/lib/deskOfflineQueue";
 import { toastFriendlyErrorParts } from "@/lib/friendlyError";
 import { canAccessArea } from "@/lib/adminRoles";
 import { AGC_ACCOMMODATION_LABELS } from "@/lib/agcPortal";
@@ -100,7 +108,7 @@ type AdminRoomRow = {
   publishedAt: number | null;
   publishedBy: string | null;
   /** Desk reservation: not assignable until released. */
-  hold?: { note: string } | null;
+  hold?: { note: string; by: string; at: number } | null;
   /** Out of inventory while a blocking fault is open. */
   faulty?: boolean;
   occupants: number;
@@ -220,6 +228,7 @@ const DeskRosterRow = memo(function DeskRosterRow({
   ticked,
   tickable,
   faulty,
+  queued,
   onSelect,
   onTick,
 }: {
@@ -230,6 +239,8 @@ const DeskRosterRow = memo(function DeskRosterRow({
   tickable: boolean;
   /** The delegate's room is out of inventory for a maintenance fault. */
   faulty: boolean;
+  /** Checked in on this device while offline, not yet synced. */
+  queued: boolean;
   onSelect: (guestId: string) => void;
   onTick: (guestId: string) => void;
 }) {
@@ -301,7 +312,15 @@ const DeskRosterRow = memo(function DeskRosterRow({
       <TableCell className="hidden capitalize sm:table-cell">{row.gender}</TableCell>
       <TableCell className="hidden md:table-cell">{row.hubName}</TableCell>
       <TableCell className={cn("text-sm font-medium", cell.className)}>
-        {cell.label}
+        {queued ? "Queued offline" : cell.label}
+        {queued && (
+          <span
+            title="Taken on this device while offline — it checks in when the station syncs, so do not check the delegate in again"
+            className="ml-1 inline-flex items-center gap-0.5 rounded bg-sky-100 px-1 py-0.5 text-[10px] font-medium text-sky-800 dark:bg-sky-950/60 dark:text-sky-300"
+          >
+            <WifiOff className="size-2.5" /> Local
+          </span>
+        )}
       </TableCell>
       <TableCell className="hidden text-sm sm:table-cell">
         {row.keyStatus ? KEY_LABEL[row.keyStatus] : "—"}
@@ -328,6 +347,42 @@ export function ArrivalPage() {
       // Private mode — location resets next reload.
     }
   }, [location]);
+
+  /** The building an admin posted this account to (Team page), if any. */
+  const assignedBuilding = user?.defaultLocation ?? null;
+  /**
+   * Venue staff work one building: the desk opens there and stays there, so a
+   * check-in station cannot drift onto another building's delegates by accident.
+   * Approvers keep the picker, because they cover the whole site.
+   */
+  const locationLocked = role === "checkin" && !!assignedBuilding;
+  /** The building this desk actually works: a posted check-in account cannot
+   * switch away from it, so the whole page reads one building. */
+  const deskLocation =
+    role === "checkin" && assignedBuilding ? assignedBuilding : location;
+
+  // --- Offline station + this device's queued arrivals (§19) ---
+  const stations = useQuery(api.agcOffline.listStations, {});
+  const queueOfflineTransactions = useMutation(api.agcOffline.queueTransactions);
+  const syncOfflineTransactions = useMutation(
+    api.agcOffline.syncPendingTransactions,
+  );
+  const [queuedCheckIns, setQueuedCheckIns] = useState<QueuedDeskCheckIn[]>(() =>
+    typeof window === "undefined" ? [] : loadQueuedCheckIns(),
+  );
+  const [flushBusy, setFlushBusy] = useState(false);
+  const station = useMemo(
+    () =>
+      (stations ?? []).find(
+        (entry) => entry.active && entry.building === deskLocation,
+      ) ?? null,
+    [stations, deskLocation],
+  );
+  const queuedGuestIds = useMemo(
+    () => new Set(queuedCheckIns.map((entry) => entry.guestId)),
+    [queuedCheckIns],
+  );
+  const isOnline = () => typeof navigator === "undefined" || navigator.onLine;
 
   const overview = useQuery(
     api.agcCheckin.getArrivalOverview,
@@ -388,7 +443,9 @@ export function ArrivalPage() {
   // Grounded desk rows (dept defaults to location's building when set)
   const deskRows = useQuery(
     api.agcCheckin.listArrivalDesk,
-    sessionToken ? { sessionToken, location: location === "central" ? undefined : location } : "skip",
+    sessionToken
+      ? { sessionToken, location: deskLocation === "central" ? undefined : deskLocation }
+      : "skip",
   );
 
   const checkInGuest = useMutation(api.agcCheckin.checkInGuest);
@@ -468,14 +525,140 @@ export function ArrivalPage() {
   const [batchTicked, setBatchTicked] = useState<string[]>([]);
   const [batchBusy, setBatchBusy] = useState(false);
 
+  /**
+   * Park arrivals on this device when the station is offline. The building is
+   * the key: only a building's designated station may queue, so the central
+   * desk is told to pick its building instead of quietly losing the arrival.
+   */
+  const queueCheckInsOffline = (rows: SearchRow[]) => {
+    if (!user?.email || rows.length === 0) return 0;
+    if (deskLocation === "central") {
+      toast.error("Pick your building before checking anyone in offline", {
+        description:
+          "The offline queue belongs to one building's designated station — the central desk is always online.",
+      });
+      return 0;
+    }
+    let next = loadQueuedCheckIns();
+    for (const row of rows) {
+      next = enqueueCheckIn(
+        queuedCheckInEntry({
+          guestId: row.guestId,
+          guestName: row.name,
+          building: deskLocation,
+          location: deskLocation,
+          keyRecipientName:
+            row.needsKey && row.keyStatus === "pending" ? row.name : undefined,
+          staffId: user.email,
+          staffRole: user.role,
+        }),
+      );
+    }
+    setQueuedCheckIns(next);
+    toast.info(
+      `${rows.length} check-in${rows.length === 1 ? "" : "s"} queued on this device`,
+      {
+        description:
+          "They are sent to the server when the station reconnects — do not check these delegates in again.",
+      },
+    );
+    return rows.length;
+  };
+
+  /**
+   * Push this device's queue through the designated station, then replay it.
+   * The server dedupes on txId, so a repeated push never checks anyone in
+   * twice; anything it cannot apply comes back as a conflict for review.
+   */
+  const flushOfflineCheckIns = useCallback(async () => {
+    if (flushBusy || !sessionToken || !user?.email) return;
+    const rows = loadQueuedCheckIns();
+    if (rows.length === 0) {
+      setQueuedCheckIns([]);
+      return;
+    }
+    if (!station) {
+      toast.error(`No designated offline station for ${deskLocation}`, {
+        description:
+          "An admin or the room team must designate this device before queued arrivals can be sent.",
+      });
+      return;
+    }
+    setFlushBusy(true);
+    try {
+      const batch = rows.slice(0, 25);
+      await queueOfflineTransactions({
+        sessionToken,
+        building: station.building,
+        stationName: station.stationName,
+        transactions: batch.map((entry) => ({
+          txId: entry.txId,
+          staffId: entry.staffId ?? user.email,
+          staffRole: entry.staffRole ?? user.role,
+          action: "check_in" as const,
+          payload: JSON.stringify({
+            guestId: entry.guestId,
+            location: entry.location,
+            keyRecipientName: entry.keyRecipientName,
+          }),
+          originalAt: entry.originalAt,
+        })),
+      });
+      const result = await syncOfflineTransactions({
+        sessionToken,
+        building: station.building,
+      });
+      setQueuedCheckIns(removeQueuedCheckIns(batch.map((entry) => entry.txId)));
+      if (result.conflicts > 0) {
+        toast.warning(
+          `${result.applied} queued check-in(s) applied · ${result.conflicts} need review.`,
+          { description: "Open Offline sync exceptions to resolve them." },
+        );
+      } else {
+        toast.success(
+          `${result.applied} queued check-in${result.applied === 1 ? "" : "s"} applied.`,
+        );
+      }
+    } catch (err) {
+      toast.error(
+        ...toastFriendlyErrorParts(err, "Could not send the queued check-ins"),
+      );
+    } finally {
+      setFlushBusy(false);
+    }
+  }, [
+    flushBusy,
+    sessionToken,
+    user,
+    station,
+    deskLocation,
+    queueOfflineTransactions,
+    syncOfflineTransactions,
+  ]);
+
+  // Reconnecting is the whole point of the queue: send it without being asked.
+  useEffect(() => {
+    const onOnline = () => {
+      if (queuedCheckIns.length > 0) void flushOfflineCheckIns();
+    };
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
+  }, [queuedCheckIns.length, flushOfflineCheckIns]);
+
   const doCheckIn = async () => {
     if (!sessionToken || !checkinTarget) return;
+    const row = checkinTarget;
+    // No connection: the arrival is taken on the device and replayed later.
+    if (!isOnline()) {
+      if (queueCheckInsOffline([row])) setCheckinTarget(null);
+      return;
+    }
     setBusyGuest(checkinTarget.guestId);
     try {
       const result = await checkInGuest({
         sessionToken,
         guestId: checkinTarget.guestId as Id<"agcGuests">,
-        location,
+        location: deskLocation,
         override: overrideReason.trim()
           ? { reason: overrideReason.trim() }
           : undefined,
@@ -494,7 +677,13 @@ export function ArrivalPage() {
       setOverrideReason("");
       setKeyRecipientName("");
     } catch (err) {
-      toast.error(...toastFriendlyErrorParts(err, "Check-in failed"));
+      // A connection can drop between the tap and the write — queue it rather
+      // than send the delegate away as a failed check-in.
+      if (!isOnline()) {
+        if (queueCheckInsOffline([row])) setCheckinTarget(null);
+      } else {
+        toast.error(...toastFriendlyErrorParts(err, "Check-in failed"));
+      }
     } finally {
       setBusyGuest(null);
     }
@@ -693,13 +882,55 @@ export function ArrivalPage() {
     ? (issuesByRoom.get(selectedRow.roomId) ?? [])
     : [];
 
+  /**
+   * The rooms this desk may look at: everything at central, one building when
+   * the desk is posted. Keeps a posted station from reading another block's
+   * holds and faults.
+   */
+  const deskRooms = useMemo(
+    () =>
+      (publishedRooms ?? []).filter(
+        (room) =>
+          deskLocation === "central" || room.building === deskLocation,
+      ),
+    [publishedRooms, deskLocation],
+  );
+  const deskIssues = useMemo(
+    () =>
+      (roomIssues?.issues ?? []).filter(
+        (issue) =>
+          deskLocation === "central" || issue.building === deskLocation,
+      ),
+    [roomIssues, deskLocation],
+  );
+
+  /**
+   * Rooms matching the search term. The delegate search already matches a room
+   * number, but an empty room has no delegate to match — this strip lets the
+   * desk find it, and shows at a glance whether it is reserved or faulty.
+   */
+  const matchingRooms = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    if (term.length < 2) return [];
+    return deskRooms
+      .filter((room) =>
+        `${room.name} ${room.building ?? ""} ${TYPE_LABEL(room.accommodationType)}`
+          .toLowerCase()
+          .includes(term),
+      )
+      .slice(0, 8);
+  }, [search, deskRooms]);
+
   /** First visit to the desk: the query has not answered yet. */
   const deskLoading = search.trim().length < 2 && deskRows === undefined;
 
   /** Only rows the desk can actually check in right now: bed + payment. */
   const readyRows = useMemo(
-    () => rosterRows.filter((row) => deskRowState(row).ready),
-    [rosterRows],
+    () =>
+      rosterRows.filter(
+        (row) => deskRowState(row).ready && !queuedGuestIds.has(row.guestId),
+      ),
+    [rosterRows, queuedGuestIds],
   );
   const allReadyTicked =
     readyRows.length > 0 && readyRows.every((row) => batchTicked.includes(row.guestId));
@@ -718,16 +949,25 @@ export function ArrivalPage() {
     if (!sessionToken) return;
     const ticks = batchTicked
       .map((guestId) => rosterRows.find((row) => row.guestId === guestId))
-      .filter((row): row is SearchRow => Boolean(row) && deskRowState(row!).ready);
+      .filter(
+        (row): row is SearchRow =>
+          Boolean(row) &&
+          deskRowState(row!).ready &&
+          !queuedGuestIds.has(row!.guestId),
+      );
     if (ticks.length === 0) {
       toast.info("Tick the ready delegates you want to check in together.");
+      return;
+    }
+    if (!isOnline()) {
+      if (queueCheckInsOffline(ticks) > 0) setBatchTicked([]);
       return;
     }
     setBatchBusy(true);
     try {
       const result = await checkInBatch({
         sessionToken,
-        location,
+        location: deskLocation,
         guests: ticks.map((row) => ({ guestId: row.guestId as Id<"agcGuests"> })),
       });
       const rejected = result.results.filter((r) => r.status === "rejected");
@@ -770,8 +1010,8 @@ export function ArrivalPage() {
   const soleReadyRow = useMemo(() => {
     if (rosterRows.length !== 1) return null;
     const row = rosterRows[0];
-    return deskRowState(row).ready ? row : null;
-  }, [rosterRows]);
+    return deskRowState(row).ready && !queuedGuestIds.has(row.guestId) ? row : null;
+  }, [rosterRows, queuedGuestIds]);
 
   // --- Group check-in (§13) ---
   const groupRows = useMemo(() => {
@@ -801,11 +1041,15 @@ export function ArrivalPage() {
       toast.info("Tick the delegates who physically arrived — others stay Not Arrived.");
       return;
     }
+    if (!isOnline()) {
+      if (queueCheckInsOffline(ticks) > 0) setGroupTicked([]);
+      return;
+    }
     setGroupBusy(true);
     try {
       const result = await checkInGroup({
         sessionToken,
-        location,
+        location: deskLocation,
         arrivals: ticks.map((row) => ({ guestId: row.guestId as Id<"agcGuests"> })),
       });
       const rejected = result.results.filter((r) => r.status === "rejected");
@@ -943,10 +1187,19 @@ export function ArrivalPage() {
             </SelectContent>
           </Select>
 
-          <Select value={location} onValueChange={(value) => setLocation(value ?? "central")}>
+          <Select
+            value={deskLocation}
+            onValueChange={(value) => setLocation(value ?? "central")}
+            disabled={locationLocked}
+          >
             <SelectTrigger
               className="h-8 w-auto min-w-36 gap-1 rounded-full px-3 text-xs"
               aria-label="Desk location"
+              title={
+                locationLocked
+                  ? `Posted to ${deskLocation} — an admin changes this on the Team page`
+                  : undefined
+              }
             >
               <SelectValue />
             </SelectTrigger>
@@ -989,6 +1242,37 @@ export function ArrivalPage() {
           )}
         </div>
       </div>
+
+      {matchingRooms.length > 0 && (
+        <Card>
+          <CardContent className="flex flex-wrap items-center gap-1.5 p-2.5 text-xs">
+            <span className="flex items-center gap-1.5 font-medium text-muted-foreground">
+              <BedDouble className="size-3.5" /> Rooms matching “{search.trim()}”
+            </span>
+            {matchingRooms.map((room) => (
+              <span
+                key={room._id}
+                className={cn(
+                  "rounded-full border px-2 py-0.5",
+                  room.faulty
+                    ? "border-rose-300 bg-rose-50 text-rose-800 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-300"
+                    : room.hold
+                      ? "border-sky-300 bg-sky-50 text-sky-800 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-300"
+                      : "bg-background",
+                )}
+              >
+                {room.name}
+                <span className="text-muted-foreground">
+                  {" "}· {TYPE_LABEL(room.accommodationType)}
+                  {room.building ? ` · ${room.building}` : ""} · {room.occupants}/
+                  {room.capacity}
+                  {room.faulty ? " · faulty" : room.hold ? " · reserved" : ""}
+                </span>
+              </span>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
         {/* The sheet is the longest thing on the page, so it scrolls in place
@@ -1097,7 +1381,10 @@ export function ArrivalPage() {
                       row={row}
                       selected={row.guestId === selectedGuestId}
                       ticked={batchTicked.includes(row.guestId)}
-                      tickable={deskRowState(row).ready}
+                      tickable={
+                        deskRowState(row).ready && !queuedGuestIds.has(row.guestId)
+                      }
+                      queued={queuedGuestIds.has(row.guestId)}
                       faulty={
                         row.roomId
                           ? (issuesByRoom.get(row.roomId) ?? []).some(
@@ -1154,7 +1441,14 @@ export function ArrivalPage() {
                         : "No room yet"
                     }
                   />
-                  <DetailLine label="Status" value={deskRowState(selectedRow).label} />
+                  <DetailLine
+                    label="Status"
+                    value={
+                      queuedGuestIds.has(selectedRow.guestId)
+                        ? "Queued offline (this device)"
+                        : deskRowState(selectedRow).label
+                    }
+                  />
                   <DetailLine
                     label="Payment"
                     value={paymentState(selectedRow.paymentStatus, selectedRow.poaStatus).label}
@@ -1234,6 +1528,14 @@ export function ArrivalPage() {
                     </p>
                   )}
 
+                {queuedGuestIds.has(selectedRow.guestId) && (
+                  <p className="rounded-lg border border-l-4 border-sky-200 bg-sky-50/70 px-3 py-2 text-xs text-sky-900 dark:border-sky-900/70 dark:bg-sky-950/30 dark:text-sky-200">
+                    This arrival was taken on this device while offline. It is
+                    sent to the server when the station reconnects — do not check
+                    the delegate in again.
+                  </p>
+                )}
+
                 {selectedRow.keyStatus === "pending" &&
                   selectedRow.checkInStatus !== "checked_in" && (
                     <p className="text-xs text-muted-foreground">
@@ -1248,7 +1550,8 @@ export function ArrivalPage() {
                       className="w-full"
                       disabled={
                         busyGuest === selectedRow.guestId ||
-                        selectedRow.assignmentStatus !== "assigned"
+                        selectedRow.assignmentStatus !== "assigned" ||
+                        queuedGuestIds.has(selectedRow.guestId)
                       }
                       onClick={() => {
                         setCheckinTarget(selectedRow);
@@ -1272,30 +1575,30 @@ export function ArrivalPage() {
                       >
                         <LogOut className="size-4" /> Check out
                       </Button>
+                      {/* The person who made the arrival is the person who can
+                          take it back — every desk role, with a reason. */}
+                      <Button
+                        variant="outline"
+                        className="w-full gap-1.5 text-rose-700 hover:text-rose-800 dark:text-rose-400"
+                        disabled={busyGuest === selectedRow.guestId}
+                        onClick={() => {
+                          setUndoTarget(selectedRow);
+                          setUndoReason("");
+                        }}
+                      >
+                        <Undo2 className="size-4" /> Undo check-in
+                      </Button>
                       {isApprover && (
-                        <>
-                          <Button
-                            variant="outline"
-                            className="w-full gap-1.5 text-rose-700 hover:text-rose-800 dark:text-rose-400"
-                            disabled={busyGuest === selectedRow.guestId}
-                            onClick={() => {
-                              setUndoTarget(selectedRow);
-                              setUndoReason("");
-                            }}
-                          >
-                            <Undo2 className="size-4" /> Undo check-in
-                          </Button>
-                          <Button
-                            variant="outline"
-                            className="w-full"
-                            onClick={() => {
-                              setCorrectTarget(selectedRow);
-                              setCorrectReason("");
-                            }}
-                          >
-                            Correct check-in
-                          </Button>
-                        </>
+                        <Button
+                          variant="outline"
+                          className="w-full"
+                          onClick={() => {
+                            setCorrectTarget(selectedRow);
+                            setCorrectReason("");
+                          }}
+                        >
+                          Correct check-in
+                        </Button>
                       )}
                     </>
                   ) : (
@@ -1356,8 +1659,9 @@ export function ArrivalPage() {
                     </Button>
                   )}
 
-                  {role !== "checkin" &&
-                    selectedRow.assignmentStatus === "assigned" &&
+                  {/* Venue staff move delegates too: a wrong room is fixed where
+                      it is discovered, not after a walk to another table. */}
+                  {selectedRow.assignmentStatus === "assigned" &&
                     selectedRow.checkInStatus !== "checked_out" && (
                       <Button
                         variant="ghost"
@@ -1430,17 +1734,27 @@ export function ArrivalPage() {
               onSubmit={() => void doGroupCheckIn()}
             />
             <div className="space-y-3">
-              <OfflinePanel sessionToken={sessionToken} location={location} isApprover={isApprover} />
+              <OfflinePanel
+                sessionToken={sessionToken}
+                location={deskLocation}
+                isApprover={isApprover}
+                queuedCount={queuedCheckIns.length}
+                queueBusy={flushBusy}
+                onFlush={() => void flushOfflineCheckIns()}
+              />
               <KeysPanel keys={keys ?? []} sessionToken={sessionToken} />
             </div>
           </div>
           <div className="grid gap-3 lg:grid-cols-2">
-            <FaultsPanel
-              issues={roomIssues?.issues ?? []}
-              rooms={publishedRooms ?? []}
-              sessionToken={sessionToken}
-              canOpenRooms={canAccessArea(role, "accommodation")}
-            />
+            <div className="space-y-3">
+              <FaultsPanel
+                issues={deskIssues}
+                rooms={deskRooms}
+                sessionToken={sessionToken}
+                canOpenRooms={canAccessArea(role, "accommodation")}
+              />
+              <ReservedPanel rooms={deskRooms} />
+            </div>
             <RecentCheckIns data={recent ?? []} />
           </div>
           {isApprover && <ConflictsPanel sessionToken={sessionToken} />}
@@ -2353,11 +2667,18 @@ function KeysPanel({
   const returnKey = useMutation(api.agcCheckin.returnKey);
   const replaceKey = useMutation(api.agcCheckin.replaceKey);
   const open = keys.filter((key) => key.status === "issued" || key.status === "replaced");
+  // The desk counts both directions: what is out with delegates and what has
+  // come back. "Out" is the number to reconcile against the physical board.
+  const returned = keys.filter((key) => key.status === "returned").length;
   return (
     <Card>
       <CardContent className="p-3">
-        <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-          <KeyRound className="size-3.5" /> Keys out ({open.length})
+        <p className="mb-2 flex flex-wrap items-center gap-1.5 text-xs font-medium text-muted-foreground">
+          <KeyRound className="size-3.5" /> Keys — {open.length} out · {returned}{" "}
+          returned
+          <span className="font-normal">
+            ({keys.length} key record{keys.length === 1 ? "" : "s"} in total)
+          </span>
         </p>
         {open.length === 0 ? (
           <p className="text-xs text-muted-foreground">
@@ -2704,14 +3025,74 @@ function FaultsPanel({
   );
 }
 
+/**
+ * Rooms held by the room team, shown for information only. The desk cannot
+ * assign into a reserved room — it is excluded from every picker — but staff
+ * still need to know the bed exists and why it is being held before promising
+ * it to someone who turns up.
+ */
+function ReservedPanel({ rooms }: { rooms: AdminRoomRow[] }) {
+  const reserved = rooms
+    .filter((room) => room.hold)
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+  return (
+    <Card>
+      <CardContent className="p-3">
+        <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+          <Lock className="size-3.5" /> Reserved rooms ({reserved.length})
+        </p>
+        {reserved.length === 0 ? (
+          <p className="text-xs text-muted-foreground">
+            No rooms are reserved — every bed is in the live inventory.
+          </p>
+        ) : (
+          <ul className="max-h-48 space-y-1.5 overflow-y-auto">
+            {reserved.map((room) => (
+              <li
+                key={room._id}
+                className="rounded-lg border border-l-4 border-sky-200 bg-sky-50/70 px-2.5 py-1.5 text-xs text-sky-900 dark:border-sky-900/70 dark:bg-sky-950/30 dark:text-sky-200"
+              >
+                <p className="flex flex-wrap items-center gap-1.5 font-semibold">
+                  {room.name}
+                  <span className="font-normal text-muted-foreground">
+                    {TYPE_LABEL(room.accommodationType)}
+                    {room.building ? ` · ${room.building}` : ""}
+                  </span>
+                </p>
+                {room.hold && (
+                  <p className="text-sky-800/80 dark:text-sky-200/80">
+                    {room.hold.note} — {room.hold.by},{" "}
+                    {new Date(room.hold.at).toLocaleDateString()}
+                  </p>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="mt-2 text-[11px] text-muted-foreground">
+          Held rooms are not offered at check-in; ask the room team to release
+          one if the beds are needed.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
 function OfflinePanel({
   sessionToken,
   location,
   isApprover,
+  queuedCount,
+  queueBusy,
+  onFlush,
 }: {
   sessionToken: string | null;
   location: string;
   isApprover: boolean;
+  /** Arrivals taken on this device that have not reached the server yet. */
+  queuedCount: number;
+  queueBusy: boolean;
+  onFlush: () => void;
 }) {
   const stations = useQuery(api.agcOffline.listStations, sessionToken ? {} : "skip");
   const registerStation = useMutation(api.agcOffline.registerStation);
@@ -2827,10 +3208,31 @@ function OfflinePanel({
                 )}
               </div>
             )}
+            {queuedCount > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-sky-200 bg-sky-50/70 px-2 py-1.5 text-[11px] text-sky-900 dark:border-sky-900/70 dark:bg-sky-950/30 dark:text-sky-200">
+                <WifiOff className="size-3 shrink-0" />
+                {queuedCount} check-in{queuedCount === 1 ? "" : "s"} queued on this
+                device
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="ml-auto h-6 gap-1 px-2 text-[11px]"
+                  disabled={queueBusy}
+                  onClick={onFlush}
+                >
+                  {queueBusy ? (
+                    <Loader2Icon className="size-3 animate-spin" />
+                  ) : (
+                    <RefreshCw className="size-3" />
+                  )}
+                  {online ? "Push and sync" : "Queued — send when online"}
+                </Button>
+              </div>
+            )}
             {!online && (
               <p className={TONE_TEXT.blocked}>
-                Offline mode: actions taken at this desk while disconnected are kept in
-                the local queue and replay automatically when the connection returns.
+                Offline mode: check-ins taken at this desk are kept on the device
+                and sent automatically when the connection returns.
               </p>
             )}
           </div>

@@ -148,7 +148,10 @@ const SECTIONS: RunbookSection[] = [
         text: "Room assignment staff — sign in at /room-assignment: they own the room inventory (import, publish, reserve, fault, delete), assign, move and unassign delegates, and run every desk action — overrides, corrections, clearing flags and resolving offline conflicts. They do not review bookings, pools or POA; money screens stay with Admin, Accommodation and Finance.",
       },
       {
-        text: "Check-in staff — sign in at /check-in: search, check-in/out, keys, status views only. They cannot assign rooms, change delegate details or clear a flag.",
+        text: "Check-in staff — sign in at /check-in: search, check-in/out, keys, moving a delegate who already has a room, undoing a check-in they took, and status views. They cannot assign a delegate who has no room, change delegate details or clear a flag.",
+      },
+      {
+        text: "Venue staff can be posted to one building on the Team page. A check-in account lands on that building's desk and cannot switch away, so it only ever sees that building's rooms and delegates.",
       },
       {
         text: "Anyone on the desk can raise a room fault (broken toilet, no water) from the Out of service panel, and anyone in the room team can fix it.",
@@ -235,6 +238,9 @@ const SECTIONS: RunbookSection[] = [
       {
         text: "Check-out is optional and never releases paid inventory. Dorms/hostels: wristband, not tracked. Key rooms: record Key returned / not returned.",
       },
+      {
+        text: "Room search: type a room number under the search box and a strip lists matching rooms with their type, building, occupancy and whether they are reserved or faulty — the one way to find an empty room, since an empty room has no delegate to match.",
+      },
     ],
     links: [
       { href: "/admin/arrival", label: "Open arrival desk" },
@@ -273,7 +279,7 @@ const SECTIONS: RunbookSection[] = [
         text: "Mark key returned from the same card as soon as the key comes back, even if the delegate has not checked out. The room then shows Pending or Returned and the key can be issued again.",
       },
       {
-        text: "Arrival → Keys panel: Replace (new key holder) and Returned per room. The full ledger is in the key reports.",
+        text: "Arrival → Keys panel: the heading counts keys out and keys returned, then Replace (new key holder) and Returned per room. The full ledger is in the key reports.",
       },
       {
         heading: "Never",
@@ -296,7 +302,7 @@ const SECTIONS: RunbookSection[] = [
         text: "Designate ONE device per building: on that computer, open Arrival, pick the building as the location, then Admin (or the first staff member) clicks “Designate this device”.",
       },
       {
-        text: "If connectivity drops, the station queues actions locally; on reconnect click “Sync now”. Queued transactions are idempotent by transaction id.",
+        text: "If connectivity drops, check-ins are taken on the device: the row reads “Queued offline” and the desk panel counts them. Push them with “Push and sync” — or leave it, because they are sent automatically when the connection returns. Queued transactions are idempotent by transaction id, so a repeated push never checks anyone in twice.",
       },
       {
         heading: "Never",
@@ -353,7 +359,7 @@ const SECTIONS: RunbookSection[] = [
       {
         heading: "Do",
         kind: "do",
-        text: "Reserve a room: Rooms → Reserve on an empty room, and write why — the reason is required and shows on the card. A reserved room is held out of Assign, bulk assign and every change-room picker, and auto-assign skips it. Apply reserve to several rooms from the bulk bar and they are held in one step.",
+        text: "Reserve a room: Rooms → Reserve on an empty room, and write why — the reason is required and shows on the card. A reserved room is held out of Assign, bulk assign and every change-room picker, and auto-assign skips it. Apply reserve to several rooms from the bulk bar and they are held in one step. The desk sees the same holds, read-only, in Desk overview & tools → Reserved rooms.",
       },
       {
         text: "Release a reservation with Release on the card (or release several from the bulk bar) when the held beds are needed again. A room that still holds delegates cannot be reserved, and a reserved room cannot be assigned into — release it first, then assign.",
@@ -430,7 +436,7 @@ const SECTIONS: RunbookSection[] = [
       {
         heading: "Do",
         kind: "do",
-        text: "Undo a wrong check-in: select the checked-in delegate → Undo check-in, with a required reason (wrong person at the counter, wrong room, wrong hub). The arrival is removed and the delegate returns to Not Arrived, ready to be checked in again properly. The reason and a snapshot of the arrival — room, time, who did it, location, any payment override — stay in the audit log. Admin, Accommodation and Room assignment only.",
+        text: "Undo a wrong check-in: select the checked-in delegate → Undo check-in, with a required reason (wrong person at the counter, wrong room, wrong hub). The arrival is removed and the delegate returns to Not Arrived, ready to be checked in again properly. The reason and a snapshot of the arrival — room, time, who did it, location, any payment override — stay in the audit log. Every desk role can do this, including check-in staff.",
       },
       {
         text: "Correct check-in is the other repair: it keeps the arrival row and marks it corrected, for a record that needs a written reason against it. Both actions put the delegate back on the Not Arrived list, so use Undo when the arrival should never have happened and Correct when you are annotating one that did. Neither reclaims a key — return it separately.",

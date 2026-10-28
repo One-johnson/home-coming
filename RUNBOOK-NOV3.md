@@ -9,7 +9,7 @@ console (https://home-coming-ten.vercel.app) and is role-gated server-side.
 | Admin | Everything, including payment overrides, corrections, team management |
 | Accommodation | Rooms, import, publishing, overrides, corrections, reports |
 | Room assignment staff | Rooms/assignments/changes + check-in/out + keys |
-| Check-in staff | Search, check-in/out, keys, status views only |
+| Check-in staff | Search, check-in/out, keys, moving a roomed delegate, undoing their own check-in, status views |
 | Finance | Registrations/POA verification, cash-collection desk, audit log |
 
 Each team has its own sign-in URL: **/admin** (admins), **/registration**,
@@ -88,8 +88,8 @@ or Central) and then:
    and give a reason (wrong person, wrong room, wrong hub). The arrival is
    removed, the delegate goes back to **Not Arrived** so they can be checked in
    again properly, and the reason plus a snapshot of the arrival (room, time,
-   who checked them in, payment override) stay in the audit log. Admin,
-   Accommodation and Room assignment only. *Correct check-in* is the other
+   who checked them in, payment override) stay in the audit log. Every desk
+   role can do this, check-in staff included. *Correct check-in* is the other
    repair: it keeps the arrival row marked corrected. Get a key back with
    *Mark key returned* — undoing an arrival never takes the key in.
 
@@ -119,8 +119,9 @@ One designated device per building (dorm hexes need this — expect dead zones).
 1. On the computer serving that building, open Arrival and pick that building
    as the location; an Admin (or the first staff member if none exists yet)
    clicks **Designate this device**.
-2. If connectivity drops, the station keeps a local queue; on reconnect click
-   **Sync now** (or the queue replays itself). Queued transactions are
+2. If connectivity drops, the station keeps a local queue; check-ins taken
+   while disconnected read **Queued offline** and are sent by **Push and sync**
+   (or automatically when the connection returns). Queued transactions are
    idempotent by txId.
 3. Conflicts (e.g. the delegate was already checked in centrally while the
    station was offline) are **never applied silently** — they appear in the

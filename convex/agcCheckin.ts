@@ -886,7 +886,8 @@ export const correctCheckIn = mutation({
 });
 
 /**
- * Undo a check-in that should never have happened — approver roles only. The
+ * Undo a check-in that should never have happened — every desk role, because
+ * the person who creates a wrong arrival is the person at the counter. The
  * arrival row is removed, so the delegate returns to Not Arrived and can be
  * checked in again properly (wrong person at the counter, wrong room, wrong
  * hub). The reason is mandatory and the audit entry keeps a snapshot of the
@@ -901,7 +902,10 @@ export const undoCheckIn = mutation({
     reason: v.string(),
   },
   handler: async (ctx, args) => {
-    const actor = await requireRole(ctx, args.sessionToken, [...APPROVER_ROLES]);
+    const actor = await requireRole(ctx, args.sessionToken, [
+      ...APPROVER_ROLES,
+      "checkin",
+    ]);
     const reason = args.reason.trim();
     if (!reason) throw new ConvexError("A reason is required to undo a check-in");
 

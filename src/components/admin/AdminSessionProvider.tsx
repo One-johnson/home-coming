@@ -22,6 +22,8 @@ type SessionUser = {
   name: string;
   email: string;
   role: StaffRole;
+  /** Building this staff member is posted to, when an admin assigned one. */
+  defaultLocation?: string | null;
 };
 
 type AdminSessionContextValue = {

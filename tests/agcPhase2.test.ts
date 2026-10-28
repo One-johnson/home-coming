@@ -2150,7 +2150,6 @@ test("the audit area lists console delegate corrections with who made them and w
 test("desk issues a key after check-in and can undo a check-in with a reason", async () => {
   const t = createTestConvex();
   const staff = await seedStaff(t, "checkin");
-  const approver = await seedStaff(t, "accommodation");
 
   const booking = await seedConfirmedBooking(t, {
     accommodationType: "wise_serpents",
@@ -2217,24 +2216,26 @@ test("desk issues a key after check-in and can undo a check-in with a reason", a
   expect(row?.checkInStatus).toBe("checked_in");
   const checkInId = row?.checkInId as Id<"agcCheckIns">;
 
-  // Undo is the approver's call, and it needs a reason.
+  // Every desk role can take back its own mistake, but other teams cannot
+  // touch an arrival — and a reason is always required.
+  const finance = await seedStaff(t, "finance");
   await expect(() =>
     t.mutation(api.agcCheckin.undoCheckIn, {
-      sessionToken: staff.token,
+      sessionToken: finance.token,
       checkInId,
       reason: "wrong person",
     }),
   ).rejects.toThrow(/Unauthorized/);
   await expect(() =>
     t.mutation(api.agcCheckin.undoCheckIn, {
-      sessionToken: approver.token,
+      sessionToken: staff.token,
       checkInId,
       reason: "   ",
     }),
   ).rejects.toThrow(/reason is required/);
 
   const undone = await t.mutation(api.agcCheckin.undoCheckIn, {
-    sessionToken: approver.token,
+    sessionToken: staff.token,
     checkInId,
     reason: "Checked in the wrong delegate at the counter",
   });
@@ -2271,4 +2272,36 @@ test("desk issues a key after check-in and can undo a check-in with a reason", a
   expect(undoneLog?.summary).toContain("wrong delegate");
   expect(JSON.parse(undoneLog?.metadata ?? "{}").keyStillIssuedTo).toBe("Hall rep");
   expect(audit.some((log) => log.action === "agc_key.issued")).toBe(true);
+});
+
+test("a super admin posts a staff member to a building the desk then reads", async () => {
+  const t = createTestConvex();
+  const admin = await seedStaff(t, "admin");
+  const staff = await seedStaff(t, "checkin");
+
+  await t.mutation(api.users.setUserDefaultLocation, {
+    sessionToken: admin.token,
+    userId: staff.userId,
+    defaultLocation: "Blocks 1–4",
+  });
+  const me = await t.query(api.users.currentUser, { sessionToken: staff.token });
+  expect(me?.defaultLocation).toBe("Blocks 1–4");
+
+  // Only a super admin moves staff between buildings.
+  await expect(() =>
+    t.mutation(api.users.setUserDefaultLocation, {
+      sessionToken: staff.token,
+      userId: staff.userId,
+      defaultLocation: "Blocks 5–8",
+    }),
+  ).rejects.toThrow(/Unauthorized/);
+
+  // Clearing the posting puts the account back on the central desk.
+  await t.mutation(api.users.setUserDefaultLocation, {
+    sessionToken: admin.token,
+    userId: staff.userId,
+    defaultLocation: "   ",
+  });
+  const cleared = await t.query(api.users.currentUser, { sessionToken: staff.token });
+  expect(cleared?.defaultLocation).toBeNull();
 });
