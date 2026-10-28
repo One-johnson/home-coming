@@ -261,7 +261,7 @@ const DeskRosterRow = memo(function DeskRosterRow({
   /** The delegate's room is out of inventory for a maintenance fault. */
   faulty: boolean;
   /** Checked in on this device while offline, not yet synced. */
-  queued: boolean;
+  queued: QueuedDeskCheckIn | undefined;
   onSelect: (guestId: string) => void;
   onTick: (guestId: string) => void;
 }) {
@@ -333,12 +333,22 @@ const DeskRosterRow = memo(function DeskRosterRow({
       <TableCell className="hidden capitalize sm:table-cell">{row.gender}</TableCell>
       <TableCell className="hidden md:table-cell">{row.hubName}</TableCell>
       <TableCell className={cn("text-sm font-medium", cell.className)}>
-        {queued ? "Queued offline" : cell.label}
+        {queued ? (
+          <span title={`${queued.guestName} was checked in on this device at ${new Date(queued.originalAt).toLocaleTimeString()} — it sends when the station syncs, so do not check them in again`}>
+            Queued offline
+            {" "}
+            <span className="text-xs font-normal text-muted-foreground">
+              {new Date(queued.originalAt).toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </span>
+          </span>
+        ) : (
+          cell.label
+        )}
         {queued && (
-          <span
-            title="Taken on this device while offline — it checks in when the station syncs, so do not check the delegate in again"
-            className="ml-1 inline-flex items-center gap-0.5 rounded bg-sky-100 px-1 py-0.5 text-[10px] font-medium text-sky-800 dark:bg-sky-950/60 dark:text-sky-300"
-          >
+          <span className="ml-1 inline-flex items-center gap-0.5 rounded bg-sky-100 px-1 py-0.5 text-[10px] font-medium text-sky-800 dark:bg-sky-950/60 dark:text-sky-300">
             <WifiOff className="size-2.5" /> Local
           </span>
         )}
@@ -401,9 +411,13 @@ export function ArrivalPage() {
       ) ?? null,
     [stations, deskLocation],
   );
-  const queuedGuestIds = useMemo(
-    () => new Set(queuedCheckIns.map((entry) => entry.guestId)),
+  const queuedByGuest = useMemo(
+    () => new Map(queuedCheckIns.map((entry) => [entry.guestId, entry])),
     [queuedCheckIns],
+  );
+  const queuedGuestIds = useMemo(
+    () => new Set(queuedByGuest.keys()),
+    [queuedByGuest],
   );
   const isOnline = () => typeof navigator === "undefined" || navigator.onLine;
 
@@ -577,6 +591,7 @@ export function ArrivalPage() {
           guestName: row.name,
           building: deskLocation,
           location: deskLocation,
+          roomName: row.roomName ?? undefined,
           keyRecipientName:
             row.needsKey && row.keyStatus === "pending" ? row.name : undefined,
           staffId: user.email,
@@ -1551,7 +1566,7 @@ export function ArrivalPage() {
                       tickable={
                         deskRowState(row).ready && !queuedGuestIds.has(row.guestId)
                       }
-                      queued={queuedGuestIds.has(row.guestId)}
+                      queued={queuedByGuest.get(row.guestId)}
                       faulty={
                         row.roomId
                           ? (issuesByRoom.get(row.roomId) ?? []).some(
@@ -1905,7 +1920,7 @@ export function ArrivalPage() {
                 sessionToken={sessionToken}
                 location={deskLocation}
                 isApprover={isApprover}
-                queuedCount={queuedCheckIns.length}
+                queued={queuedCheckIns}
                 queueBusy={flushBusy}
                 onFlush={() => void flushOfflineCheckIns()}
                 canRegister={
@@ -3414,7 +3429,7 @@ function OfflinePanel({
   sessionToken,
   location,
   isApprover,
-  queuedCount,
+  queued,
   queueBusy,
   onFlush,
   canRegister,
@@ -3423,7 +3438,7 @@ function OfflinePanel({
   location: string;
   isApprover: boolean;
   /** Arrivals taken on this device that have not reached the server yet. */
-  queuedCount: number;
+  queued: QueuedDeskCheckIn[];
   queueBusy: boolean;
   onFlush: () => void;
   /** Approvers, and a posted check-in desk claiming its own building. */
@@ -3543,25 +3558,64 @@ function OfflinePanel({
                 )}
               </div>
             )}
-            {queuedCount > 0 && (
-              <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-sky-200 bg-sky-50/70 px-2 py-1.5 text-[11px] text-sky-900 dark:border-sky-900/70 dark:bg-sky-950/30 dark:text-sky-200">
-                <WifiOff className="size-3 shrink-0" />
-                {queuedCount} check-in{queuedCount === 1 ? "" : "s"} queued on this
-                device
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="ml-auto h-6 gap-1 px-2 text-[11px]"
-                  disabled={queueBusy}
-                  onClick={onFlush}
-                >
-                  {queueBusy ? (
-                    <Loader2Icon className="size-3 animate-spin" />
-                  ) : (
-                    <RefreshCw className="size-3" />
-                  )}
-                  {online ? "Push and sync" : "Queued — send when online"}
-                </Button>
+            {queued.length > 0 && (
+              <div className="space-y-1.5 rounded-md border border-sky-200 bg-sky-50/70 px-2 py-1.5 text-[11px] text-sky-900 dark:border-sky-900/70 dark:bg-sky-950/30 dark:text-sky-200">
+                <p className="flex flex-wrap items-center gap-1.5">
+                  <WifiOff className="size-3 shrink-0" />
+                  {queued.length} check-in{queued.length === 1 ? "" : "s"} held on
+                  this device
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="ml-auto h-6 gap-1 px-2 text-[11px]"
+                    disabled={queueBusy}
+                    onClick={onFlush}
+                  >
+                    {queueBusy ? (
+                      <Loader2Icon className="size-3 animate-spin" />
+                    ) : (
+                      <RefreshCw className="size-3" />
+                    )}
+                    {online ? "Push and sync" : "Queued — send when online"}
+                  </Button>
+                </p>
+                {/* Names, so the desk can read what is waiting before it goes: a
+                    count alone does not tell staff whether the right people are
+                    in it. */}
+                <ul className="max-h-32 space-y-0.5 overflow-y-auto">
+                  {[...queued]
+                    .sort((a, b) => a.originalAt - b.originalAt)
+                    .map((entry) => (
+                      <li
+                        key={entry.txId}
+                        className="flex flex-wrap items-baseline gap-1"
+                      >
+                        <span className="font-medium">
+                          {entry.guestName || "Delegate"}
+                        </span>
+                        {entry.roomName ? (
+                          <span className="text-sky-800/80 dark:text-sky-200/80">
+                            · {entry.roomName}
+                          </span>
+                        ) : null}
+                        {entry.building !== location ? (
+                          <span className="text-sky-800/80 dark:text-sky-200/80">
+                            · {entry.building}
+                          </span>
+                        ) : null}
+                        <span className="ml-auto tabular-nums">
+                          {new Date(entry.originalAt).toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </span>
+                      </li>
+                    ))}
+                </ul>
+                <p className="text-sky-800/80 dark:text-sky-200/80">
+                  Sent in this order when the station syncs. Nothing here has
+                  reached the server yet.
+                </p>
               </div>
             )}
             {!online && (

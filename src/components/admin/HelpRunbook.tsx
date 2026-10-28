@@ -305,7 +305,7 @@ const SECTIONS: RunbookSection[] = [
         text: "Designate ONE device per building: on that computer, open Arrival, pick the building as the location, then “Designate this device”. A check-in account posted to that building can claim it on first sign-in (the desk shows the prompt when no station exists yet), so a dead-zone desk does not wait for an admin. Moving a station to another device stays with an admin or the room team.",
       },
       {
-        text: "If connectivity drops, check-ins are taken on the device: the row reads “Queued offline” and the desk panel counts them. Push them with “Push and sync” — or leave it, because they are sent automatically when the connection returns. Queued transactions are idempotent by transaction id, so a repeated push never checks anyone in twice.",
+        text: "If connectivity drops, check-ins are taken on the device: the row reads “Queued offline” with the time, and the offline panel lists every delegate this device is holding — name, room and order. Review that list before you leave the desk. Push it with “Push and sync”, or leave it, because it is sent automatically when the connection returns. Queued transactions are idempotent by transaction id, so a repeated push never checks anyone in twice.",
       },
       {
         heading: "Never",

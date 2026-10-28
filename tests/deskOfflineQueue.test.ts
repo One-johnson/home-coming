@@ -4,6 +4,7 @@ import {
   enqueueCheckIn,
   loadQueuedCheckIns,
   newOfflineTxId,
+  queuedCheckInEntry,
   removeQueuedCheckIns,
   type QueuedDeskCheckIn,
   type QueueStorage,
@@ -84,6 +85,24 @@ describe("desk offline queue", () => {
       throw new Error("QuotaExceededError");
     };
     expect(() => enqueueCheckIn(entry(), storage)).not.toThrow();
+  });
+
+  test("a queued entry keeps the delegate, room and staff identity", () => {
+    const queued = queuedCheckInEntry({
+      guestId: "guest-1",
+      guestName: "Ama Mensah",
+      building: "Blocks 1–4",
+      location: "Blocks 1–4",
+      roomName: "101",
+      staffId: "checkin@example.com",
+      staffRole: "checkin",
+    });
+    expect(queued.guestName).toBe("Ama Mensah");
+    expect(queued.roomName).toBe("101");
+    expect(queued.staffId).toBe("checkin@example.com");
+    expect(queued.staffRole).toBe("checkin");
+    expect(queued.txId.length).toBeGreaterThan(0);
+    expect(queued.originalAt).toBeGreaterThan(0);
   });
 
   test("transaction ids are unique", () => {

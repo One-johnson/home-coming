@@ -18,6 +18,8 @@ export type QueuedDeskCheckIn = {
   building: string;
   /** Desk location recorded on the arrival. */
   location: string;
+  /** Room the delegate is in, so the desk can review the queue by name. */
+  roomName?: string;
   /** Who takes the key, for key-tracked rooms. */
   keyRecipientName?: string;
   /** Staff member who took the arrival, so the replay keeps their identity. */
@@ -69,6 +71,7 @@ export function queuedCheckInEntry(input: {
   guestName: string;
   building: string;
   location: string;
+  roomName?: string;
   keyRecipientName?: string;
   staffId?: string;
   staffRole?: string;
