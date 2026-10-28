@@ -288,6 +288,8 @@ export const listDelegateCorrections = query({
     limit: v.optional(v.number()),
     /** Only corrections made by this staff account (case-insensitive email). */
     actorEmail: v.optional(v.string()),
+    /** Only corrections made by staff in this role (e.g. "accommodation"). */
+    actorRole: v.optional(v.string()),
     /** Inclusive epoch-ms bounds on when the correction was made. */
     from: v.optional(v.number()),
     to: v.optional(v.number()),
@@ -330,9 +332,29 @@ export const listDelegateCorrections = query({
         (a, b) => b.count - a.count || a.email.localeCompare(b.email),
       );
 
+    // The team view is the same set counted by role, so a super admin can ask
+    // "what did Accommodation change?" without knowing who works there. Staff
+    // whose account has since been removed have no team to belong to and are
+    // left out of this list (their corrections still show under Anyone).
+    const countByRole = new Map<string, number>();
+    for (const row of all) {
+      const role = roleByEmail.get(row.actorAdminEmail.toLowerCase());
+      if (!role) continue;
+      countByRole.set(role, (countByRole.get(role) ?? 0) + 1);
+    }
+    const teams = [...countByRole.entries()]
+      .map(([role, count]) => ({ role, count }))
+      .sort((a, b) => b.count - a.count || a.role.localeCompare(b.role));
+
     const wanted = args.actorEmail?.trim().toLowerCase();
+    const wantedRole = args.actorRole?.trim();
     const filtered = all
       .filter((row) => !wanted || row.actorAdminEmail.toLowerCase() === wanted)
+      .filter(
+        (row) =>
+          !wantedRole ||
+          roleByEmail.get(row.actorAdminEmail.toLowerCase()) === wantedRole,
+      )
       .filter((row) => args.from === undefined || row.createdAt >= args.from)
       .filter((row) => args.to === undefined || row.createdAt <= args.to)
       .sort((a, b) => b.createdAt - a.createdAt)
@@ -346,6 +368,7 @@ export const listDelegateCorrections = query({
       /** Every console correction, before the filters — what the panel counts against. */
       total: all.length,
       actors,
+      teams,
       rows: filtered.map((row) => ({
         _id: row._id,
         createdAt: row.createdAt,

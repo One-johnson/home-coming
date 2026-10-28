@@ -50,6 +50,11 @@ type ActorOption = {
   role: string | null;
 };
 
+type TeamOption = {
+  role: string;
+  count: number;
+};
+
 type CorrectionRow = {
   _id: string;
   createdAt: number;
@@ -100,21 +105,24 @@ export function DelegateCorrectionsPanel() {
   // the panel stays with the super admin the query answers to.
   const isSuperAdmin = user?.role === "admin";
 
-  // Who changed it (the account, not the team) and when it happened. Both go to
-  // the server: the list is capped, so filtering the loaded page would hide
-  // older corrections that match.
+  // Which team changed it, which person in that team, and when it happened.
+  // All three go to the server: the list is capped, so filtering the loaded page
+  // would hide older corrections that match.
+  const [actorRole, setActorRole] = useState<string>("");
   const [actorEmail, setActorEmail] = useState<string>("");
   const [fromDate, setFromDate] = useState<string>("");
   const [toDate, setToDate] = useState<string>("");
-  const filtersActive = actorEmail !== "" || fromDate !== "" || toDate !== "";
+  const filtersActive =
+    actorRole !== "" || actorEmail !== "" || fromDate !== "" || toDate !== "";
 
   const filters = useMemo(
     () => ({
+      actorRole: actorRole || undefined,
       actorEmail: actorEmail || undefined,
       from: startOfDay(fromDate),
       to: endOfDay(toDate),
     }),
-    [actorEmail, fromDate, toDate],
+    [actorRole, actorEmail, fromDate, toDate],
   );
   const sessionArgs = useSessionArgs(filters);
   const corrections = useQuery(
@@ -122,8 +130,14 @@ export function DelegateCorrectionsPanel() {
     isSuperAdmin ? sessionArgs : "skip",
   );
 
+  const teams = (corrections?.teams ?? []) as TeamOption[];
   const actors = (corrections?.actors ?? []) as ActorOption[];
   const rows = (corrections?.rows ?? []) as CorrectionRow[];
+  // The person list follows the team, so the two filters cannot contradict each
+  // other: pick a team and the people offered are the ones on it.
+  const visibleActors = actorRole
+    ? actors.filter((actor) => actor.role === actorRole)
+    : actors;
 
   if (!isSuperAdmin) return null;
 
@@ -157,6 +171,37 @@ export function DelegateCorrectionsPanel() {
             which days. */}
         <div className="flex flex-wrap items-end gap-3 border-b px-4 py-3">
           <div className="space-y-1">
+            <Label htmlFor="corrections-team" className="text-xs">
+              Team
+            </Label>
+            <Select
+              value={actorRole || "all"}
+              onValueChange={(value) => {
+                const next = !value || value === "all" ? "" : value;
+                setActorRole(next);
+                // Dropping a person who is not on the team just picked keeps the
+                // two filters from silently contradicting each other.
+                setActorEmail((current) => {
+                  if (!next || !current) return current;
+                  const person = actors.find((actor) => actor.email === current);
+                  return person && person.role === next ? current : "";
+                });
+              }}
+            >
+              <SelectTrigger id="corrections-team" className="h-8 w-44 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Any team</SelectItem>
+                {teams.map((team) => (
+                  <SelectItem key={team.role} value={team.role}>
+                    {roleLabel(team.role)} ({team.count})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
             <Label htmlFor="corrections-actor" className="text-xs">
               Changed by
             </Label>
@@ -174,7 +219,7 @@ export function DelegateCorrectionsPanel() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Anyone</SelectItem>
-                {actors.map((actor) => (
+                {visibleActors.map((actor) => (
                   <SelectItem key={actor.email} value={actor.email}>
                     {actor.email} · {roleLabel(actor.role)} ({actor.count})
                   </SelectItem>
@@ -212,6 +257,7 @@ export function DelegateCorrectionsPanel() {
               variant="link"
               className="h-8 px-1 text-xs font-medium"
               onClick={() => {
+                setActorRole("");
                 setActorEmail("");
                 setFromDate("");
                 setToDate("");
