@@ -20,6 +20,7 @@ import {
   Users,
   ListChecks,
   WifiOff,
+  Wrench,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
@@ -97,6 +98,10 @@ type AdminRoomRow = {
   note: string | null;
   publishedAt: number | null;
   publishedBy: string | null;
+  /** Desk reservation: not assignable until released. */
+  hold?: { note: string } | null;
+  /** Out of inventory while a blocking fault is open. */
+  faulty?: boolean;
   occupants: number;
   assignments: { _id: string; guestId: string; bookingId: string }[];
 };
@@ -193,6 +198,7 @@ const DeskRosterRow = memo(function DeskRosterRow({
   selected,
   ticked,
   tickable,
+  faulty,
   onSelect,
   onTick,
 }: {
@@ -201,6 +207,8 @@ const DeskRosterRow = memo(function DeskRosterRow({
   ticked: boolean;
   /** Ready to check in (bed + payment) — only these can be bulk-ticked. */
   tickable: boolean;
+  /** The delegate's room is out of inventory for a maintenance fault. */
+  faulty: boolean;
   onSelect: (guestId: string) => void;
   onTick: (guestId: string) => void;
 }) {
@@ -229,6 +237,14 @@ const DeskRosterRow = memo(function DeskRosterRow({
       </TableCell>
       <TableCell className="font-medium tabular-nums">
         {row.roomName ?? "—"}
+        {faulty && (
+          <span
+            title="This room has an open fault and is out of inventory — check the room before placing anyone here"
+            className="ml-1 inline-flex items-center gap-0.5 rounded bg-rose-100 px-1 py-0.5 text-[10px] font-medium text-rose-800 dark:bg-rose-950/60 dark:text-rose-300"
+          >
+            <Wrench className="size-2.5" /> Faulty
+          </span>
+        )}
       </TableCell>
       <TableCell className="tabular-nums text-muted-foreground">
         {row.bedNumber ?? "—"}
@@ -276,7 +292,10 @@ const DeskRosterRow = memo(function DeskRosterRow({
 export function ArrivalPage() {
   const { sessionToken, user } = useAdminSession();
   const role = user?.role ?? "";
-  const isApprover = role === "admin" || role === "accommodation";
+  // Room-assignment staff run the desk with the accommodation team, so they
+  // get the same decisions: overrides, corrections, clearing flags, conflicts.
+  const isApprover =
+    role === "admin" || role === "accommodation" || role === "room_assignment";
 
   const [location, setLocation] = useState<string>(() =>
     typeof window === "undefined" ? "central" : window.localStorage.getItem(LOCATION_STORAGE_KEY) ?? "central",
@@ -365,6 +384,21 @@ export function ArrivalPage() {
     api.agcRoomAssignments.listRoomsAdmin,
     sessionToken ? { sessionToken } : "skip",
   );
+  // Open maintenance faults, so the desk sees a broken room before checking
+  // someone into it. A blocking fault means the room is out of inventory.
+  const roomIssues = useQuery(
+    api.agcRoomIssues.listRoomIssues,
+    sessionToken ? { sessionToken } : "skip",
+  );
+  const issuesByRoom = useMemo(() => {
+    const map = new Map<string, NonNullable<typeof roomIssues>["issues"]>();
+    for (const issue of roomIssues?.issues ?? []) {
+      const list = map.get(issue.roomId) ?? [];
+      list.push(issue);
+      map.set(issue.roomId, list);
+    }
+    return map;
+  }, [roomIssues]);
   const rooms = useMemo(
     () =>
       (publishedRooms ?? []).map((room: AdminRoomRow) => ({
@@ -372,6 +406,8 @@ export function ArrivalPage() {
         accommodationType: room.accommodationType,
         name: room.name,
         available: room.capacity - room.occupants,
+        faulty: room.faulty === true,
+        hold: room.hold ?? null,
         deleted: false,
       })),
     [publishedRooms],
@@ -579,6 +615,11 @@ export function ArrivalPage() {
     () => rosterRows.find((row) => row.guestId === selectedGuestId) ?? null,
     [rosterRows, selectedGuestId],
   );
+
+  /** Open maintenance faults on the selected delegate's room, if any. */
+  const selectedRoomIssues = selectedRow?.roomId
+    ? (issuesByRoom.get(selectedRow.roomId) ?? [])
+    : [];
 
   /** First visit to the desk: the query has not answered yet. */
   const deskLoading = search.trim().length < 2 && deskRows === undefined;
@@ -985,6 +1026,13 @@ export function ArrivalPage() {
                       selected={row.guestId === selectedGuestId}
                       ticked={batchTicked.includes(row.guestId)}
                       tickable={deskRowState(row).ready}
+                      faulty={
+                        row.roomId
+                          ? (issuesByRoom.get(row.roomId) ?? []).some(
+                              (issue) => issue.blocksRoom,
+                            )
+                          : false
+                      }
                       onSelect={setSelectedGuestId}
                       onTick={tickRow}
                     />
@@ -1078,6 +1126,31 @@ export function ArrivalPage() {
                         Clear flag
                       </Button>
                     )}
+                  </div>
+                )}
+
+                {selectedRoomIssues.length > 0 && (
+                  <div className="space-y-1 rounded-lg border border-l-4 border-rose-200 bg-rose-50/70 px-3 py-2 text-xs text-rose-900 dark:border-rose-900/70 dark:bg-rose-950/30 dark:text-rose-200">
+                    <p className="flex items-center gap-1.5 font-medium">
+                      <Wrench className="size-3.5 shrink-0" /> Room problem
+                      {selectedRoomIssues.some((issue) => issue.blocksRoom)
+                        ? " — out of inventory"
+                        : ""}
+                    </p>
+                    <ul className="space-y-1">
+                      {selectedRoomIssues.map((issue) => (
+                        <li key={issue._id}>
+                          <span className="font-medium capitalize">
+                            {issue.category.replace("_", "/")}:
+                          </span>{" "}
+                          {issue.note}
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="text-rose-700/80 dark:text-rose-300/80">
+                      Check the room before placing anyone in it — the room team
+                      clears the fault when it is fixed.
+                    </p>
                   </div>
                 )}
 
@@ -1281,6 +1354,27 @@ export function ArrivalPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
+            {checkinTarget?.roomId &&
+              (issuesByRoom.get(checkinTarget.roomId) ?? []).length > 0 && (
+                <div className="space-y-1 rounded-lg border border-l-4 border-rose-200 bg-rose-50/70 p-3 text-xs text-rose-900 dark:border-rose-900/70 dark:bg-rose-950/30 dark:text-rose-200">
+                  <p className="flex items-center gap-1.5 font-medium">
+                    <Wrench className="size-3.5 shrink-0" /> The {checkinTarget.roomName}{" "}
+                    room has an open fault
+                  </p>
+                  {(issuesByRoom.get(checkinTarget.roomId) ?? []).map((issue) => (
+                    <p key={issue._id}>
+                      <span className="font-medium capitalize">
+                        {issue.category.replace("_", "/")}:
+                      </span>{" "}
+                      {issue.note}
+                    </p>
+                  ))}
+                  <p className="text-rose-700/80 dark:text-rose-300/80">
+                    You can still check the delegate in — tell them and ask the
+                    room team to fix it.
+                  </p>
+                </div>
+              )}
             {paymentOutstanding && preAuthorizedOverride && (
               <div
                 className={cn(
@@ -1447,6 +1541,10 @@ export function ArrivalPage() {
                     .filter(
                       (candidate) =>
                         !candidate.deleted &&
+                        // Reserved rooms and rooms out of inventory for a fault
+                        // are not destinations.
+                        !candidate.faulty &&
+                        !candidate.hold &&
                         candidate.accommodationType === roomChangeTarget?.accommodationType &&
                         candidate.name !== roomChangeTarget?.roomName,
                     )

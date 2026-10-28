@@ -10,10 +10,12 @@ import {
   Eye,
   Flag,
   Loader2Icon,
+  Lock,
   Printer,
   Sparkles,
   Trash2,
   Undo2,
+  Unlock,
   Upload,
   UserPlus,
   Wrench,
@@ -72,6 +74,11 @@ type RoomRow = {
   note: string | null;
   publishedAt: number | null;
   publishedBy: string | null;
+  /** Desk reservation: not assignable until released. */
+  hold: { note: string; by: string; at: number } | null;
+  /** Out of inventory while a blocking fault is open. */
+  faulty: boolean;
+  openIssues: number;
   occupants: number;
   assignments: { _id: string; guestId: string; bookingId: string }[];
 };
@@ -160,7 +167,10 @@ export function RoomsTab() {
   const { sessionToken, user } = useAdminSession();
   // Raising a problem is for everyone who walks the rooms; closing one is the
   // accommodation team's call (mirrors the server-side role gate).
-  const canFixIssues = user?.role === "admin" || user?.role === "accommodation";
+  const canFixIssues =
+    user?.role === "admin" ||
+    user?.role === "accommodation" ||
+    user?.role === "room_assignment";
   const rooms = useQuery(
     api.agcRoomAssignments.listRoomsAdmin,
     sessionToken ? { sessionToken } : "skip",
@@ -184,6 +194,14 @@ export function RoomsTab() {
   );
   const flagRoomIssue = useMutation(api.agcRoomIssues.flagRoom);
   const resolveRoomIssue = useMutation(api.agcRoomIssues.resolveRoomIssue);
+  const holdRoom = useMutation(api.agcRoomAssignments.holdRoom);
+  const releaseRoomHold = useMutation(api.agcRoomAssignments.releaseRoomHold);
+  const addWalkIn = useMutation(api.agcRoomAssignments.addWalkInDelegate);
+  const roomingOverview = useQuery(
+    api.agcRoomAssignments.getRoomingOverview,
+    sessionToken ? { sessionToken } : "skip",
+  );
+  const hubs = useQuery(api.agcAdminData.listActiveHubs, {});
   const publishRooms = useMutation(api.agcRoomAssignments.publishRooms);
   const deleteRooms = useMutation(api.agcRoomAssignments.deleteRooms);
   const restoreRooms = useMutation(api.agcRoomAssignments.restoreRooms);
@@ -215,7 +233,26 @@ export function RoomsTab() {
   const [flagCategory, setFlagCategory] =
     useState<(typeof ISSUE_CATEGORIES)[number]>("toilet");
   const [flagNote, setFlagNote] = useState("");
+  const [flagBlocksRoom, setFlagBlocksRoom] = useState(true);
   const [flagBusy, setFlagBusy] = useState(false);
+
+  // Room reservation (hold) dialog
+  const [holdTarget, setHoldTarget] = useState<RoomRow | null>(null);
+  const [holdNote, setHoldNote] = useState("");
+  const [holdBusy, setHoldBusy] = useState(false);
+
+  // Last-minute delegate (a volunteer who is not in the system)
+  const [walkInOpen, setWalkInOpen] = useState(false);
+  const [walkInBusy, setWalkInBusy] = useState(false);
+  const [walkIn, setWalkIn] = useState({
+    hubId: "",
+    title: "Member",
+    firstName: "",
+    lastName: "",
+    gender: "male" as "male" | "female",
+    accommodationType: "dormitory" as (typeof TYPES)[number],
+    note: "",
+  });
   const [publishScopeValue, setPublishScopeValue] = useState("");
 
   // Bulk delete dialog
@@ -432,15 +469,19 @@ export function RoomsTab() {
         roomId: flagTarget._id as Id<"agcRooms">,
         category: flagCategory,
         note: flagNote.trim(),
+        blocksRoom: flagBlocksRoom,
       });
       toast.success(
         result.created
-          ? `Flagged ${flagTarget.name} — the room team sees it on this card.`
+          ? flagBlocksRoom
+            ? `Flagged ${flagTarget.name} — out of inventory until the fault is fixed.`
+            : `Flagged ${flagTarget.name} — the room team sees it on this card.`
           : `${flagTarget.name} already has that flag open.`,
       );
       setFlagTarget(null);
       setFlagNote("");
       setFlagCategory("toilet");
+      setFlagBlocksRoom(true);
     } catch (err) {
       toast.error(...toastFriendlyErrorParts(err, "Could not flag this room"));
     } finally {
@@ -458,6 +499,81 @@ export function RoomsTab() {
       toast.success(`Marked fixed on ${roomName} — the flag stays in the log.`);
     } catch (err) {
       toast.error(...toastFriendlyErrorParts(err, "Could not update the flag"));
+    }
+  };
+
+  const submitHold = async () => {
+    if (!sessionToken || !holdTarget) return;
+    if (!holdNote.trim()) {
+      toast.error("Say why the room is being reserved — the desk sees this note.");
+      return;
+    }
+    setHoldBusy(true);
+    try {
+      await holdRoom({
+        sessionToken,
+        roomId: holdTarget._id as Id<"agcRooms">,
+        note: holdNote.trim(),
+      });
+      toast.success(`${holdTarget.name} reserved — it stays out of assignment until released.`);
+      setHoldTarget(null);
+      setHoldNote("");
+    } catch (err) {
+      toast.error(...toastFriendlyErrorParts(err, "Could not reserve the room"));
+    } finally {
+      setHoldBusy(false);
+    }
+  };
+
+  const releaseHold = async (room: RoomRow) => {
+    if (!sessionToken) return;
+    try {
+      await releaseRoomHold({ sessionToken, roomId: room._id as Id<"agcRooms"> });
+      toast.success(`${room.name} released back into inventory.`);
+    } catch (err) {
+      toast.error(...toastFriendlyErrorParts(err, "Could not release the room"));
+    }
+  };
+
+  const submitWalkIn = async () => {
+    if (!sessionToken) return;
+    if (!walkIn.hubId) {
+      toast.error("Choose the hub this delegate belongs to.");
+      return;
+    }
+    if (!walkIn.firstName.trim() || !walkIn.lastName.trim()) {
+      toast.error("First and last name are both required.");
+      return;
+    }
+    setWalkInBusy(true);
+    try {
+      const result = await addWalkIn({
+        sessionToken,
+        hubId: walkIn.hubId as Id<"agcHubs">,
+        title: walkIn.title.trim() || undefined,
+        firstName: walkIn.firstName.trim(),
+        lastName: walkIn.lastName.trim(),
+        gender: walkIn.gender,
+        accommodationType: walkIn.accommodationType,
+        note: walkIn.note.trim() || undefined,
+      });
+      toast.success(
+        `${walkIn.firstName.trim()} ${walkIn.lastName.trim()} added (${result.referenceNumber}) — now in the unassigned list.`,
+      );
+      setWalkInOpen(false);
+      setWalkIn({
+        hubId: walkIn.hubId,
+        title: "Member",
+        firstName: "",
+        lastName: "",
+        gender: "male",
+        accommodationType: "dormitory",
+        note: "",
+      });
+    } catch (err) {
+      toast.error(...toastFriendlyErrorParts(err, "Could not add the delegate"));
+    } finally {
+      setWalkInBusy(false);
     }
   };
 
@@ -687,6 +803,9 @@ export function RoomsTab() {
         <Button size="sm" variant="outline" onClick={() => setImportOpen(true)}>
           <Upload className="size-4" /> Import inventory
         </Button>
+        <Button size="sm" variant="outline" onClick={() => setWalkInOpen(true)}>
+          <UserPlus className="size-4" /> Add last-minute delegate
+        </Button>
         {/* Auto rooming stays visible but inactive until a super admin arms
             it in Settings, so the shortcut is discoverable without ever
             filling beds by default. */}
@@ -808,6 +927,59 @@ export function RoomsTab() {
             : ""}
         </span>
       </div>
+
+      {/* The numbers the room team asks for first: what is free, what is held,
+          what is out of service, and how the keys stand. */}
+      {roomingOverview && (
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+          {[
+            {
+              label: "Available",
+              value: roomingOverview.availableBeds,
+              hint: `${roomingOverview.availableRooms} room(s) with a free bed`,
+              tone: "text-emerald-700 dark:text-emerald-400",
+            },
+            {
+              label: "Reserved",
+              value: roomingOverview.reservedRooms,
+              hint: `${roomingOverview.reservedBeds} bed(s) held back`,
+              tone: "text-sky-700 dark:text-sky-400",
+            },
+            {
+              label: "Faulty",
+              value: roomingOverview.faultyRooms,
+              hint: "Out of inventory until fixed",
+              tone: "text-rose-700 dark:text-rose-400",
+            },
+            {
+              label: "Occupied",
+              value: roomingOverview.occupiedBeds,
+              hint: `of ${roomingOverview.totalBeds} bed(s) in ${roomingOverview.totalRooms} room(s)`,
+              tone: "text-foreground",
+            },
+            {
+              label: "Awaiting a room",
+              value: roomingOverview.awaitingRoom,
+              hint: "Roomable delegates with no bed",
+              tone: roomingOverview.awaitingRoom > 0 ? "text-amber-700 dark:text-amber-400" : "text-foreground",
+            },
+            {
+              label: "Keys",
+              value: `${roomingOverview.keysOut} out`,
+              hint: `${roomingOverview.keysReturned} returned`,
+              tone: "text-foreground",
+            },
+          ].map((stat) => (
+            <div key={stat.label} className="rounded-lg border bg-card px-2.5 py-2">
+              <p className="text-[11px] text-muted-foreground">{stat.label}</p>
+              <p className={cn("text-lg font-semibold tabular-nums", stat.tone)}>
+                {stat.value}
+              </p>
+              <p className="truncate text-[11px] text-muted-foreground">{stat.hint}</p>
+            </div>
+          ))}
+        </div>
+      )}
 
       {loadingRooms ? (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-busy="true" aria-label="Loading rooms">
@@ -955,14 +1127,45 @@ export function RoomsTab() {
                   {published ? "unpublish" : "publish"}
                 </button>
               </div>
+              {(room.faulty || room.hold) && (
+                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                  {room.faulty && (
+                    <Badge
+                      variant="outline"
+                      className="border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-300"
+                    >
+                      <Wrench className="size-2.5" /> Out of inventory — faulty
+                    </Badge>
+                  )}
+                  {room.hold && (
+                    <Badge
+                      variant="outline"
+                      className="border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-300"
+                    >
+                      <Lock className="size-2.5" /> Reserved
+                    </Badge>
+                  )}
+                </div>
+              )}
+              {room.hold && (
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  {room.hold.note} — {room.hold.by},{" "}
+                  {new Date(room.hold.at).toLocaleDateString()}
+                </p>
+              )}
               {(issuesByRoom.get(room._id) ?? []).map((issue) => (
                 <div
                   key={issue._id}
                   className="mt-2 rounded-lg border border-l-4 border-rose-200 bg-rose-50/70 px-2 py-1.5 text-[11px] text-rose-900 dark:border-rose-900/70 dark:bg-rose-950/30 dark:text-rose-200"
                 >
-                  <p className="flex items-center gap-1 font-medium">
+                  <p className="flex flex-wrap items-center gap-1 font-medium">
                     <Wrench className="size-3 shrink-0" />
                     {ISSUE_LABEL[issue.category] ?? issue.category}
+                    {issue.blocksRoom && (
+                      <span className="rounded bg-rose-200/70 px-1 text-[10px] dark:bg-rose-900/60">
+                        out of inventory
+                      </span>
+                    )}
                   </p>
                   <p className="mt-0.5 leading-snug">{issue.note}</p>
                   <div className="mt-1 flex flex-wrap items-center justify-between gap-1">
@@ -1008,8 +1211,8 @@ export function RoomsTab() {
                   })}
                 </ul>
               )}
-              <div className="mt-3 flex items-center gap-1.5">
-                {!full && (
+              <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                {!full && !room.faulty && !room.hold && (
                   <Button
                     size="sm"
                     variant="outline"
@@ -1021,6 +1224,30 @@ export function RoomsTab() {
                   >
                     <UserPlus className="size-3" /> Assign
                   </Button>
+                )}
+                {room.hold ? (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 gap-1 text-xs text-sky-700 hover:text-sky-800 dark:text-sky-400"
+                    onClick={() => void releaseHold(room)}
+                  >
+                    <Unlock className="size-3" /> Release
+                  </Button>
+                ) : (
+                  room.occupants === 0 && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 gap-1 text-xs"
+                      onClick={() => {
+                        setHoldTarget(room);
+                        setHoldNote("");
+                      }}
+                    >
+                      <Lock className="size-3" /> Reserve
+                    </Button>
+                  )
                 )}
                 <Button
                   size="sm"
@@ -1304,6 +1531,23 @@ export function RoomsTab() {
                 the room team sees.
               </p>
             </div>
+            <label className="flex cursor-pointer items-start gap-2 rounded-lg border p-2.5 text-sm">
+              <Checkbox
+                checked={flagBlocksRoom}
+                onCheckedChange={(checked) => setFlagBlocksRoom(checked === true)}
+                className="mt-0.5"
+                aria-label="Take this room out of inventory until it is fixed"
+              />
+              <span>
+                <span className="block font-medium">
+                  Take this room out of inventory
+                </span>
+                <span className="block text-xs text-muted-foreground">
+                  Nobody can be assigned here while the fault is open. Marking
+                  it fixed puts the room straight back into service.
+                </span>
+              </span>
+            </label>
             <div className="flex justify-end gap-2">
               <Button
                 variant="outline"
@@ -1322,6 +1566,195 @@ export function RoomsTab() {
                   <Flag className="size-4" />
                 )}
                 Flag room
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reserve a room — held back from assignment until released */}
+      <Dialog
+        open={holdTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setHoldTarget(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Reserve {holdTarget?.name}</DialogTitle>
+            <DialogDescription>
+              A reserved room is kept out of assignment — it will not appear in
+              the room picker or be filled by auto-assign. Release it whenever
+              you need the space back.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>Why is it reserved? (required)</Label>
+              <Textarea
+                value={holdNote}
+                onChange={(e) => setHoldNote(e.target.value)}
+                placeholder="e.g. Held for the bishop's party arriving Thursday"
+                rows={3}
+                aria-label="Reason for reserving the room"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setHoldTarget(null)}
+                disabled={holdBusy}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={() => void submitHold()}
+                disabled={holdBusy || !holdNote.trim()}
+              >
+                {holdBusy ? (
+                  <Loader2Icon className="size-4 animate-spin" />
+                ) : (
+                  <Lock className="size-4" />
+                )}
+                Reserve room
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Last-minute delegate — a volunteer who is not in the system */}
+      <Dialog open={walkInOpen} onOpenChange={setWalkInOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Add a last-minute delegate</DialogTitle>
+            <DialogDescription>
+              For a volunteer or guest who is not on any booking. This creates a
+              confirmed, zero-value booking so the desk and rooming flows treat
+              them like any other delegate — no payment is recorded against
+              them.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Hub</Label>
+                <Select
+                  value={walkIn.hubId}
+                  onValueChange={(value) =>
+                    setWalkIn({ ...walkIn, hubId: value ?? "" })
+                  }
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Choose a hub…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(hubs ?? []).map((hub) => (
+                      <SelectItem key={hub._id} value={hub._id}>
+                        {hub.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Title</Label>
+                <Input
+                  value={walkIn.title}
+                  onChange={(e) => setWalkIn({ ...walkIn, title: e.target.value })}
+                  placeholder="Member"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>First name</Label>
+                <Input
+                  value={walkIn.firstName}
+                  onChange={(e) => setWalkIn({ ...walkIn, firstName: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Last name</Label>
+                <Input
+                  value={walkIn.lastName}
+                  onChange={(e) => setWalkIn({ ...walkIn, lastName: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Gender</Label>
+                <Select
+                  value={walkIn.gender}
+                  onValueChange={(value) =>
+                    setWalkIn({ ...walkIn, gender: (value ?? "male") as "male" | "female" })
+                  }
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="male">Male</SelectItem>
+                    <SelectItem value="female">Female</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Accommodation</Label>
+                <Select
+                  value={walkIn.accommodationType}
+                  onValueChange={(value) =>
+                    setWalkIn({
+                      ...walkIn,
+                      accommodationType: (value ?? "dormitory") as (typeof TYPES)[number],
+                    })
+                  }
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TYPES.map((type) => (
+                      <SelectItem key={type} value={type}>
+                        {TYPE_LABEL(type)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Note (optional)</Label>
+              <Input
+                value={walkIn.note}
+                onChange={(e) => setWalkIn({ ...walkIn, note: e.target.value })}
+                placeholder="e.g. Volunteer on the media team"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setWalkInOpen(false)}
+                disabled={walkInBusy}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={() => void submitWalkIn()}
+                disabled={
+                  walkInBusy ||
+                  !walkIn.hubId ||
+                  !walkIn.firstName.trim() ||
+                  !walkIn.lastName.trim()
+                }
+              >
+                {walkInBusy ? (
+                  <Loader2Icon className="size-4 animate-spin" />
+                ) : (
+                  <UserPlus className="size-4" />
+                )}
+                Add delegate
               </Button>
             </div>
           </div>

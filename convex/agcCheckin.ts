@@ -29,7 +29,13 @@ const CHECKIN_ROLES = [
   "room_assignment",
   "checkin",
 ] as const;
-const APPROVER_ROLES = ["admin", "accommodation"] as const;
+/**
+ * Desk authority: payment overrides, check-in corrections, clearing review
+ * flags and pre-authorizing overrides. Room-assignment staff hold it too — they
+ * run the desk alongside the accommodation team and are the ones at the
+ * counter when a delegate needs a decision.
+ */
+const APPROVER_ROLES = ["admin", "accommodation", "room_assignment"] as const;
 
 type Ctx = QueryCtx | MutationCtx;
 
@@ -187,7 +193,7 @@ export type CheckinActor = {
 
 /** Whether a role may authorize a payment override (§18). */
 export function isApproverRole(role: string | undefined): boolean {
-  return role === "admin" || role === "accommodation";
+  return role === "admin" || role === "accommodation" || role === "room_assignment";
 }
 
 // ------------------------------------------------------------------

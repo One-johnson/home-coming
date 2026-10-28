@@ -37,12 +37,18 @@ function AdminAccommodationInner() {
     <div className="space-y-4">
       <AdminPageHeader
         description="Review room bookings and manage accommodation capacity pools."
-        actions={
-          <AgcExcelExportButton
-            which="bookings"
-            label="Export bookings (.xlsx)"
-          />
-        }
+        // The bookings export is a finance/accommodation view; the room team
+        // only sees the room inventory and the review queue.
+        {...(user?.role === "room_assignment"
+          ? {}
+          : {
+              actions: (
+                <AgcExcelExportButton
+                  which="bookings"
+                  label="Export bookings (.xlsx)"
+                />
+              ),
+            })}
       />
       <AgcAccommodationPage initialSection={initialSection} />
     </div>

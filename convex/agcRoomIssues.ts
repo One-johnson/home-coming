@@ -17,8 +17,9 @@ import { agcRoomIssueCategory } from "./schemaTypes";
 /** Anyone who physically works with the rooms may raise a problem. */
 const ROOM_FLAG_ROLES = ["admin", "accommodation", "room_assignment", "checkin"] as const;
 
-/** Only the accommodation team closes a flag — the desk reports, it doesn't fix. */
-const ROOM_FLAG_RESOLVE_ROLES = ["admin", "accommodation"] as const;
+/** The room team closes a flag — including room-assignment staff, who own the
+ * inventory and are the ones putting the room back into service. */
+const ROOM_FLAG_RESOLVE_ROLES = ["admin", "accommodation", "room_assignment"] as const;
 
 /**
  * Every room flag, newest first, plus a per-room open count the room grid can
@@ -45,6 +46,8 @@ export const listRoomIssues = query({
         building: issue.building ?? null,
         category: issue.category,
         note: issue.note,
+        /** True while this fault keeps the room out of inventory. */
+        blocksRoom: issue.status === "open" && issue.blocksRoom === true,
         status: issue.status,
         reportedAt: issue.reportedAt,
         reportedBy: issue.reportedBy,
@@ -64,6 +67,8 @@ export const flagRoom = mutation({
     roomId: v.id("agcRooms"),
     category: agcRoomIssueCategory,
     note: v.string(),
+    /** Take the room out of inventory while this fault is open. */
+    blocksRoom: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const actor = await requireRole(ctx, args.sessionToken, [...ROOM_FLAG_ROLES]);
@@ -94,6 +99,7 @@ export const flagRoom = mutation({
       building: room.building,
       category: args.category,
       note,
+      blocksRoom: args.blocksRoom === true,
       status: "open",
       reportedAt: Date.now(),
       reportedBy: actor.email,
@@ -106,8 +112,10 @@ export const flagRoom = mutation({
       action: "agc_room.issue_flagged",
       entityType: "agcRooms",
       entityId: room._id,
-      summary: `Flagged ${room.name} (${args.category}): ${note}`,
-      metadata: { issueId, category: args.category, note },
+      summary: `Flagged ${room.name} (${args.category}): ${note}${
+        args.blocksRoom ? " — room taken out of inventory" : ""
+      }`,
+      metadata: { issueId, category: args.category, note, blocksRoom: args.blocksRoom === true },
     });
     return { issueId, created: true as const };
   },

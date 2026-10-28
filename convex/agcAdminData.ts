@@ -2111,6 +2111,7 @@ export const correctBookingGuest = mutation({
     const actor = await requireRole(ctx, args.sessionToken, [
       "admin",
       "accommodation",
+      "room_assignment",
     ]);
     const reason = args.reason.trim();
     if (!reason) {

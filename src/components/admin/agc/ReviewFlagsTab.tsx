@@ -108,6 +108,9 @@ type RoomRow = {
   gender: string | null;
   capacity: number;
   occupants: number;
+  /** Reserved or faulty rooms are not offered from the queue either. */
+  hold?: { note: string } | null;
+  faulty?: boolean;
 };
 
 const CHECK_IN_LABEL: Record<FlagRow["checkInStatus"], string> = {
@@ -181,6 +184,8 @@ export function ReviewFlagsTab() {
       ? ((allRooms ?? []) as RoomRow[])
           .filter(
             (room) =>
+              !room.faulty &&
+              !room.hold &&
               room.accommodationType === targetRow.accommodationType &&
               room.capacity - room.occupants > 0 &&
               // A gender-locked room only takes its own gender; the server still

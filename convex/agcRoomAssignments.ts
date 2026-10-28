@@ -10,6 +10,8 @@ import type { AgcGender } from "./schemaTypes";
 import { AGC_ACCOMMODATION_LABELS } from "../src/lib/agcPortal";
 import { getRepByToken } from "./agcPortal";
 import { getAutoAssignEnabled } from "./lib/agcSettingsRuntime";
+import { createUniqueReferenceNumber } from "./lib/referenceNumbers";
+import { scopeForRegion } from "./lib/agcConfig";
 
 /**
  * Room-assignment workflow (admin accommodation area).
@@ -20,7 +22,14 @@ import { getAutoAssignEnabled } from "./lib/agcSettingsRuntime";
  * `gender` value (null = any).
  */
 
-const ROOM_AREA_ROLES = ["admin", "accommodation"] as const;
+/**
+ * The room team, which now includes room-assignment staff: they own the
+ * inventory (import, publish, reserve, fault, delete) as well as allocating
+ * from it. Payment review stays with the accommodation/finance roles.
+ */
+const ROOM_AREA_ROLES = ["admin", "accommodation", "room_assignment"] as const;
+
+type Ctx = MutationCtx | QueryCtx;
 
 /** Role gate for node actions (import/template) — mirrors requireArea. */
 export const requireRoomAccess = internalQuery({
@@ -35,6 +44,25 @@ const ASSIGN_ROLES = ["admin", "accommodation", "room_assignment", "checkin"] as
 /** Live (open) assignment rows — moved/removed rows are closed, never deleted (§9). */
 function isOpen(a: Doc<"agcRoomAssignments">): boolean {
   return a.endedAt === undefined;
+}
+
+/** The open fault that takes a room out of inventory, if there is one. */
+async function openBlockingIssue(ctx: Ctx, roomId: Id<"agcRooms">) {
+  const issues = await ctx.db
+    .query("agcRoomIssues")
+    .withIndex("by_room", (q) => q.eq("roomId", roomId))
+    .collect();
+  return issues.find((issue) => issue.status === "open" && issue.blocksRoom) ?? null;
+}
+
+/** Every room currently out of inventory because of an open blocking fault. */
+async function blockedRoomIds(ctx: Ctx): Promise<Set<string>> {
+  const issues = await ctx.db.query("agcRoomIssues").collect();
+  return new Set(
+    issues
+      .filter((issue) => issue.status === "open" && issue.blocksRoom)
+      .map((issue) => issue.roomId as string),
+  );
 }
 
 /** Open assignments for one room. */
@@ -65,6 +93,8 @@ export const listRoomsAdmin = query({
     const rooms = (await ctx.db.query("agcRooms").collect()).filter(
       (room) => !room.deletedAt,
     );
+    const blocked = await blockedRoomIds(ctx);
+    const issues = await ctx.db.query("agcRoomIssues").collect();
     const assignments = (await ctx.db.query("agcRoomAssignments").collect()).filter(isOpen);
     const occupiedByRoom = new Map<string, Doc<"agcRoomAssignments">[]>();
     for (const assignment of assignments) {
@@ -83,6 +113,12 @@ export const listRoomsAdmin = query({
         note: room.note ?? null,
         publishedAt: room.publishedAt ?? null,
         publishedBy: room.publishedBy ?? null,
+        /** Desk reservation: not assignable until released. */
+        hold: room.hold ?? null,
+        /** Out of inventory while a blocking fault is open. */
+        faulty: blocked.has(room._id),
+        openIssues: issues.filter((issue) => issue.roomId === room._id && issue.status === "open")
+          .length,
         occupants: (occupiedByRoom.get(room._id) ?? []).length,
         assignments: (occupiedByRoom.get(room._id) ?? []).map((a) => ({
           _id: a._id,
@@ -481,6 +517,20 @@ async function assertAssignable(
   const room = await ctx.db.get(args.roomId);
   if (!room || room.deletedAt) throw new ConvexError("Room not found");
 
+  // A held or faulty room is not inventory: capacity checks come after this,
+  // so nobody can quietly assign into a room the team has taken off the board.
+  if (room.hold) {
+    throw new ConvexError(
+      `${room.name} is reserved — ${room.hold.note}. Release the hold first.`,
+    );
+  }
+  const fault = await openBlockingIssue(ctx, room._id);
+  if (fault) {
+    throw new ConvexError(
+      `${room.name} is out of inventory — ${fault.note}. Mark the fault fixed to use the room again.`,
+    );
+  }
+
   const current = await openAssignmentsForRoom(ctx, room._id);
   const currentGuestIds = new Set(
     current.map((a) => a.guestId).filter((id) => id !== args.skipGuestId),
@@ -662,7 +712,11 @@ export async function runAutoAssignment(
       .collect(),
     ctx.db.query("agcGuests").collect(),
   ]);
-  const activeRooms = rooms.filter((room) => !room.deletedAt);
+  // Reserved and faulty rooms are not in the inventory the routine fills.
+  const blocked = await blockedRoomIds(ctx);
+  const activeRooms = rooms.filter(
+    (room) => !room.deletedAt && !room.hold && !blocked.has(room._id),
+  );
 
   const bookings = await ctx.db.query("agcBookings").collect();
   const bookingById = new Map(bookings.map((b) => [b._id as string, b]));
@@ -777,6 +831,249 @@ export const autoAssignGuests = mutation({
       );
     }
     return await runAutoAssignment(ctx, actor.email);
+  },
+});
+
+/**
+ * Reserve a room for a named purpose (a late VIP, a spare for maintenance
+ * swaps). A held room is refused by every assignment path until released, and
+ * the reason is always kept on the room so the next person knows why.
+ */
+export const holdRoom = mutation({
+  args: {
+    sessionToken: v.string(),
+    roomId: v.id("agcRooms"),
+    note: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireArea(ctx, args.sessionToken);
+    const room = await ctx.db.get(args.roomId);
+    if (!room || room.deletedAt) throw new ConvexError("Room not found");
+    const note = args.note.trim();
+    if (!note) {
+      throw new ConvexError("Say why the room is being reserved — the note is what the desk sees");
+    }
+    const occupants = await openAssignmentsForRoom(ctx, room._id);
+    if (occupants.length > 0) {
+      throw new ConvexError(
+        `${room.name} still holds ${occupants.length} delegate(s) — move them out before reserving it`,
+      );
+    }
+    await ctx.db.patch(room._id, { hold: { note, by: actor.email, at: Date.now() } });
+    await writeAuditLog(ctx, {
+      actorUserId: actor._id,
+      actorEmail: actor.email,
+      action: "agc_room.reserved",
+      entityType: "agcRooms",
+      entityId: room._id,
+      summary: `Reserved ${room.name} by ${actor.email} — ${note}`,
+      metadata: { note },
+    });
+    return { success: true as const };
+  },
+});
+
+/** Release a reservation — the room goes straight back into the inventory. */
+export const releaseRoomHold = mutation({
+  args: {
+    sessionToken: v.string(),
+    roomId: v.id("agcRooms"),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireArea(ctx, args.sessionToken);
+    const room = await ctx.db.get(args.roomId);
+    if (!room || room.deletedAt) throw new ConvexError("Room not found");
+    if (!room.hold) return { success: true as const, alreadyReleased: true as const };
+    const note = room.hold.note;
+    await ctx.db.patch(room._id, { hold: undefined });
+    await writeAuditLog(ctx, {
+      actorUserId: actor._id,
+      actorEmail: actor.email,
+      action: "agc_room.released",
+      entityType: "agcRooms",
+      entityId: room._id,
+      summary: `Released ${room.name} back into inventory by ${actor.email} — was reserved: ${note}`,
+    });
+    return { success: true as const, alreadyReleased: false as const };
+  },
+});
+
+/**
+ * The rooming numbers the dashboard shows: what is available, what is out of
+ * inventory (reserved or faulty), what is full, and how the keys stand. All of
+ * it is counted from the live rows, so a fault or a hold changes the numbers
+ * the moment it is raised.
+ */
+export const getRoomingOverview = query({
+  args: { sessionToken: v.string() },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, args.sessionToken, [...ASSIGN_ROLES]);
+    const rooms = (await ctx.db.query("agcRooms").collect()).filter(
+      (room) => !room.deletedAt,
+    );
+    const blocked = await blockedRoomIds(ctx);
+    const assignments = (await ctx.db.query("agcRoomAssignments").collect()).filter(isOpen);
+    const occupiedByRoom = new Map<string, number>();
+    for (const assignment of assignments) {
+      occupiedByRoom.set(assignment.roomId, (occupiedByRoom.get(assignment.roomId) ?? 0) + 1);
+    }
+
+    const keys = await ctx.db.query("agcKeys").collect();
+    const keysOut = keys.filter((key) => key.status === "issued" || key.status === "replaced").length;
+    const keysReturned = keys.filter((key) => key.status === "returned").length;
+
+    //
+    let availableRooms = 0;
+    let availableBeds = 0;
+    let reservedRooms = 0;
+    let reservedBeds = 0;
+    let faultyRooms = 0;
+    let faultyBeds = 0;
+    let fullRooms = 0;
+    let totalBeds = 0;
+    let occupiedBeds = 0;
+    for (const room of rooms) {
+      const occupants = occupiedByRoom.get(room._id) ?? 0;
+      const free = Math.max(0, room.capacity - occupants);
+      totalBeds += room.capacity;
+      occupiedBeds += occupants;
+      if (blocked.has(room._id)) {
+        faultyRooms += 1;
+        faultyBeds += free;
+      } else if (room.hold) {
+        reservedRooms += 1;
+        reservedBeds += free;
+      } else if (free > 0) {
+        availableRooms += 1;
+        availableBeds += free;
+      } else {
+        fullRooms += 1;
+      }
+    }
+
+    // Delegates with a live booking who have no bed yet.
+    const unassigned = await ctx.db.query("agcGuests").collect();
+    const assignedGuestIds = new Set(assignments.map((a) => a.guestId));
+    const bookings = new Map(
+      (await ctx.db.query("agcBookings").collect()).map((b) => [b._id, b]),
+    );
+    const awaitingRoom = unassigned.filter((guest) => {
+      if (guest.status !== "active" || assignedGuestIds.has(guest._id)) return false;
+      const booking = bookings.get(guest.bookingId);
+      return !!booking && isRoomableBooking(booking);
+    }).length;
+
+    return {
+      totalRooms: rooms.length,
+      totalBeds,
+      occupiedBeds,
+      availableRooms,
+      availableBeds,
+      reservedRooms,
+      reservedBeds,
+      faultyRooms,
+      faultyBeds,
+      fullRooms,
+      awaitingRoom,
+      keysOut,
+      keysReturned,
+    };
+  },
+});
+
+/**
+ * Add a delegate who is not in the system — a volunteer arriving on the day.
+ * Creates a confirmed, zero-value booking (so the rooming and desk flows treat
+ * them like anyone else) and one active guest. Pool ledger counts are not
+ * touched: the delegate never bought a pool bed, and the physical room is the
+ * inventory that matters for them.
+ */
+export const addWalkInDelegate = mutation({
+  args: {
+    sessionToken: v.string(),
+    hubId: v.id("agcHubs"),
+    title: v.optional(v.string()),
+    firstName: v.string(),
+    lastName: v.string(),
+    gender: agcGender,
+    accommodationType: agcAccommodationType,
+    note: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireArea(ctx, args.sessionToken);
+    const firstName = args.firstName.trim();
+    const lastName = args.lastName.trim();
+    if (!firstName || !lastName) {
+      throw new ConvexError("First and last name are both required");
+    }
+    const hub = await ctx.db.get(args.hubId);
+    if (!hub) throw new ConvexError("Hub not found");
+
+    // A booking belongs to a rep; a walk-in has none, so the hub's first rep is
+    // recorded as the origin and the audit log names the staff member instead.
+    const rep = await ctx.db
+      .query("agcRepresentatives")
+      .withIndex("by_hub", (q) => q.eq("hubId", hub._id))
+      .first();
+    if (!rep) {
+      throw new ConvexError(
+        `Hub ${hub.name} has no representative account — ask an admin to add one first`,
+      );
+    }
+
+    const referenceNumber = await createUniqueReferenceNumber(
+      ctx,
+      "stay",
+      "agcBookings",
+    );
+    const now = Date.now();
+    const currency =
+      hub.region === "ghana" || hub.region === "west_africa" || hub.region === "rest_of_africa"
+        ? "GHS"
+        : "USD";
+    const bookingId = await ctx.db.insert("agcBookings", {
+      hubId: hub._id,
+      repId: rep._id,
+      region: hub.region,
+      currency,
+      totalAmount: 0,
+      paymentMode: "offline",
+      paymentStatus: "confirmed",
+      bookingStatus: "confirmed",
+      referenceNumber,
+      confirmedAt: now,
+      paidAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const guestId = await ctx.db.insert("agcGuests", {
+      bookingId,
+      hubId: hub._id,
+      region: hub.region,
+      country: hub.country,
+      firstName,
+      lastName,
+      gender: args.gender,
+      title: args.title?.trim() || "Member",
+      accommodationType: args.accommodationType,
+      pool: scopeForRegion(hub.region),
+      isBishopRate: false,
+      status: "active",
+      createdAt: now,
+    });
+
+    const note = args.note?.trim();
+    await writeAuditLog(ctx, {
+      actorUserId: actor._id,
+      actorEmail: actor.email,
+      action: "agc_guest.walk_in_added",
+      entityType: "agcGuests",
+      entityId: guestId,
+      summary: `Added last-minute delegate ${firstName} ${lastName} (${hub.name}, ${labelOf(args.accommodationType)}) by ${actor.email}${note ? ` — ${note}` : ""}`,
+      metadata: { bookingId, referenceNumber, note, accommodationType: args.accommodationType },
+    });
+
+    return { bookingId, guestId, referenceNumber };
   },
 });
 

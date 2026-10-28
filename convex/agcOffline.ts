@@ -24,7 +24,10 @@ import { performChangeRoom } from "./agcRoomAssignments";
  */
 
 const SYNC_ROLES = ["admin", "accommodation", "room_assignment", "checkin"] as const;
-const APPROVER_ROLES = ["admin", "accommodation"] as const;
+/** Station designation + conflict resolution. The room team resolves desk
+ * conflicts too, because they are the ones who find them.
+ */
+const APPROVER_ROLES = ["admin", "accommodation", "room_assignment"] as const;
 const MAX_BATCH = 25;
 
 export type QueuedTransaction = {
@@ -373,6 +376,10 @@ export const listConflicts = query({
           .withIndex("by_sync_status", (q) => q.eq("syncStatus", "rejected"))
           .collect(),
       )
+      // A reviewer's decision stamps `resolvedAt`, so the row leaves the queue
+      // whether they applied it or rejected it. Sync's own timestamps do not
+      // count — a conflict the queue flagged is still waiting for a human.
+      .filter((row) => row.resolvedAt === undefined)
       .sort((a, b) => b.originalAt - a.originalAt)
       .slice(0, 100);
     return rows.map((row) => ({
@@ -405,6 +412,8 @@ export const resolveConflict = mutation({
     await ctx.db.patch(tx._id, {
       syncStatus: args.resolution === "applied" ? "synced" : "rejected",
       syncedAt: Date.now(),
+      resolvedAt: Date.now(),
+      resolvedBy: actor.email,
       conflictReason:
         (tx.conflictReason ?? "") +
         ` | resolved as ${args.resolution} by ${actor.email}${args.note ? ` — ${args.note}` : ""}`,

@@ -29,9 +29,12 @@ export type AdminArea =
   | "audit"
   | "settings";
 
-export const AREA_ROLES: Record<AdminArea, readonly AdminRole[]> = {
+export const AREA_ROLES: Record<AdminArea, readonly StaffRole[]> = {
   registration: ["admin", "registration", "finance"],
-  accommodation: ["admin", "accommodation"],
+  // Room-assignment staff own the room inventory, so they reach the
+  // accommodation console — the page shows them the Rooms and Review flags
+  // tabs only, not bookings review or payment-on-arrival.
+  accommodation: ["admin", "accommodation", "room_assignment"],
   content: ["admin", "content"],
   emails: ["admin"],
   team: ["admin"],
@@ -64,7 +67,7 @@ export function canAccessArea(
   role: string | undefined | null,
   area: AdminArea,
 ): boolean {
-  if (!isAdminRole(role)) return false;
+  if (!isValidStaffRole(role)) return false;
   return AREA_ROLES[area].includes(role);
 }
 
@@ -84,8 +87,11 @@ export const ARRIVAL_ROLES: readonly StaffRole[] = [
   ...VENUE_STAFF_ROLES,
 ];
 
-/** Admin/accommodation only: publishing, overrides, corrections. */
+/** Desk authority: overrides, corrections, clearing flags, sync conflicts.
+ * Room-assignment staff hold it because they run the desk with the
+ * accommodation team. */
 export const ARRIVAL_APPROVER_ROLES: readonly StaffRole[] = [
   "admin",
   "accommodation",
+  "room_assignment",
 ];

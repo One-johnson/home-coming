@@ -595,6 +595,13 @@ export default defineSchema({
     /** Phase 2 §8: null/unset = Unpublished; set when reps may see it. */
     publishedAt: v.optional(v.number()),
     publishedBy: v.optional(v.string()),
+    /**
+     * Desk reservation: the room is spoken for and must not be assigned until
+     * it is released. Set by the room team, with the reason kept on the room.
+     */
+    hold: v.optional(
+      v.object({ note: v.string(), by: v.string(), at: v.number() }),
+    ),
     deletedAt: v.optional(v.number()),
   }).index("by_type", ["accommodationType"]),
 
@@ -611,6 +618,12 @@ export default defineSchema({
     category: agcRoomIssueCategory,
     /** What exactly is wrong — required, shown on the room card. */
     note: v.string(),
+    /**
+     * Whether this problem takes the room out of inventory while it is open.
+     * A blocked room is not offered for assignment and counts as faulty; it
+     * comes back automatically when every blocking flag is fixed.
+     */
+    blocksRoom: v.optional(v.boolean()),
     status: agcRoomIssueStatus,
     reportedAt: v.number(),
     reportedBy: v.string(),
@@ -736,6 +749,9 @@ export default defineSchema({
     syncStatus: agcOfflineSyncStatus,
     syncedAt: v.optional(v.number()),
     conflictReason: v.optional(v.string()),
+    /** Set when a reviewer closes the transaction (applied or rejected). */
+    resolvedAt: v.optional(v.number()),
+    resolvedBy: v.optional(v.string()),
     createdAt: v.number(),
   })
     .index("by_tx", ["txId"])

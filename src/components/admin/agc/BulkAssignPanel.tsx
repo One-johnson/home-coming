@@ -38,6 +38,10 @@ type Room = {
   gender: string | null;
   capacity: number;
   occupants: number;
+  /** Out of inventory while a blocking fault is open. */
+  faulty?: boolean;
+  /** Desk reservation: not offered for assignment until released. */
+  hold?: { note: string } | null;
 };
 
 const TYPE_LABEL = (type: string) =>
@@ -151,6 +155,8 @@ export function BulkAssignPanel({
           );
     return rooms
       .filter((candidate) => {
+        // Reserved and faulty rooms are not available inventory.
+        if (candidate.faulty || candidate.hold) return false;
         if (candidate.occupants >= candidate.capacity) return false;
         if (type !== "all" && candidate.accommodationType !== type) return false;
         if (hubTypes && !hubTypes.has(candidate.accommodationType)) return false;
@@ -399,8 +405,8 @@ export function BulkAssignPanel({
           {roomsShown.length === 0 ? (
             <p className="rounded-lg border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
               {type !== "all" || hub !== "all"
-                ? "No room with a free bed matches these filters — clear them to see the rest."
-                : "No free beds — add or free up rooms first."}
+                ? "No available room matches these filters — clear them to see the rest."
+                : "No free beds — reserved and faulty rooms are excluded; release or fix them first."}
             </p>
           ) : (
             roomsShown.map((candidate) => {

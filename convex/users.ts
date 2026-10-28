@@ -36,9 +36,11 @@ export type AdminArea =
   | "seed"
   | "audit";
 
-export const AREA_ROLES: Record<AdminArea, readonly AdminRole[]> = {
+export const AREA_ROLES: Record<AdminArea, readonly StaffRole[]> = {
   registration: ["admin", "registration", "finance"],
-  accommodation: ["admin", "accommodation"],
+  // Room-assignment staff work the accommodation area's room inventory (see
+  // src/lib/adminRoles.ts, which mirrors this).
+  accommodation: ["admin", "accommodation", "room_assignment"],
   content: ["admin", "content"],
   emails: ["admin"],
   team: ["admin"],
@@ -77,7 +79,7 @@ export function canAccessArea(
   role: string | undefined | null,
   area: AdminArea,
 ): boolean {
-  if (!isAdminRole(role)) return false;
+  if (!isValidStaffRole(role)) return false;
   return AREA_ROLES[area].includes(role);
 }
 

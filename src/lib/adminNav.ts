@@ -41,7 +41,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
       {
         href: "/admin/accommodation",
         label: "Accommodation",
-        description: "Bookings review and capacity pools",
+        description: "Rooms, assignments, bookings review and capacity pools",
         area: "accommodation",
         badgeKey: "bookingsPending",
       },

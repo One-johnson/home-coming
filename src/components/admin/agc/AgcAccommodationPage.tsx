@@ -36,6 +36,15 @@ export function AgcAccommodationPage({
   // The POA booking queue is for admin + finance; accommodation staff get the
   // standard tabs only (matches the registration page's role gating).
   const showPoa = user?.role === "admin" || user?.role === "finance";
+  // Room-assignment staff run the inventory, not the money: rooms and review
+  // flags only. Bookings review, pools and POA stay with the finance side.
+  const roomTeamOnly = user?.role === "room_assignment";
+  const allowed = (id: AccommodationSection) => {
+    if (id === "poa" && !showPoa) return false;
+    if (roomTeamOnly) return id === "rooms" || id === "flags";
+    return true;
+  };
+  const activeSection = allowed(section) ? section : "rooms";
 
   return (
     <div className="space-y-4">
@@ -44,16 +53,16 @@ export function AgcAccommodationPage({
         aria-label="Accommodation sections"
         className="flex w-fit items-center gap-1 rounded-full border p-1"
       >
-        {SECTIONS.filter(({ id }) => showPoa || id !== "poa").map(({ id, label, icon: Icon }) => (
+        {SECTIONS.filter(({ id }) => allowed(id)).map(({ id, label, icon: Icon }) => (
           <button
             key={id}
             type="button"
             role="tab"
-            aria-selected={section === id}
+            aria-selected={activeSection === id}
             onClick={() => setSection(id)}
             className={cn(
               "flex min-h-9 items-center gap-1.5 rounded-full px-3.5 text-sm font-medium transition-colors",
-              section === id
+              activeSection === id
                 ? "bg-gold/15 text-ink"
                 : "text-muted-foreground hover:text-foreground",
             )}
@@ -64,13 +73,13 @@ export function AgcAccommodationPage({
         ))}
       </div>
 
-      {section === "bookings" ? (
+      {activeSection === "bookings" ? (
         <BookingsTab />
-      ) : section === "poa" ? (
+      ) : activeSection === "poa" ? (
         <PoaTab kind="booking" />
-      ) : section === "pools" ? (
+      ) : activeSection === "pools" ? (
         <PoolsTab />
-      ) : section === "rooms" ? (
+      ) : activeSection === "rooms" ? (
         <RoomsTab />
       ) : (
         <ReviewFlagsTab />
