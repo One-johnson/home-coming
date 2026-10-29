@@ -23,9 +23,9 @@ export default function ToursPage() {
       className="pt-24"
     >
       <p className="lead mx-auto mb-10 max-w-2xl text-center">
-        Select a package to book tickets — you can add every tour you want to
-        the same order before paying. Dates, sites and prices are confirmed at
-        checkout.
+        Choose your tours, pay by bank transfer or Mobile Money, and the finance
+        team confirms your ticket. Dates, departure points and prices are
+        confirmed at checkout.
       </p>
       <ToursCheckout packages={packages} />
       <div className="mt-16">

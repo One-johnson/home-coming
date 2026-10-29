@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import Image from "next/image";
 import { useMutation, useQuery } from "convex/react";
 import type { TourPackageDisplay } from "@/lib/tourConfig";
@@ -9,8 +10,6 @@ import {
   CheckCircle2Icon,
   InfoIcon,
   Loader2Icon,
-  MinusIcon,
-  PlusIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
@@ -52,27 +51,45 @@ import {
   LIBRARY_OF_THE_ANOINTED_NOTE,
   calculateTourTotal,
   resolveTourImage,
+  sortTourPackages,
   toTourPackageDisplay,
+  tourDayChip,
 } from "@/lib/tourConfig";
 import { EVENT } from "@/lib/eventConfig";
 import { isConvexConfigured } from "@/lib/convex-config";
-import { TourPackageCard } from "@/components/tours/TourPackageCard";
+import {
+  TourPackageRow,
+  TourQuantityStepper,
+} from "@/components/tours/TourPackageRow";
 import { useIsCompact } from "@/hooks/use-media-query";
 import { cn } from "@/lib/utils";
 
-type CheckoutStep = "tickets" | "details" | "review" | "payment";
-const CHECKOUT_STEPS: CheckoutStep[] = [
-  "tickets",
-  "details",
-  "review",
-  "payment",
-];
+/**
+ * Checkout steps. Quantities are settled on the page, so the sheet opens on
+ * Details — three steps instead of the old four.
+ */
+type CheckoutStep = "details" | "review" | "payment";
+const CHECKOUT_STEPS: CheckoutStep[] = ["details", "review", "payment"];
 const STEP_LABELS: Record<CheckoutStep, string> = {
-  tickets: "Tickets",
   details: "Details",
   review: "Summary",
   payment: "Payment",
 };
+
+const BOOKING_STEPS = [
+  {
+    title: "Choose your tours",
+    detail: "Pick a package and set ticket quantities.",
+  },
+  {
+    title: "Pay by transfer or MoMo",
+    detail: "Bank or Mobile Money details appear at checkout.",
+  },
+  {
+    title: "We confirm your ticket",
+    detail: "Finance verifies your payment, then your ticket is issued.",
+  },
+];
 
 function ConvexRequiredMessage() {
   return (
@@ -89,45 +106,6 @@ function ConvexRequiredMessage() {
   );
 }
 
-function QtyControl({
-  label,
-  quantity,
-  onChange,
-}: {
-  label: string;
-  quantity: number;
-  onChange: (qty: number) => void;
-}) {
-  return (
-    <div className="flex items-center gap-1">
-      <Button
-        type="button"
-        variant="outline"
-        size="icon"
-        className="size-8"
-        disabled={quantity <= 0}
-        onClick={() => onChange(Math.max(0, quantity - 1))}
-        aria-label={`Decrease ${label}`}
-      >
-        <MinusIcon className="size-3.5" />
-      </Button>
-      <span className="w-8 text-center text-sm font-semibold tabular-nums">
-        {quantity}
-      </span>
-      <Button
-        type="button"
-        variant="outline"
-        size="icon"
-        className="size-8"
-        onClick={() => onChange(quantity + 1)}
-        aria-label={`Increase ${label}`}
-      >
-        <PlusIcon className="size-3.5" />
-      </Button>
-    </div>
-  );
-}
-
 function ToursCheckoutInner({
   fallbackPackages,
 }: {
@@ -140,17 +118,25 @@ function ToursCheckoutInner({
   const livePackages = useQuery(api.tourPackages.listPublic);
   const packages = useMemo(
     () =>
-      livePackages
-        ? livePackages.map((pkg) => toTourPackageDisplay(pkg))
-        : fallbackPackages,
+      sortTourPackages(
+        livePackages
+          ? livePackages.map((pkg) => toTourPackageDisplay(pkg))
+          : fallbackPackages,
+      ),
     [livePackages, fallbackPackages],
   );
   const catalog = useQuery(api.registrationCatalog.listPublic);
   const createTourOrder = useMutation(api.tourOrders.create);
   const portalConfig = useQuery(api.agcPortal.getPortalConfig);
 
+  // The section wrapper animates with a transform, which makes it the
+  // containing block for `position: fixed` children — portal the selection
+  // bar to <body> so it actually pins to the viewport.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [step, setStep] = useState<CheckoutStep>("tickets");
+  const [step, setStep] = useState<CheckoutStep>("details");
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -212,6 +198,13 @@ function ToursCheckoutInner({
   const stepIndex = CHECKOUT_STEPS.indexOf(step);
   const progressValue = ((stepIndex + 1) / CHECKOUT_STEPS.length) * 100;
   const hasSelection = totals.selections.length > 0;
+  const ticketCount = totals.selections.reduce((n, s) => n + s.quantity, 0);
+  const totalLabel = formatPrice(
+    totals.grandTotal,
+    totals.currency,
+    totals.currencySymbol,
+  );
+  const showSelectionBar = hasSelection && !sheetOpen && !confirmed;
   const detailsComplete =
     Boolean(fullName.trim()) &&
     Boolean(email.trim()) &&
@@ -228,14 +221,14 @@ function ToursCheckoutInner({
     }));
   };
 
-  const openCheckoutForPackage = (packageId: string) => {
+  const openCheckout = () => {
+    if (!hasSelection) {
+      toast.error("Select at least one ticket");
+      return;
+    }
     setConfirmed(false);
     setError("");
-    setQuantities((current) => ({
-      ...current,
-      [packageId]: Math.max(1, current[packageId] ?? 0),
-    }));
-    setStep("tickets");
+    setStep("details");
     setSheetOpen(true);
   };
 
@@ -246,10 +239,9 @@ function ToursCheckoutInner({
     }
   };
 
-  const addMoreTours = () => {
+  const backToTours = () => {
     setSheetOpen(false);
-    setStep("tickets");
-    toast.message("Select another package on the page to add it to your order");
+    setStep("details");
     requestAnimationFrame(() => {
       document
         .getElementById("tour-packages")
@@ -271,7 +263,7 @@ function ToursCheckoutInner({
   };
 
   const goToStep = (target: CheckoutStep) => {
-    if (target === "tickets") {
+    if (target === "details") {
       setError("");
       setStep(target);
       return;
@@ -280,10 +272,7 @@ function ToursCheckoutInner({
       toast.error("Select at least one ticket");
       return;
     }
-    if (
-      (target === "review" || target === "payment") &&
-      !detailsComplete
-    ) {
+    if ((target === "review" || target === "payment") && !detailsComplete) {
       toast.error("Complete your details first");
       return;
     }
@@ -322,8 +311,7 @@ function ToursCheckoutInner({
       setConfirmed(true);
       toast.success("Tour order submitted successfully");
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Tour order failed";
+      const message = err instanceof Error ? err.message : "Tour order failed";
       setError(message);
       toast.error(message);
     } finally {
@@ -335,7 +323,7 @@ function ToursCheckoutInner({
     setSheetOpen(false);
     setConfirmed(false);
     setQuantities({});
-    setStep("tickets");
+    setStep("details");
     setFullName("");
     setEmail("");
     setPhone("");
@@ -348,59 +336,80 @@ function ToursCheckoutInner({
   };
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-6 px-1 sm:px-0">
-      <Alert
-        variant="destructive"
-        className="border-red-300 bg-red-50 text-red-950 [&>svg]:text-red-700"
-      >
-        <InfoIcon />
-        <AlertTitle className="text-red-900">Library of the Anointed</AlertTitle>
-        <AlertDescription className="text-red-900/90">
-          {LIBRARY_OF_THE_ANOINTED_NOTE}
-        </AlertDescription>
-      </Alert>
-
-      <div
-        id="tour-packages"
-        className="flex flex-wrap items-end justify-between gap-3 scroll-mt-28"
-      >
-        <div>
-          <h2 className="font-display text-xl text-gold-light">
+    <div
+      className={cn(
+        "mx-auto w-full max-w-4xl space-y-6 px-1 sm:px-0",
+        showSelectionBar && "pb-28",
+      )}
+    >
+      <div id="tour-packages" className="scroll-mt-28 space-y-4">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="font-display text-xl text-foreground">
             Conference tour packages
           </h2>
-          <p className="mt-1 text-sm text-white/70">
-            {`${packages.length} package${packages.length === 1 ? "" : "s"}`}
-            {hasSelection
-              ? ` · ${totals.selections.reduce((n, s) => n + s.quantity, 0)} ticket(s) in cart`
-              : ""}
+          <p className="text-sm text-muted-foreground">
+            {packages.length} package{packages.length === 1 ? "" : "s"}
+            {hasSelection ? ` · ${ticketCount} ticket(s) in cart` : ""}
           </p>
         </div>
-        {hasSelection && !sheetOpen ? (
-          <Button type="button" onClick={() => setSheetOpen(true)}>
-            Continue checkout
-          </Button>
-        ) : null}
-      </div>
 
-      {packages.length === 0 ? (
-        <Alert>
-          <AlertTitle>No packages available</AlertTitle>
-          <AlertDescription>
-            Tour packages have not been published yet. Please check back soon.
-          </AlertDescription>
-        </Alert>
-      ) : (
-        <div className="grid gap-6 md:grid-cols-2">
-          {packages.map((pkg) => (
-            <TourPackageCard
-              key={pkg._id}
-              pkg={pkg}
-              selectedQuantity={quantities[pkg._id] ?? 0}
-              onSelect={() => openCheckoutForPackage(pkg._id)}
-            />
+        {packages.length > 0 ? (
+          <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {packages.map((pkg) => (
+              <a
+                key={pkg.slug}
+                href={`#tour-${pkg.slug}`}
+                className="shrink-0 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:border-primary/50 hover:text-primary"
+              >
+                <span className="font-semibold">{tourDayChip(pkg)}</span>
+                <span className="mx-1.5 text-border">·</span>
+                {pkg.label}
+              </a>
+            ))}
+          </div>
+        ) : null}
+
+        <ol className="grid gap-2 rounded-xl border border-border bg-muted/30 p-3 text-xs sm:grid-cols-3 sm:gap-4">
+          {BOOKING_STEPS.map((item, index) => (
+            <li key={item.title} className="flex gap-2">
+              <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-primary text-[11px] font-semibold text-primary-foreground">
+                {index + 1}
+              </span>
+              <span>
+                <span className="block font-medium text-foreground">
+                  {item.title}
+                </span>
+                <span className="text-muted-foreground">{item.detail}</span>
+              </span>
+            </li>
           ))}
-        </div>
-      )}
+        </ol>
+
+        {packages.length === 0 ? (
+          <Alert>
+            <AlertTitle>No packages available</AlertTitle>
+            <AlertDescription>
+              Tour packages have not been published yet. Please check back soon.
+            </AlertDescription>
+          </Alert>
+        ) : (
+          <div className="space-y-3">
+            {packages.map((pkg) => (
+              <TourPackageRow
+                key={pkg._id}
+                pkg={pkg}
+                quantity={quantities[pkg._id] ?? 0}
+                onQuantityChange={(qty) => setQuantity(pkg._id, qty)}
+              />
+            ))}
+          </div>
+        )}
+
+        <p className="flex items-start gap-2 rounded-xl border border-border bg-muted/30 p-3 text-xs text-muted-foreground">
+          <InfoIcon className="mt-0.5 size-4 shrink-0" />
+          <span>{LIBRARY_OF_THE_ANOINTED_NOTE}</span>
+        </p>
+      </div>
 
       <input
         type="text"
@@ -412,6 +421,28 @@ function ToursCheckoutInner({
         autoComplete="off"
         aria-hidden
       />
+
+      {mounted && showSelectionBar
+        ? createPortal(
+            <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-background/95 shadow-[0_-4px_20px_rgba(0,0,0,0.08)] backdrop-blur">
+              <div className="mx-auto flex w-full max-w-4xl items-center justify-between gap-3 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-foreground">
+                    {ticketCount} ticket{ticketCount === 1 ? "" : "s"}
+                  </p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {totalLabel} ·{" "}
+                    {selectedPackages.map((s) => s.pkg.label).join(", ")}
+                  </p>
+                </div>
+                <AppButton className="shrink-0" onClick={openCheckout}>
+                  Continue
+                </AppButton>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
 
       <Sheet open={sheetOpen} onOpenChange={handleSheetOpenChange}>
         <SheetContent
@@ -437,7 +468,7 @@ function ToursCheckoutInner({
             <SheetDescription>
               {confirmed
                 ? "Your tour tickets have been reserved."
-                : "Choose tickets, enter your details, review, then pay."}
+                : "Enter your details, review, then pay."}
             </SheetDescription>
           </SheetHeader>
 
@@ -519,198 +550,179 @@ function ToursCheckoutInner({
               </div>
             ) : null}
 
-            {!confirmed && step === "tickets" ? (
-              <div className="space-y-4">
-                <p className="text-sm text-muted-foreground">
-                  Set ticket quantities. You can add more packages from the tours
-                  page anytime.
-                </p>
-                {packages.map((pkg) => {
-                  const qty = quantities[pkg._id] ?? 0;
-                  const imageSrc = resolveTourImage(pkg);
-                  return (
+            {!confirmed && step === "details" ? (
+              <div className="space-y-5">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-medium text-foreground">
+                      Your tickets
+                    </p>
+                    <button
+                      type="button"
+                      onClick={backToTours}
+                      className="text-xs font-medium text-primary underline-offset-2 hover:underline"
+                    >
+                      Add another tour
+                    </button>
+                  </div>
+                  {selectedPackages.map(({ pkg, quantity, unitPrice }) => (
                     <div
                       key={pkg._id}
-                      className={cn(
-                        "rounded-xl border p-3",
-                        qty > 0 ? "border-primary/40 bg-primary/5" : "",
-                      )}
+                      className="flex items-center justify-between gap-3 rounded-xl border p-2.5"
                     >
-                      <div className="flex items-start gap-3">
-                        <div className="relative size-16 shrink-0 overflow-hidden rounded-lg bg-muted">
-                          <Image
-                            src={imageSrc}
-                            alt=""
-                            fill
-                            sizes="64px"
-                            className="object-cover"
-                          />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <p className="font-medium text-foreground">
-                                {pkg.label}: {pkg.dateLabel}
-                              </p>
-                              <p className="text-xs text-muted-foreground">
-                                {pkg.timeRange} · ${pkg.priceUsd} each
-                              </p>
-                            </div>
-                            <QtyControl
-                              label={pkg.label}
-                              quantity={qty}
-                              onChange={(q) => setQuantity(pkg._id, q)}
-                            />
-                          </div>
-                        </div>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-foreground">
+                          {pkg.label}: {pkg.dateLabel}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          ${unitPrice} each · ${unitPrice * quantity}
+                        </p>
+                      </div>
+                      <TourQuantityStepper
+                        label={pkg.label}
+                        quantity={quantity}
+                        onChange={(qty) => setQuantity(pkg._id, qty)}
+                      />
+                    </div>
+                  ))}
+                </div>
+
+                <Separator />
+
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="tour-full-name">Full name</Label>
+                    <Input
+                      id="tour-full-name"
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
+                    />
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="tour-email">Email</Label>
+                      <Input
+                        id="tour-email"
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="tour-phone">Phone</Label>
+                      <div className="flex gap-2">
+                        <CountryCodeSelect
+                          id="tour-country-code"
+                          value={countryCode}
+                          onValueChange={setCountryCode}
+                          preferredIso={preferredIsoForRegion(region)}
+                        />
+                        <Input
+                          id="tour-phone"
+                          value={phone}
+                          onChange={(e) => setPhone(e.target.value)}
+                          className="min-w-0 flex-1"
+                        />
                       </div>
                     </div>
-                  );
-                })}
-                <button
-                  type="button"
-                  onClick={addMoreTours}
-                  className="text-sm font-medium text-primary underline-offset-2 hover:underline"
-                >
-                  Browse all tours to compare packages
-                </button>
-              </div>
-            ) : null}
-
-            {!confirmed && step === "details" ? (
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="tour-full-name">Full name</Label>
-                  <Input
-                    id="tour-full-name"
-                    value={fullName}
-                    onChange={(e) => setFullName(e.target.value)}
-                  />
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="tour-email">Email</Label>
-                    <Input
-                      id="tour-email"
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                    />
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="tour-phone">Phone</Label>
-                    <div className="flex gap-2">
-                      <CountryCodeSelect
-                        id="tour-country-code"
-                        value={countryCode}
-                        onValueChange={setCountryCode}
-                        preferredIso={preferredIsoForRegion(region)}
-                      />
-                      <Input
-                        id="tour-phone"
-                        value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
-                        className="min-w-0 flex-1"
-                      />
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="tour-group">Group *</Label>
+                      <Combobox
+                        items={groupOptions}
+                        value={group || null}
+                        onValueChange={(value) =>
+                          handleGroupChange((value as string | null) ?? "")
+                        }
+                      >
+                        <ComboboxInput
+                          id="tour-group"
+                          placeholder="Search group…"
+                          className="w-full"
+                        />
+                        <ComboboxContent>
+                          <ComboboxEmpty>No groups found.</ComboboxEmpty>
+                          <ComboboxList>
+                            {(item) => (
+                              <ComboboxItem key={item} value={item}>
+                                {item}
+                              </ComboboxItem>
+                            )}
+                          </ComboboxList>
+                        </ComboboxContent>
+                      </Combobox>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="tour-denomination">
+                        Denomination/Country/Hub *
+                      </Label>
+                      <Combobox
+                        items={denominationOptions}
+                        value={denomination || null}
+                        disabled={!group}
+                        onValueChange={(value) => {
+                          const next = (value as string | null) ?? "";
+                          setDenomination(next);
+                          if (group !== "Other" && next !== "Other") {
+                            setChurch("");
+                          }
+                        }}
+                      >
+                        <ComboboxInput
+                          id="tour-denomination"
+                          disabled={!group}
+                          placeholder={
+                            group
+                              ? "Search denomination/country/hub…"
+                              : "Select a group first"
+                          }
+                          className="w-full"
+                        />
+                        <ComboboxContent>
+                          <ComboboxEmpty>No matches found.</ComboboxEmpty>
+                          <ComboboxList>
+                            {(item) => (
+                              <ComboboxItem key={item} value={item}>
+                                {item}
+                              </ComboboxItem>
+                            )}
+                          </ComboboxList>
+                        </ComboboxContent>
+                      </Combobox>
                     </div>
                   </div>
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="tour-group">Group *</Label>
-                    <Combobox
-                      items={groupOptions}
-                      value={group || null}
-                      onValueChange={(value) =>
-                        handleGroupChange((value as string | null) ?? "")
+                  {showChurchAffiliation ? (
+                    <div className="space-y-2">
+                      <Label htmlFor="tour-church">
+                        Church / Ministry Affiliation
+                      </Label>
+                      <Input
+                        id="tour-church"
+                        placeholder="For guests outside the listed groups"
+                        value={church}
+                        onChange={(e) => setChurch(e.target.value)}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Use this if your group or denomination is not in the list
+                        (select Other).
+                      </p>
+                    </div>
+                  ) : null}
+                  <Label className="flex items-start gap-3">
+                    <Checkbox
+                      checked={consent}
+                      onCheckedChange={(checked) =>
+                        setConsent(checked === true)
                       }
-                    >
-                      <ComboboxInput
-                        id="tour-group"
-                        placeholder="Search group…"
-                        className="w-full"
-                      />
-                      <ComboboxContent>
-                        <ComboboxEmpty>No groups found.</ComboboxEmpty>
-                        <ComboboxList>
-                          {(item) => (
-                            <ComboboxItem key={item} value={item}>
-                              {item}
-                            </ComboboxItem>
-                          )}
-                        </ComboboxList>
-                      </ComboboxContent>
-                    </Combobox>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="tour-denomination">
-                      Denomination/Country/Hub *
-                    </Label>
-                    <Combobox
-                      items={denominationOptions}
-                      value={denomination || null}
-                      disabled={!group}
-                      onValueChange={(value) => {
-                        const next = (value as string | null) ?? "";
-                        setDenomination(next);
-                        if (group !== "Other" && next !== "Other") {
-                          setChurch("");
-                        }
-                      }}
-                    >
-                      <ComboboxInput
-                        id="tour-denomination"
-                        disabled={!group}
-                        placeholder={
-                          group
-                            ? "Search denomination/country/hub…"
-                            : "Select a group first"
-                        }
-                        className="w-full"
-                      />
-                      <ComboboxContent>
-                        <ComboboxEmpty>No matches found.</ComboboxEmpty>
-                        <ComboboxList>
-                          {(item) => (
-                            <ComboboxItem key={item} value={item}>
-                              {item}
-                            </ComboboxItem>
-                          )}
-                        </ComboboxList>
-                      </ComboboxContent>
-                    </Combobox>
-                  </div>
-                </div>
-                {showChurchAffiliation ? (
-                  <div className="space-y-2">
-                    <Label htmlFor="tour-church">
-                      Church / Ministry Affiliation
-                    </Label>
-                    <Input
-                      id="tour-church"
-                      placeholder="For guests outside the listed groups"
-                      value={church}
-                      onChange={(e) => setChurch(e.target.value)}
+                      className="mt-1"
                     />
-                    <p className="text-xs text-muted-foreground">
-                      Use this if your group or denomination is not in the list
-                      (select Other).
-                    </p>
-                  </div>
-                ) : null}
-                <Label className="flex items-start gap-3">
-                  <Checkbox
-                    checked={consent}
-                    onCheckedChange={(checked) =>
-                      setConsent(checked === true)
-                    }
-                    className="mt-1"
-                  />
-                  <span className="text-sm text-muted-foreground">
-                    I consent to receive event communications about The
-                    Attempt Great Things Conference.
-                  </span>
-                </Label>
+                    <span className="text-sm text-muted-foreground">
+                      I consent to receive event communications about The
+                      Attempt Great Things Conference.
+                    </span>
+                  </Label>
+                </div>
               </div>
             ) : null}
 
@@ -723,18 +735,18 @@ function ToursCheckoutInner({
                   {selectedPackages.map(({ pkg, quantity, unitPrice }) => (
                     <div
                       key={pkg._id}
-                      className="overflow-hidden rounded-xl border bg-muted/30 text-sm"
+                      className="flex gap-3 rounded-xl border bg-muted/30 p-3 text-sm"
                     >
-                      <div className="relative aspect-[16/9] w-full bg-muted">
+                      <div className="relative size-14 shrink-0 overflow-hidden rounded-lg bg-muted">
                         <Image
                           src={resolveTourImage(pkg)}
-                          alt={`${pkg.label}: ${pkg.dateLabel}`}
+                          alt=""
                           fill
-                          sizes="(max-width: 640px) 100vw, 28rem"
+                          sizes="56px"
                           className="object-cover"
                         />
                       </div>
-                      <div className="p-3">
+                      <div className="min-w-0 flex-1">
                         <div className="flex justify-between gap-2">
                           <p className="font-medium">
                             {pkg.label}: {pkg.dateLabel}
@@ -743,17 +755,17 @@ function ToursCheckoutInner({
                             ${unitPrice * quantity}
                           </p>
                         </div>
-                        <p className="mt-1 text-muted-foreground">
+                        <p className="mt-1 text-xs text-muted-foreground">
                           {quantity} × ${unitPrice} · {pkg.timeRange}
                         </p>
-                        <p className="mt-1 text-xs text-muted-foreground">
+                        <p className="text-xs text-muted-foreground">
                           {pkg.meals}
                         </p>
-                        <ul className="mt-2 list-disc space-y-0.5 pl-4 text-xs text-muted-foreground">
-                          {pkg.sites.map((site) => (
-                            <li key={site}>{site}</li>
-                          ))}
-                        </ul>
+                        {pkg.departurePoint ? (
+                          <p className="text-xs text-muted-foreground">
+                            Departs from {pkg.departurePoint}
+                          </p>
+                        ) : null}
                       </div>
                     </div>
                   ))}
@@ -786,19 +798,14 @@ function ToursCheckoutInner({
                   ) : null}
                 </div>
                 <p className="text-lg font-semibold text-primary">
-                  Total:{" "}
-                  {formatPrice(
-                    totals.grandTotal,
-                    totals.currency,
-                    totals.currencySymbol,
-                  )}
+                  Total: {totalLabel}
                 </p>
                 <button
                   type="button"
-                  onClick={addMoreTours}
+                  onClick={backToTours}
                   className="text-sm font-medium text-primary underline-offset-2 hover:underline"
                 >
-                  Add more tours from the tours page
+                  Add more tours
                 </button>
               </div>
             ) : null}
@@ -813,16 +820,13 @@ function ToursCheckoutInner({
                   ))}
                   <Separator className="my-2" />
                   <p className="font-semibold text-primary">
-                    Total:{" "}
-                    {formatPrice(
-                      totals.grandTotal,
-                      totals.currency,
-                      totals.currencySymbol,
-                    )}
+                    Total: {totalLabel}
                   </p>
                 </div>
                 <Alert>
-                  <AlertTitle>Offline payment — Bank transfer / Mobile Money</AlertTitle>
+                  <AlertTitle>
+                    Offline payment — Bank transfer / Mobile Money
+                  </AlertTitle>
                   <AlertDescription>
                     Pay the exact total by bank transfer or Mobile Money to the
                     account below. Your tickets are confirmed once the finance
@@ -840,7 +844,7 @@ function ToursCheckoutInner({
                 )}
                 <button
                   type="button"
-                  onClick={addMoreTours}
+                  onClick={backToTours}
                   className="text-sm font-medium text-primary underline-offset-2 hover:underline"
                 >
                   Add more tours before paying
@@ -854,7 +858,7 @@ function ToursCheckoutInner({
               <AppButton className="w-full" onClick={resetAndClose}>
                 Done
               </AppButton>
-            ) : step === "tickets" ? (
+            ) : step === "details" ? (
               <div className="flex w-full flex-col gap-2 sm:flex-row">
                 <Button
                   variant="outline"
@@ -862,24 +866,6 @@ function ToursCheckoutInner({
                   onClick={() => setSheetOpen(false)}
                 >
                   Close
-                </Button>
-                <AppButton
-                  className="w-full flex-1"
-                  disabled={!hasSelection}
-                  onClick={() => setStep("details")}
-                >
-                  Continue
-                </AppButton>
-              </div>
-            ) : step === "details" ? (
-              <div className="flex w-full flex-col gap-2 sm:flex-row">
-                <Button
-                  variant="outline"
-                  className="w-full sm:w-auto"
-                  onClick={() => setStep("tickets")}
-                >
-                  <ArrowLeftIcon className="size-3.5" />
-                  Back
                 </Button>
                 <AppButton
                   className="w-full flex-1"

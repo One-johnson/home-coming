@@ -23,6 +23,10 @@ export type TourPackageView = {
   imageUrl?: string;
   displayImageUrl?: string;
   badge?: string;
+  /** Optional real start time; `dateLabel` is the human copy. */
+  startsAt?: number;
+  departurePoint?: string;
+  notIncluded?: string[];
 };
 
 /** The manifest-backed shape — identical fields, no Convex types. */
@@ -41,6 +45,9 @@ export type TourPackageRecord = {
   imageUrl?: string | null;
   displayImageUrl?: string | null;
   badge?: string | null;
+  startsAt?: number | null;
+  departurePoint?: string | null;
+  notIncluded?: string[] | null;
 };
 
 /**
@@ -67,7 +74,49 @@ export function toTourPackageDisplay(
     imageUrl: pkg.imageUrl ?? undefined,
     displayImageUrl: pkg.displayImageUrl ?? undefined,
     badge: pkg.badge ?? undefined,
+    startsAt: pkg.startsAt ?? undefined,
+    departurePoint: pkg.departurePoint ?? undefined,
+    notIncluded: pkg.notIncluded ?? undefined,
   };
+}
+
+/**
+ * Compact day chip for the date rail and row badge: "Sun 1 Nov" when a real
+ * `startsAt` is set, otherwise the first word of the prose date ("Monday").
+ *
+ * Formatted in UTC on purpose: admin-entered timestamps are local to the
+ * campus (Ghana, UTC+0) and a timezone-independent formatter keeps the server
+ * render and the hydrated client render identical.
+ */
+export function tourDayChip(pkg: {
+  startsAt?: number | null;
+  dateLabel: string;
+}) {
+  if (pkg.startsAt) {
+    return new Date(pkg.startsAt).toLocaleDateString("en-GB", {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      timeZone: "UTC",
+    });
+  }
+  return pkg.dateLabel.split(",")[0]?.trim() || pkg.dateLabel;
+}
+
+/**
+ * Chronological when tours have real dates, otherwise the admin's display
+ * order. Dated tours lead so the rail reads as a schedule.
+ */
+export function sortTourPackages<
+  T extends { startsAt?: number | null; order?: number; label: string },
+>(packages: T[]): T[] {
+  return [...packages].sort((a, b) => {
+    if (a.startsAt && b.startsAt) return a.startsAt - b.startsAt;
+    if (a.startsAt) return -1;
+    if (b.startsAt) return 1;
+    const byOrder = (a.order ?? 0) - (b.order ?? 0);
+    return byOrder !== 0 ? byOrder : a.label.localeCompare(b.label);
+  });
 }
 
 export type TourPackageSelection = {

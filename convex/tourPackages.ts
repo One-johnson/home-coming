@@ -20,9 +20,34 @@ const packageFields = {
   imageStorageId: v.optional(v.id("_storage")),
   clearImageStorage: v.optional(v.boolean()),
   badge: v.optional(v.string()),
+  startsAt: v.optional(v.number()),
+  departurePoint: v.optional(v.string()),
+  notIncluded: v.optional(v.array(v.string())),
   active: v.boolean(),
   order: v.number(),
 };
+
+/**
+ * Optional tour detail fields. Empty strings are meaningful in the admin form
+ * ("cleared the field"), so every one of these collapses to `undefined`
+ * rather than storing "" or an invalid timestamp.
+ */
+function normalizeTourDetails(args: {
+  startsAt?: number;
+  departurePoint?: string;
+  notIncluded?: string[];
+}) {
+  return {
+    startsAt:
+      args.startsAt !== undefined && Number.isFinite(args.startsAt)
+        ? args.startsAt
+        : undefined,
+    departurePoint: args.departurePoint?.trim() || undefined,
+    notIncluded: args.notIncluded
+      ?.map((item) => item.trim())
+      .filter(Boolean),
+  };
+}
 
 function normalizeSites(sites: string[]) {
   return sites.map((site) => site.trim()).filter(Boolean);
@@ -171,6 +196,7 @@ export const create = mutation({
 
     const imageUrl = args.imageUrl?.trim() || undefined;
     const badge = args.badge?.trim() || undefined;
+    const details = normalizeTourDetails(args);
     const imageStorageId = args.clearImageStorage
       ? undefined
       : args.imageStorageId;
@@ -193,6 +219,7 @@ export const create = mutation({
       imageUrl,
       imageStorageId,
       badge,
+      ...details,
       active: args.active,
       order: args.order,
       updatedAt: Date.now(),
@@ -229,6 +256,7 @@ export const update = mutation({
     const sites = validatePackageInput(args);
     const imageUrl = args.imageUrl?.trim() || undefined;
     const badge = args.badge?.trim() || undefined;
+    const details = normalizeTourDetails(args);
     const priceGhs =
       args.priceGhs === undefined
         ? undefined
@@ -263,6 +291,7 @@ export const update = mutation({
       imageUrl,
       imageStorageId,
       badge,
+      ...details,
       active: args.active,
       order: args.order,
       updatedAt: Date.now(),

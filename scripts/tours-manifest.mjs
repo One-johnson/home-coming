@@ -12,10 +12,10 @@
  *       inconsistent, or points an image at a repo path that does not exist
  *       under public/. Runs automatically via `npm run build`.
  *
- * The manifest is DISPLAY-ONLY: the public /tours page renders packages from
- * it with zero Convex queries, while tour orders keep resolving packages
- * (and prices) from the database server-side, so checkout can never be
- * manipulated through the manifest.
+ * The manifest is FALLBACK-ONLY: the public /tours page subscribes to
+ * tourPackages.listPublic and uses this file just for the first paint, so a
+ * stale manifest can never hide an admin edit. Tour orders keep resolving
+ * packages (and prices) from the database server-side.
  */
 
 import fs from "node:fs";
@@ -73,6 +73,9 @@ async function loadDbPackages() {
     image: pkg.displayImageUrl ?? pkg.imageUrl ?? undefined,
     badge: pkg.badge,
     order: pkg.order,
+    startsAt: pkg.startsAt,
+    departurePoint: pkg.departurePoint,
+    notIncluded: pkg.notIncluded,
   }));
 }
 

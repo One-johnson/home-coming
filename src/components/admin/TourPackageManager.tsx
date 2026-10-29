@@ -53,6 +53,10 @@ type PackageDraft = {
   localPreviewUrl?: string;
   clearImageStorage: boolean;
   badge: string;
+  /** datetime-local value ("" when unset) — stored as epoch ms. */
+  startsAt: string;
+  departurePoint: string;
+  notIncludedText: string;
   active: boolean;
 };
 
@@ -68,8 +72,21 @@ const emptyDraft = (): PackageDraft => ({
   imageUrl: "",
   clearImageStorage: false,
   badge: "",
+  startsAt: "",
+  departurePoint: "",
+  notIncludedText: "",
   active: true,
 });
+
+/** epoch ms → the `YYYY-MM-DDTHH:mm` value a datetime-local input expects. */
+function toDatetimeLocalValue(timestamp?: number) {
+  if (!timestamp) return "";
+  const date = new Date(timestamp);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
+    date.getDate(),
+  )}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
 
 function draftFromPackage(pkg: TourPackageAdmin): PackageDraft {
   const staticPath =
@@ -86,6 +103,9 @@ function draftFromPackage(pkg: TourPackageAdmin): PackageDraft {
     imageUrl: staticPath,
     clearImageStorage: false,
     badge: pkg.badge ?? "",
+    startsAt: toDatetimeLocalValue(pkg.startsAt),
+    departurePoint: pkg.departurePoint ?? "",
+    notIncludedText: (pkg.notIncluded ?? []).join("\n"),
     active: pkg.active,
   };
 }
@@ -115,6 +135,14 @@ function parseDraft(draft: PackageDraft) {
     imageStorageId: draft.pendingStorageId,
     clearImageStorage: draft.clearImageStorage || undefined,
     badge: draft.badge.trim() || undefined,
+    startsAt: draft.startsAt
+      ? new Date(draft.startsAt).getTime()
+      : undefined,
+    departurePoint: draft.departurePoint.trim() || undefined,
+    notIncluded: draft.notIncludedText
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean),
     active: draft.active,
   };
 }
@@ -150,7 +178,7 @@ function PackageImageField({
       <div className="flex items-center justify-between gap-2">
         <Label>Card image</Label>
         <p className="text-xs text-muted-foreground">
-          Recommended 4:3 landscape for tour cards
+          Cover thumbnail on /tours — 4:3 crops best
         </p>
       </div>
 
@@ -325,6 +353,50 @@ function PackageFormFields({
           value={draft.badge}
           onChange={(e) => onChange({ ...draft, badge: e.target.value })}
           placeholder="Full day"
+        />
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div>
+          <Label htmlFor={`${idPrefix}-starts-at`}>
+            Tour date &amp; start time (optional)
+          </Label>
+          <Input
+            id={`${idPrefix}-starts-at`}
+            type="datetime-local"
+            value={draft.startsAt}
+            onChange={(e) => onChange({ ...draft, startsAt: e.target.value })}
+          />
+          <p className="mt-1 text-xs text-muted-foreground">
+            Sorts the public page and drives the day chip. “Date” above stays
+            the wording people read.
+          </p>
+        </div>
+        <div>
+          <Label htmlFor={`${idPrefix}-departure`}>
+            Departure point (optional)
+          </Label>
+          <Input
+            id={`${idPrefix}-departure`}
+            value={draft.departurePoint}
+            onChange={(e) =>
+              onChange({ ...draft, departurePoint: e.target.value })
+            }
+            placeholder="Anagkazo Campus main gate, 6:30 AM"
+          />
+        </div>
+      </div>
+      <div>
+        <Label htmlFor={`${idPrefix}-not-included`}>
+          Not included (one per line, optional)
+        </Label>
+        <Textarea
+          id={`${idPrefix}-not-included`}
+          rows={3}
+          value={draft.notIncludedText}
+          onChange={(e) =>
+            onChange({ ...draft, notIncludedText: e.target.value })
+          }
+          placeholder="Library of the Anointed tours"
         />
       </div>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

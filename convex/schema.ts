@@ -244,6 +244,10 @@ export default defineSchema({
     imageUrl: v.optional(v.string()),
     imageStorageId: v.optional(v.id("_storage")),
     badge: v.optional(v.string()),
+    /** Real start time (ms since epoch). `dateLabel` stays the human copy. */
+    startsAt: v.optional(v.number()),
+    departurePoint: v.optional(v.string()),
+    notIncluded: v.optional(v.array(v.string())),
     active: v.boolean(),
     order: v.number(),
     updatedAt: v.number(),
@@ -251,6 +255,7 @@ export default defineSchema({
     .index("by_slug", ["slug"])
     .index("by_order", ["order"])
     .index("by_active", ["active"]),
+
 
   tourOrders: defineTable({
     fullName: v.string(),

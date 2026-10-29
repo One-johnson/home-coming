@@ -225,6 +225,8 @@ git add public/gallery src/data/galleryManifest.json && git commit
 
 The public `/tours` page subscribes to `tourPackages.listPublic`, so editing or deleting a tour in Admin → Tours appears on the public page immediately — no `npm run tours:sync` and no redeploy. `src/data/toursManifest.json` is only the first-paint fallback (before the query resolves, or if Convex is unreachable); `npm run tours:sync` refreshes it and `npm run build` verifies its image paths still exist.
 
+The page is a comparison sheet: one compact row per tour (date chip, time, meals, price aligned), sites and exclusions behind a per-row disclosure, a date rail that anchors to each row, and a pinned selection bar that opens a three-step checkout (Details → Summary → Payment). Optional `startsAt`, `departurePoint` and `notIncluded` fields are edited in the same admin form; a real `startsAt` sorts the page chronologically and drives the day chip, while `dateLabel` stays the wording people read.
+
 **Checkout safety:** orders are placed with package *slugs*; the server resolves them against the live database, rejects inactive or deleted packages, and re-prices before any payment, so a stale fallback can never alter pricing.
 
 ## Content backups

@@ -31,6 +31,9 @@ export type ManifestTourPackage = {
   image?: string;
   badge?: string;
   order: number;
+  startsAt?: number;
+  departurePoint?: string;
+  notIncluded?: string[];
 };
 
 export const toursManifest: ManifestTourPackage[] = (
