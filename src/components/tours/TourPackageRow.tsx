@@ -34,20 +34,20 @@ export function TourQuantityStepper({
         type="button"
         variant="outline"
         size="icon"
-        className="size-8"
+        className="size-9"
         onClick={() => onChange(quantity - 1)}
         aria-label={`Decrease ${label}`}
       >
         <MinusIcon className="size-3.5" />
       </Button>
-      <span className="w-7 text-center text-sm font-semibold tabular-nums">
+      <span className="w-8 text-center text-base font-semibold tabular-nums">
         {quantity}
       </span>
       <Button
         type="button"
         variant="outline"
         size="icon"
-        className="size-8"
+        className="size-9"
         onClick={() => onChange(quantity + 1)}
         aria-label={`Increase ${label}`}
       >
@@ -100,47 +100,47 @@ export function TourPackageRow({
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-1.5">
-                <span className="rounded-full bg-secondary px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-secondary-foreground">
+                <span className="rounded-full bg-secondary px-2.5 py-1 text-xs font-semibold uppercase tracking-wider text-secondary-foreground">
                   {tourDayChip(pkg)}
                 </span>
                 {pkg.badge ? (
-                  <span className="rounded-full bg-emerald-700/95 px-2 py-0.5 text-[11px] font-semibold tracking-wide text-white">
+                  <span className="rounded-full bg-emerald-700/95 px-2.5 py-1 text-xs font-semibold tracking-wide text-white">
                     {pkg.badge}
                   </span>
                 ) : null}
                 {selected ? (
-                  <Badge variant="default" className="text-[11px]">
+                  <Badge variant="default" className="text-xs">
                     {quantity} in cart
                   </Badge>
                 ) : null}
               </div>
-              <h3 className="mt-1.5 font-display text-lg leading-snug text-foreground">
+              <h3 className="mt-2 font-display text-xl leading-snug text-foreground sm:text-2xl">
                 {pkg.label}: {pkg.dateLabel}
               </h3>
-              <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+              <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
                 <span className="inline-flex items-center gap-1">
-                  <ClockIcon className="size-3.5" />
+                  <ClockIcon className="size-4" />
                   {pkg.timeRange}
                 </span>
                 <span aria-hidden className="text-border">
                   ·
                 </span>
                 <span className="inline-flex items-center gap-1">
-                  <UtensilsIcon className="size-3.5" />
+                  <UtensilsIcon className="size-4" />
                   {pkg.meals}
                 </span>
               </p>
             </div>
 
             <div className="shrink-0 text-right">
-              <p className="text-xl font-semibold leading-none tabular-nums text-foreground">
+              <p className="text-2xl font-semibold leading-none tabular-nums text-foreground sm:text-3xl">
                 ${pkg.priceUsd}
               </p>
-              <p className="mt-1 text-[11px] uppercase tracking-wider text-muted-foreground">
+              <p className="mt-1 text-xs uppercase tracking-wider text-muted-foreground">
                 USD
               </p>
               {typeof pkg.priceGhs === "number" ? (
-                <p className="text-xs tabular-nums text-muted-foreground">
+                <p className="text-sm tabular-nums text-muted-foreground">
                   GH₵{pkg.priceGhs.toLocaleString("en-GH")}
                 </p>
               ) : null}
@@ -153,7 +153,7 @@ export function TourPackageRow({
               onClick={() => setExpanded((value) => !value)}
               aria-expanded={expanded}
               aria-controls={`tour-${pkg.slug}-details`}
-              className="flex items-center gap-1.5 text-xs font-medium text-primary underline-offset-2 hover:underline"
+              className="flex items-center gap-1.5 text-sm font-medium text-primary underline-offset-2 hover:underline"
             >
               {pkg.sites.length} site{pkg.sites.length === 1 ? "" : "s"} ·{" "}
               {expanded ? "hide details" : "see details"}
@@ -172,22 +172,20 @@ export function TourPackageRow({
                 onChange={onQuantityChange}
               />
             ) : (
-              <Button size="sm" onClick={() => onQuantityChange(1)}>
-                Select
-              </Button>
+              <Button onClick={() => onQuantityChange(1)}>Select</Button>
             )}
           </div>
 
           {expanded ? (
             <div
               id={`tour-${pkg.slug}-details`}
-              className="mt-3 space-y-3 rounded-xl bg-muted/50 p-3 text-sm"
+              className="mt-3 space-y-3 rounded-xl bg-muted/50 p-3 text-base"
             >
               <div>
-                <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                   Sites to visit
                 </p>
-                <ul className="mt-1.5 list-disc space-y-0.5 pl-5 text-muted-foreground">
+                <ul className="mt-1.5 list-disc space-y-1 pl-5 text-muted-foreground">
                   {pkg.sites.map((site) => (
                     <li key={site}>{site}</li>
                   ))}
@@ -203,7 +201,7 @@ export function TourPackageRow({
               ) : null}
               {notIncluded.length > 0 ? (
                 <div>
-                  <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                  <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                     Not included
                   </p>
                   <ul className="mt-1.5 list-disc space-y-0.5 pl-5 text-muted-foreground">

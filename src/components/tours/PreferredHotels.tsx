@@ -43,7 +43,7 @@ function splitRate(rate?: string) {
 }
 
 const pillClass =
-  "inline-flex items-center gap-1.5 rounded-full border border-border bg-background/70 px-2.5 py-1 text-[11px] font-medium text-muted-foreground";
+  "inline-flex items-center gap-1.5 rounded-full border border-border bg-background/70 px-2.5 py-1 text-xs font-medium text-muted-foreground";
 
 function PreferredHotelsConnected() {
   const hotels = useQuery(api.content.listHotels);
@@ -81,7 +81,7 @@ function PreferredHotelsConnected() {
         <div className="ornament mt-5" aria-hidden>
           <span className="ornament-diamond" />
         </div>
-        <p className="mt-5 text-sm text-muted-foreground">
+        <p className="mt-5 text-base text-muted-foreground">
           Prefer to stay off campus? These hotels are near Anagkazo Campus in
           Mampong. Book through your denomination or hub coordinator, and
           mention the conference for any listed rate or discount.
@@ -95,7 +95,7 @@ function PreferredHotelsConnected() {
             onClick={() => setLocation("all")}
             aria-pressed={location === "all"}
             className={cn(
-              "shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+              "shrink-0 rounded-full border px-3.5 py-2 text-sm font-medium transition-colors",
               location === "all"
                 ? "border-primary bg-primary text-primary-foreground"
                 : "border-border bg-background text-muted-foreground hover:border-primary/50 hover:text-primary",
@@ -111,7 +111,7 @@ function PreferredHotelsConnected() {
               onClick={() => setLocation(town)}
               aria-pressed={location === town}
               className={cn(
-                "shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                "shrink-0 rounded-full border px-3.5 py-2 text-sm font-medium transition-colors",
                 location === town
                   ? "border-primary bg-primary text-primary-foreground"
                   : "border-border bg-background text-muted-foreground hover:border-primary/50 hover:text-primary",
@@ -125,7 +125,7 @@ function PreferredHotelsConnected() {
       ) : null}
 
       {list.length === 0 ? (
-        <p className="text-center text-sm text-muted-foreground">
+        <p className="text-center text-base text-muted-foreground">
           Preferred hotel details coming soon.
         </p>
       ) : (
@@ -143,21 +143,21 @@ function PreferredHotelsConnected() {
                 />
 
                 <div className="flex items-start justify-between gap-3">
-                  <h3 className="font-display text-xl leading-tight text-foreground">
+                  <h3 className="font-display text-2xl leading-tight text-foreground">
                     {hotel.name}
                   </h3>
                   <div className="shrink-0 text-right">
                     {amount ? (
                       <>
-                        <p className="text-base font-semibold leading-none tabular-nums text-primary">
+                        <p className="text-xl font-semibold leading-none tabular-nums text-primary">
                           {amount}
                         </p>
-                        <p className="mt-1 text-[11px] uppercase tracking-wider text-muted-foreground">
+                        <p className="mt-1.5 text-xs uppercase tracking-wider text-muted-foreground">
                           {suffix}
                         </p>
                       </>
                     ) : (
-                      <p className="max-w-[8rem] text-xs text-muted-foreground">
+                      <p className="max-w-[8rem] text-sm text-muted-foreground">
                         {suffix}
                       </p>
                     )}
@@ -177,9 +177,9 @@ function PreferredHotelsConnected() {
                   ) : null}
                 </div>
 
-                <div className="mt-3 space-y-1.5 border-t border-border/70 pt-3 text-xs">
+                <div className="mt-3 space-y-1.5 border-t border-border/70 pt-3 text-sm">
                   <p className="flex items-start gap-1.5 text-muted-foreground">
-                    <PhoneIcon className="mt-0.5 size-3.5 shrink-0" />
+                    <PhoneIcon className="mt-0.5 size-4 shrink-0" />
                     <span>
                       <span className="font-medium text-foreground">
                         Contact:
@@ -190,8 +190,8 @@ function PreferredHotelsConnected() {
                 </div>
 
                 {hotel.discountCode ? (
-                  <p className="mt-3 inline-flex w-fit items-center gap-1.5 rounded-md border border-dashed border-primary/50 bg-primary/5 px-2 py-1 text-[11px] font-semibold tracking-wide text-primary">
-                    <TagIcon className="size-3.5" />
+                  <p className="mt-3 inline-flex w-fit items-center gap-1.5 rounded-md border border-dashed border-primary/50 bg-primary/5 px-2.5 py-1.5 text-xs font-semibold tracking-wide text-primary">
+                    <TagIcon className="size-4" />
                     {hotel.discountCode}
                   </p>
                 ) : null}
@@ -202,7 +202,7 @@ function PreferredHotelsConnected() {
       )}
 
       {list.length > 0 && visible.length === 0 ? (
-        <p className="text-center text-sm text-muted-foreground">
+        <p className="text-center text-base text-muted-foreground">
           No hotels listed in that area yet.
         </p>
       ) : null}

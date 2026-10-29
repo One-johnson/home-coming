@@ -289,6 +289,9 @@ export default defineSchema({
     ),
     paymentReference: v.optional(v.string()),
     referenceNumber: v.optional(v.string()),
+    /** Payment receipt the guest uploads after booking (image or PDF). */
+    receiptStorageId: v.optional(v.id("_storage")),
+    receiptUploadedAt: v.optional(v.number()),
 
     consent: v.boolean(),
     createdAt: v.number(),

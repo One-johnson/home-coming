@@ -29,6 +29,9 @@ const tourItemValidator = v.object({
   quantity: v.number(),
 });
 
+/** Uploads land in storage first; these are the limits we enforce on attach. */
+const MAX_RECEIPT_BYTES = 8 * 1024 * 1024;
+
 export const create = mutation({
   args: {
     fullName: v.string(),
@@ -167,11 +170,103 @@ export const list = query({
   args: { sessionToken: sessionTokenValidator },
   handler: async (ctx, args) => {
     await requireRole(ctx, args.sessionToken, ["admin", "registration"]);
-    return await ctx.db
+    const orders = await ctx.db
       .query("tourOrders")
       .withIndex("by_created_at")
       .order("desc")
       .collect();
+
+    // Resolve the receipt URL here so the dashboard can show the payment
+    // evidence without a second round trip per row.
+    return Promise.all(
+      orders.map(async (order) => ({
+        ...order,
+        receiptUrl: order.receiptStorageId
+          ? ((await ctx.storage.getUrl(order.receiptStorageId)) ?? null)
+          : null,
+      })),
+    );
+  },
+});
+
+/**
+ * Public: guests upload their receipt straight after booking, so there is no
+ * signed-in actor to authorise here. `attachReceipt` then matches the file to
+ * an order by reference number *and* the email the order was placed with, so
+ * knowing a reference alone is not enough to touch someone's order.
+ */
+export const generateReceiptUploadUrl = mutation({
+  args: {},
+  handler: async (ctx) => await ctx.storage.generateUploadUrl(),
+});
+
+export const attachReceipt = mutation({
+  args: {
+    referenceNumber: v.string(),
+    email: v.string(),
+    storageId: v.id("_storage"),
+    /** Declared type, used only when storage recorded none for the blob. */
+    contentType: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const email = args.email.trim().toLowerCase();
+    const reference = args.referenceNumber.trim().toUpperCase();
+    if (!email || !reference) {
+      throw new ConvexError("Reference number and email are required");
+    }
+
+    const candidates = await ctx.db
+      .query("tourOrders")
+      .withIndex("by_email", (q) => q.eq("email", email))
+      .collect();
+    const order = candidates.find(
+      (row) => (row.referenceNumber ?? "").toUpperCase() === reference,
+    );
+    if (!order) {
+      throw new ConvexError(
+        "We could not match that reference number to this email address",
+      );
+    }
+
+    // Read the uploaded blob's real type/size from the system table rather
+    // than trusting what the client says it uploaded. Storage always records
+    // size; it records the content type too on the real runtime, but some
+    // environments store a bare blob, so fall back to the declared type only
+    // when the record has none.
+    const file = await ctx.db.system.get(args.storageId);
+    if (!file) throw new ConvexError("That upload could not be found");
+    const type = (file.contentType || args.contentType || "").toLowerCase();
+    const allowed = type.startsWith("image/") || type === "application/pdf";
+    if (!allowed) {
+      throw new ConvexError("Upload a photo or PDF of your receipt");
+    }
+    if (file.size > MAX_RECEIPT_BYTES) {
+      throw new ConvexError("Receipt must be smaller than 8 MB");
+    }
+
+    // Replacing a receipt: drop the previous blob once it is no longer
+    // referenced, ignoring files the dashboard already removed.
+    if (order.receiptStorageId && order.receiptStorageId !== args.storageId) {
+      if (await ctx.storage.getUrl(order.receiptStorageId)) {
+        await ctx.storage.delete(order.receiptStorageId);
+      }
+    }
+
+    await ctx.db.patch(order._id, {
+      receiptStorageId: args.storageId,
+      receiptUploadedAt: Date.now(),
+    });
+
+    await writeAuditLog(ctx, {
+      actorEmail: email,
+      action: "tour.receipt_upload",
+      entityType: "tourOrders",
+      entityId: order._id,
+      summary: `Receipt uploaded for tour order ${order.referenceNumber ?? order._id}`,
+      metadata: { size: file.size, contentType: file.contentType },
+    });
+
+    return { uploadedAt: Date.now() };
   },
 });
 

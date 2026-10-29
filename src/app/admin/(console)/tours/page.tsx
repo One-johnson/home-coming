@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
-import type { Doc, Id } from "@convex/_generated/dataModel";
+import type { Id } from "@convex/_generated/dataModel";
 import { cleanErrorMessage } from "@/lib/friendlyError";
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/ui/data-table";
@@ -13,6 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   tourOrderColumns,
   tourOrderExportRow,
+  type TourOrderRow,
 } from "@/components/admin/columns";
 import { TourPackageManager } from "@/components/admin/TourPackageManager";
 import {
@@ -35,7 +36,7 @@ function TourOrdersTable() {
   const updateStatus = useMutation(api.tourOrders.updatePaymentStatus);
   const bulkUpdate = useMutation(api.tourOrders.bulkUpdatePaymentStatus);
 
-  const [selected, setSelected] = useState<Doc<"tourOrders"> | null>(null);
+  const [selected, setSelected] = useState<TourOrderRow | null>(null);
 
   useEffect(() => {
     const id = searchParams.get("id");
@@ -174,6 +175,23 @@ function TourOrdersTable() {
                 {
                   label: "Status",
                   value: selected.paymentStatus.replaceAll("_", " "),
+                },
+                {
+                  label: "Payment receipt",
+                  value: selected.receiptUrl ? (
+                    <a
+                      href={selected.receiptUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-semibold text-primary hover:underline"
+                    >
+                      View uploaded receipt
+                    </a>
+                  ) : (
+                    <span className="text-muted-foreground">
+                      Not uploaded yet
+                    </span>
+                  ),
                 },
                 {
                   label: "Created",

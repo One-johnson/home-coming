@@ -59,6 +59,10 @@ async function referencedStorageIds(
   for (const row of await ctx.db.query("tourPackages").collect()) {
     add(row.imageStorageId);
   }
+  // Tour order receipts: uploaded by guests, read by finance in the dashboard.
+  for (const row of await ctx.db.query("tourOrders").collect()) {
+    add(row.receiptStorageId);
+  }
 
   // AGC money records: the offline payment receipt and the POA evidence image.
   for (const row of await ctx.db.query("agcRegistrations").collect()) {

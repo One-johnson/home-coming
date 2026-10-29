@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Image from "next/image";
 import { useMutation, useQuery } from "convex/react";
@@ -10,6 +10,7 @@ import {
   CheckCircle2Icon,
   InfoIcon,
   Loader2Icon,
+  UploadIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
@@ -57,6 +58,8 @@ import {
 } from "@/lib/tourConfig";
 import { EVENT } from "@/lib/eventConfig";
 import { isConvexConfigured } from "@/lib/convex-config";
+import { compressImageForUpload } from "@/lib/imageCompress";
+import { uploadFileToConvex } from "@/lib/galleryUpload";
 import {
   TourPackageRow,
   TourQuantityStepper,
@@ -127,13 +130,11 @@ function ToursCheckoutInner({
   );
   const catalog = useQuery(api.registrationCatalog.listPublic);
   const createTourOrder = useMutation(api.tourOrders.create);
+  const generateReceiptUploadUrl = useMutation(
+    api.tourOrders.generateReceiptUploadUrl,
+  );
+  const attachReceipt = useMutation(api.tourOrders.attachReceipt);
   const portalConfig = useQuery(api.agcPortal.getPortalConfig);
-
-  // The section wrapper animates with a transform, which makes it the
-  // containing block for `position: fixed` children — portal the selection
-  // bar to <body> so it actually pins to the viewport.
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
 
   const [sheetOpen, setSheetOpen] = useState(false);
   const [step, setStep] = useState<CheckoutStep>("details");
@@ -152,6 +153,11 @@ function ToursCheckoutInner({
   const [confirmed, setConfirmed] = useState(false);
   const [referenceNumber, setReferenceNumber] = useState<string | null>(null);
   const [paymentMessage, setPaymentMessage] = useState("");
+  const [receiptStatus, setReceiptStatus] = useState<
+    "idle" | "uploading" | "done"
+  >("idle");
+  const [receiptName, setReceiptName] = useState<string | null>(null);
+  const receiptInputRef = useRef<HTMLInputElement>(null);
 
   const groupOptions = useMemo(() => {
     if (catalog && catalog.length > 0) {
@@ -319,6 +325,36 @@ function ToursCheckoutInner({
     }
   };
 
+  /**
+   * Receipt upload runs right after the order is created, so the guest can
+   * attach the transfer screenshot while they still have the reference on
+   * screen. Compressed client-side (PDFs pass through untouched).
+   */
+  const handleReceiptFile = async (file: File) => {
+    if (!referenceNumber) return;
+    setReceiptStatus("uploading");
+    try {
+      const { file: prepared } = await compressImageForUpload(file);
+      const storageId = await uploadFileToConvex(prepared, () =>
+        generateReceiptUploadUrl({}),
+      );
+      await attachReceipt({
+        referenceNumber,
+        email,
+        storageId,
+        contentType: prepared.type || file.type || undefined,
+      });
+      setReceiptName(file.name);
+      setReceiptStatus("done");
+      toast.success("Receipt uploaded — finance will verify it");
+    } catch (err) {
+      setReceiptStatus("idle");
+      toast.error(
+        err instanceof Error ? err.message : "Could not upload that receipt",
+      );
+    }
+  };
+
   const resetAndClose = () => {
     setSheetOpen(false);
     setConfirmed(false);
@@ -333,6 +369,8 @@ function ToursCheckoutInner({
     setConsent(false);
     setReferenceNumber(null);
     setPaymentMessage("");
+    setReceiptStatus("idle");
+    setReceiptName(null);
   };
 
   return (
@@ -344,10 +382,10 @@ function ToursCheckoutInner({
     >
       <div id="tour-packages" className="scroll-mt-28 space-y-4">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="font-display text-xl text-foreground">
+          <h2 className="font-display text-2xl text-foreground sm:text-3xl">
             Conference tour packages
           </h2>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-base text-muted-foreground">
             {packages.length} package{packages.length === 1 ? "" : "s"}
             {hasSelection ? ` · ${ticketCount} ticket(s) in cart` : ""}
           </p>
@@ -359,7 +397,7 @@ function ToursCheckoutInner({
               <a
                 key={pkg.slug}
                 href={`#tour-${pkg.slug}`}
-                className="shrink-0 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:border-primary/50 hover:text-primary"
+                className="shrink-0 rounded-full border border-border bg-background px-3.5 py-2 text-sm font-medium text-foreground transition-colors hover:border-primary/50 hover:text-primary"
               >
                 <span className="font-semibold">{tourDayChip(pkg)}</span>
                 <span className="mx-1.5 text-border">·</span>
@@ -369,10 +407,10 @@ function ToursCheckoutInner({
           </div>
         ) : null}
 
-        <ol className="grid gap-2 rounded-xl border border-border bg-muted/30 p-3 text-xs sm:grid-cols-3 sm:gap-4">
+        <ol className="grid gap-3 rounded-xl border border-border bg-muted/30 p-4 text-sm sm:grid-cols-3 sm:gap-4">
           {BOOKING_STEPS.map((item, index) => (
             <li key={item.title} className="flex gap-2">
-              <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-primary text-[11px] font-semibold text-primary-foreground">
+              <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
                 {index + 1}
               </span>
               <span>
@@ -405,7 +443,7 @@ function ToursCheckoutInner({
           </div>
         )}
 
-        <p className="flex items-start gap-2 rounded-xl border border-border bg-muted/30 p-3 text-xs text-muted-foreground">
+        <p className="flex items-start gap-2 rounded-xl border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
           <InfoIcon className="mt-0.5 size-4 shrink-0" />
           <span>{LIBRARY_OF_THE_ANOINTED_NOTE}</span>
         </p>
@@ -422,15 +460,20 @@ function ToursCheckoutInner({
         aria-hidden
       />
 
-      {mounted && showSelectionBar
+      {/* The selection bar only exists after a user picks a tour, so it is
+          never part of the server render. It is portaled to <body> because
+          the animated section wrapper is a containing block for fixed
+          children and would otherwise pin it to the section, not the
+          viewport. */}
+      {showSelectionBar && typeof document !== "undefined"
         ? createPortal(
             <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-background/95 shadow-[0_-4px_20px_rgba(0,0,0,0.08)] backdrop-blur">
               <div className="mx-auto flex w-full max-w-4xl items-center justify-between gap-3 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6">
                 <div className="min-w-0">
-                  <p className="text-sm font-medium text-foreground">
+                  <p className="text-base font-medium text-foreground">
                     {ticketCount} ticket{ticketCount === 1 ? "" : "s"}
                   </p>
-                  <p className="truncate text-xs text-muted-foreground">
+                  <p className="truncate text-sm text-muted-foreground">
                     {totalLabel} ·{" "}
                     {selectedPackages.map((s) => s.pkg.label).join(", ")}
                   </p>
@@ -484,7 +527,7 @@ function ToursCheckoutInner({
                       type="button"
                       onClick={() => goToStep(s)}
                       className={cn(
-                        "shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium uppercase tracking-wider",
+                        "shrink-0 rounded-full px-3 py-1.5 text-xs font-medium uppercase tracking-wider",
                         active
                           ? "bg-primary text-primary-foreground"
                           : reached
@@ -538,6 +581,57 @@ function ToursCheckoutInner({
                     <AlertDescription>{paymentMessage}</AlertDescription>
                   </Alert>
                 ) : null}
+
+                <div className="space-y-2 rounded-xl border border-dashed border-primary/40 bg-primary/5 p-3 text-left">
+                  <p className="text-base font-medium text-foreground">
+                    Upload your payment receipt
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Already paid? Attach the transfer or MoMo screenshot and
+                    finance can confirm your tickets without chasing you. Photo
+                    or PDF, up to 8 MB.
+                  </p>
+                  <input
+                    ref={receiptInputRef}
+                    type="file"
+                    accept="image/*,application/pdf"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) void handleReceiptFile(file);
+                      e.target.value = "";
+                    }}
+                  />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={receiptStatus === "uploading"}
+                      onClick={() => receiptInputRef.current?.click()}
+                    >
+                      {receiptStatus === "uploading" ? (
+                        <>
+                          <Loader2Icon className="size-3.5 animate-spin" />
+                          Uploading…
+                        </>
+                      ) : (
+                        <>
+                          <UploadIcon className="size-3.5" />
+                          {receiptStatus === "done"
+                            ? "Replace receipt"
+                            : "Choose receipt"}
+                        </>
+                      )}
+                    </Button>
+                    {receiptStatus === "done" ? (
+                      <span className="text-xs font-medium text-primary">
+                        Received{receiptName ? ` · ${receiptName}` : ""}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+
                 <p className="text-sm text-muted-foreground">
                   Questions?{" "}
                   <a
@@ -554,13 +648,13 @@ function ToursCheckoutInner({
               <div className="space-y-5">
                 <div className="space-y-2">
                   <div className="flex items-center justify-between gap-2">
-                    <p className="text-sm font-medium text-foreground">
+                    <p className="text-base font-medium text-foreground">
                       Your tickets
                     </p>
                     <button
                       type="button"
                       onClick={backToTours}
-                      className="text-xs font-medium text-primary underline-offset-2 hover:underline"
+                      className="text-sm font-medium text-primary underline-offset-2 hover:underline"
                     >
                       Add another tour
                     </button>
@@ -571,10 +665,10 @@ function ToursCheckoutInner({
                       className="flex items-center justify-between gap-3 rounded-xl border p-2.5"
                     >
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-foreground">
+                        <p className="truncate text-base font-medium text-foreground">
                           {pkg.label}: {pkg.dateLabel}
                         </p>
-                        <p className="text-xs text-muted-foreground">
+                        <p className="text-sm text-muted-foreground">
                           ${unitPrice} each · ${unitPrice * quantity}
                         </p>
                       </div>

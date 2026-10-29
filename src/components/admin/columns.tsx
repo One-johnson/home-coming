@@ -105,7 +105,12 @@ export function registrationExportRow(r: Doc<"registrations">) {
   };
 }
 
-export const tourOrderColumns: ColumnDef<Doc<"tourOrders">>[] = [
+/** `list` resolves the receipt blob URL alongside each order. */
+export type TourOrderRow = Doc<"tourOrders"> & {
+  receiptUrl: string | null;
+};
+
+export const tourOrderColumns: ColumnDef<TourOrderRow>[] = [
   {
     accessorKey: "referenceNumber",
     header: "Reference",
@@ -142,6 +147,24 @@ export const tourOrderColumns: ColumnDef<Doc<"tourOrders">>[] = [
     cell: ({ row }) => `$${row.original.totalAmount}`,
   },
   {
+    id: "receipt",
+    header: "Receipt",
+    cell: ({ row }) =>
+      row.original.receiptUrl ? (
+        <a
+          href={row.original.receiptUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="text-xs font-semibold text-primary hover:underline"
+          onClick={(event) => event.stopPropagation()}
+        >
+          View
+        </a>
+      ) : (
+        <span className="text-xs text-muted-foreground">Not uploaded</span>
+      ),
+  },
+  {
     accessorKey: "gateway",
     header: "Gateway",
     cell: ({ row }) => (
@@ -167,7 +190,7 @@ export const tourOrderColumns: ColumnDef<Doc<"tourOrders">>[] = [
   },
 ];
 
-export function tourOrderExportRow(o: Doc<"tourOrders">) {
+export function tourOrderExportRow(o: TourOrderRow) {
   return {
     reference: o.referenceNumber ?? "",
     name: o.fullName,
@@ -184,6 +207,7 @@ export function tourOrderExportRow(o: Doc<"tourOrders">) {
     currency: o.currency,
     gateway: o.gateway,
     status: o.paymentStatus,
+    receipt: o.receiptUrl ? "uploaded" : "missing",
     createdAt: new Date(o.createdAt).toISOString(),
   };
 }
