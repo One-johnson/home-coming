@@ -1,13 +1,19 @@
 import type { MutationCtx } from "../_generated/server";
 import { DEFAULT_TOUR_PACKAGES } from "./tourConfig";
 
+/**
+ * Seed the default tours into a deployment that does not have them yet.
+ *
+ * Insert-only on purpose. This used to patch every known slug back to the
+ * hardcoded defaults and delete every package whose slug was not on the list,
+ * so a save in the admin Tours tab was reverted the next time that page
+ * mounted, and a deleted tour came straight back. Once a package exists the
+ * database is the source of truth — only `tourPackages.update` may change it,
+ * and only `tourPackages.remove` may delete it.
+ */
 export async function syncTourPackagesToDefaults(ctx: MutationCtx) {
   const now = Date.now();
-  let inserted = 0;
-  let updated = 0;
-  let deleted = 0;
-
-  const keepSlugs = new Set(DEFAULT_TOUR_PACKAGES.map((pkg) => pkg.slug));
+  const insertedSlugs: string[] = [];
 
   for (const pkg of DEFAULT_TOUR_PACKAGES) {
     const existing = await ctx.db
@@ -15,7 +21,10 @@ export async function syncTourPackagesToDefaults(ctx: MutationCtx) {
       .withIndex("by_slug", (q) => q.eq("slug", pkg.slug))
       .first();
 
-    const fields = {
+    if (existing) continue;
+
+    await ctx.db.insert("tourPackages", {
+      slug: pkg.slug,
       label: pkg.label,
       dateLabel: pkg.dateLabel,
       timeRange: pkg.timeRange,
@@ -23,45 +32,14 @@ export async function syncTourPackagesToDefaults(ctx: MutationCtx) {
       meals: pkg.meals,
       priceUsd: pkg.priceUsd,
       priceGhs: pkg.priceGhs,
+      imageUrl: pkg.imageUrl,
       badge: pkg.badge,
       active: true,
       order: pkg.order,
       updatedAt: now,
-    };
-
-    if (!existing) {
-      await ctx.db.insert("tourPackages", {
-        slug: pkg.slug,
-        imageUrl: pkg.imageUrl,
-        ...fields,
-      });
-      inserted += 1;
-      continue;
-    }
-
-    await ctx.db.patch(existing._id, {
-      ...fields,
-      imageUrl:
-        existing.imageUrl || existing.imageStorageId
-          ? existing.imageUrl
-          : pkg.imageUrl,
     });
-    updated += 1;
+    insertedSlugs.push(pkg.slug);
   }
 
-  const allPackages = await ctx.db.query("tourPackages").collect();
-  for (const pkg of allPackages) {
-    if (keepSlugs.has(pkg.slug)) continue;
-    if (pkg.imageStorageId) {
-      // Guarded: a dangling file id must not break the sync (see
-      // deleteStorageFileIfPresent in tourPackages.ts).
-      if (await ctx.storage.getUrl(pkg.imageStorageId)) {
-        await ctx.storage.delete(pkg.imageStorageId);
-      }
-    }
-    await ctx.db.delete(pkg._id);
-    deleted += 1;
-  }
-
-  return { inserted, updated, deleted };
+  return { inserted: insertedSlugs.length, insertedSlugs };
 }

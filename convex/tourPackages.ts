@@ -112,7 +112,10 @@ export const listAdmin = query({
   },
 });
 
-/** Upsert the two current tours and delete every other package. */
+/**
+ * Add any default tour package that is missing. Existing rows are never
+ * touched, so admin edits and deletions survive — this only fills gaps.
+ */
 export const ensureDefaults = mutation({
   args: { sessionToken: sessionTokenValidator },
   handler: async (ctx, args) => {
@@ -127,7 +130,10 @@ export const ensureDefaults = mutation({
       actorEmail: actor.email,
       action: "tour_packages.ensure_defaults",
       entityType: "tourPackages",
-      summary: `Synced tour packages (${result.inserted} inserted, ${result.updated} updated, ${result.deleted} deleted)`,
+      summary:
+        result.inserted > 0
+          ? `Added ${result.inserted} missing default tour package(s)`
+          : "All default tour packages already exist — nothing changed",
       metadata: result,
     });
 

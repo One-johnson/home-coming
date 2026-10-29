@@ -2,7 +2,7 @@
 
 import { toastFriendlyErrorParts } from "@/lib/friendlyError";
 
-import { useEffect, useRef, useState, startTransition } from "react";
+import { useRef, useState } from "react";
 import Image from "next/image";
 import { useMutation, useQuery } from "convex/react";
 import { ImagePlusIcon, Trash2Icon } from "lucide-react";
@@ -401,26 +401,7 @@ export function TourPackageManager() {
   const [savingId, setSavingId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [seeding, setSeeding] = useState(false);
-  const [autoSeedAttempted, setAutoSeedAttempted] = useState(false);
   const [uploadingKey, setUploadingKey] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!sessionToken || packages === undefined || autoSeedAttempted) {
-      return;
-    }
-    startTransition(() => setAutoSeedAttempted(true));
-    void ensureDefaults({ sessionToken })
-      .then((result) => {
-        if (result.inserted > 0 || result.updated > 0 || result.deleted > 0) {
-          toast.success(
-            `Synced tours (${result.inserted} added, ${result.updated} updated, ${result.deleted} removed)`,
-          );
-        }
-      })
-      .catch(() => {
-        /* manual seed button remains available */
-      });
-  }, [sessionToken, packages, autoSeedAttempted, ensureDefaults]);
 
   if (!allowed) {
     return (
@@ -473,7 +454,9 @@ export function TourPackageManager() {
     try {
       const result = await ensureDefaults({ sessionToken });
       toast.success(
-        `Synced tours: ${result.inserted} added, ${result.updated} updated, ${result.deleted} removed`,
+        result.inserted > 0
+          ? `Added ${result.inserted} missing tour package(s)`
+          : "No default tour was missing — nothing changed",
       );
     } catch (err) {
       toast.error(...toastFriendlyErrorParts(err, "Seed failed"));
@@ -541,18 +524,23 @@ export function TourPackageManager() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-muted-foreground">
-          Edit packages shown on the public Tours page. Upload a card image
-          (4:3 works best) or keep a site path.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="max-w-prose space-y-1">
+          <p className="text-sm text-muted-foreground">
+            Changes here save straight to the database and stay put — nothing
+            re-seeds them on page load. The public Tours page reads the
+            committed manifest, so run <code>npm run tours:sync</code> and
+            redeploy after editing to publish the new copy and prices.
+          </p>
+        </div>
         <Button
           variant="outline"
           size="sm"
           onClick={() => void seedDefaults()}
           disabled={seeding}
+          title="Re-adds any default tour that is missing. Never edits or deletes an existing package."
         >
-          {seeding ? "Seeding…" : "Seed default packages"}
+          {seeding ? "Checking…" : "Add missing tours"}
         </Button>
       </div>
 
