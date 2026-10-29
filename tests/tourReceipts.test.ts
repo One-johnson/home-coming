@@ -143,6 +143,74 @@ test("a PDF receipt is accepted", async () => {
   expect(order?.receiptStorageId).toBe(storageId);
 });
 
+test("a guest can look up their own order by reference and email", async () => {
+  const t = createTestConvex();
+  await seedOrder(t);
+
+  const order = await t.query(api.tourOrders.getStatus, {
+    referenceNumber: " tur-9f3k2a ",
+    email: "GUEST@example.com",
+  });
+
+  expect(order).not.toBeNull();
+  expect(order?.referenceNumber).toBe(REFERENCE);
+  expect(order?.paymentStatus).toBe("pending_payment");
+  expect(order?.totalAmount).toBe(40);
+  expect(order?.items).toEqual([
+    {
+      label: "Accra Tours: Monday, November 1st",
+      quantity: 1,
+      unitPrice: 40,
+    },
+  ]);
+  expect(order?.receiptUrl).toBeNull();
+  // Nothing internal leaks to the public page.
+  expect(order).not.toHaveProperty("email");
+  expect(order).not.toHaveProperty("_id");
+});
+
+test("the lookup answers null for a real reference with the wrong email", async () => {
+  const t = createTestConvex();
+  await seedOrder(t);
+
+  const wrongEmail = await t.query(api.tourOrders.getStatus, {
+    referenceNumber: REFERENCE,
+    email: "someone-else@example.com",
+  });
+  const wrongReference = await t.query(api.tourOrders.getStatus, {
+    referenceNumber: "TUR-NOPE00",
+    email: "guest@example.com",
+  });
+  const blank = await t.query(api.tourOrders.getStatus, {
+    referenceNumber: "   ",
+    email: "guest@example.com",
+  });
+
+  expect(wrongEmail).toBeNull();
+  expect(wrongReference).toBeNull();
+  expect(blank).toBeNull();
+});
+
+test("the lookup shows the receipt once one is attached", async () => {
+  const t = createTestConvex();
+  await seedOrder(t);
+  const storageId = await seedFile(t, "image/png");
+  await t.mutation(api.tourOrders.attachReceipt, {
+    referenceNumber: REFERENCE,
+    email: "guest@example.com",
+    storageId,
+    contentType: "image/png",
+  });
+
+  const order = await t.query(api.tourOrders.getStatus, {
+    referenceNumber: REFERENCE,
+    email: "guest@example.com",
+  });
+
+  expect(order?.receiptUrl).toBeTruthy();
+  expect(order?.receiptUploadedAt).toBeTypeOf("number");
+});
+
 test("the dashboard list exposes the uploaded receipt URL", async () => {
   const t = createTestConvex();
   await seedOrder(t);

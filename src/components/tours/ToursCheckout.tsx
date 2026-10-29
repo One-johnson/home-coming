@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import Image from "next/image";
 import { useMutation, useQuery } from "convex/react";
@@ -10,7 +10,6 @@ import {
   CheckCircle2Icon,
   InfoIcon,
   Loader2Icon,
-  UploadIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
@@ -58,8 +57,8 @@ import {
 } from "@/lib/tourConfig";
 import { EVENT } from "@/lib/eventConfig";
 import { isConvexConfigured } from "@/lib/convex-config";
-import { compressImageForUpload } from "@/lib/imageCompress";
-import { uploadFileToConvex } from "@/lib/galleryUpload";
+import { TourReceiptUploader } from "@/components/tours/TourReceiptUploader";
+import Link from "next/link";
 import {
   TourPackageRow,
   TourQuantityStepper,
@@ -130,10 +129,6 @@ function ToursCheckoutInner({
   );
   const catalog = useQuery(api.registrationCatalog.listPublic);
   const createTourOrder = useMutation(api.tourOrders.create);
-  const generateReceiptUploadUrl = useMutation(
-    api.tourOrders.generateReceiptUploadUrl,
-  );
-  const attachReceipt = useMutation(api.tourOrders.attachReceipt);
   const portalConfig = useQuery(api.agcPortal.getPortalConfig);
 
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -153,11 +148,6 @@ function ToursCheckoutInner({
   const [confirmed, setConfirmed] = useState(false);
   const [referenceNumber, setReferenceNumber] = useState<string | null>(null);
   const [paymentMessage, setPaymentMessage] = useState("");
-  const [receiptStatus, setReceiptStatus] = useState<
-    "idle" | "uploading" | "done"
-  >("idle");
-  const [receiptName, setReceiptName] = useState<string | null>(null);
-  const receiptInputRef = useRef<HTMLInputElement>(null);
 
   const groupOptions = useMemo(() => {
     if (catalog && catalog.length > 0) {
@@ -325,36 +315,6 @@ function ToursCheckoutInner({
     }
   };
 
-  /**
-   * Receipt upload runs right after the order is created, so the guest can
-   * attach the transfer screenshot while they still have the reference on
-   * screen. Compressed client-side (PDFs pass through untouched).
-   */
-  const handleReceiptFile = async (file: File) => {
-    if (!referenceNumber) return;
-    setReceiptStatus("uploading");
-    try {
-      const { file: prepared } = await compressImageForUpload(file);
-      const storageId = await uploadFileToConvex(prepared, () =>
-        generateReceiptUploadUrl({}),
-      );
-      await attachReceipt({
-        referenceNumber,
-        email,
-        storageId,
-        contentType: prepared.type || file.type || undefined,
-      });
-      setReceiptName(file.name);
-      setReceiptStatus("done");
-      toast.success("Receipt uploaded — finance will verify it");
-    } catch (err) {
-      setReceiptStatus("idle");
-      toast.error(
-        err instanceof Error ? err.message : "Could not upload that receipt",
-      );
-    }
-  };
-
   const resetAndClose = () => {
     setSheetOpen(false);
     setConfirmed(false);
@@ -369,8 +329,6 @@ function ToursCheckoutInner({
     setConsent(false);
     setReferenceNumber(null);
     setPaymentMessage("");
-    setReceiptStatus("idle");
-    setReceiptName(null);
   };
 
   return (
@@ -446,6 +404,17 @@ function ToursCheckoutInner({
         <p className="flex items-start gap-2 rounded-xl border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
           <InfoIcon className="mt-0.5 size-4 shrink-0" />
           <span>{LIBRARY_OF_THE_ANOINTED_NOTE}</span>
+        </p>
+
+        <p className="text-center text-sm text-muted-foreground">
+          Already booked?{" "}
+          <Link
+            href="/tours/status"
+            className="font-medium text-primary underline-offset-2 hover:underline"
+          >
+            Check your order status and upload a receipt
+          </Link>
+          .
         </p>
       </div>
 
@@ -582,55 +551,23 @@ function ToursCheckoutInner({
                   </Alert>
                 ) : null}
 
-                <div className="space-y-2 rounded-xl border border-dashed border-primary/40 bg-primary/5 p-3 text-left">
-                  <p className="text-base font-medium text-foreground">
-                    Upload your payment receipt
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    Already paid? Attach the transfer or MoMo screenshot and
-                    finance can confirm your tickets without chasing you. Photo
-                    or PDF, up to 8 MB.
-                  </p>
-                  <input
-                    ref={receiptInputRef}
-                    type="file"
-                    accept="image/*,application/pdf"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) void handleReceiptFile(file);
-                      e.target.value = "";
-                    }}
+                {referenceNumber ? (
+                  <TourReceiptUploader
+                    referenceNumber={referenceNumber}
+                    email={email}
                   />
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={receiptStatus === "uploading"}
-                      onClick={() => receiptInputRef.current?.click()}
-                    >
-                      {receiptStatus === "uploading" ? (
-                        <>
-                          <Loader2Icon className="size-3.5 animate-spin" />
-                          Uploading…
-                        </>
-                      ) : (
-                        <>
-                          <UploadIcon className="size-3.5" />
-                          {receiptStatus === "done"
-                            ? "Replace receipt"
-                            : "Choose receipt"}
-                        </>
-                      )}
-                    </Button>
-                    {receiptStatus === "done" ? (
-                      <span className="text-xs font-medium text-primary">
-                        Received{receiptName ? ` · ${receiptName}` : ""}
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
+                ) : null}
+
+                <p className="text-sm text-muted-foreground">
+                  Left the page? Come back any time with your reference at{" "}
+                  <Link
+                    href="/tours/status"
+                    className="text-primary hover:underline"
+                  >
+                    Check your tour order
+                  </Link>
+                  .
+                </p>
 
                 <p className="text-sm text-muted-foreground">
                   Questions?{" "}

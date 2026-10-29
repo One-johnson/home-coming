@@ -227,7 +227,9 @@ The public `/tours` page subscribes to `tourPackages.listPublic`, so editing or 
 
 The page is a comparison sheet: one compact row per tour (date chip, time, meals, price aligned), sites and exclusions behind a per-row disclosure, a date rail that anchors to each row, and a pinned selection bar that opens a three-step checkout (Details → Summary → Payment). Optional `startsAt`, `departurePoint` and `notIncluded` fields are edited in the same admin form; a real `startsAt` sorts the page chronologically and drives the day chip, while `dateLabel` stays the wording people read.
 
-**Receipts:** straight after booking, the confirmation screen accepts a payment receipt (photo or PDF, ≤8 MB, compressed client-side). `tourOrders.attachReceipt` matches it to the order by reference number *and* the email the booking used, so a reference alone can't touch someone's order, and it validates the stored blob's real type and size. Admin → Tours → Orders shows it as a **Receipt → View** link and in the order's detail sheet.
+**Order status:** `/tours/status` (noindex) looks up a booking from the reference number *plus* the email the booking used — either alone returns nothing, so it can't be used to enumerate orders — and shows tickets, total, payment state and the receipt. Receipt upload lives there too, so a guest who paid later can attach proof without rebooking.
+
+**Receipts:** straight after booking, the confirmation screen accepts a payment receipt (photo or PDF, ≤8 MB, compressed client-side); the same uploader appears on the status page. `tourOrders.attachReceipt` matches it to the order by reference number *and* the email the booking used, so a reference alone can't touch someone's order, and it validates the stored blob's real type and size. Admin → Tours → Orders shows it as a **Receipt → View** link and in the order's detail sheet.
 
 **Checkout safety:** orders are placed with package *slugs*; the server resolves them against the live database, rejects inactive or deleted packages, and re-prices before any payment, so a stale fallback can never alter pricing.
 

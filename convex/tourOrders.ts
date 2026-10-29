@@ -266,7 +266,57 @@ export const attachReceipt = mutation({
       metadata: { size: file.size, contentType: file.contentType },
     });
 
-    return { uploadedAt: Date.now() };
+    return {
+      uploadedAt: Date.now(),
+      receiptUrl: (await ctx.storage.getUrl(args.storageId)) ?? null,
+    };
+  },
+});
+
+/**
+ * Public order lookup for the status page. Requires BOTH the reference number
+ * and the email the booking used, and answers `null` for every mismatch — an
+ * unknown reference and a real reference probed with the wrong email look
+ * identical, so this cannot be used to enumerate orders.
+ *
+ * Returns display fields only: no document id, no package ids, nothing about
+ * any other guest.
+ */
+export const getStatus = query({
+  args: { referenceNumber: v.string(), email: v.string() },
+  handler: async (ctx, args) => {
+    const email = args.email.trim().toLowerCase();
+    const reference = args.referenceNumber.trim().toUpperCase();
+    if (!email || !reference) return null;
+
+    const candidates = await ctx.db
+      .query("tourOrders")
+      .withIndex("by_email", (q) => q.eq("email", email))
+      .collect();
+    const order = candidates.find(
+      (row) => (row.referenceNumber ?? "").toUpperCase() === reference,
+    );
+    if (!order) return null;
+
+    const receiptUrl = order.receiptStorageId
+      ? ((await ctx.storage.getUrl(order.receiptStorageId)) ?? null)
+      : null;
+
+    return {
+      referenceNumber: order.referenceNumber ?? reference,
+      fullName: order.fullName,
+      paymentStatus: order.paymentStatus,
+      items: order.items.map((item) => ({
+        label: item.label,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+      })),
+      totalAmount: order.totalAmount,
+      currency: order.currency,
+      createdAt: order.createdAt,
+      receiptUploadedAt: order.receiptUploadedAt ?? null,
+      receiptUrl,
+    };
   },
 });
 
