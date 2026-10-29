@@ -2,7 +2,7 @@
 
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation } from "convex/react";
-import { BedDouble, Loader2Icon, UserPlus } from "lucide-react";
+import { BedDouble, ChevronLeft, ChevronRight, Loader2Icon, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
@@ -347,22 +347,36 @@ export function BulkAssignPanel({
   }, [pickerActive, onPickerActiveChange]);
 
   /**
-   * Phones get the list in pages rather than one endless scroll: hitting a
-   * 400-delegate list as a single column is unusable on touch, and it is also
-   * 400 rows of DOM for nothing.
+   * Phones get the list in pages rather than one endless scroll: a 400-delegate
+   * roster as a single column is unusable on touch, and it is also 400 rows of
+   * DOM for nothing. Paged rather than "show more" so the sheet says how much
+   * is left and staff can walk back to a delegate they just passed.
    */
-  const isPhone = useMediaQuery("(max-width: 639px)");
-  /** A phone opens on a short first page, then grows in bigger steps. */
-  const PHONE_FIRST = 12;
-  const PHONE_PAGE = 25;
-  // The page count is keyed to the filters, so changing a filter starts the
-  // list over without a reset effect.
+  // Same breakpoint as the CSS that drops the list's own 420px scroll box
+  // (`max-lg:`), so a tablet never gets an uncapped column either.
+  const isPhone = useMediaQuery("(max-width: 1023px)");
+  const PHONE_PAGE_SIZE = 12;
+  // The page number is keyed to the filters, so changing one starts the list
+  // over at page 1 without a reset effect.
   const filterKey = `${gender}|${hub}|${type}|${search}`;
-  const [phonePage, setPhonePage] = useState({ key: "", count: PHONE_FIRST });
-  const phoneLimit =
-    phonePage.key === filterKey ? phonePage.count : PHONE_FIRST;
-  const visible = isPhone ? shown.slice(0, phoneLimit) : shown;
-  const hiddenCount = shown.length - visible.length;
+  const [phonePage, setPhonePage] = useState({ key: "", page: 1 });
+  const pageCount = Math.max(1, Math.ceil(shown.length / PHONE_PAGE_SIZE));
+  // Clamped, not just stored: assigning the last delegate on the final page
+  // shrinks the roster under the open page.
+  const page =
+    phonePage.key === filterKey
+      ? Math.min(Math.max(1, phonePage.page), pageCount)
+      : 1;
+  const visible = isPhone
+    ? shown.slice((page - 1) * PHONE_PAGE_SIZE, page * PHONE_PAGE_SIZE)
+    : shown;
+  const firstOnPage = (page - 1) * PHONE_PAGE_SIZE + 1;
+  const lastOnPage = (page - 1) * PHONE_PAGE_SIZE + visible.length;
+  const goToPage = (next: number) =>
+    setPhonePage({
+      key: filterKey,
+      page: Math.min(Math.max(1, next), pageCount),
+    });
 
   return (
     <div
@@ -461,7 +475,7 @@ export function BulkAssignPanel({
             <div className="mt-2 flex flex-wrap items-center gap-3 text-xs">
               <span className="text-muted-foreground tabular-nums">
                 {isPhone
-                  ? `Showing ${visible.length} of ${shown.length} — filter or search to narrow`
+                  ? `Showing ${firstOnPage}–${lastOnPage} of ${shown.length}`
                   : `${shown.length} waiting`}
               </span>
               <button
@@ -504,17 +518,31 @@ export function BulkAssignPanel({
             ))}
           </ul>
         )}
-        {hiddenCount > 0 && (
-          <div className="border-t p-3">
+        {/* Phones only: the desktop list scrolls inside its own box. */}
+        {isPhone && pageCount > 1 && shown.length > 0 && (
+          <div className="flex items-center justify-between gap-2 border-t p-2">
             <Button
               type="button"
               variant="outline"
-              className="w-full"
-              onClick={() =>
-                setPhonePage({ key: filterKey, count: phoneLimit + PHONE_PAGE })
-              }
+              size="sm"
+              className="h-8 gap-1"
+              disabled={page === 1}
+              onClick={() => goToPage(page - 1)}
             >
-              Show {Math.min(PHONE_PAGE, hiddenCount)} more ({hiddenCount} left)
+              <ChevronLeft className="size-3.5" /> Prev
+            </Button>
+            <span className="text-xs tabular-nums text-muted-foreground">
+              Page {page} of {pageCount}
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1"
+              disabled={page === pageCount}
+              onClick={() => goToPage(page + 1)}
+            >
+              Next <ChevronRight className="size-3.5" />
             </Button>
           </div>
         )}

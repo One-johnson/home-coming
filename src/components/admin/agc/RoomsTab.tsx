@@ -11,6 +11,7 @@ import {
   Flag,
   Loader2Icon,
   Lock,
+  Pencil,
   Printer,
   Sparkles,
   Trash2,
@@ -379,6 +380,14 @@ export function RoomsTab() {
 
   // History drawer
   const [historyRoom, setHistoryRoom] = useState<RoomRow | null>(null);
+  /**
+   * Member list drawer. Stored as an id, not the row: a removal has to leave
+   * the open dialog showing the room as it is now, not as it was on open. The
+   * id outlives `open` on purpose — clearing it on close made the exit
+   * animation flash the "room is gone" copy.
+   */
+  const [membersRoomId, setMembersRoomId] = useState<string | null>(null);
+  const [membersOpen, setMembersOpen] = useState(false);
   const history = useQuery(
     api.agcRoomAssignments.getRoomHistory,
     sessionToken && historyRoom
@@ -388,6 +397,10 @@ export function RoomsTab() {
 
   const list = useMemo(() => rooms ?? [], [rooms]);
   const guests = useMemo(() => unassigned ?? [], [unassigned]);
+  const membersRoom = useMemo(
+    () => (membersRoomId ? (list.find((room) => room._id === membersRoomId) ?? null) : null),
+    [list, membersRoomId],
+  );
   // undefined = still loading; an empty array is a genuinely empty inventory.
   const loadingRooms = rooms === undefined;
   const loadingGuests = unassigned === undefined;
@@ -1180,7 +1193,10 @@ export function RoomsTab() {
                 )}
               >
                 <div className="overflow-hidden">
-                  <div className="grid gap-3 p-3 sm:grid-cols-2 xl:grid-cols-3">
+                  {/* Two cards per row on a phone: a room is a name, a bed
+                      count and a few actions, so half a screen each is plenty
+                      and the grid stops being a 70-room scroll. */}
+                  <div className="grid grid-cols-2 gap-2 p-2 sm:gap-3 sm:p-3 xl:grid-cols-3">
                   {group.rooms.map((room) => {
           const full = room.occupants >= room.capacity;
           const isApartment = room.accommodationType === "ebpv";
@@ -1303,31 +1319,27 @@ export function RoomsTab() {
 
               <RoomFaultHistory issues={faultHistoryByRoom.get(room._id) ?? []} />
 
+              {/* A full room would otherwise open as a page-length list of
+                  names; the card keeps the count and the names live one tap
+                  away in the members dialog. */}
               {room.assignments.length > 0 && (
-                <ul className="mt-2 space-y-1">
-                  {room.assignments.map((a) => {
-                    const guest = guests.find((g) => g._id === a.guestId);
-                    const guestName = a.guestName ?? guest?.name ?? "Delegate";
-                    return (
-                      <li
-                        key={a._id}
-                        className="flex items-center justify-between gap-2 text-xs"
-                      >
-                        <span className="truncate">
-                          {guestName}
-                        </span>
-                        <button
-                          type="button"
-                          className="text-muted-foreground hover:text-destructive"
-                          aria-label="Remove guest from room"
-                          onClick={() => void unassign(a._id)}
-                        >
-                          <Trash2 className="size-3" />
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMembersRoomId(room._id);
+                    setMembersOpen(true);
+                  }}
+                  className="mt-2 flex w-full items-center justify-between gap-2 rounded-lg border bg-muted/40 px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted"
+                  aria-label={`View the ${room.assignments.length} member(s) in ${room.name}`}
+                >
+                  <span className="min-w-0 truncate font-medium">
+                    {room.assignments.length} member
+                    {room.assignments.length === 1 ? "" : "s"}
+                  </span>
+                  <span className="flex shrink-0 items-center gap-1 text-muted-foreground">
+                    <Eye className="size-3.5" /> View
+                  </span>
+                </button>
               )}
               <div className="mt-3 flex flex-wrap items-center gap-1.5">
                 {!full && !room.faulty && !room.hold && (
@@ -1335,12 +1347,17 @@ export function RoomsTab() {
                     size="sm"
                     variant="outline"
                     className="h-7 gap-1 text-xs"
+                    aria-label={`Assign delegates to ${room.name}`}
+                    title="Assign delegates"
                     onClick={() => {
                       setAssignRoom(room);
                       setAssignPicks([]);
                     }}
                   >
-                    <UserPlus className="size-3" /> Assign
+                    <UserPlus className="size-3" />
+                    {/* Two cards share a phone row, so their actions shrink to
+                        icons there; the label returns from `sm` up. */}
+                    <span className="max-sm:hidden">Assign</span>
                   </Button>
                 )}
                 {room.hold ? (
@@ -1348,9 +1365,12 @@ export function RoomsTab() {
                     size="sm"
                     variant="ghost"
                     className="h-7 gap-1 text-xs text-sky-700 hover:text-sky-800 dark:text-sky-400"
+                    aria-label={`Release the reservation on ${room.name}`}
+                    title="Release reservation"
                     onClick={() => void releaseHold(room)}
                   >
-                    <Unlock className="size-3" /> Release
+                    <Unlock className="size-3" />
+                    <span className="max-sm:hidden">Release</span>
                   </Button>
                 ) : (
                   room.occupants === 0 && (
@@ -1358,12 +1378,15 @@ export function RoomsTab() {
                       size="sm"
                       variant="ghost"
                       className="h-7 gap-1 text-xs"
+                      aria-label={`Reserve ${room.name}`}
+                      title="Reserve room"
                       onClick={() => {
                         setHoldTarget(room);
                         setHoldNote("");
                       }}
                     >
-                      <Lock className="size-3" /> Reserve
+                      <Lock className="size-3" />
+                      <span className="max-sm:hidden">Reserve</span>
                     </Button>
                   )
                 )}
@@ -1371,39 +1394,50 @@ export function RoomsTab() {
                   size="sm"
                   variant="ghost"
                   className="h-7 gap-1 text-xs"
+                  aria-label={`Edit ${room.name}`}
+                  title="Edit room"
                   onClick={() => openRoomForm(room)}
                 >
-                  Edit
+                  <Pencil className="size-3" />
+                  <span className="max-sm:hidden">Edit</span>
                 </Button>
                 <Button
                   size="sm"
                   variant="ghost"
                   className="h-7 gap-1 text-xs text-rose-700 hover:text-rose-800 dark:text-rose-400"
                   title="Flag a problem with this room — broken toilet, no water, faulty lock"
+                  aria-label={`Flag an issue with ${room.name}`}
                   onClick={() => {
                     setFlagTarget(room);
                     setFlagCategory("toilet");
                     setFlagNote("");
                   }}
                 >
-                  <Flag className="size-3" /> Flag issue
+                  <Flag className="size-3" />
+                  <span className="max-sm:hidden">Flag issue</span>
                 </Button>
                 <Button
                   size="sm"
                   variant="ghost"
                   className="h-7 gap-1 text-xs"
+                  aria-label={`History for ${room.name}`}
+                  title="Assignment history"
                   onClick={() => setHistoryRoom(room)}
                 >
-                  <Eye className="size-3" /> History
+                  <Eye className="size-3" />
+                  <span className="max-sm:hidden">History</span>
                 </Button>
                 <Button
                   size="sm"
                   variant="ghost"
                   className="h-7 gap-1 text-xs text-destructive hover:text-destructive"
+                  aria-label={`Delete ${room.name}`}
+                  title="Delete room"
                   disabled={room.occupants > 0}
                   onClick={() => void removeRoom(room)}
                 >
-                  <DoorOpen className="size-3" /> Delete
+                  <DoorOpen className="size-3" />
+                  <span className="max-sm:hidden">Delete</span>
                 </Button>
               </div>
             </div>
@@ -2216,6 +2250,53 @@ export function RoomsTab() {
                 Import {importRows?.length ?? 0} rows
               </Button>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Members in a room — opened from the card's View button */}
+      <Dialog open={membersOpen} onOpenChange={setMembersOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {membersRoom ? `${membersRoom.name} — members` : "Room members"}
+            </DialogTitle>
+            <DialogDescription>
+              {membersRoom
+                ? `${membersRoom.assignments.length} of ${membersRoom.capacity} bed(s) taken. Removing a delegate here puts them back on the unassigned list.`
+                : "This room is no longer in the inventory."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[60vh] overflow-y-auto">
+            {(membersRoom?.assignments.length ?? 0) === 0 ? (
+              <p className="py-6 text-center text-sm text-muted-foreground">
+                No one is in this room.
+              </p>
+            ) : (
+              <ul className="divide-y">
+                {membersRoom?.assignments.map((a) => {
+                  const guest = guests.find((g) => g._id === a.guestId);
+                  const guestName = a.guestName ?? guest?.name ?? "Delegate";
+                  return (
+                    <li
+                      key={a._id}
+                      className="flex items-center justify-between gap-2 py-2 text-sm"
+                    >
+                      <span className="truncate">{guestName}</span>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 shrink-0 gap-1 text-xs text-muted-foreground hover:text-destructive"
+                        onClick={() => void unassign(a._id)}
+                      >
+                        <Trash2 className="size-3" /> Remove
+                      </Button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
           </div>
         </DialogContent>
       </Dialog>
