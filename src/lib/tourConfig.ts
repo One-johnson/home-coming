@@ -28,6 +28,48 @@ export type TourPackageView = {
 /** The manifest-backed shape — identical fields, no Convex types. */
 export type TourPackageDisplay = TourPackageView;
 
+/** Fields shared by a live `tourPackages` row and a manifest fallback entry. */
+export type TourPackageRecord = {
+  slug: string;
+  label: string;
+  dateLabel: string;
+  timeRange: string;
+  sites: string[];
+  meals: string;
+  priceUsd: number;
+  priceGhs?: number | null;
+  imageUrl?: string | null;
+  displayImageUrl?: string | null;
+  badge?: string | null;
+};
+
+/**
+ * A database row → the shape the public cards and checkout use.
+ *
+ * `_id` is deliberately the slug, not the Convex document id: checkout sends
+ * `packageSlug` and the server resolves + re-prices it, so the public page
+ * never needs real ids and a deleted package fails server-side instead of
+ * charging a stale price.
+ */
+export function toTourPackageDisplay(
+  pkg: TourPackageRecord,
+): TourPackageDisplay {
+  return {
+    _id: pkg.slug,
+    slug: pkg.slug,
+    label: pkg.label,
+    dateLabel: pkg.dateLabel,
+    timeRange: pkg.timeRange,
+    sites: pkg.sites,
+    meals: pkg.meals,
+    priceUsd: pkg.priceUsd,
+    priceGhs: pkg.priceGhs ?? undefined,
+    imageUrl: pkg.imageUrl ?? undefined,
+    displayImageUrl: pkg.displayImageUrl ?? undefined,
+    badge: pkg.badge ?? undefined,
+  };
+}
+
 export type TourPackageSelection = {
   packageId: Id<"tourPackages">;
   quantity: number;

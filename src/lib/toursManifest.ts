@@ -1,16 +1,22 @@
 import rawTours from "../data/toursManifest.json";
-import type { TourPackageDisplay } from "./tourConfig";
+import {
+  toTourPackageDisplay,
+  type TourPackageDisplay,
+} from "./tourConfig";
 
 /**
- * Tour packages are repo-hosted in src/data/toursManifest.json (synced from
- * Convex via `npm run tours:sync`, verified on every build). The /tours page
- * renders from this manifest with zero Convex queries for package content.
+ * FALLBACK tour content, not the source of truth.
  *
- * The manifest is DISPLAY-ONLY: `tourOrders.create` resolves packages by
- * slug from the database and re-prices server-side, so checkout cannot be
- * manipulated through the manifest.
+ * The /tours page subscribes to `tourPackages.listPublic` in Convex, so an
+ * admin edit or deletion shows on the public page immediately with no
+ * redeploy. This repo-hosted manifest only renders the first paint — before
+ * the Convex query resolves, or when Convex is unreachable — so the page still
+ * has real content and good SEO instead of a skeleton.
  *
- * `verified at build time by scripts/tours-manifest.mjs check`
+ * `npm run tours:sync` refreshes it from the database, and `npm run build`
+ * verifies every image path in it exists. Stale entries here are harmless:
+ * checkout sends slugs and `tourOrders.create` re-prices from the database, so
+ * nothing can be bought at a fallback price.
  */
 
 export type ManifestTourPackage = {
@@ -31,19 +37,9 @@ export const toursManifest: ManifestTourPackage[] = (
   rawTours as { packages: ManifestTourPackage[] }
 ).packages;
 
-/** Active packages shaped for the cards/checkout, in manifest order. */
-export function listTourPackages(): TourPackageDisplay[] {
-  return toursManifest.map((pkg) => ({
-    _id: pkg.slug,
-    slug: pkg.slug,
-    label: pkg.label,
-    dateLabel: pkg.dateLabel,
-    timeRange: pkg.timeRange,
-    sites: pkg.sites,
-    meals: pkg.meals,
-    priceUsd: pkg.priceUsd,
-    priceGhs: pkg.priceGhs,
-    displayImageUrl: pkg.image,
-    badge: pkg.badge,
-  }));
+/** Fallback packages shaped for the cards/checkout, in manifest order. */
+export function listFallbackTourPackages(): TourPackageDisplay[] {
+  return toursManifest.map((pkg) =>
+    toTourPackageDisplay({ ...pkg, displayImageUrl: pkg.image }),
+  );
 }

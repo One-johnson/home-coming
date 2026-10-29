@@ -32,7 +32,6 @@ import {
   ComboboxList,
 } from "@/components/ui/combobox";
 import { Separator } from "@/components/ui/separator";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   Sheet,
   SheetContent,
@@ -53,6 +52,7 @@ import {
   LIBRARY_OF_THE_ANOINTED_NOTE,
   calculateTourTotal,
   resolveTourImage,
+  toTourPackageDisplay,
 } from "@/lib/tourConfig";
 import { EVENT } from "@/lib/eventConfig";
 import { isConvexConfigured } from "@/lib/convex-config";
@@ -129,11 +129,22 @@ function QtyControl({
 }
 
 function ToursCheckoutInner({
-  packages,
+  fallbackPackages,
 }: {
-  packages: TourPackageDisplay[];
+  fallbackPackages: TourPackageDisplay[];
 }) {
   const isCompact = useIsCompact();
+  // Live package content: an admin edit or deletion in the dashboard appears
+  // here immediately. The manifest only covers the first paint. It is
+  // display-only — checkout re-prices by slug on the server.
+  const livePackages = useQuery(api.tourPackages.listPublic);
+  const packages = useMemo(
+    () =>
+      livePackages
+        ? livePackages.map((pkg) => toTourPackageDisplay(pkg))
+        : fallbackPackages,
+    [livePackages, fallbackPackages],
+  );
   const catalog = useQuery(api.registrationCatalog.listPublic);
   const createTourOrder = useMutation(api.tourOrders.create);
   const portalConfig = useQuery(api.agcPortal.getPortalConfig);
@@ -180,12 +191,11 @@ function ToursCheckoutInner({
   const showChurchAffiliation = shouldShowChurchAffiliation(group, denomination);
 
   const totals = useMemo(
-    () => calculateTourTotal(packages ?? [], quantities, region),
+    () => calculateTourTotal(packages, quantities, region),
     [packages, quantities, region],
   );
 
   const selectedPackages = useMemo(() => {
-    if (!packages) return [];
     return totals.lineItems
       .map((item) => {
         const pkg = packages.find((p) => p._id === item.packageId);
@@ -359,9 +369,7 @@ function ToursCheckoutInner({
             Conference tour packages
           </h2>
           <p className="mt-1 text-sm text-white/70">
-            {packages === undefined
-              ? "Loading packages…"
-              : `${packages.length} package${packages.length === 1 ? "" : "s"}`}
+            {`${packages.length} package${packages.length === 1 ? "" : "s"}`}
             {hasSelection
               ? ` · ${totals.selections.reduce((n, s) => n + s.quantity, 0)} ticket(s) in cart`
               : ""}
@@ -374,13 +382,7 @@ function ToursCheckoutInner({
         ) : null}
       </div>
 
-      {packages === undefined ? (
-        <div className="grid gap-6 md:grid-cols-2">
-          {[1, 2, 3, 4].map((i) => (
-            <Skeleton key={i} className="min-h-[28rem] rounded-2xl" />
-          ))}
-        </div>
-      ) : packages.length === 0 ? (
+      {packages.length === 0 ? (
         <Alert>
           <AlertTitle>No packages available</AlertTitle>
           <AlertDescription>
@@ -523,7 +525,7 @@ function ToursCheckoutInner({
                   Set ticket quantities. You can add more packages from the tours
                   page anytime.
                 </p>
-                {(packages ?? []).map((pkg) => {
+                {packages.map((pkg) => {
                   const qty = quantities[pkg._id] ?? 0;
                   const imageSrc = resolveTourImage(pkg);
                   return (
@@ -945,5 +947,5 @@ export function ToursCheckout({
   if (!isConvexConfigured()) {
     return <ConvexRequiredMessage />;
   }
-  return <ToursCheckoutInner packages={packages} />;
+  return <ToursCheckoutInner fallbackPackages={packages} />;
 }

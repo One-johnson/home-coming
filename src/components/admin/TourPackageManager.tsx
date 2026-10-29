@@ -527,10 +527,10 @@ export function TourPackageManager() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="max-w-prose space-y-1">
           <p className="text-sm text-muted-foreground">
-            Changes here save straight to the database and stay put — nothing
-            re-seeds them on page load. The public Tours page reads the
-            committed manifest, so run <code>npm run tours:sync</code> and
-            redeploy after editing to publish the new copy and prices.
+            Changes save straight to the database and go live on the public
+            Tours page immediately — no redeploy, nothing re-seeds them on page
+            load. Run <code>npm run tours:sync</code> whenever you want to
+            refresh the committed fallback copy that first paint uses.
           </p>
         </div>
         <Button
