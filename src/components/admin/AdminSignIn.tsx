@@ -208,21 +208,38 @@ export function AdminSignIn({ team }: { team?: TeamKey } = {}) {
               </Link>
             </p>
             {teamConfig ? (
-              <p className="text-center text-xs text-muted-foreground">
-                {teamConfig.label} team only — accounts are created by an
-                admin on the Team page. Other teams:{" "}
-                {otherTeamLogins(teamConfig.key).map((other, index) => (
-                  <span key={other.key}>
-                    {index > 0 ? " · " : ""}
+              <div className="space-y-2 text-center text-xs text-muted-foreground">
+                {teamConfig.selfSignUpPath && (
+                  <p>
+                    New volunteer?{" "}
                     <Link
-                      href={other.signInPath}
+                      href={teamConfig.selfSignUpPath}
                       className="font-medium text-gold hover:text-gold-dark"
                     >
-                      {other.label}
+                      Create your own account
                     </Link>
-                  </span>
-                ))}
-              </p>
+                    .
+                  </p>
+                )}
+                <p>
+                  {teamConfig.label} team only —
+                  {teamConfig.selfSignUpPath
+                    ? " sign up here or ask an admin to create your account on the Team page."
+                    : " accounts are created by an admin on the Team page."}{" "}
+                  Other teams:{" "}
+                  {otherTeamLogins(teamConfig.key).map((other, index) => (
+                    <span key={other.key}>
+                      {index > 0 ? " · " : ""}
+                      <Link
+                        href={other.signInPath}
+                        className="font-medium text-gold hover:text-gold-dark"
+                      >
+                        {other.label}
+                      </Link>
+                    </span>
+                  ))}
+                </p>
+              </div>
             ) : (
               <p className="text-center text-xs text-muted-foreground">
                 Need an account?{" "}

@@ -17,6 +17,7 @@ import type * as agcAuth from "../agcAuth.js";
 import type * as agcAuthData from "../agcAuthData.js";
 import type * as agcBookings from "../agcBookings.js";
 import type * as agcCheckin from "../agcCheckin.js";
+import type * as agcDirectory from "../agcDirectory.js";
 import type * as agcExcel from "../agcExcel.js";
 import type * as agcOffline from "../agcOffline.js";
 import type * as agcOpsData from "../agcOpsData.js";
@@ -81,6 +82,7 @@ declare const fullApi: ApiFromModules<{
   agcAuthData: typeof agcAuthData;
   agcBookings: typeof agcBookings;
   agcCheckin: typeof agcCheckin;
+  agcDirectory: typeof agcDirectory;
   agcExcel: typeof agcExcel;
   agcOffline: typeof agcOffline;
   agcOpsData: typeof agcOpsData;

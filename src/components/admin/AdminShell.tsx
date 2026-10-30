@@ -17,6 +17,7 @@ import {
   LayoutDashboard,
   LogOut,
   Mail,
+  MapPin,
   Newspaper,
   ScrollText,
   Settings,
@@ -85,6 +86,7 @@ const NAV_ICONS: Record<
   "/admin": LayoutDashboard,
   "/admin/registrations": FileSpreadsheet,
   "/admin/accommodation": BedDouble,
+  "/admin/directory": MapPin,
   "/admin/hubs-reps": Inbox,
   "/admin/groups": CalendarDays,
   "/admin/hotels": Hotel,
@@ -390,17 +392,26 @@ function AdminSidebar({
   );
 }
 
-/** Venue staff have one workspace: send them to the arrival desk. */
-function VenueStaffRedirect() {
+/**
+ * Venue staff have exactly one workspace. Room-assignment and check-in staff
+ * run the arrival desk; accommodation volunteers only read the directory.
+ */
+function staffHomePath(role: StaffRole): string {
+  return role === "accommodation_volunteer"
+    ? "/admin/directory"
+    : "/admin/arrival";
+}
+
+function VenueStaffRedirect({ to }: { to: string }) {
   const router = useRouter();
 
   useEffect(() => {
-    router.replace("/admin/arrival");
-  }, [router]);
+    router.replace(to);
+  }, [router, to]);
 
   return (
     <div className="flex min-h-svh items-center justify-center bg-neutral-100 text-sm text-muted-foreground">
-      Opening the arrival desk…
+      Opening your workspace…
     </div>
   );
 }
@@ -434,15 +445,16 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   }
 
   if (!isAdminRole(user.role)) {
-    // Venue staff (room assignment / check-in) work only on the arrival desk
-    // and the runbook; any other console URL sends them to their workspace.
+    // Venue staff work only in their own workspace and the runbook; any other
+    // console URL sends them back there.
     if (isValidStaffRole(user.role)) {
+      const home = staffHomePath(user.role);
       const staffWorkspace =
-        pathname === "/admin/arrival" ||
-        pathname.startsWith("/admin/arrival/") ||
+        pathname === home ||
+        pathname.startsWith(`${home}/`) ||
         pathname === "/admin/help";
       if (!staffWorkspace) {
-        return <VenueStaffRedirect />;
+        return <VenueStaffRedirect to={home} />;
       }
     } else {
       return (
@@ -547,7 +559,9 @@ function AdminConsoleFrame({
               </p>
             </div>
 
-            <AdminCommandPalette />
+            {/* The palette searches registrations and bookings, which only
+                console admins may read — venue staff get their own search. */}
+            {isAdminRole(role) && <AdminCommandPalette />}
 
             <Button
               size="sm"

@@ -5,6 +5,7 @@ import bcrypt from "bcryptjs";
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
 import { action } from "./_generated/server";
+import type { ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
@@ -65,6 +66,66 @@ type AuthResult = {
 };
 
 /**
+ * Self-service sign-up: validates the input, refuses a taken email, hashes the
+ * password and returns a signed-in session. The caller decides which role the
+ * new account gets — never the form.
+ */
+async function createSelfServeAccount(
+  ctx: ActionCtx,
+  role: StaffRole,
+  args: { name: string; email: string; password: string },
+): Promise<AuthResult> {
+  if (args.password.length < 8) {
+    throw new ConvexError("Password must be at least 8 characters");
+  }
+
+  const email = normalizeEmail(args.email);
+  const name = args.name.trim();
+  if (!name || !email) {
+    throw new ConvexError("Name and email are required");
+  }
+
+  // Fail fast on duplicate accounts (createUserRecord also enforces this).
+  const existingUser: Doc<"users"> | null = await ctx.runQuery(
+    internal.users.getAuthUserByEmail,
+    { email },
+  );
+  if (existingUser) {
+    throw new ConvexError("Email already registered");
+  }
+
+  const passwordHash = await bcrypt.hash(args.password, BCRYPT_ROUNDS);
+  const userId: Id<"users"> = await ctx.runMutation(
+    internal.users.createUserRecord,
+    {
+      name,
+      email,
+      passwordHash,
+      role,
+    },
+  );
+
+  const token = createSessionToken();
+  const expiresAt = Date.now() + SESSION_TTL_MS;
+  await ctx.runMutation(internal.users.createSessionRecord, {
+    userId,
+    token,
+    expiresAt,
+  });
+
+  return {
+    sessionToken: token,
+    expiresAt,
+    user: {
+      _id: userId,
+      name,
+      email,
+      role,
+    },
+  };
+}
+
+/**
  * Open admin registration: anyone can create an account at /admin/register
  * without an invite code. New accounts are full admins — this mirrors the
  * first-admin bootstrap. (To land new sign-ups in a limited role instead,
@@ -77,54 +138,23 @@ export const registerInitialAdmin = action({
     password: v.string(),
   },
   handler: async (ctx, args): Promise<AuthResult> => {
-    if (args.password.length < 8) {
-      throw new ConvexError("Password must be at least 8 characters");
-    }
+    return await createSelfServeAccount(ctx, "admin", args);
+  },
+});
 
-    const email = normalizeEmail(args.email);
-    const name = args.name.trim();
-    if (!name || !email) {
-      throw new ConvexError("Name and email are required");
-    }
-
-    // Fail fast on duplicate accounts (createUserRecord also enforces this).
-    const existingUser: Doc<"users"> | null = await ctx.runQuery(
-      internal.users.getAuthUserByEmail,
-      { email },
-    );
-    if (existingUser) {
-      throw new ConvexError("Email already registered");
-    }
-
-    const passwordHash = await bcrypt.hash(args.password, BCRYPT_ROUNDS);
-    const userId: Id<"users"> = await ctx.runMutation(
-      internal.users.createUserRecord,
-      {
-        name,
-        email,
-        passwordHash,
-        role: "admin",
-      },
-    );
-
-    const token = createSessionToken();
-    const expiresAt = Date.now() + SESSION_TTL_MS;
-    await ctx.runMutation(internal.users.createSessionRecord, {
-      userId,
-      token,
-      expiresAt,
-    });
-
-    return {
-      sessionToken: token,
-      expiresAt,
-      user: {
-        _id: userId,
-        name,
-        email,
-        role: "admin",
-      },
-    };
+/**
+ * Accommodation volunteers create their own account at
+ * /accommodation-volunteer/register. The role is fixed here: the sign-up form
+ * can only ever produce the read-only volunteer door account.
+ */
+export const registerAccommodationVolunteer = action({
+  args: {
+    name: v.string(),
+    email: v.string(),
+    password: v.string(),
+  },
+  handler: async (ctx, args): Promise<AuthResult> => {
+    return await createSelfServeAccount(ctx, "accommodation_volunteer", args);
   },
 });
 

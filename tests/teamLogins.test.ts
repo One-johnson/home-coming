@@ -24,6 +24,24 @@ describe("team sign-in routes", () => {
     expect(TEAM_LOGINS.content.signInPath).toBe("/content");
     expect(TEAM_LOGINS.room_assignment.signInPath).toBe("/room-assignment");
     expect(TEAM_LOGINS.checkin.signInPath).toBe("/check-in");
+    expect(TEAM_LOGINS.accommodation_volunteer.signInPath).toBe(
+      "/accommodation-volunteer",
+    );
+  });
+
+  test("only volunteers can create their own account", () => {
+    expect(
+      TEAM_LOGINS.accommodation_volunteer.selfSignUpPath?.startsWith(
+        "/accommodation-volunteer",
+      ),
+    ).toBe(true);
+    expect(
+      TEAM_KEYS.filter((key) => TEAM_LOGINS[key].selfSignUpPath),
+    ).toEqual(["accommodation_volunteer"]);
+    // Their workspace is the read-only directory, not the arrival desk.
+    expect(TEAM_LOGINS.accommodation_volunteer.homePath).toBe(
+      "/admin/directory",
+    );
   });
 
   test("sign-in URLs are unique and homes live inside the console", () => {
@@ -45,6 +63,10 @@ describe("team sign-in routes", () => {
     expect(canSignInToTeam("content", "content")).toBe(true);
     expect(canSignInToTeam("room_assignment", "room_assignment")).toBe(true);
     expect(canSignInToTeam("checkin", "checkin")).toBe(true);
+    expect(
+      canSignInToTeam("accommodation_volunteer", "accommodation_volunteer"),
+    ).toBe(true);
+    expect(canSignInToTeam("accommodation_volunteer", "admin")).toBe(false);
 
     // Cross-team attempts are rejected (they are told where to go instead).
     expect(canSignInToTeam("admin", "registration")).toBe(false);
@@ -66,6 +88,9 @@ describe("team sign-in routes", () => {
     expect(teamForRole("content")).toBe("content");
     expect(teamForRole("checkin")).toBe("checkin");
     expect(teamForRole("room_assignment")).toBe("room_assignment");
+    expect(teamForRole("accommodation_volunteer")).toBe(
+      "accommodation_volunteer",
+    );
     expect(teamForRole("something_else")).toBeNull();
 
     expect(signInPathForRole("finance")).toBe("/finance");
@@ -80,6 +105,7 @@ describe("team sign-in routes", () => {
     expect(TEAM_SIGN_IN_PATHS).toContain("/content");
     expect(TEAM_SIGN_IN_PATHS).toContain("/room-assignment");
     expect(TEAM_SIGN_IN_PATHS).toContain("/check-in");
+    expect(TEAM_SIGN_IN_PATHS).toContain("/accommodation-volunteer");
     expect(TEAM_SIGN_IN_PATHS).not.toContain("/admin");
   });
 

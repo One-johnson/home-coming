@@ -23,6 +23,8 @@ export * from "./schemaTypes";
 
 // Phase 2 §2 adds venue staff roles: "room_assignment" (assign/change rooms,
 // check in/out, keys) and "checkin" (search, check in/out, keys only).
+// "accommodation_volunteer" is the read-only door staff role: they see the
+// reps, delegates and rooms directory to point people at their rooms.
 const adminRole = v.union(
   v.literal("admin"),
   v.literal("content"),
@@ -31,6 +33,7 @@ const adminRole = v.union(
   v.literal("accommodation"),
   v.literal("room_assignment"),
   v.literal("checkin"),
+  v.literal("accommodation_volunteer"),
 );
 
 export default defineSchema({

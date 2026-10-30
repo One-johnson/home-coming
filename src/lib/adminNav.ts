@@ -46,6 +46,12 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         badgeKey: "bookingsPending",
       },
       {
+        href: "/admin/directory",
+        label: "Delegate directory",
+        description: "Read-only reps, delegates and rooms",
+        area: "directory",
+      },
+      {
         href: "/admin/arrival",
         label: "Arrival desk",
         description: "Accommodation check-in, keys, offline stations",

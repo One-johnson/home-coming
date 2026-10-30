@@ -17,6 +17,7 @@ export const TEAM_KEYS = [
   "content",
   "room_assignment",
   "checkin",
+  "accommodation_volunteer",
 ] as const;
 
 export type TeamKey = (typeof TEAM_KEYS)[number];
@@ -31,6 +32,11 @@ export type TeamLogin = {
   /** Roles allowed to sign in at this route. */
   roles: readonly StaffRole[];
   description: string;
+  /**
+   * Route where this team may create its own account. Only volunteers have
+   * one — every other team's accounts are minted by an admin.
+   */
+  selfSignUpPath?: string;
 };
 
 export const TEAM_LOGINS: Record<TeamKey, TeamLogin> = {
@@ -92,6 +98,16 @@ export const TEAM_LOGINS: Record<TeamKey, TeamLogin> = {
     description:
       "Venue staff: arrival search, check-in/out, keys and status views only.",
   },
+  accommodation_volunteer: {
+    key: "accommodation_volunteer",
+    label: "Accommodation volunteer",
+    homePath: "/admin/directory",
+    signInPath: "/accommodation-volunteer",
+    roles: ["accommodation_volunteer"],
+    description:
+      "Read-only: every rep with their delegates and rooms, to walk delegates to the right room.",
+    selfSignUpPath: "/accommodation-volunteer/register",
+  },
 };
 
 /** The team whose sign-in route a role should use, or null if unknown. */
@@ -103,6 +119,7 @@ export function teamForRole(role: StaffRole | string | null | undefined): TeamKe
   if (role === "content") return "content";
   if (role === "room_assignment") return "room_assignment";
   if (role === "checkin") return "checkin";
+  if (role === "accommodation_volunteer") return "accommodation_volunteer";
   return null;
 }
 

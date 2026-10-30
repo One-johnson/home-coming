@@ -18,8 +18,16 @@ export const ADMIN_ROLES = [
   "accommodation",
 ] as const;
 
-/** Phase 2 §2 venue staff — restricted to arrival operations, not admin areas. */
-export const VENUE_STAFF_ROLES = ["room_assignment", "checkin"] as const;
+/**
+ * Phase 2 §2 venue staff — restricted to their own workspace, not admin areas.
+ * Accommodation volunteers are read-only: they direct delegates to their rooms
+ * from the directory and never change a record.
+ */
+export const VENUE_STAFF_ROLES = [
+  "room_assignment",
+  "checkin",
+  "accommodation_volunteer",
+] as const;
 
 export type AdminRole = (typeof ADMIN_ROLES)[number];
 export type VenueStaffRole = (typeof VENUE_STAFF_ROLES)[number];
@@ -30,6 +38,7 @@ export const ALL_STAFF_ROLES: readonly StaffRole[] = [...ADMIN_ROLES, ...VENUE_S
 export type AdminArea =
   | "registration"
   | "accommodation"
+  | "directory"
   | "content"
   | "emails"
   | "team"
@@ -41,6 +50,9 @@ export const AREA_ROLES: Record<AdminArea, readonly StaffRole[]> = {
   // Room-assignment staff work the accommodation area's room inventory (see
   // src/lib/adminRoles.ts, which mirrors this).
   accommodation: ["admin", "accommodation", "room_assignment"],
+  // Read-only reps / delegates / rooms directory. Volunteers work from it on
+  // their phones; the accommodation team gets it alongside the room console.
+  directory: ["admin", "accommodation", "accommodation_volunteer"],
   content: ["admin", "content"],
   emails: ["admin"],
   team: ["admin"],
@@ -58,6 +70,7 @@ export const adminRoleValidator = v.union(
   v.literal("accommodation"),
   v.literal("room_assignment"),
   v.literal("checkin"),
+  v.literal("accommodation_volunteer"),
 );
 
 export const sessionTokenValidator = v.string();
