@@ -8,6 +8,7 @@ import {
   reconcilePoolCounters,
   retireBookingGuests,
 } from "./agcAccommodation";
+import { MAX_NIGHTLY_BATCHES } from "./storageMaintenance";
 
 const crons = cronJobs();
 
@@ -142,6 +143,50 @@ crons.daily(
   "delete payment images 15 days after confirmation",
   { hourUTC: 3, minuteUTC: 15 },
   internal.storageMaintenance.purgeExpiredPaymentImages,
+  {},
+);
+
+/**
+ * Nightly reclamation of stranded uploads: blobs no row points at, older than
+ * the 24h grace window — the same rule the admin button applies, so nobody has
+ * to press it for storage to stop growing.
+ *
+ * Each batch is its own transaction (500 files), and the tick runs up to
+ * MAX_NIGHTLY_BATCHES of them, stopping as soon as a pass frees nothing. The
+ * audit log names "system:storage-sweep" for everything it deletes.
+ */
+export const nightlyOrphanSweepTick = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    let deleted = 0;
+    let failed = 0;
+    let bytesFreed = 0;
+    let remaining = 0;
+    let batches = 0;
+
+    for (let pass = 0; pass < MAX_NIGHTLY_BATCHES; pass += 1) {
+      const result = await ctx.runMutation(
+        internal.storageMaintenance.sweepOrphanedFilesBatch,
+        {},
+      );
+      batches += 1;
+      deleted += result.deleted;
+      failed += result.failed;
+      bytesFreed += result.bytesFreed;
+      remaining = result.remaining;
+      // Nothing left to reclaim (or every delete in the batch failed, which
+      // retrying tonight cannot fix) — stop rather than re-scan uselessly.
+      if (result.deleted === 0) break;
+    }
+
+    return { deleted, failed, bytesFreed, remaining, batches };
+  },
+});
+
+crons.daily(
+  "sweep orphaned file uploads",
+  { hourUTC: 3, minuteUTC: 45 },
+  internal.crons.nightlyOrphanSweepTick,
   {},
 );
 

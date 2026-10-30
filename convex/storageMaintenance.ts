@@ -27,6 +27,11 @@ import { writeAuditLog } from "./lib/audit";
 const DEFAULT_GRACE_MS = 24 * 60 * 60 * 1000;
 /** Files deleted per sweep call, so one click can't blow the mutation budget. */
 const MAX_BATCH = 500;
+/**
+ * Batches the nightly cron runs (500 files each), so one night reclaims up to
+ * 2,000 stranded uploads instead of taking a week at one batch a night.
+ */
+export const MAX_NIGHTLY_BATCHES = 4;
 
 /**
  * A payment image is evidence only while the payment is being verified. Once
@@ -223,10 +228,71 @@ export const getStorageReport = query({
   },
 });
 
+/** Who asked for the sweep — an admin in the console, or the nightly cron. */
+type SweepActor = {
+  actorUserId?: Id<"users">;
+  actorEmail: string;
+  /** True for the cron, recorded in the audit entry so nobody is blamed. */
+  automatic: boolean;
+};
+
 /**
  * Delete up to `limit` orphaned blobs. Idempotent: each run re-reads the
  * reference set, so anything claimed since the last sweep is left alone.
+ *
+ * The admin button and the nightly cron share this, so both obey the same two
+ * rules: never a blob a row points at, never one inside the grace window — and
+ * either way an audit entry records what left storage.
  */
+async function sweepOrphans(
+  ctx: MutationCtx,
+  args: { graceMs: number; limit: number; actor: SweepActor },
+) {
+  const { orphans } = await findOrphans(ctx, args.graceMs);
+  const batch = orphans.slice(0, args.limit);
+
+  let deleted = 0;
+  let bytesFreed = 0;
+  let failed = 0;
+  for (const blob of batch) {
+    try {
+      await ctx.storage.delete(blob._id as Id<"_storage">);
+    } catch {
+      // Already deleted (a concurrent sweep or a manual dashboard delete) —
+      // nothing to reclaim, and it must not abort the rest of the batch.
+      failed += 1;
+      continue;
+    }
+    deleted += 1;
+    bytesFreed += blob.size;
+  }
+
+  if (deleted > 0) {
+    await writeAuditLog(ctx, {
+      actorUserId: args.actor.actorUserId,
+      actorEmail: args.actor.actorEmail,
+      action: "storage.orphans_swept",
+      entityType: "storage",
+      summary: `Deleted ${deleted} orphaned file${deleted === 1 ? "" : "s"} (${formatMb(bytesFreed)}) from file storage`,
+      metadata: {
+        deleted,
+        failed,
+        bytesFreed,
+        graceHours: args.graceMs / 3_600_000,
+        automatic: args.actor.automatic,
+      },
+    });
+  }
+
+  return {
+    deleted,
+    failed,
+    bytesFreed,
+    remaining: Math.max(0, orphans.length - deleted),
+  };
+}
+
+/** Admin button: sweep now, with the caller's identity on the audit entry. */
 export const sweepOrphanedFiles = mutation({
   args: {
     sessionToken: sessionTokenValidator,
@@ -242,42 +308,34 @@ export const sweepOrphanedFiles = mutation({
       Math.max(1, Math.floor(args.limit ?? MAX_BATCH)),
     );
 
-    const { orphans } = await findOrphans(ctx, graceHours * 3_600_000);
-    const batch = orphans.slice(0, limit);
+    return await sweepOrphans(ctx, {
+      graceMs: graceHours * 3_600_000,
+      limit,
+      actor: { actorUserId: actor._id, actorEmail: actor.email, automatic: false },
+    });
+  },
+});
 
-    let deleted = 0;
-    let bytesFreed = 0;
-    let failed = 0;
-    for (const blob of batch) {
-      try {
-        await ctx.storage.delete(blob._id as Id<"_storage">);
-      } catch {
-        // Already deleted (a concurrent sweep or a manual dashboard delete) —
-        // nothing to reclaim, and it must not abort the rest of the batch.
-        failed += 1;
-        continue;
-      }
-      deleted += 1;
-      bytesFreed += blob.size;
-    }
-
-    if (deleted > 0) {
-      await writeAuditLog(ctx, {
-        actorUserId: actor._id,
-        actorEmail: actor.email,
-        action: "storage.orphans_swept",
-        entityType: "storage",
-        summary: `Deleted ${deleted} orphaned file${deleted === 1 ? "" : "s"} (${formatMb(bytesFreed)}) from file storage`,
-        metadata: { deleted, failed, bytesFreed, graceHours },
-      });
-    }
-
-    return {
-      deleted,
-      failed,
-      bytesFreed,
-      remaining: Math.max(0, orphans.length - deleted),
-    };
+/**
+ * One nightly batch, called by `crons.ts` under `nightlyOrphanSweepTick`.
+ *
+ * No session: the cron is the caller. The audit entry is attributed to
+ * "system:storage-sweep" and flagged `automatic`, so the log never suggests a
+ * person pressed anything. Each batch is its own transaction, which is why the
+ * cron loops these instead of sweeping everything in one mutation.
+ */
+export const sweepOrphanedFilesBatch = internalMutation({
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const limit = Math.min(
+      MAX_BATCH,
+      Math.max(1, Math.floor(args.limit ?? MAX_BATCH)),
+    );
+    return await sweepOrphans(ctx, {
+      graceMs: DEFAULT_GRACE_MS,
+      limit,
+      actor: { actorEmail: "system:storage-sweep", automatic: true },
+    });
   },
 });
 

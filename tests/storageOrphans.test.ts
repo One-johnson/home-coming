@@ -99,6 +99,66 @@ test("sweep deletes only unreferenced blobs past the grace window", async () => 
   expect(logs.map((log) => log.action)).toContain("storage.orphans_swept");
 });
 
+test("the nightly cron sweeps orphans on its own, with a system audit entry", async () => {
+  const t = createTestConvex();
+
+  const referencedId = await t.run((ctx) =>
+    ctx.storage.store(new Blob(["live receipt"])),
+  );
+  const orphanId = await t.run((ctx) =>
+    ctx.storage.store(new Blob(["abandoned upload"])),
+  );
+  await t.run(async (ctx) => {
+    await ctx.db.insert("heroSlides", {
+      storageId: referencedId,
+      alt: "Referenced",
+      order: 0,
+    });
+  });
+
+  // Inside the grace window, so the cron leaves everything alone.
+  const tooEarly = await t.mutation(internal.crons.nightlyOrphanSweepTick, {});
+  expect(tooEarly.deleted).toBe(0);
+  expect(tooEarly.batches).toBe(1);
+
+  advanceDays(2);
+
+  // An upload made after the clock moved is still inside the window.
+  const freshId = await t.run((ctx) =>
+    ctx.storage.store(new Blob(["still in flight"])),
+  );
+
+  const result = await t.mutation(internal.crons.nightlyOrphanSweepTick, {});
+  expect(result.deleted).toBe(1);
+  expect(result.failed).toBe(0);
+  expect(result.remaining).toBe(0);
+
+  const [survivor, orphan, fresh] = await t.run((ctx) =>
+    Promise.all([
+      ctx.db.system.get(referencedId),
+      ctx.db.system.get(orphanId),
+      ctx.db.system.get(freshId),
+    ]),
+  );
+  expect(survivor).not.toBeNull();
+  expect(fresh).not.toBeNull();
+  expect(orphan).toBeNull();
+
+  // The log must show a machine did it, never a person.
+  const logs = await t.run((ctx) =>
+    ctx.db
+      .query("auditLogs")
+      .collect()
+      .then((rows) =>
+        rows.filter((row) => row.action === "storage.orphans_swept"),
+      ),
+  );
+  expect(logs).toHaveLength(1);
+  expect(logs[0].actorEmail).toBe("system:storage-sweep");
+  expect(logs[0].actorUserId).toBeUndefined();
+  expect(JSON.parse(logs[0].metadata ?? "{}").automatic).toBe(true);
+});
+
 test("discardUploadedFile removes an unclaimed upload but never a live file", async () => {
   const t = createTestConvex();
 

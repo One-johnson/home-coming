@@ -92,8 +92,9 @@ export function StorageMaintenancePanel() {
             <CardTitle className="text-sm font-medium">File storage</CardTitle>
             <p className="mt-1 text-xs text-muted-foreground">
               Receipts, payment evidence and imported workbooks. Files that no
-              record points at were left behind by a failed submission and can
-              be removed.
+              record points at were left behind by a failed submission — they
+              are swept every night on their own, and this button clears them
+              right now.
             </p>
           </div>
           <Button
@@ -161,7 +162,8 @@ export function StorageMaintenancePanel() {
                 {report.nextExpiryAt
                   ? `, the next on ${formatDay(report.nextExpiryAt)}`
                   : ""}
-                .
+                . Stranded uploads are swept overnight, so this list should dry
+                up without anyone pressing the button.
               </p>
               {report.sample.length > 0 && (
                 <details className="text-xs text-muted-foreground">
