@@ -49,6 +49,32 @@ async function seedOrder(t: TestConvex) {
   });
 }
 
+/** Seed a staff user + session and return the session token. */
+async function sessionFor(
+  t: TestConvex,
+  role: "admin" | "registration" = "admin",
+): Promise<string> {
+  const { createHash, randomBytes } = await import("node:crypto");
+  const token = createHash("sha256").update(randomBytes(24)).digest("hex");
+  await t.run(async (ctx) => {
+    const userId = await ctx.db.insert("users", {
+      name: `${role} user`,
+      email: `${role}-${token.slice(0, 8)}@example.com`,
+      passwordHash: "not-a-real-hash",
+      role,
+      active: true,
+      createdAt: Date.now(),
+    });
+    await ctx.db.insert("sessions", {
+      userId,
+      token,
+      expiresAt: Date.now() + 3_600_000,
+      createdAt: Date.now(),
+    });
+  });
+  return token;
+}
+
 async function seedFile(
   t: TestConvex,
   type: string,
@@ -222,29 +248,48 @@ test("the dashboard list exposes the uploaded receipt URL", async () => {
     contentType: "image/png",
   });
 
-  const { createHash, randomBytes } = await import("node:crypto");
-  const token = createHash("sha256").update(randomBytes(24)).digest("hex");
-  await t.run(async (ctx) => {
-    const userId = await ctx.db.insert("users", {
-      name: "Admin",
-      email: "tours-admin@example.com",
-      passwordHash: "not-a-real-hash",
-      role: "admin",
-      active: true,
-      createdAt: Date.now(),
-    });
-    await ctx.db.insert("sessions", {
-      userId,
-      token,
-      expiresAt: Date.now() + 3_600_000,
-      createdAt: Date.now(),
-    });
-  });
+  const token = await sessionFor(t);
 
   const rows = await t.query(api.tourOrders.list, { sessionToken: token });
   expect(rows).toHaveLength(1);
   expect(rows[0].receiptUrl).toBeTruthy();
   expect(rows[0].receiptStorageId).toBe(storageId);
+});
+
+test("an admin deletes an order, its receipt and leaves an audit trail", async () => {
+  const t = createTestConvex();
+  const orderId = await seedOrder(t);
+  const storageId = await seedFile(t, "image/png");
+  await t.mutation(api.tourOrders.attachReceipt, {
+    referenceNumber: REFERENCE,
+    email: "guest@example.com",
+    storageId,
+    contentType: "image/png",
+  });
+  const token = await sessionFor(t);
+
+  await t.mutation(api.tourOrders.remove, { sessionToken: token, id: orderId });
+
+  expect(await t.run((ctx) => ctx.db.get(orderId))).toBeNull();
+  expect(await t.run((ctx) => ctx.storage.getUrl(storageId))).toBeNull();
+
+  const logs = await t.run((ctx) => ctx.db.query("auditLogs").collect());
+  const entry = logs.find((log) => log.action === "tour_order.delete");
+  expect(entry).toBeTruthy();
+  expect(entry?.summary).toContain(REFERENCE);
+  expect(entry?.metadata).toContain("hadReceipt");
+});
+
+test("registration staff cannot delete an order", async () => {
+  const t = createTestConvex();
+  const orderId = await seedOrder(t);
+  const token = await sessionFor(t, "registration");
+
+  await expect(
+    t.mutation(api.tourOrders.remove, { sessionToken: token, id: orderId }),
+  ).rejects.toThrow();
+
+  expect(await t.run((ctx) => ctx.db.get(orderId))).not.toBeNull();
 });
 
 test("replacing a receipt drops the previous blob", async () => {

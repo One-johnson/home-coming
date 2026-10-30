@@ -21,6 +21,7 @@ import {
   RecordDetailSheet,
   type PaymentStatus,
 } from "@/components/admin/RecordDetailSheet";
+import { ConfirmDeleteDialog } from "@/components/admin/ConfirmDeleteDialog";
 import {
   useAdminSession,
   useSessionArgs,
@@ -35,8 +36,14 @@ function TourOrdersTable() {
   const orders = useQuery(api.tourOrders.list, allowed ? sessionArgs : "skip");
   const updateStatus = useMutation(api.tourOrders.updatePaymentStatus);
   const bulkUpdate = useMutation(api.tourOrders.bulkUpdatePaymentStatus);
+  const removeOrder = useMutation(api.tourOrders.remove);
 
   const [selected, setSelected] = useState<TourOrderRow | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<TourOrderRow | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  // Deleting a money record is a super-admin action; everyone who can see the
+  // orders can still change their payment status.
+  const canDelete = user?.role === "admin";
 
   useEffect(() => {
     const id = searchParams.get("id");
@@ -57,6 +64,23 @@ function TourOrdersTable() {
       </p>
     );
   }
+
+  const handleConfirmDelete = async () => {
+    if (!sessionToken || !deleteTarget) return;
+    setDeleting(true);
+    try {
+      await removeOrder({ sessionToken, id: deleteTarget._id });
+      toast.success(
+        `Deleted ${deleteTarget.referenceNumber ?? "tour order"}`,
+      );
+      if (selected?._id === deleteTarget._id) setSelected(null);
+      setDeleteTarget(null);
+    } catch (err) {
+      toast.error(cleanErrorMessage(err) || "Could not delete that order");
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const setPayment = async (
     id: Id<"tourOrders">,
@@ -202,12 +226,42 @@ function TourOrdersTable() {
         }
         footer={
           selected ? (
-            <PaymentStatusButtons
-              current={selected.paymentStatus}
-              onChange={(status) => void setPayment(selected._id, status)}
-            />
+            <div className="flex w-full flex-wrap items-center justify-between gap-2">
+              <PaymentStatusButtons
+                current={selected.paymentStatus}
+                onChange={(status) => void setPayment(selected._id, status)}
+              />
+              {canDelete ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-destructive"
+                  onClick={() => setDeleteTarget(selected)}
+                >
+                  Delete order
+                </Button>
+              ) : null}
+            </div>
           ) : null
         }
+      />
+
+      <ConfirmDeleteDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+        title="Delete tour order?"
+        description={
+          deleteTarget
+            ? `${deleteTarget.referenceNumber ?? "This order"} for ${
+                deleteTarget.fullName
+              } will be permanently deleted, along with any uploaded receipt. Its audit entry is kept. This cannot be undone.`
+            : ""
+        }
+        confirmLabel="Delete order"
+        loading={deleting}
+        onConfirm={handleConfirmDelete}
       />
     </div>
   );

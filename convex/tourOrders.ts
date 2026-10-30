@@ -371,6 +371,57 @@ export const updatePaymentStatus = mutation({
   },
 });
 
+/**
+ * Permanently delete a tour order and its receipt blob. Admin-only and
+ * audited: an order is the record that money was asked for, so this is for
+ * test bookings, duplicates and mistakes — not routine tidying. The audit
+ * entry keeps the reference, amount and status so the removal can still be
+ * accounted for after the row is gone.
+ */
+export const remove = mutation({
+  args: {
+    sessionToken: sessionTokenValidator,
+    id: v.id("tourOrders"),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireRole(ctx, args.sessionToken, ["admin"]);
+    const existing = await ctx.db.get(args.id);
+    if (!existing) throw new ConvexError("Tour order not found");
+
+    if (existing.receiptStorageId) {
+      // Best effort: the blob may already be gone (retention sweep or the
+      // storage dashboard), and a missing file must not block the delete.
+      if (await ctx.storage.getUrl(existing.receiptStorageId)) {
+        await ctx.storage.delete(existing.receiptStorageId);
+      }
+    }
+
+    await ctx.db.delete(args.id);
+
+    await writeAuditLog(ctx, {
+      actorUserId: actor._id,
+      actorEmail: actor.email,
+      action: "tour_order.delete",
+      entityType: "tourOrders",
+      entityId: args.id,
+      summary: `Deleted tour order ${existing.referenceNumber ?? args.id}`,
+      metadata: {
+        referenceNumber: existing.referenceNumber ?? null,
+        email: existing.email,
+        totalAmount: existing.totalAmount,
+        currency: existing.currency,
+        paymentStatus: existing.paymentStatus,
+        items: existing.items.map(
+          (item) => `${item.label} x${item.quantity}`,
+        ),
+        hadReceipt: Boolean(existing.receiptStorageId),
+      },
+    });
+
+    return { deleted: true };
+  },
+});
+
 export const bulkUpdatePaymentStatus = mutation({
   args: {
     sessionToken: sessionTokenValidator,
