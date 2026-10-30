@@ -152,7 +152,12 @@ test("a volunteer sees every delegate with their rep, hub and room", async () =>
     bookingRef: "AGC-BK-9001",
     checkedIn: true,
   });
-  expect(assigned?.typeLabel).toBeTruthy();
+  // The type is the delegate's booked allocation, so the desk can filter by
+  // hostel / EBPV / lodge before a room has been handed out.
+  expect(assigned?.accommodationType).toBe("dormitory");
+  expect(assigned?.typeLabel).toContain("Dormitory");
+  // Occupancy rides along so the directory can read "2/4 beds" per room.
+  expect(assigned?.roomCapacity).toBe(4);
 
   // A delegate with no bed yet is listed too, so the desk can see the gap.
   const unassigned = directory.delegates.find(
@@ -160,6 +165,8 @@ test("a volunteer sees every delegate with their rep, hub and room", async () =>
   );
   expect(unassigned?.roomName).toBeNull();
   expect(unassigned?.checkedIn).toBe(false);
+  expect(unassigned?.accommodationType).toBe("dormitory");
+  expect(unassigned?.gender).toBe("female");
 });
 
 test("the directory is read-only for volunteers: room and desk surfaces stay shut", async () => {

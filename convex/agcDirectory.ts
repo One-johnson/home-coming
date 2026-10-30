@@ -96,11 +96,15 @@ export const listDelegateDirectory = query({
           bookingRef: booking.referenceNumber ?? "",
           roomName: room?.name ?? null,
           building: room?.building ?? null,
-          accommodationType: room?.accommodationType ?? null,
-          typeLabel: room
-            ? (AGC_ACCOMMODATION_LABELS[room.accommodationType] ??
-              room.accommodationType)
-            : null,
+          /** Beds in the room, so the desk can read occupancy at a glance. */
+          roomCapacity: room?.capacity ?? null,
+          // The type the delegate was booked into, not the room's: an
+          // unassigned delegate still has a hostel/EBPV/lodge allocation, and
+          // the desk filters by it before a room exists.
+          accommodationType: guest.accommodationType as string,
+          typeLabel:
+            AGC_ACCOMMODATION_LABELS[guest.accommodationType] ??
+            guest.accommodationType,
           checkedIn: checkedIn.has(guest._id),
         };
       })
