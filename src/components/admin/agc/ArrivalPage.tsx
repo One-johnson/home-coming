@@ -1709,9 +1709,11 @@ export function ArrivalPage() {
             </ul>
             <div className="hidden sm:block">
             <Table>
-              {/* `top-16` clears the console's fixed 64px header — at `top-0`
-                  the pinned row would slide underneath it and vanish. */}
-              <TableHeader className="sticky top-16 z-10 bg-card shadow-[0_1px_0_0_theme(colors.border)]">
+              {/* The sheet scrolls inside its own 60vh box, so the header pins
+                  to the top edge of that box (`top-0`). Offsetting it by the
+                  console's 64px header pushed it down into the rows instead —
+                  the box already starts below the fixed header. */}
+              <TableHeader className="sticky top-0 z-10 bg-card shadow-[0_1px_0_0_theme(colors.border)]">
                 <TableRow className="bg-muted/50 hover:bg-muted/50">
                   <TableHead className="w-8">
                     <span className="sr-only">Select for bulk check-in</span>
