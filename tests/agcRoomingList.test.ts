@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { roomingListHtml, type RoomingListDoc } from "@/lib/agcRoomingList";
+import { roomingListFileName, roomingListModel, type RoomingListDoc } from "@/lib/agcRoomingList";
 
 function doc(overrides: Partial<RoomingListDoc> = {}): RoomingListDoc {
   return {
@@ -40,43 +40,54 @@ function doc(overrides: Partial<RoomingListDoc> = {}): RoomingListDoc {
   };
 }
 
-describe("roomingListHtml", () => {
-  it("prints the rooms, not the console chrome", () => {
-    const html = roomingListHtml(doc());
-    expect(html).toContain("<!doctype html>");
-    expect(html).toContain("Rooming list");
-    expect(html).toContain("747");
-    expect(html).toContain("A12");
-    expect(html).not.toContain("data-radix");
-    expect(html).not.toContain("sm:max-w-3xl");
+describe("roomingListModel", () => {
+  it("carries the rooms and the filter it was downloaded for", () => {
+    const model = roomingListModel(doc());
+    expect(model.filterLabel).toBe("All types");
+    expect(model.generatedBy).toBeNull();
+    expect(model.generatedLabel).not.toBe("");
+    expect(model.isEmpty).toBe(false);
+    expect(model.groups.flatMap((group) => group.rooms.map((room) => room.name))).toEqual([
+      "747",
+      "A12",
+    ]);
   });
 
   it("prints every bed, including vacancies, so the count can be checked", () => {
-    const html = roomingListHtml(doc());
+    const model = roomingListModel(doc());
     // 747 holds one delegate in four beds; A12 is empty.
-    expect(html.split("(vacant)").length - 1).toBe(5);
-    expect(html).toContain("3 vacant");
+    const hostel = model.groups[0].rooms[0];
+    expect(hostel.beds).toHaveLength(4);
+    expect(hostel.beds.map((bed) => bed.bed)).toEqual([1, 2, 3, 4]);
+    expect(hostel.beds.filter((bed) => bed.kind === "vacant")).toHaveLength(3);
+
+    const vacantRows = model.groups
+      .flatMap((group) => group.rooms)
+      .flatMap((room) => room.beds)
+      .filter((bed) => bed.kind === "vacant");
+    expect(vacantRows).toHaveLength(5);
   });
 
   it("totals rooms, beds, filled and vacant", () => {
-    const html = roomingListHtml(doc());
-    expect(html).toContain("<strong>2</strong> room(s)");
-    expect(html).toContain("<strong>6</strong> bed(s)");
-    expect(html).toContain("<strong>1</strong> filled");
-    expect(html).toContain("<strong>5</strong> vacant");
+    expect(roomingListModel(doc()).totals).toEqual({
+      rooms: 2,
+      beds: 6,
+      filled: 1,
+      vacant: 5,
+    });
   });
 
-  it("groups rooms under their accommodation type", () => {
-    const html = roomingListHtml(doc());
-    const hostel = html.indexOf(">Hostel <");
-    const apartment = html.indexOf(">Apartment <");
-    expect(hostel).toBeGreaterThan(-1);
-    expect(apartment).toBeGreaterThan(-1);
-    expect(hostel).toBeLessThan(apartment);
+  it("groups rooms under their accommodation type, in query order", () => {
+    const model = roomingListModel(doc());
+    expect(model.groups.map((group) => group.label)).toEqual(["Hostel", "Apartment"]);
+    expect(model.groups[0].rooms[0].heading).toBe(
+      "Hostel · Block 3 · female only · 1/4 beds · 3 vacant",
+    );
+    expect(model.groups[1].rooms[0].heading).toBe("Apartment · 0/2 beds · 2 vacant");
   });
 
-  it("escapes names and shows the filter it was printed for", () => {
-    const html = roomingListHtml(
+  it("keeps guest details verbatim for the PDF to lay out", () => {
+    const guest = roomingListModel(
       doc({
         typeLabel: "Hostel",
         rooms: [
@@ -100,15 +111,29 @@ describe("roomingListHtml", () => {
           },
         ],
       }),
+    ).groups[0].rooms[0].beds[0];
+    expect(guest).toEqual({
+      kind: "guest",
+      bed: 1,
+      name: "A & B <script>",
+      hubName: "Hub",
+      bookingRef: "",
+    });
+  });
+
+  it("names the download after the filter and the day", () => {
+    expect(roomingListFileName(doc({ typeLabel: "Hostel" }))).toMatch(
+      /^rooming-list-hostel-\d{4}-\d{2}-\d{2}\.pdf$/,
     );
-    expect(html).toContain("747 &lt;B&gt;");
-    expect(html).toContain("A &amp; B &lt;script&gt;");
-    expect(html).toContain("Accommodation: Hostel");
-    expect(html).toContain("—</td>");
+    expect(roomingListFileName(doc({ typeLabel: "" }))).toMatch(
+      /^rooming-list-all-types-\d{4}-\d{2}-\d{2}\.pdf$/,
+    );
   });
 
   it("says so when the filter matches nothing", () => {
-    const html = roomingListHtml(doc({ rooms: [] }));
-    expect(html).toContain("No rooms match this filter.");
+    const model = roomingListModel(doc({ rooms: [] }));
+    expect(model.isEmpty).toBe(true);
+    expect(model.groups).toEqual([]);
+    expect(model.totals).toEqual({ rooms: 0, beds: 0, filled: 0, vacant: 0 });
   });
 });

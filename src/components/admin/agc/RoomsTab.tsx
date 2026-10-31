@@ -58,7 +58,6 @@ import {
 } from "@/components/ui/table";
 import { toastFriendlyErrorParts } from "@/lib/friendlyError";
 import { AGC_ACCOMMODATION_LABELS } from "@/lib/agcPortal";
-import { roomingListHtml } from "@/lib/agcRoomingList";
 import { cn } from "@/lib/utils";
 
 /**
@@ -2625,6 +2624,7 @@ function RoomingListDialog({
   typeFilter: string;
   onTypeFilterChange: (type: string) => void;
 }) {
+  const [downloading, setDownloading] = useState(false);
   const { sessionToken, user } = useAdminSession();
   const rooming = useQuery(
     api.agcRoomAssignments.getRoomingList,
@@ -2640,26 +2640,29 @@ function RoomingListDialog({
   );
   const rooms = rooming ?? [];
 
-  // Print the sheet, not the console. window.print() here printed the whole
-  // Rooms screen with the dialog scroll box clipped to a page, so the handout
-  // is built as a standalone document and printed from its own window.
-  const handlePrint = () => {
-    const win = window.open("", "_blank", "width=900,height=1000");
-    if (!win) {
-      toast.error("Allow pop-ups for this site, then print the rooming list again.");
-      return;
-    }
-    win.document.write(
-      roomingListHtml({
+  // Download the handout, not the console. window.print() here printed the
+  // whole Rooms screen with the dialog scroll box clipped to a page, so the
+  // sheet is rendered as a PDF and saved instead.
+  const handleDownload = async () => {
+    setDownloading(true);
+    try {
+      const { downloadRoomingListPdf } = await import(
+        "@/components/admin/agc/RoomingListPdf"
+      );
+      const fileName = await downloadRoomingListPdf({
         rooms,
         typeLabel: typeFilter === "all" ? "All types" : TYPE_LABEL(typeFilter),
         generatedAt: Date.now(),
         generatedBy: user?.email ?? null,
-      }),
-    );
-    win.document.close();
-    win.focus();
-    win.print();
+      });
+      toast.success(`Saved ${fileName}`);
+    } catch (err) {
+      toast.error(
+        ...toastFriendlyErrorParts(err, "Could not build the rooming list PDF"),
+      );
+    } finally {
+      setDownloading(false);
+    }
   };
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -2680,13 +2683,18 @@ function RoomingListDialog({
                   ))}
                 </SelectContent>
               </Select>
-              <Button size="sm" variant="outline" onClick={handlePrint}>
-                <Printer className="size-3.5" /> Print
+              <Button size="sm" variant="outline" onClick={handleDownload} disabled={downloading}>
+                {downloading ? (
+                  <Loader2Icon className="size-3.5 animate-spin" />
+                ) : (
+                  <Download className="size-3.5" />
+                )}
+                {downloading ? "Preparing…" : "Download PDF"}
               </Button>
             </span>
           </DialogTitle>
           <DialogDescription>
-            Check-in handout — one row per room. Empty beds print as vacancies.
+            Check-in handout — one row per bed, vacancies listed too. Download it as a PDF.
           </DialogDescription>
         </DialogHeader>
         <div className="max-h-[60vh] space-y-3 overflow-y-auto">
