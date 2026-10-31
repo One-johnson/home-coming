@@ -31,8 +31,10 @@ export type RoomingListDoc = {
   rooms: RoomingListRoom[];
   /** What the list was filtered to, printed in the header so nothing is assumed. */
   typeLabel: string;
-  generatedAt: number;
+  generatedAt?: number;
   generatedBy?: string | null;
+  /** Name for the download when the sheet covers one room, e.g. its room name. */
+  fileNameLabel?: string | null;
 };
 
 /** One printed line: either a delegate in a bed, or the bed standing empty. */
@@ -103,13 +105,13 @@ function slug(value: string): string {
 
 /** `rooming-list-hostel-2026-10-31.pdf` */
 export function roomingListFileName(doc: RoomingListDoc): string {
-  const stamp = new Date(doc.generatedAt);
+  const stamp = new Date(doc.generatedAt ?? Date.now());
   const day = [
     stamp.getFullYear(),
     String(stamp.getMonth() + 1).padStart(2, "0"),
     String(stamp.getDate()).padStart(2, "0"),
   ].join("-");
-  return `rooming-list-${slug(doc.typeLabel || "all types")}-${day}.pdf`;
+  return `rooming-list-${slug(doc.fileNameLabel || doc.typeLabel || "all types")}-${day}.pdf`;
 }
 
 /**
@@ -117,6 +119,7 @@ export function roomingListFileName(doc: RoomingListDoc): string {
  * returned (type, then room name) so the sheet matches the console.
  */
 export function roomingListModel(doc: RoomingListDoc): RoomingListModel {
+  const generatedAt = doc.generatedAt ?? Date.now();
   const grouped = new Map<string, RoomingListRoomView[]>();
   for (const room of doc.rooms) {
     const label = room.typeLabel || room.accommodationType || "Unassigned";
@@ -138,8 +141,8 @@ export function roomingListModel(doc: RoomingListDoc): RoomingListModel {
 
   return {
     filterLabel: doc.typeLabel || "All types",
-    generatedAt: doc.generatedAt,
-    generatedLabel: new Date(doc.generatedAt).toLocaleString(undefined, {
+    generatedAt,
+    generatedLabel: new Date(generatedAt).toLocaleString(undefined, {
       dateStyle: "medium",
       timeStyle: "short",
     }),

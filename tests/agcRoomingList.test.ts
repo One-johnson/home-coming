@@ -128,6 +128,10 @@ describe("roomingListModel", () => {
     expect(roomingListFileName(doc({ typeLabel: "" }))).toMatch(
       /^rooming-list-all-types-\d{4}-\d{2}-\d{2}\.pdf$/,
     );
+    // A single room names the file after the room, not the filter.
+    const singleRoom = roomingListFileName(doc({ fileNameLabel: "747" }));
+    expect(singleRoom.startsWith("rooming-list-747-")).toBe(true);
+    expect(singleRoom.endsWith(".pdf")).toBe(true);
   });
 
   it("says so when the filter matches nothing", () => {

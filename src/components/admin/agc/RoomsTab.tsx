@@ -2625,6 +2625,7 @@ function RoomingListDialog({
   onTypeFilterChange: (type: string) => void;
 }) {
   const [downloading, setDownloading] = useState(false);
+  const [downloadingRoom, setDownloadingRoom] = useState<string | null>(null);
   const { sessionToken, user } = useAdminSession();
   const rooming = useQuery(
     api.agcRoomAssignments.getRoomingList,
@@ -2640,28 +2641,48 @@ function RoomingListDialog({
   );
   const rooms = rooming ?? [];
 
+  const filterLabel = typeFilter === "all" ? "All types" : TYPE_LABEL(typeFilter);
+
   // Download the handout, not the console. window.print() here printed the
   // whole Rooms screen with the dialog scroll box clipped to a page, so the
-  // sheet is rendered as a PDF and saved instead.
+  // sheet is rendered as a PDF and saved instead. The same builder serves a
+  // single room from its own card.
+  const savePdf = async (roomsToSave: RoomingRoom[], fileNameLabel?: string) => {
+    const { downloadRoomingListPdf } = await import(
+      "@/components/admin/agc/RoomingListPdf"
+    );
+    const fileName = await downloadRoomingListPdf({
+      rooms: roomsToSave,
+      typeLabel: filterLabel,
+      generatedBy: user?.email ?? null,
+      fileNameLabel,
+    });
+    toast.success(`Saved ${fileName}`);
+  };
+
   const handleDownload = async () => {
     setDownloading(true);
     try {
-      const { downloadRoomingListPdf } = await import(
-        "@/components/admin/agc/RoomingListPdf"
-      );
-      const fileName = await downloadRoomingListPdf({
-        rooms,
-        typeLabel: typeFilter === "all" ? "All types" : TYPE_LABEL(typeFilter),
-        generatedAt: Date.now(),
-        generatedBy: user?.email ?? null,
-      });
-      toast.success(`Saved ${fileName}`);
+      await savePdf(rooms);
     } catch (err) {
       toast.error(
         ...toastFriendlyErrorParts(err, "Could not build the rooming list PDF"),
       );
     } finally {
       setDownloading(false);
+    }
+  };
+
+  const handleRoomDownload = async (room: RoomingRoom) => {
+    setDownloadingRoom(room._id);
+    try {
+      await savePdf([room], room.name);
+    } catch (err) {
+      toast.error(
+        ...toastFriendlyErrorParts(err, `Could not build the PDF for room ${room.name}`),
+      );
+    } finally {
+      setDownloadingRoom(null);
     }
   };
   return (
@@ -2713,6 +2734,21 @@ function RoomingListDialog({
                     {room.gender ? ` · ${room.gender} only` : ""} ·{" "}
                     {room.occupants.length}/{room.capacity} beds
                   </span>
+                  <Button
+                    size="icon-xs"
+                    variant="ghost"
+                    className="ml-auto text-muted-foreground"
+                    onClick={() => handleRoomDownload(room)}
+                    disabled={downloadingRoom === room._id}
+                    aria-label={`Download room ${room.name} as a PDF`}
+                    title="Download this room as a PDF"
+                  >
+                    {downloadingRoom === room._id ? (
+                      <Loader2Icon className="size-3.5 animate-spin" />
+                    ) : (
+                      <Download className="size-3.5" />
+                    )}
+                  </Button>
                 </p>
                 <table className="mt-2 w-full text-xs">
                   <thead>
