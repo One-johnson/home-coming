@@ -28,6 +28,7 @@ import {
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import { AdminSignIn } from "@/components/admin/AdminSignIn";
+import { PageGuide } from "@/components/admin/PageGuide";
 import { AdminCommandPalette } from "@/components/admin/AdminCommandPalette";
 import {
   useAdminSession,
@@ -562,6 +563,9 @@ function AdminConsoleFrame({
             {/* The palette searches registrations and bookings, which only
                 console admins may read — venue staff get their own search. */}
             {isAdminRole(role) && <AdminCommandPalette />}
+
+            {/* How-to for whichever page is open (see lib/adminGuides). */}
+            <PageGuide />
 
             <Button
               size="sm"

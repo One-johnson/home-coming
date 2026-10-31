@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import {
+  ArrowRightLeft,
   BedDouble,
   ChevronDown,
   Download,
@@ -282,6 +283,7 @@ export function RoomsTab() {
   const deleteRoom = useMutation(api.agcRoomAssignments.deleteRoom);
   const assignGuests = useMutation(api.agcRoomAssignments.assignGuests);
   const unassignGuest = useMutation(api.agcRoomAssignments.unassignGuest);
+  const moveGuests = useMutation(api.agcRoomAssignments.moveGuests);
   const autoAssign = useMutation(api.agcRoomAssignments.autoAssignGuests);
   const roomingSettings = useQuery(
     api.agcRoomAssignments.getRoomingSettings,
@@ -326,6 +328,13 @@ export function RoomsTab() {
   });
   const [assignRoom, setAssignRoom] = useState<RoomRow | null>(null);
   const [assignPicks, setAssignPicks] = useState<string[]>([]);
+  // Move-out dialog: take a withdrawn room's delegates straight into a
+  // replacement room instead of removing them one by one and re-assigning.
+  const [moveFrom, setMoveFrom] = useState<RoomRow | null>(null);
+  const [movePicks, setMovePicks] = useState<string[]>([]);
+  const [moveToId, setMoveToId] = useState("");
+  const [moveReason, setMoveReason] = useState("");
+  const [moveBusy, setMoveBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [roomingOpen, setRoomingOpen] = useState(false);
   const [roomingType, setRoomingType] = useState<string>("all");
@@ -401,6 +410,31 @@ export function RoomsTab() {
     () => (membersRoomId ? (list.find((room) => room._id === membersRoomId) ?? null) : null),
     [list, membersRoomId],
   );
+  /**
+   * Replacement rooms for the move-out dialog: same type, on the board, with a
+   * free bed. Held and faulty rooms are left out because every assignment path
+   * refuses them anyway, so offering them would only produce a dead end.
+   */
+  const moveTargets = useMemo(() => {
+    if (!moveFrom) return [];
+    return list
+      .filter(
+        (room) =>
+          room._id !== moveFrom._id &&
+          room.accommodationType === moveFrom.accommodationType &&
+          !room.hold &&
+          !room.faulty &&
+          room.capacity - room.occupants > 0,
+      )
+      .sort(
+        (a, b) =>
+          (a.building ?? "").localeCompare(b.building ?? "") ||
+          a.name.localeCompare(b.name),
+      );
+  }, [list, moveFrom]);
+  const moveTarget = moveTargets.find((room) => room._id === moveToId) ?? null;
+  const moveOverCapacity =
+    !!moveTarget && movePicks.length > moveTarget.capacity - moveTarget.occupants;
   // undefined = still loading; an empty array is a genuinely empty inventory.
   const loadingRooms = rooms === undefined;
   const loadingGuests = unassigned === undefined;
@@ -542,6 +576,59 @@ export function RoomsTab() {
     }
   };
 
+  /**
+   * Move the ticked delegates out of the open room in one pass. The server
+   * keeps a history chain per delegate and validates the destination for the
+   * whole batch, so a selection that does not fit is refused before anyone
+   * moves rather than half-moved.
+   */
+  const submitMove = async () => {
+    if (!sessionToken || !moveFrom) return;
+    if (movePicks.length === 0) {
+      toast.error("Tick the delegates to move");
+      return;
+    }
+    if (!moveToId) {
+      toast.error("Choose the room they are moving to");
+      return;
+    }
+    if (!moveReason.trim()) {
+      toast.error("Give a reason — it is kept on every moved record");
+      return;
+    }
+    setMoveBusy(true);
+    try {
+      const result = await moveGuests({
+        sessionToken,
+        guestIds: movePicks as Id<"agcGuests">[],
+        toRoomId: moveToId as Id<"agcRooms">,
+        reason: moveReason.trim(),
+      });
+      const targetName = moveTarget?.name ?? "the new room";
+      if (result.moved > 0) {
+        const left = moveFrom.assignments.length - result.moved;
+        toast.success(
+          `Moved ${result.moved} delegate(s) to ${targetName}` +
+            (left > 0 ? ` — ${left} left in ${moveFrom.name}` : ""),
+        );
+      }
+      if (result.failed.length > 0) {
+        toast.error(
+          `${result.failed.length} could not move — ${result.failed[0].name}: ${result.failed[0].message}`,
+        );
+      }
+      if (result.moved > 0) {
+        setMoveFrom(null);
+        setMovePicks([]);
+        setMoveToId("");
+        setMoveReason("");
+      }
+    } catch (err) {
+      toast.error(...toastFriendlyErrorParts(err, "Could not move delegates"));
+    } finally {
+      setMoveBusy(false);
+    }
+  };
   const unassign = async (assignmentId: string) => {
     if (!sessionToken) return;
     try {
@@ -1358,6 +1445,24 @@ export function RoomsTab() {
                     {/* Two cards share a phone row, so their actions shrink to
                         icons there; the label returns from `sm` up. */}
                     <span className="max-sm:hidden">Assign</span>
+                  </Button>
+                )}
+                {room.assignments.length > 0 && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 gap-1 text-xs"
+                    aria-label={`Move delegates out of ${room.name}`}
+                    title="Move these delegates to a replacement room"
+                    onClick={() => {
+                      setMoveFrom(room);
+                      setMovePicks(room.assignments.map((a) => a.guestId));
+                      setMoveToId("");
+                      setMoveReason("");
+                    }}
+                  >
+                    <ArrowRightLeft className="size-3" />
+                    <span className="max-sm:hidden">Move</span>
                   </Button>
                 )}
                 {room.hold ? (
@@ -2254,6 +2359,152 @@ export function RoomsTab() {
         </DialogContent>
       </Dialog>
 
+      {/* Move delegates out of a room — the swap path when the venue withdraws
+          rooms: everyone lands in a replacement room with one shared reason. */}
+      <Dialog
+        open={moveFrom !== null}
+        onOpenChange={(open) => {
+          if (open) return;
+          setMoveFrom(null);
+          setMovePicks([]);
+          setMoveToId("");
+          setMoveReason("");
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {moveFrom ? `Move out of ${moveFrom.name}` : "Move delegates"}
+            </DialogTitle>
+            <DialogDescription>
+              Moves the ticked delegates straight into a replacement room. Each
+              one keeps their history with this reason, including delegates who
+              are already checked in. Keys stay with the old room — return and
+              reissue them at the desk.
+            </DialogDescription>
+          </DialogHeader>
+          {moveFrom && (
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <Label>
+                    Delegates ({movePicks.length} of {moveFrom.assignments.length})
+                  </Label>
+                  <button
+                    type="button"
+                    className="text-xs font-medium underline underline-offset-2"
+                    onClick={() =>
+                      setMovePicks(
+                        movePicks.length === moveFrom.assignments.length
+                          ? []
+                          : moveFrom.assignments.map((a) => a.guestId),
+                      )
+                    }
+                  >
+                    {movePicks.length === moveFrom.assignments.length
+                      ? "Clear"
+                      : "Select all"}
+                  </button>
+                </div>
+                <div className="max-h-44 space-y-1 overflow-y-auto rounded-lg border p-2">
+                  {moveFrom.assignments.length === 0 ? (
+                    <p className="py-2 text-center text-xs text-muted-foreground">
+                      No one is in this room.
+                    </p>
+                  ) : (
+                    moveFrom.assignments.map((a) => (
+                      <label
+                        key={a._id}
+                        className="flex cursor-pointer items-center gap-2 text-sm"
+                      >
+                        <Checkbox
+                          checked={movePicks.includes(a.guestId)}
+                          onCheckedChange={(checked) =>
+                            setMovePicks((prev) =>
+                              checked === true
+                                ? [...prev, a.guestId]
+                                : prev.filter((id) => id !== a.guestId),
+                            )
+                          }
+                        />
+                        <span className="truncate">{a.guestName ?? "Delegate"}</span>
+                      </label>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label>Move to</Label>
+                <Select
+                  value={moveToId}
+                  onValueChange={(value) => setMoveToId(value ?? "")}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Choose a replacement room" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {moveTargets.length === 0 ? (
+                      <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                        No matching room with a free bed — add one or free a bed
+                        first.
+                      </div>
+                    ) : (
+                      moveTargets.map((room) => (
+                        <SelectItem key={room._id} value={room._id}>
+                          {room.building ? `${room.building} · ` : ""}
+                          {room.name} — {room.capacity - room.occupants} free
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+                {moveOverCapacity && moveTarget && (
+                  <p className="text-[11px] text-rose-700 dark:text-rose-400">
+                    {moveTarget.name} has {moveTarget.capacity - moveTarget.occupants}{" "}
+                    free bed(s) for {movePicks.length} delegate(s).
+                  </p>
+                )}
+              </div>
+
+              <div className="space-y-1.5">
+                <Label>Reason (kept on every moved record)</Label>
+                <Textarea
+                  rows={2}
+                  value={moveReason}
+                  onChange={(e) => setMoveReason(e.target.value)}
+                  placeholder="e.g. Anagkazo withdrew these rooms — moved to the new block"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setMoveFrom(null)}
+                  disabled={moveBusy}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => void submitMove()}
+                  disabled={
+                    moveBusy ||
+                    movePicks.length === 0 ||
+                    !moveToId ||
+                    moveOverCapacity
+                  }
+                >
+                  {moveBusy
+                    ? "Moving…"
+                    : movePicks.length > 0
+                      ? `Move ${movePicks.length}`
+                      : "Move"}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
       {/* Members in a room — opened from the card's View button */}
       <Dialog open={membersOpen} onOpenChange={setMembersOpen}>
         <DialogContent className="sm:max-w-md">

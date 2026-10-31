@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import type { ComponentType } from "react";
 import {
   AlertTriangle,
+  ArrowRightLeft,
   BedDouble,
   BookOpen,
   ChevronDown,
@@ -468,6 +469,55 @@ const SECTIONS: RunbookSection[] = [
     links: [
       { href: "/admin/arrival", label: "Arrival desk" },
       { href: "/admin/accommodation?tab=flags", label: "Review flags" },
+    ],
+  },
+  {
+    id: "swap",
+    title: "9. Swapping rooms when the venue changes its list",
+    short: "9 · Swap rooms",
+    icon: ArrowRightLeft,
+    accent: ACCENTS.violet,
+    steps: [
+      {
+        heading: "Do",
+        kind: "do",
+        text: "Import the new list FIRST (Rooms → Import rooms), before anyone moves. The preview shows what will be created versus updated per type, and an import can never exceed the confirmed pool — correct Pools first if the venue’s new allocation is different.",
+      },
+      {
+        heading: "Do",
+        kind: "do",
+        text: "On a withdrawn room’s card choose Move: tick the delegates (all are ticked), pick the destination, and write the reason — “Anagkazo withdrew these rooms, 28 Oct”. The picker offers only same-type rooms that are not reserved or faulty and show free beds.",
+      },
+      {
+        text: "The server re-checks type, capacity and the one-gender rule for the whole selection before anyone moves, so a batch that does not fit moves nobody. Each delegate keeps a history chain — old room, new room, reason, who did it — including delegates already checked in, and the desk’s room and bed follow immediately.",
+      },
+      {
+        text: "Work block by block and gender by gender: dormitories and hostels must stay single-sex, EBPV apartments hold at most four. For one delegate, the Arrival record’s Move delegate does the same job.",
+      },
+      {
+        heading: "Never",
+        kind: "never",
+        text: "Do not use Remove for a delegate who is already checked in — that leaves them checked in with no room. Remove is for someone who has not arrived; it returns them to the unassigned list for Assign or bulk assign.",
+      },
+      {
+        heading: "Never",
+        kind: "never",
+        text: "An import never deletes a room that has vanished from the sheet. A withdrawn block stays live until you empty it — and a room that still holds delegates cannot be deleted, which is exactly the check that stops anyone being orphaned.",
+      },
+      {
+        heading: "Do",
+        kind: "do",
+        text: "Keys stay with the old room: mark the key returned on the old room, then Issue key on the new one at the desk. Delete the emptied rooms (single, or Delete rooms by building/type — occupied ones are kept and listed), then Publish the new rooms for reps.",
+      },
+      {
+        heading: "If it fails",
+        kind: "if-fails",
+        text: "A refused move names the rule: only N beds free, reserved or faulty room, reserved for one gender, or booked for a different type. Fix the destination or the selection and run it again. A delete-by-scope that reports kept rooms is your checklist of who is still in the block.",
+      },
+    ],
+    links: [
+      { href: "/admin/accommodation?tab=rooms", label: "Open Rooms tab" },
+      { href: "/admin/reports", label: "Room assignment report" },
     ],
   },
 ];

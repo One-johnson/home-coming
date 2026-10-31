@@ -1264,6 +1264,137 @@ export async function performChangeRoom(
     return { fromAssignmentId: current._id, toAssignmentId: newAssignmentId };
 }
 
+/**
+ * Move several guests into one room in a single pass — the bulk counterpart of
+ * `changeRoom`, for when the venue withdraws a block of rooms and everyone in
+ * them has to be re-housed. Each guest keeps their own history chain (the old
+ * row is closed with the destination and the reason, never deleted), and the
+ * destination is validated for the whole batch first, so a selection that does
+ * not fit is refused before anyone moves rather than half-moved. A guest that
+ * cannot follow (no open assignment, already there) is reported instead of
+ * stopping the others.
+ */
+export const moveGuests = mutation({
+  args: {
+    sessionToken: v.string(),
+    guestIds: v.array(v.id("agcGuests")),
+    toRoomId: v.id("agcRooms"),
+    reason: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireArea(ctx, args.sessionToken);
+    const reason = args.reason.trim();
+    if (!reason) throw new ConvexError("A reason is required when moving delegates");
+    if (args.guestIds.length === 0) {
+      throw new ConvexError("Select at least one delegate to move");
+    }
+
+    const toRoom = await ctx.db.get(args.toRoomId);
+    if (!toRoom || toRoom.deletedAt) throw new ConvexError("Destination room not found");
+
+    // Type is the one rule a bulk move can never work around: pool accounting
+    // and pricing differ per type, so refuse the whole selection up front.
+    const guests: Doc<"agcGuests">[] = [];
+    for (const guestId of args.guestIds) {
+      const guest = await ctx.db.get(guestId);
+      if (!guest || guest.status !== "active") {
+        throw new ConvexError(
+          "One of the selected delegates is no longer active — refresh the page",
+        );
+      }
+      if (guest.accommodationType !== toRoom.accommodationType) {
+        throw new ConvexError(
+          `${guest.firstName} ${guest.lastName} is booked for ${labelOf(guest.accommodationType)}, not ${labelOf(toRoom.accommodationType)}`,
+        );
+      }
+      guests.push(guest);
+    }
+
+    const occupants = await openAssignmentsForRoom(ctx, toRoom._id);
+    const bedsFree = toRoom.capacity - occupants.length;
+    if (guests.length > bedsFree) {
+      throw new ConvexError(
+        `${toRoom.name} has only ${bedsFree} bed(s) free for ${guests.length} delegate(s)`,
+      );
+    }
+
+    // §4 gender rules, checked against the room as it will be after the move.
+    const genders = new Set<AgcGender>();
+    for (const assignment of occupants) {
+      const occupant = await ctx.db.get(assignment.guestId);
+      if (occupant) genders.add(occupant.gender);
+    }
+    for (const guest of guests) genders.add(guest.gender);
+    if (toRoom.gender && [...genders].some((g) => g !== toRoom.gender)) {
+      throw new ConvexError(`${toRoom.name} is reserved for ${toRoom.gender} guests`);
+    }
+    if (
+      (toRoom.accommodationType === "dormitory" ||
+        toRoom.accommodationType === "hostel") &&
+      genders.size > 1
+    ) {
+      throw new ConvexError(
+        `${toRoom.name} must hold a single gender — found ${[...genders].join(" + ")}`,
+      );
+    }
+
+    // Where everyone is coming from, for the audit trail (captured before
+    // the moves close those rows).
+    const fromRoomIds = new Set<Id<"agcRooms">>();
+    for (const guest of guests) {
+      const current = await ctx.db
+        .query("agcRoomAssignments")
+        .withIndex("by_guest", (q) => q.eq("guestId", guest._id))
+        .unique();
+      if (current && current.endedAt === undefined) fromRoomIds.add(current.roomId);
+    }
+
+    const moved: Id<"agcGuests">[] = [];
+    const failed: { guestId: Id<"agcGuests">; name: string; message: string }[] = [];
+    for (const guest of guests) {
+      try {
+        await performChangeRoom(
+          ctx,
+          { userId: actor._id, email: actor.email },
+          { guestId: guest._id, toRoomId: toRoom._id, reason },
+        );
+        moved.push(guest._id);
+      } catch (err) {
+        failed.push({
+          guestId: guest._id,
+          name: `${guest.firstName} ${guest.lastName}`,
+          message:
+            err instanceof ConvexError && typeof err.data === "string"
+              ? err.data
+              : "Could not move this delegate",
+        });
+      }
+    }
+
+    if (moved.length === 0) {
+      throw new ConvexError(
+        failed[0]?.message ?? "No delegate could be moved into that room",
+      );
+    }
+
+    await writeAuditLog(ctx, {
+      actorUserId: actor._id,
+      actorEmail: actor.email,
+      action: "agc_room.moved_bulk",
+      entityType: "agcRooms",
+      entityId: toRoom._id,
+      summary: `Moved ${moved.length} delegate(s) into ${toRoom.name} by ${actor.email}${failed.length > 0 ? `, ${failed.length} could not move` : ""} — reason: ${reason}`,
+      metadata: {
+        toRoomId: toRoom._id,
+        fromRoomIds: [...fromRoomIds],
+        guestIds: moved,
+        failed: failed.length,
+        reason,
+      },
+    });
+    return { moved: moved.length, failed };
+  },
+});
 /** Reassigned/moved/removal history for one room (newest first). */
 export const getRoomHistory = query({
   args: { sessionToken: v.string(), roomId: v.id("agcRooms") },

@@ -60,7 +60,9 @@ Route: **Accommodation → Rooms tab** (Steps 7–12).
    controls what reps can see.
 
 If a room is wrong after the fact: `Move`/`change room` writes an append-only
-history row — the old assignment is never deleted (§9).
+history row — the old assignment is never deleted (§9). An import never
+deletes a room that has vanished from the sheet, so when the venue replaces
+its list, follow §6 to move the delegates out before deleting the old rooms.
 
 ## 2. Desk check-in (§11–§18)
 
@@ -151,6 +153,52 @@ Plus a **POA reconciliation** with the cash-collection desk (Desk check-in
 route, finance role): every tick collected is one tap to confirm.
 
 ---
+
+## 6. Swapping the room inventory when the venue changes its list
+
+Anagkazo (or any venue) can replace the list it first gave you. An import only
+creates and updates rooms — it never deletes a room that has disappeared from
+the sheet — so a withdrawn block stays live, and occupied, until you move the
+delegates out and delete the rooms. Do it in this order:
+
+1. **Import the new list first** — Accommodation → Rooms tab → *Import rooms*.
+   The preview shows what will be created versus updated per type. If the new
+   allocation is smaller than the confirmed pools, correct **Pools** first: an
+   import can never exceed the pool for a type.
+2. **Take a before-picture** — Ops reports → *Room assignment report*, exported
+   to Excel. That is the roll-call list you reconcile against after the sweep.
+3. **Pause assignment** — tell the desk to stop allocating while the sweep runs.
+   If destination rooms are earmarked for a hub or block, *Reserve* them; a held
+   room is refused by every assignment path until released.
+4. **Move a room's delegates in one pass** — on the withdrawn room's card choose
+   *Move*, tick the delegates (all are ticked by default), pick the destination
+   and give a reason (e.g. “Anagkazo withdrew these rooms, 28 Oct”). The
+   destination list only offers same-type rooms that are not reserved or faulty
+   and have a free bed; the server re-checks type, capacity and the gender rules
+   for the whole selection before anyone moves. Each delegate keeps a history
+   chain — old room, new room, reason, who did it — including delegates already
+   checked in. The desk's room and bed follow the move immediately.
+5. **Work block by block, gender by gender.** Dormitories and hostels must stay
+   single-sex, so move in batches that keep a room one gender; EBPV apartments
+   hold at most four. For a single delegate the Arrival record's *Move delegate*
+   does the same job one at a time. *Remove* on the members list is only for a
+   delegate who has not checked in — it drops them back on the unassigned list
+   for *Assign* / bulk assign, and a checked-in delegate would be left with no
+   room.
+6. **Keys stay with the old room.** For Wise as Serpents, Good General and EBPV
+   apartments, mark the key *returned* on the old room and *issue* it on the new
+   one at the desk. A move never carries a key across.
+7. **Delete the vacated rooms** — *Delete* on the card, or *Delete rooms* by
+   building/type. Bulk delete keeps any room that still holds delegates and
+   lists their names, which is your checklist of who is left. Deletes are soft:
+   *Deleted rooms → Restore* puts a room back.
+8. **Publish the new rooms** from the *Publish…* menu and unpublish or delete the
+   withdrawn ones, so reps see only the rooms the venue has actually given you.
+
+If a move is refused: read the message — it names the room and the rule (only N
+beds free, reserved/faulty, reserved for one gender, booked for a different
+type). Fix the destination or the selection, then run it again; a refused batch
+moves nobody.
 
 ## Adding team & venue staff accounts
 
