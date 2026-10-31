@@ -77,6 +77,27 @@ async function openAssignmentsForRoom(
   return rows.filter(isOpen);
 }
 
+/**
+ * The guest's open assignment, or null.
+ *
+ * This reads the guest's history with .collect() instead of .unique(): a move
+ * closes the old row rather than deleting it, so anyone who has been moved has
+ * more than one row on by_guest — and .unique() throws on that. The throw is a
+ * plain error, which Convex redacts in production, which is how a delegate who
+ * was moved once can stop being roomable: the desk only sees "something went
+ * wrong". agcAdminData.openRoomForGuest already reads it this way.
+ */
+export async function openAssignmentForGuest(
+  ctx: MutationCtx | QueryCtx,
+  guestId: Id<"agcGuests">,
+): Promise<Doc<"agcRoomAssignments"> | null> {
+  const rows = await ctx.db
+    .query("agcRoomAssignments")
+    .withIndex("by_guest", (q) => q.eq("guestId", guestId))
+    .collect();
+  return rows.find(isOpen) ?? null;
+}
+
 async function requireArea(ctx: MutationCtx | QueryCtx, sessionToken: string) {
   return requireRole(ctx, sessionToken, [...ROOM_AREA_ROLES]);
 }
@@ -516,6 +537,27 @@ export const listUnassignedGuestsAdmin = query({
 });
 
 /**
+ * Convex hides the text of anything that is not a ConvexError once a deployment
+ * is live, so an unexpected exception reaches the desk as a bare "something went
+ * wrong". Name the room and keep the reason, so the next attempt explains
+ * itself and the function log keeps the detail for the team.
+ */
+async function roomFailure(
+  ctx: MutationCtx,
+  err: unknown,
+  roomId: Id<"agcRooms">,
+): Promise<never> {
+  if (err instanceof ConvexError) throw err;
+  const room = await ctx.db.get(roomId).catch(() => null);
+  const name = room?.name ?? "that room";
+  const detail = err instanceof Error ? err.message : String(err);
+  console.error(`[agc rooms] ${name}:`, err);
+  throw new ConvexError(
+    `${name} could not take the change: ${detail}. Nothing was changed — try again, and tell the accommodation team if it keeps happening.`,
+  );
+}
+
+/**
  * Assignment validity + occupancy guard shared by assign, changeRoom and
  * autoAssign. Enforces Phase 2 §4: capacity, room-level gender lock, and
  * one-gender-per-room for dormitories and hostels.
@@ -596,10 +638,7 @@ async function assertAssignable(
     if (!guest || guest.status !== "active") {
       throw new ConvexError("Guest is not active — refresh the page");
     }
-    const assignment = await ctx.db
-      .query("agcRoomAssignments")
-      .withIndex("by_guest", (q) => q.eq("guestId", guestId))
-      .unique();
+    const assignment = await openAssignmentForGuest(ctx, guestId);
     if (
       assignment &&
       isOpen(assignment) &&
@@ -634,46 +673,53 @@ export const assignGuests = mutation({
   },
   handler: async (ctx, args) => {
     const actor = await requireArea(ctx, args.sessionToken);
-    if (args.guestIds.length === 0) {
-      throw new ConvexError("Select at least one guest");
-    }
-    if (args.assignmentId) {
-      // Move: close the existing assignment (history preserved, §9), then
-      // re-assign. Prefer changeRoom for cross-room moves.
-      const existing = await ctx.db.get(args.assignmentId);
-      if (!existing) throw new ConvexError("Assignment not found");
-      await closeAssignment(ctx, existing, actor.email, "Moved within room (assignment edit)");
-    }
-    const { room, incoming } = await assertAssignable(ctx, {
-      roomId: args.roomId,
-      guestIds: args.guestIds,
-    });
-
-    for (const guest of incoming) {
-      const booking = await ctx.db.get(guest.bookingId);
-      if (!booking || !isRoomableBooking(booking)) {
-        throw new ConvexError(
-          "Only guests with confirmed bookings (or payment-on-arrival bookings) can be roomed",
-        );
+    try {
+      if (args.guestIds.length === 0) {
+        throw new ConvexError("Select at least one guest");
       }
-      await ctx.db.insert("agcRoomAssignments", {
-        roomId: room._id,
-        guestId: guest._id,
-        bookingId: guest.bookingId,
-        assignedBy: actor.email,
-        createdAt: Date.now(),
+      if (args.assignmentId) {
+        // Move: close the existing assignment (history preserved, §9), then
+        // re-assign. Prefer changeRoom for cross-room moves.
+        const existing = await ctx.db.get(args.assignmentId);
+        if (!existing) throw new ConvexError("Assignment not found");
+        await closeAssignment(ctx, existing, actor.email, "Moved within room (assignment edit)");
+      }
+      const { room, incoming } = await assertAssignable(ctx, {
+        roomId: args.roomId,
+        guestIds: args.guestIds,
       });
+
+      for (const guest of incoming) {
+        const booking = await ctx.db.get(guest.bookingId);
+        if (!booking || !isRoomableBooking(booking)) {
+          throw new ConvexError(
+            "Only guests with confirmed bookings (or payment-on-arrival bookings) can be roomed",
+          );
+        }
+        await ctx.db.insert("agcRoomAssignments", {
+          roomId: room._id,
+          guestId: guest._id,
+          bookingId: guest.bookingId,
+          assignedBy: actor.email,
+          createdAt: Date.now(),
+        });
+      }
+      await writeAuditLog(ctx, {
+        actorUserId: actor._id,
+        actorEmail: actor.email,
+        action: "agc_room.assigned",
+        entityType: "agcRooms",
+        entityId: room._id,
+        summary: `Assigned ${incoming.length} guest(s) to ${room.name} by ${actor.email}`,
+        metadata: { guestIds: incoming.map((g) => g._id) },
+      });
+      return { assigned: incoming.length };
+    } catch (err) {
+      // Convex hides the text of an unexpected exception once deployed, so this
+      // is where a refusal turns into a bare "something went wrong". Name the
+      // room and keep the reason instead.
+      throw await roomFailure(ctx, err, args.roomId);
     }
-    await writeAuditLog(ctx, {
-      actorUserId: actor._id,
-      actorEmail: actor.email,
-      action: "agc_room.assigned",
-      entityType: "agcRooms",
-      entityId: room._id,
-      summary: `Assigned ${incoming.length} guest(s) to ${room.name} by ${actor.email}`,
-      metadata: { guestIds: incoming.map((g) => g._id) },
-    });
-    return { assigned: incoming.length };
   },
 });
 
@@ -1216,11 +1262,8 @@ export async function performChangeRoom(
     if (!guest || guest.status !== "active") {
       throw new ConvexError("Guest not found or not active");
     }
-    const current = await ctx.db
-      .query("agcRoomAssignments")
-      .withIndex("by_guest", (q) => q.eq("guestId", guest._id))
-      .unique();
-    if (!current || !isOpen(current)) {
+    const current = await openAssignmentForGuest(ctx, guest._id);
+    if (!current) {
       throw new ConvexError(
         `${guest.firstName} ${guest.lastName} has no current room assignment`,
       );
@@ -1342,11 +1385,8 @@ export const moveGuests = mutation({
     // the moves close those rows).
     const fromRoomIds = new Set<Id<"agcRooms">>();
     for (const guest of guests) {
-      const current = await ctx.db
-        .query("agcRoomAssignments")
-        .withIndex("by_guest", (q) => q.eq("guestId", guest._id))
-        .unique();
-      if (current && current.endedAt === undefined) fromRoomIds.add(current.roomId);
+      const current = await openAssignmentForGuest(ctx, guest._id);
+      if (current) fromRoomIds.add(current.roomId);
     }
 
     const moved: Id<"agcGuests">[] = [];

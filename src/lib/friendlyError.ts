@@ -192,6 +192,15 @@ const mappings: Array<{
     title: "Connection problem",
     detail: "We couldn't reach the server. Check your internet and retry.",
   },
+  {
+    // Convex strips the text of unexpected server errors in production, so all
+    // that reaches the browser is our own fallback. Say what to check rather
+    // than echoing it back as if it were an answer.
+    test: /^something went wrong/i,
+    title: "That didn't work",
+    detail:
+      "The action was refused without a reason we can show. Try again; if it happens again, reload the page and check the room, booking or record you were changing.",
+  },
 ];
 
 /**
@@ -245,13 +254,14 @@ export function toastFriendlyError(
 /** Friendly error for admin surfaces: raw message for the inline alert, title+detail for the toast. */
 export function adminFriendlyError(err: unknown): FriendlyError {
   const message = cleanErrorMessage(err);
-  const lockout = mappings.find((m) => m.test.test(message));
-  if (lockout && /too many failed attempts/i.test(message)) {
+  const match = mappings.find((m) => m.test.test(message));
+  if (!match) return { title: message };
+  // A lockout gets admin copy without the rep-facing hints.
+  if (/too many failed attempts/i.test(message)) {
     return {
-      title: lockout.title,
-      detail:
-        "For security this account is locked for 15 minutes. Try again later.",
+      title: match.title,
+      detail: "For security this account is locked for 15 minutes. Try again later.",
     };
   }
-  return { title: message };
+  return { title: match.title, detail: match.detail };
 }

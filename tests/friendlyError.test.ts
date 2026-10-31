@@ -65,6 +65,13 @@ describe("cleanErrorMessage", () => {
     );
     expect(cleanErrorMessage("")).toBe("Something went wrong. Please try again.");
   });
+
+  it("turns the anonymous production fallback into actionable copy", () => {
+    // Convex redacts unexpected server errors, so this is what the desk sees.
+    const result = friendlyError("[Request ID: 269276eea9cd1a49] Server Error");
+    expect(result.title).toBe("That didn't work");
+    expect(result.detail).toMatch(/reload the page/i);
+  });
 });
 
 describe("friendlyError", () => {

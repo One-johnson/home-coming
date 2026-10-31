@@ -2395,3 +2395,48 @@ test("a super admin posts a staff member to a building the desk then reads", asy
   const cleared = await t.query(api.users.currentUser, { sessionToken: staff.token });
   expect(cleared?.defaultLocation).toBeNull();
 });
+
+test("a delegate whose last assignment was closed can still be roomed", async () => {
+  const t = createTestConvex();
+  const { token } = await seedStaff(t, "accommodation");
+  const oldRoom = await seedRoom(t, {
+    accommodationType: "hostel",
+    name: "Old 1",
+    capacity: 2,
+  });
+  const newRoom = await seedRoom(t, {
+    accommodationType: "hostel",
+    name: "747",
+    capacity: 2,
+  });
+  const booking = await seedConfirmedBooking(t, {
+    accommodationType: "hostel",
+    gender: "male",
+    count: 1,
+  });
+  const guestId = booking.guestIds[0] as Id<"agcGuests">;
+
+  // Moving a delegate closes their row instead of deleting it, so by_guest
+  // holds the closed old row alongside whatever comes next.
+  await t.run(async (ctx) => {
+    const guest = await ctx.db.get(guestId);
+    await ctx.db.insert("agcRoomAssignments", {
+      roomId: oldRoom as Id<"agcRooms">,
+      guestId,
+      bookingId: guest!.bookingId,
+      assignedBy: "seed",
+      createdAt: Date.now(),
+      endedAt: Date.now(),
+      endReason: "Moved to Room 212: venue swap",
+    });
+  });
+
+  // Before the fix this threw, and production showed only "something went
+  // wrong" because the throw was not a ConvexError.
+  const result = await t.mutation(api.agcRoomAssignments.assignGuests, {
+    sessionToken: token,
+    roomId: newRoom as Id<"agcRooms">,
+    guestIds: [guestId],
+  });
+  expect(result.assigned).toBe(1);
+});

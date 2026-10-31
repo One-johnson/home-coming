@@ -9,6 +9,7 @@ import { agcKeyReturnStatus } from "./schemaTypes";
 import type { AgcKeyReturnStatus, AgcKeyStatus } from "./schemaTypes";
 import {
   isRoomableBooking,
+  openAssignmentForGuest,
 } from "./agcRoomAssignments";
 import { AGC_ACCOMMODATION_LABELS } from "../src/lib/agcPortal";
 
@@ -449,12 +450,7 @@ export async function performCheckIn(
     }
 
     // Room assignment required (§17) — check-in staff never assign rooms.
-    const assignment = await ctx.db
-      .query("agcRoomAssignments")
-      .withIndex("by_guest", (q) => q.eq("guestId", guest._id))
-      .unique();
-    const openAssignment =
-      assignment && assignment.endedAt === undefined ? assignment : null;
+    const openAssignment = await openAssignmentForGuest(ctx, guest._id);
     if (!openAssignment) {
       throw new ConvexError(
         `${guestLabel(guest)} has no room assignment yet — refer to Room-Assignment Staff or the Accommodation Admin`,
@@ -991,14 +987,8 @@ export const flagCheckInRecord = mutation({
 
     // Snapshot where the record sat when it was flagged, so the review still
     // reads correctly after a room move.
-    const assignment = await ctx.db
-      .query("agcRoomAssignments")
-      .withIndex("by_guest", (q) => q.eq("guestId", guest._id))
-      .unique();
-    const room =
-      assignment && assignment.endedAt === undefined
-        ? await ctx.db.get(assignment.roomId)
-        : null;
+    const assignment = await openAssignmentForGuest(ctx, guest._id);
+    const room = assignment ? await ctx.db.get(assignment.roomId) : null;
     const checkIn = await activeCheckIn(ctx, guest._id);
 
     const flagId = await ctx.db.insert("agcCheckinFlags", {
