@@ -58,6 +58,7 @@ import {
 } from "@/components/ui/table";
 import { toastFriendlyErrorParts } from "@/lib/friendlyError";
 import { AGC_ACCOMMODATION_LABELS } from "@/lib/agcPortal";
+import { roomingListHtml } from "@/lib/agcRoomingList";
 import { cn } from "@/lib/utils";
 
 /**
@@ -2624,7 +2625,7 @@ function RoomingListDialog({
   typeFilter: string;
   onTypeFilterChange: (type: string) => void;
 }) {
-  const { sessionToken } = useAdminSession();
+  const { sessionToken, user } = useAdminSession();
   const rooming = useQuery(
     api.agcRoomAssignments.getRoomingList,
     open && sessionToken
@@ -2639,6 +2640,27 @@ function RoomingListDialog({
   );
   const rooms = rooming ?? [];
 
+  // Print the sheet, not the console. window.print() here printed the whole
+  // Rooms screen with the dialog scroll box clipped to a page, so the handout
+  // is built as a standalone document and printed from its own window.
+  const handlePrint = () => {
+    const win = window.open("", "_blank", "width=900,height=1000");
+    if (!win) {
+      toast.error("Allow pop-ups for this site, then print the rooming list again.");
+      return;
+    }
+    win.document.write(
+      roomingListHtml({
+        rooms,
+        typeLabel: typeFilter === "all" ? "All types" : TYPE_LABEL(typeFilter),
+        generatedAt: Date.now(),
+        generatedBy: user?.email ?? null,
+      }),
+    );
+    win.document.close();
+    win.focus();
+    win.print();
+  };
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-3xl">
@@ -2658,7 +2680,7 @@ function RoomingListDialog({
                   ))}
                 </SelectContent>
               </Select>
-              <Button size="sm" variant="outline" onClick={() => window.print()}>
+              <Button size="sm" variant="outline" onClick={handlePrint}>
                 <Printer className="size-3.5" /> Print
               </Button>
             </span>
