@@ -1,7 +1,12 @@
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { internalQuery, mutation, query } from "./_generated/server";
+import {
+  internalMutation,
+  internalQuery,
+  mutation,
+  query,
+} from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { requireRole, sessionTokenValidator } from "./users";
 import { writeAuditLog } from "./lib/audit";
@@ -96,6 +101,19 @@ export async function openAssignmentForGuest(
     .withIndex("by_guest", (q) => q.eq("guestId", guestId))
     .collect();
   return rows.find(isOpen) ?? null;
+}
+
+/**
+ * Open assignment rows whose guest record no longer exists. The row still
+ * counts as an occupied bed — that is what the room grid sums — so these are
+ * the beds that read as full with nobody in them.
+ */
+function orphanedBedRows(
+  assignments: Doc<"agcRoomAssignments">[],
+  guestIds: Iterable<string>,
+): Doc<"agcRoomAssignments">[] {
+  const live = new Set(guestIds);
+  return assignments.filter((assignment) => !live.has(assignment.guestId as string));
 }
 
 async function requireArea(ctx: MutationCtx | QueryCtx, sessionToken: string) {
@@ -752,6 +770,67 @@ export const unassignGuest = mutation({
 });
 
 /**
+ * Close every open assignment whose guest record is gone, returning those beds
+ * to their rooms. A rep editing or deleting a booking used to erase the guests
+ * and leave the assignment open: the bed counted as filled forever, the room
+ * read as full with nobody in it, and the delegate who should have had it
+ * stayed on the waiting list with no bed apparently free anywhere.
+ *
+ * Only orphaned rows are touched and they are closed, never deleted, so the
+ * history still shows why the bed came back (§9). Safe to run repeatedly.
+ */
+async function releaseOrphanedBedsCore(
+  ctx: MutationCtx,
+  actorUserId: Id<"users"> | undefined,
+  actorEmail: string,
+): Promise<{ released: number; rooms: number }> {
+  const assignments = (await ctx.db.query("agcRoomAssignments").collect()).filter(isOpen);
+  const orphans = orphanedBedRows(
+    assignments,
+    (await ctx.db.query("agcGuests").collect()).map((guest) => guest._id),
+  );
+  const roomIds = [...new Set(orphans.map((row) => row.roomId as string))];
+  for (const assignment of orphans) {
+    await closeAssignment(
+      ctx,
+      assignment,
+      actorEmail,
+      "Guest record no longer exists — bed released",
+    );
+  }
+  if (orphans.length > 0) {
+    await writeAuditLog(ctx, {
+      actorUserId,
+      actorEmail,
+      action: "agc_room.beds_released",
+      entityType: "agcRooms",
+      entityId: orphans[0].roomId,
+      summary: `Released ${orphans.length} bed(s) held by deleted guests in ${roomIds.length} room(s) by ${actorEmail}`,
+      metadata: { roomIds },
+    });
+  }
+  return { released: orphans.length, rooms: roomIds.length };
+}
+
+export const releaseOrphanedBeds = mutation({
+  args: { sessionToken: v.string() },
+  handler: async (ctx, args) => {
+    const actor = await requireArea(ctx, args.sessionToken);
+    return await releaseOrphanedBedsCore(ctx, actor._id, actor.email);
+  },
+});
+
+/**
+ * The same release without a browser session, for the maintenance runner
+ * (`npx convex run agcRoomAssignments:releaseOrphanedBedsInternal --prod`).
+ * Internal mutations are not callable from the client.
+ */
+export const releaseOrphanedBedsInternal = internalMutation({
+  args: {},
+  handler: async (ctx) => await releaseOrphanedBedsCore(ctx, undefined, "convex-cli"),
+});
+
+/**
  * Core of the one-click rooming routine: fills every room bed-for-bed from
  * the matching unassigned queue (type + gender; rooms with a gender lock
  * only take that gender). Never steers guests into a room whose type
@@ -1012,12 +1091,18 @@ export const getRoomingOverview = query({
     }
 
     // Delegates with a live booking who have no bed yet.
-    const unassigned = await ctx.db.query("agcGuests").collect();
+    const guests = await ctx.db.query("agcGuests").collect();
     const assignedGuestIds = new Set(assignments.map((a) => a.guestId));
+    // A bed whose guest row is gone still blocks the room, so it is reported on
+    // its own rather than being folded into the free count.
+    const orphaned = orphanedBedRows(
+      assignments,
+      guests.map((guest) => guest._id),
+    );
     const bookings = new Map(
       (await ctx.db.query("agcBookings").collect()).map((b) => [b._id, b]),
     );
-    const awaitingRoom = unassigned.filter((guest) => {
+    const awaitingRoom = guests.filter((guest) => {
       if (guest.status !== "active" || assignedGuestIds.has(guest._id)) return false;
       const booking = bookings.get(guest.bookingId);
       return !!booking && isRoomableBooking(booking);
@@ -1035,6 +1120,8 @@ export const getRoomingOverview = query({
       faultyBeds,
       fullRooms,
       awaitingRoom,
+      orphanedBeds: orphaned.length,
+      orphanedRooms: new Set(orphaned.map((row) => row.roomId as string)).size,
       keysOut,
       keysReturned,
     };

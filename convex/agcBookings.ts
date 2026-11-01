@@ -361,11 +361,26 @@ export const editBooking = mutation({
       });
     }
 
-    // 3. Replace the guest roster.
+    // 3. Replace the guest roster. Close any bed the old roster was holding
+    // first: deleting the guest leaves the assignment open, and an open row
+    // counts as a filled bed forever — the room then reads full with nobody in
+    // it and the delegate who should have had that bed is stranded.
     for (const guest of await ctx.db
       .query("agcGuests")
       .withIndex("by_booking", (q) => q.eq("bookingId", booking._id))
       .collect()) {
+      for (const assignment of await ctx.db
+        .query("agcRoomAssignments")
+        .withIndex("by_guest", (q) => q.eq("guestId", guest._id))
+        .collect()) {
+        if (assignment.endedAt === undefined) {
+          await ctx.db.patch(assignment._id, {
+            endedAt: Date.now(),
+            endBy: rep.email ?? rep.username,
+            endReason: "Guest removed from the reservation (rep edit)",
+          });
+        }
+      }
       await ctx.db.delete(guest._id);
     }
     for (const guest of args.guests) {
@@ -443,6 +458,20 @@ export const deleteBooking = mutation({
       .query("agcGuests")
       .withIndex("by_booking", (q) => q.eq("bookingId", booking._id))
       .collect()) {
+      // Close the bed before the guest row goes, or the room stays counted as
+      // full with a delegate who no longer exists in it.
+      for (const assignment of await ctx.db
+        .query("agcRoomAssignments")
+        .withIndex("by_guest", (q) => q.eq("guestId", guest._id))
+        .collect()) {
+        if (assignment.endedAt === undefined) {
+          await ctx.db.patch(assignment._id, {
+            endedAt: Date.now(),
+            endBy: rep.email ?? rep.username,
+            endReason: "Reservation deleted before payment",
+          });
+        }
+      }
       await ctx.db.delete(guest._id);
     }
     // Ledger has no booking index; sweep by bookingId.

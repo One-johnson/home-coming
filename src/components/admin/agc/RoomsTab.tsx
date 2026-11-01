@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import {
+  AlertTriangle,
   ArrowRightLeft,
   BedDouble,
   ChevronDown,
@@ -287,6 +288,7 @@ export function RoomsTab() {
   const deleteRoom = useMutation(api.agcRoomAssignments.deleteRoom);
   const assignGuests = useMutation(api.agcRoomAssignments.assignGuests);
   const unassignGuest = useMutation(api.agcRoomAssignments.unassignGuest);
+  const releaseOrphanedBeds = useMutation(api.agcRoomAssignments.releaseOrphanedBeds);
   const moveGuests = useMutation(api.agcRoomAssignments.moveGuests);
   const autoAssign = useMutation(api.agcRoomAssignments.autoAssignGuests);
   const roomingSettings = useQuery(
@@ -340,6 +342,7 @@ export function RoomsTab() {
   const [moveReason, setMoveReason] = useState("");
   const [moveBusy, setMoveBusy] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [releasingBeds, setReleasingBeds] = useState(false);
   const [roomingOpen, setRoomingOpen] = useState(false);
   const [roomingType, setRoomingType] = useState<string>("all");
   /** True while the assign panel's phone bar is on screen (see BulkAssignPanel). */
@@ -643,6 +646,27 @@ export function RoomsTab() {
       toast.success("Guest removed from room");
     } catch (err) {
       toast.error(...toastFriendlyErrorParts(err, "Could not remove guest"));
+    }
+  };
+
+  // Beds held by a guest row that no longer exists — a rep edit or delete used
+  // to leave the assignment open. Closing them returns the beds to the rooms.
+  const releaseOrphanedBedsNow = async () => {
+    if (!sessionToken) return;
+    setReleasingBeds(true);
+    try {
+      const result = await releaseOrphanedBeds({ sessionToken });
+      if (result.released > 0) {
+        toast.success(
+          `Released ${result.released} bed(s) across ${result.rooms} room(s)`,
+        );
+      } else {
+        toast.info("No beds were held by deleted delegates.");
+      }
+    } catch (err) {
+      toast.error(...toastFriendlyErrorParts(err, "Could not release beds"));
+    } finally {
+      setReleasingBeds(false);
     }
   };
 
@@ -1195,6 +1219,32 @@ export function RoomsTab() {
             : ""}
         </span>
       </div>
+
+      {/* Beds whose guest record was deleted still count as occupied, so the
+          rooms read full with nobody in them. Say so, and let the desk hand the
+          beds back without hunting room by room. */}
+      {(roomingOverview?.orphanedBeds ?? 0) > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
+          <AlertTriangle className="size-4 shrink-0 text-amber-600" />
+          <span className="grow">
+            <span className="font-semibold tabular-nums">
+              {roomingOverview?.orphanedBeds}
+            </span>{" "}
+            bed(s) in {roomingOverview?.orphanedRooms} room(s) are held by delegates
+            whose record no longer exists — the rooms read as full, but nobody is in
+            them.
+          </span>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={releasingBeds}
+            onClick={() => void releaseOrphanedBedsNow()}
+          >
+            {releasingBeds ? "Releasing…" : "Release beds"}
+          </Button>
+        </div>
+      )}
 
       {/* The numbers the room team asks for first: what is free, what is held,
           what is out of service, and how the keys stand. */}
