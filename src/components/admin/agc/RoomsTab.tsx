@@ -44,7 +44,10 @@ import {
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
+  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -58,6 +61,7 @@ import {
 } from "@/components/ui/table";
 import { toastFriendlyErrorParts } from "@/lib/friendlyError";
 import { AGC_ACCOMMODATION_LABELS } from "@/lib/agcPortal";
+import { parsePublishScope, publishScopeLabel } from "@/lib/agcRoomPublish";
 import { cn } from "@/lib/utils";
 
 /**
@@ -879,21 +883,17 @@ export function RoomsTab() {
     }
   };
 
-  const publishScope = async (scope: string) => {
+  /** Bulk publish or unpublish from the toolbar menu; the scope names both. */
+  const publishScope = async (value: string) => {
+    const scope = parsePublishScope(value);
     if (!scope) return;
-    if (scope === "all") {
-      await publish({ all: true, publish: true, label: "Publish all rooms" });
-    } else if (scope.startsWith("type:")) {
-      const type = scope.slice("type:".length);
-      await publish({
-        accommodationType: type,
-        publish: true,
-        label: `Publish all ${TYPE_LABEL(type)} rooms`,
-      });
-    } else if (scope.startsWith("building:")) {
-      const building = scope.slice("building:".length);
-      await publish({ building, publish: true, label: `Publish ${building}` });
-    }
+    await publish({
+      all: scope.all,
+      building: scope.building,
+      accommodationType: scope.accommodationType,
+      publish: scope.publish,
+      label: publishScopeLabel(scope, TYPE_LABEL),
+    });
   };
 
   const downloadTemplate = async () => {
@@ -1066,6 +1066,8 @@ export function RoomsTab() {
             {deletedRooms?.total ?? deletedList.length})
           </Button>
         )}
+        {/* One menu, both directions: a scope is all rooms, one type, or a
+            block, and each can be published or unpublished in one pass. */}
         <Select
           value={publishScopeValue}
           onValueChange={(value) => {
@@ -1076,26 +1078,81 @@ export function RoomsTab() {
           }}
           disabled={busy || list.length === 0}
         >
-          <SelectTrigger className="h-9 w-56" aria-label="Publish rooms in bulk">
-            <SelectValue placeholder="Publish…" />
+          <SelectTrigger
+            className="h-9 w-56"
+            aria-label="Publish or unpublish rooms in bulk"
+          >
+            <SelectValue placeholder="Publish / unpublish…" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">
-              Publish all {list.length} room(s)
-            </SelectItem>
-            {TYPES.filter((type) =>
-              list.some((room) => room.accommodationType === type),
-            ).map((type) => (
-              <SelectItem key={type} value={`type:${type}`}>
-                Publish all {TYPE_LABEL(type)} (
-                {list.filter((room) => room.accommodationType === type).length})
+            <SelectGroup>
+              <SelectLabel>Publish — visible to hub reps</SelectLabel>
+              <SelectItem value="publish:all">
+                Publish all {list.length} room(s)
               </SelectItem>
-            ))}
-            {buildings.map((building) => (
-              <SelectItem key={building} value={`building:${building}`}>
-                Publish block — {building}
+              {TYPES.filter((type) =>
+                list.some((room) => room.accommodationType === type),
+              ).map((type) => (
+                <SelectItem
+                  key={`publish-${type}`}
+                  value={`publish:type:${type}`}
+                >
+                  Publish all {TYPE_LABEL(type)} (
+                  {list.filter((room) => room.accommodationType === type).length})
+                </SelectItem>
+              ))}
+              {buildings.map((building) => (
+                <SelectItem
+                  key={`publish-${building}`}
+                  value={`publish:building:${building}`}
+                >
+                  Publish block — {building}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+            <SelectSeparator />
+            <SelectGroup>
+              <SelectLabel>Unpublish — hides rooms from reps</SelectLabel>
+              <SelectItem value="unpublish:all" disabled={publishedCount === 0}>
+                Unpublish all {publishedCount} published room(s)
               </SelectItem>
-            ))}
+              {TYPES.filter((type) =>
+                list.some(
+                  (room) =>
+                    room.accommodationType === type && room.publishedAt != null,
+                ),
+              ).map((type) => (
+                <SelectItem
+                  key={`unpublish-${type}`}
+                  value={`unpublish:type:${type}`}
+                >
+                  Unpublish all {TYPE_LABEL(type)} (
+                  {
+                    list.filter(
+                      (room) =>
+                        room.accommodationType === type &&
+                        room.publishedAt != null,
+                    ).length
+                  }
+                  )
+                </SelectItem>
+              ))}
+              {buildings
+                .filter((building) =>
+                  list.some(
+                    (room) =>
+                      room.building === building && room.publishedAt != null,
+                  ),
+                )
+                .map((building) => (
+                  <SelectItem
+                    key={`unpublish-${building}`}
+                    value={`unpublish:building:${building}`}
+                  >
+                    Unpublish block — {building}
+                  </SelectItem>
+                ))}
+            </SelectGroup>
           </SelectContent>
         </Select>
         <Input
