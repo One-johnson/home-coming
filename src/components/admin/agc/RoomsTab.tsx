@@ -343,6 +343,8 @@ export function RoomsTab() {
   const [moveBusy, setMoveBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [releasingBeds, setReleasingBeds] = useState(false);
+  /** Assignment row whose Remove button is mid-request, so only it spins. */
+  const [removingAssignmentId, setRemovingAssignmentId] = useState<string | null>(null);
   const [roomingOpen, setRoomingOpen] = useState(false);
   const [roomingType, setRoomingType] = useState<string>("all");
   /** True while the assign panel's phone bar is on screen (see BulkAssignPanel). */
@@ -639,12 +641,15 @@ export function RoomsTab() {
   const unassign = async (assignmentId: string) => {
     if (!sessionToken) return;
     try {
+      setRemovingAssignmentId(assignmentId);
       await unassignGuest({
         sessionToken,
         assignmentId: assignmentId as Id<"agcRoomAssignments">,
       });
+      setRemovingAssignmentId(null);
       toast.success("Guest removed from room");
     } catch (err) {
+      setRemovingAssignmentId(null);
       toast.error(...toastFriendlyErrorParts(err, "Could not remove guest"));
     }
   };
@@ -2646,9 +2651,16 @@ export function RoomsTab() {
                         size="sm"
                         variant="ghost"
                         className="h-7 shrink-0 gap-1 text-xs text-muted-foreground hover:text-destructive"
+                        disabled={removingAssignmentId !== null}
+                        aria-busy={removingAssignmentId === a._id}
                         onClick={() => void unassign(a._id)}
                       >
-                        <Trash2 className="size-3" /> Remove
+                        {removingAssignmentId === a._id ? (
+                          <Loader2Icon className="size-3 animate-spin" />
+                        ) : (
+                          <Trash2 className="size-3" />
+                        )}
+                        {removingAssignmentId === a._id ? "Removing…" : "Remove"}
                       </Button>
                     </li>
                   );
