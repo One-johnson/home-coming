@@ -40,6 +40,7 @@ import {
   getAccommodationTypesConfig,
   getBishopRate,
 } from "./lib/agcSettingsRuntime";
+import { buildPortalConfig } from "./lib/agcPortalConfig";
 
 const guestValidator = v.object({
   firstName: v.string(),
@@ -114,11 +115,12 @@ export const getRepAccommodationView = query({
   args: { sessionToken: v.string() },
   handler: async (ctx, args) => {
     const { rep, hub } = await requireRep(ctx, args.sessionToken);
-    const [overview, bookings] = await Promise.all([
+    const [overview, bookings, config] = await Promise.all([
       buildAccommodationOverview(ctx, hub),
       buildRepBookings(ctx, rep._id),
+      buildPortalConfig(ctx),
     ]);
-    return { overview, bookings };
+    return { overview, bookings, config };
   },
 });
 

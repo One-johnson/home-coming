@@ -1717,7 +1717,8 @@ export function RepAccommodationTab({
   const previewExcelAction = useAction(api.agcExcel.previewBookingExcel);
   const exportBookings = useAction(api.agcExcel.exportRepBookingsExcel);
 
-  const portalConfig = useQuery(api.agcPortal.getPortalConfig);
+  // Folded into the view above instead of a second subscription.
+  const portalConfig = view?.config;
 
   // Restore a roster typed on this device earlier (reload, app switch, locked
   // screen) as initial state, so the summary bar comes back with it. Runs on

@@ -306,26 +306,6 @@ export default defineSchema({
     .index("by_created_at", ["createdAt"])
     .index("by_reference_number", ["referenceNumber"]),
 
-  emailLogs: defineTable({
-    to: v.string(),
-    subject: v.string(),
-    body: v.string(),
-    htmlBody: v.optional(v.string()),
-    type: v.string(),
-    referenceId: v.optional(v.string()),
-    status: v.union(
-      v.literal("stub"),
-      v.literal("pending"),
-      v.literal("sent"),
-      v.literal("failed"),
-    ),
-    errorMessage: v.optional(v.string()),
-    createdAt: v.number(),
-  })
-    .index("by_created_at", ["createdAt"])
-    .index("by_status", ["status"])
-    .index("by_type_reference", ["type", "referenceId"]),
-
   // ----------------------------------------------------------------
   // AGC 2026 representative portal (Phase 1 of the SRS)
   // ----------------------------------------------------------------

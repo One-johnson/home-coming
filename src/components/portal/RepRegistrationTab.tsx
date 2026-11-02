@@ -291,7 +291,9 @@ export function RepRegistrationTab({
     api.agcPortal.getRepRegistrationView,
     sessionToken ? { sessionToken } : "skip",
   );
-  const portalConfig = useQuery(api.agcPortal.getPortalConfig);
+  // Folded into the view above: the portal config is a settings read, so a
+  // second subscription only re-ran alongside it on every settings write.
+  const portalConfig = view?.config;
   const rep = view?.profile ?? undefined;
   const registrations = view?.registrations;
   const submitOffline = useMutation(api.agcPortal.submitOfflineRegistration);

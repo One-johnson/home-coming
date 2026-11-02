@@ -9,7 +9,6 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
   AGC_DEFAULTS,
-  AGC_REGIONS,
   AGC_SETTING_KEYS,
   regionPricing,
 } from "./lib/agcConfig";
@@ -19,6 +18,7 @@ import { isHubPoaEnabled } from "./lib/agcPoaRuntime";
 import { isSmtpConfigured } from "./lib/smtpConfig";
 import { writeAuditLog } from "./lib/audit";
 import { createUniqueReferenceNumber } from "./lib/referenceNumbers";
+import { buildPortalConfig } from "./lib/agcPortalConfig";
 
 // ------------------------------------------------------------------
 // Session helpers — reps authenticate with a token in agcRepSessions
@@ -179,22 +179,7 @@ export const updateRepProfile = mutation({
 
 export const getPortalConfig = query({
   args: {},
-  handler: async (ctx) => {
-    const settings = await ctx.db.query("agcSettings").collect();
-    const map = new Map(settings.map((row) => [row.key, row.value]));
-    return {
-      deadline: map.get(AGC_SETTING_KEYS.deadline) ?? AGC_DEFAULTS.deadline,
-      locked: map.get(AGC_SETTING_KEYS.lockdown) === "true",
-      registrationBankDetails:
-        map.get(AGC_SETTING_KEYS.registrationBank) ?? "",
-      accommodationBankDetails:
-        map.get(AGC_SETTING_KEYS.accommodationBank) ?? "",
-      regions: Object.entries(AGC_REGIONS).map(([key, value]) => ({
-        region: key,
-        ...value,
-      })),
-    };
-  },
+  handler: async (ctx) => buildPortalConfig(ctx),
 });
 
 // ------------------------------------------------------------------
@@ -256,11 +241,12 @@ export const getRepRegistrationView = query({
   handler: async (ctx, args) => {
     const result = await getRepByToken(ctx, args.sessionToken);
     if (!result) return null;
-    const [profile, registrations] = await Promise.all([
+    const [profile, registrations, config] = await Promise.all([
       buildRepProfile(ctx, result.rep, result.hub),
       buildRepRegistrations(ctx, result.rep),
+      buildPortalConfig(ctx),
     ]);
-    return { profile, registrations };
+    return { profile, registrations, config };
   },
 });
 
