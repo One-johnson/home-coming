@@ -1495,8 +1495,8 @@ function AgcSettingsForm({
               </p>
             ) : (
               <p className="text-xs text-muted-foreground">
-                Credential and review emails are logged on the Emails page but
-                not delivered.
+                Credential and review emails are not sent until SMTP is
+                configured.
               </p>
             )}
             <p className="text-[11px] text-muted-foreground">
