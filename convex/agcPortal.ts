@@ -103,14 +103,11 @@ export async function assertBeforeDeadline(ctx: MutationCtx) {
 // Rep queries
 // ------------------------------------------------------------------
 
-export const getRepProfile = query({
-  args: { sessionToken: v.string() },
-  handler: async (ctx, args) => {
-    // Returns null (never throws) for missing/expired sessions so the client
-    // provider can cleanly clear the stale token and show the sign-in form.
-    const result = await getRepByToken(ctx, args.sessionToken);
-    if (!result) return null;
-    const { rep, hub } = result;
+async function buildRepProfile(
+  ctx: QueryCtx,
+  rep: Doc<"agcRepresentatives">,
+  hub: Doc<"agcHubs">,
+) {
     return {
       _id: rep._id,
       username: rep.username,
@@ -127,6 +124,16 @@ export const getRepProfile = query({
       paymentOnArrival: await isHubPoaEnabled(ctx, rep.hubId),
       createdAt: rep.createdAt,
     };
+}
+
+export const getRepProfile = query({
+  args: { sessionToken: v.string() },
+  handler: async (ctx, args) => {
+    // Returns null (never throws) for missing/expired sessions so the client
+    // provider can cleanly clear the stale token and show the sign-in form.
+    const result = await getRepByToken(ctx, args.sessionToken);
+    if (!result) return null;
+    return buildRepProfile(ctx, result.rep, result.hub);
   },
 });
 
@@ -194,10 +201,10 @@ export const getPortalConfig = query({
 // Rep registrations (SRS §9–16)
 // ------------------------------------------------------------------
 
-export const listRepRegistrations = query({
-  args: { sessionToken: v.string() },
-  handler: async (ctx, args) => {
-    const { rep } = await requireRep(ctx, args.sessionToken);
+async function buildRepRegistrations(
+  ctx: QueryCtx,
+  rep: Doc<"agcRepresentatives">,
+) {
     const registrations = await ctx.db
       .query("agcRegistrations")
       .withIndex("by_rep", (q) => q.eq("repId", rep._id))
@@ -229,6 +236,31 @@ export const listRepRegistrations = query({
       });
     }
     return result.sort((a, b) => b.createdAt - a.createdAt);
+}
+
+export const listRepRegistrations = query({
+  args: { sessionToken: v.string() },
+  handler: async (ctx, args) => {
+    const { rep } = await requireRep(ctx, args.sessionToken);
+    return buildRepRegistrations(ctx, rep);
+  },
+});
+
+/**
+ * The registration screen in one call: the rep's profile and its registration
+ * history. They were two live queries over the same rep row, so a purchase or a
+ * review re-ran both for every open portal.
+ */
+export const getRepRegistrationView = query({
+  args: { sessionToken: v.string() },
+  handler: async (ctx, args) => {
+    const result = await getRepByToken(ctx, args.sessionToken);
+    if (!result) return null;
+    const [profile, registrations] = await Promise.all([
+      buildRepProfile(ctx, result.rep, result.hub),
+      buildRepRegistrations(ctx, result.rep),
+    ]);
+    return { profile, registrations };
   },
 });
 

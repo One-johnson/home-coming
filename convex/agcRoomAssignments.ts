@@ -2011,17 +2011,42 @@ export async function buildRepRoomAssignments(
     const ownBookingIds = new Set(bookings.map((b) => b._id));
     if (ownBookingIds.size === 0) return [];
 
-    const guests = (
-      await ctx.db.query("agcGuests").collect()
-    ).filter((g) => ownBookingIds.has(g.bookingId) && g.status === "active");
+    // Only this rep's guests, then only their bed and check-in rows: the portal
+    // used to scan every guest, assignment, check-in and room in the system to
+    // draw one hub's rooming list.
+    const bookingGuests = await Promise.all(
+      bookings.map((booking) =>
+        ctx.db
+          .query("agcGuests")
+          .withIndex("by_booking", (q) => q.eq("bookingId", booking._id))
+          .collect(),
+      ),
+    );
+    const guests = bookingGuests.flat().filter((g) => g.status === "active");
     if (guests.length === 0) return [];
 
-    const assignments = (await ctx.db.query("agcRoomAssignments").collect()).filter(
-      (a) => a.endedAt === undefined,
-    );
-    const checkIns = (await ctx.db.query("agcCheckIns").collect()).filter(
-      (c) => !c.correctedAt,
-    );
+    const [assignmentRows, checkInRows] = await Promise.all([
+      Promise.all(
+        guests.map((guest) =>
+          ctx.db
+            .query("agcRoomAssignments")
+            .withIndex("by_guest", (q) => q.eq("guestId", guest._id))
+            .collect(),
+        ),
+      ),
+      Promise.all(
+        guests.map((guest) =>
+          ctx.db
+            .query("agcCheckIns")
+            .withIndex("by_guest", (q) => q.eq("guestId", guest._id))
+            .collect(),
+        ),
+      ),
+    ]);
+    const assignments = assignmentRows
+      .flat()
+      .filter((a) => a.endedAt === undefined);
+    const checkIns = checkInRows.flat().filter((c) => !c.correctedAt);
     const checkedInGuestIds = new Set(
       checkIns.filter((c) => !c.checkedOutAt).map((c) => c.guestId),
     );
@@ -2029,8 +2054,12 @@ export async function buildRepRoomAssignments(
     const roomIds = new Set(
       assignments.map((a) => a.roomId).filter(Boolean),
     );
-    const rooms = (await ctx.db.query("agcRooms").collect()).filter(
-      (room) => roomIds.has(room._id) && !room.deletedAt && !!room.publishedAt,
+    const roomRows = await Promise.all(
+      [...roomIds].map((roomId) => ctx.db.get(roomId)),
+    );
+    const rooms = roomRows.filter(
+      (room): room is Doc<"agcRooms"> =>
+        room !== null && !room.deletedAt && !!room.publishedAt,
     );
 
     const rows: RepRoomAssignment[] = [];

@@ -1669,14 +1669,15 @@ export function RepAccommodationTab({
   initialFilter?: string;
 } = {}) {
   const { sessionToken, handleSessionError, rep } = useRepSession();
-  const overview = useQuery(
-    api.agcBookings.getAccommodationOverview,
+  // One subscription for the whole screen: hub availability and the rep's
+  // bookings are two views of the same booking rows, so as separate live
+  // queries every booking write re-ran both.
+  const view = useQuery(
+    api.agcBookings.getRepAccommodationView,
     sessionToken ? { sessionToken } : "skip",
-  ) as AccommodationOverview | undefined;
-  const bookings = useQuery(
-    api.agcBookings.listRepBookings,
-    sessionToken ? { sessionToken } : "skip",
-  ) as RepBooking[] | undefined;
+  );
+  const overview = view?.overview as AccommodationOverview | undefined;
+  const bookings = view?.bookings as RepBooking[] | undefined;
 
   const createBooking = useMutation(api.agcBookings.createBooking);
   const cancelBooking = useMutation(api.agcBookings.cancelBooking);

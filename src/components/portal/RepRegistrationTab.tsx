@@ -285,12 +285,15 @@ export function RepRegistrationTab({
   initialFilter?: string;
 } = {}) {
   const { sessionToken, handleSessionError } = useRepSession();
-  const rep = useQuery(api.agcPortal.getRepProfile, sessionToken ? { sessionToken } : "skip");
-  const portalConfig = useQuery(api.agcPortal.getPortalConfig);
-  const registrations = useQuery(
-    api.agcPortal.listRepRegistrations,
+  // One subscription for the profile and the history: both read this rep's row
+  // and its registrations, so a purchase or a review re-ran two queries.
+  const view = useQuery(
+    api.agcPortal.getRepRegistrationView,
     sessionToken ? { sessionToken } : "skip",
   );
+  const portalConfig = useQuery(api.agcPortal.getPortalConfig);
+  const rep = view?.profile ?? undefined;
+  const registrations = view?.registrations;
   const submitOffline = useMutation(api.agcPortal.submitOfflineRegistration);
   const generateUploadUrl = useMutation(api.agcPortal.generateReceiptUploadUrl);
   // Payment-on-arrival flow (only offered when the hub is enrolled).

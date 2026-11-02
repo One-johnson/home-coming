@@ -62,10 +62,10 @@ const guestValidator = v.object({
 // Availability + config for the accommodation tab
 // ------------------------------------------------------------------
 
-export const getAccommodationOverview = query({
-  args: { sessionToken: v.string() },
-  handler: async (ctx, args) => {
-    const { hub } = await requireRep(ctx, args.sessionToken);
+async function buildAccommodationOverview(
+  ctx: QueryCtx,
+  hub: Doc<"agcHubs">,
+) {
     const [availability, holdHours, deadline, typesConfig, bishopRate] =
       await Promise.all([
         availabilityForRegion(ctx, hub.region),
@@ -95,6 +95,30 @@ export const getAccommodationOverview = query({
       // Payment-on-arrival feature flag for this hub (drives the rep UI).
       paymentOnArrival: await isHubPoaEnabled(ctx, hub._id),
     };
+}
+
+export const getAccommodationOverview = query({
+  args: { sessionToken: v.string() },
+  handler: async (ctx, args) => {
+    const { hub } = await requireRep(ctx, args.sessionToken);
+    return buildAccommodationOverview(ctx, hub);
+  },
+});
+
+/**
+ * The rep accommodation screen in one call: hub availability and pricing plus
+ * the rep's own bookings. As two live queries, every booking write re-ran both
+ * for every rep with the portal open.
+ */
+export const getRepAccommodationView = query({
+  args: { sessionToken: v.string() },
+  handler: async (ctx, args) => {
+    const { rep, hub } = await requireRep(ctx, args.sessionToken);
+    const [overview, bookings] = await Promise.all([
+      buildAccommodationOverview(ctx, hub),
+      buildRepBookings(ctx, rep._id),
+    ]);
+    return { overview, bookings };
   },
 });
 
