@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
+import { ReceiptsArchiveCard } from "@/components/admin/agc/ReceiptsArchiveCard";
 import { useAdminSession } from "@/components/admin/AdminSessionProvider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -1505,6 +1506,10 @@ function AgcSettingsForm({
           </div>
         </CardContent>
       </Card>
+      )}
+
+      {section === "operations" && (
+        <ReceiptsArchiveCard sessionToken={sessionToken} />
       )}
 
       {/* Floating unsaved-changes bar: only present when there is work to
