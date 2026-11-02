@@ -516,13 +516,44 @@ export function isRoomableBooking(booking: {
   );
 }
 
+/** Active guests only — the status index keeps the scan off retired rosters. */
+export async function activeGuests(ctx: QueryCtx) {
+  return await ctx.db
+    .query("agcGuests")
+    .withIndex("by_status", (q) => q.eq("status", "active"))
+    .collect();
+}
+
+/**
+ * Bookings that can hold a bed: confirmed, or reserved on payment-on-arrival
+ * terms. Read through the status index so expired and cancelled history never
+ * joins the read set — those rows are what made these queries re-run.
+ */
+export async function roomableBookings(ctx: QueryCtx) {
+  const [confirmed, reserved] = await Promise.all([
+    ctx.db
+      .query("agcBookings")
+      .withIndex("by_booking_status", (q) =>
+        q.eq("bookingStatus", "confirmed"),
+      )
+      .collect(),
+    ctx.db
+      .query("agcBookings")
+      .withIndex("by_booking_status", (q) =>
+        q.eq("bookingStatus", "reserved"),
+      )
+      .collect(),
+  ]);
+  return [...confirmed, ...reserved].filter(isRoomableBooking);
+}
+
 /**
  * Guests eligible for rooming: active guests whose booking is confirmed
  * (paid) and who have no assignment yet. Grouped by type + gender.
  */
 export async function buildUnassignedGuests(ctx: QueryCtx) {
-    const guests = await ctx.db.query("agcGuests").collect();
-    const bookings = await ctx.db.query("agcBookings").collect();
+    const guests = await activeGuests(ctx);
+    const bookings = await roomableBookings(ctx);
     const bookingById = new Map(bookings.map((b) => [b._id, b]));
     const assignedGuestIds = new Set(
       (await ctx.db.query("agcRoomAssignments").collect()).filter(isOpen).map((a) => a.guestId),
@@ -1103,16 +1134,24 @@ export async function buildRoomingOverview(ctx: QueryCtx) {
     }
 
     // Delegates with a live booking who have no bed yet.
-    const guests = await ctx.db.query("agcGuests").collect();
+    const guests = await activeGuests(ctx);
     const assignedGuestIds = new Set(assignments.map((a) => a.guestId));
     // A bed whose guest row is gone still blocks the room, so it is reported on
-    // its own rather than being folded into the free count.
+    // its own rather than being folded into the free count. Only the guests that
+    // hold a bed are looked up — never the whole roster.
+    const assignedGuestRows = await Promise.all(
+      [...new Set(assignments.map((a) => a.guestId))].map((guestId) =>
+        ctx.db.get(guestId),
+      ),
+    );
     const orphaned = orphanedBedRows(
       assignments,
-      guests.map((guest) => guest._id),
+      assignedGuestRows
+        .filter((guest): guest is Doc<"agcGuests"> => guest !== null)
+        .map((guest) => guest._id),
     );
     const bookings = new Map(
-      (await ctx.db.query("agcBookings").collect()).map((b) => [b._id, b]),
+      (await roomableBookings(ctx)).map((b) => [b._id, b]),
     );
     const awaitingRoom = guests.filter((guest) => {
       if (guest.status !== "active" || assignedGuestIds.has(guest._id)) return false;

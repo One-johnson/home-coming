@@ -8,9 +8,11 @@ import { writeAuditLog } from "./lib/audit";
 import { agcKeyReturnStatus } from "./schemaTypes";
 import type { AgcKeyReturnStatus, AgcKeyStatus } from "./schemaTypes";
 import {
+  activeGuests,
   buildRoomsAdmin,
   isRoomableBooking,
   openAssignmentForGuest,
+  roomableBookings,
 } from "./agcRoomAssignments";
 import { buildRoomIssues } from "./agcRoomIssues";
 import { AGC_ACCOMMODATION_LABELS } from "../src/lib/agcPortal";
@@ -1521,8 +1523,8 @@ async function buildArrivalDesk(
     for (const key of await ctx.db.query("agcKeys").collect()) {
       keyByRoom.set(key.roomId, key);
     }
-    const guests = await ctx.db.query("agcGuests").collect();
-    const bookings = await ctx.db.query("agcBookings").collect();
+    const guests = await activeGuests(ctx);
+    const bookings = await roomableBookings(ctx);
     const bookingById = new Map(bookings.map((b) => [b._id, b]));
     const hubNameById = new Map(
       (await ctx.db.query("agcHubs").collect()).map((h) => [h._id, h.name]),
@@ -1641,10 +1643,8 @@ async function buildArrivalOverview(ctx: Ctx): Promise<ArrivalOverview> {
     const assignments = (await ctx.db.query("agcRoomAssignments").collect()).filter(
       (a) => a.endedAt === undefined,
     );
-    const guests = (await ctx.db.query("agcGuests").collect()).filter(
-      (g) => g.status === "active",
-    );
-    const bookings = await ctx.db.query("agcBookings").collect();
+    const guests = await activeGuests(ctx);
+    const bookings = await roomableBookings(ctx);
     const roomableBookingIds = new Set(
       bookings.filter(isRoomableBooking).map((b) => b._id),
     );
@@ -1754,8 +1754,12 @@ async function buildRecentCheckIns(ctx: Ctx, limit?: number) {
       .filter((row) => !row.correctedAt)
       .sort((a, b) => b.checkedInAt - a.checkedInAt)
       .slice(0, limit ?? 20);
+    // Twenty recent rows do not justify scanning the whole guest table.
+    const guestRows = await Promise.all(
+      rows.map((row) => ctx.db.get(row.guestId)),
+    );
     const guestById = new Map(
-      (await ctx.db.query("agcGuests").collect()).map((g) => [g._id, g]),
+      rows.map((row, index) => [row.guestId, guestRows[index]] as const),
     );
     return rows.map((row) => {
       const guest = guestById.get(row.guestId);

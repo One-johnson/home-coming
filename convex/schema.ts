@@ -519,7 +519,8 @@ export default defineSchema({
       "accommodationType",
       "gender",
       "status",
-    ]),
+    ])
+    .index("by_status", ["status"]),
 
   /** Per-line pricing snapshot for a booking (SRS §38). */
   agcBookingLines: defineTable({
