@@ -395,10 +395,8 @@ export const deleteRooms = mutation({
  * since (typically by re-importing the workbook), so restoring it would
  * duplicate a live room.
  */
-export const listDeletedRoomsAdmin = query({
-  args: { sessionToken: sessionTokenValidator },
-  handler: async (ctx, args) => {
-    await requireRole(ctx, args.sessionToken, [...ROOM_AREA_ROLES]);
+/** Trash view: soft-deleted rooms, newest deletion first. */
+export async function buildDeletedRooms(ctx: QueryCtx) {
     const all = await ctx.db.query("agcRooms").collect();
     const liveKeys = new Set(
       all
@@ -423,6 +421,13 @@ export const listDeletedRoomsAdmin = query({
         ),
       })),
     };
+}
+
+export const listDeletedRoomsAdmin = query({
+  args: { sessionToken: sessionTokenValidator },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, args.sessionToken, [...ROOM_AREA_ROLES]);
+    return buildDeletedRooms(ctx);
   },
 });
 
@@ -515,10 +520,7 @@ export function isRoomableBooking(booking: {
  * Guests eligible for rooming: active guests whose booking is confirmed
  * (paid) and who have no assignment yet. Grouped by type + gender.
  */
-export const listUnassignedGuestsAdmin = query({
-  args: { sessionToken: v.string() },
-  handler: async (ctx, args) => {
-    await requireRole(ctx, args.sessionToken, [...ROOM_AREA_ROLES]);
+export async function buildUnassignedGuests(ctx: QueryCtx) {
     const guests = await ctx.db.query("agcGuests").collect();
     const bookings = await ctx.db.query("agcBookings").collect();
     const bookingById = new Map(bookings.map((b) => [b._id, b]));
@@ -557,6 +559,13 @@ export const listUnassignedGuestsAdmin = query({
           a.gender.localeCompare(b.gender) ||
           a.lastName.localeCompare(b.lastName),
       );
+}
+
+export const listUnassignedGuestsAdmin = query({
+  args: { sessionToken: v.string() },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, args.sessionToken, [...ROOM_AREA_ROLES]);
+    return buildUnassignedGuests(ctx);
   },
 });
 
@@ -1049,10 +1058,7 @@ export const releaseRoomHold = mutation({
  * it is counted from the live rows, so a fault or a hold changes the numbers
  * the moment it is raised.
  */
-export const getRoomingOverview = query({
-  args: { sessionToken: v.string() },
-  handler: async (ctx, args) => {
-    await requireRole(ctx, args.sessionToken, [...ASSIGN_ROLES]);
+export async function buildRoomingOverview(ctx: QueryCtx) {
     const rooms = (await ctx.db.query("agcRooms").collect()).filter(
       (room) => !room.deletedAt,
     );
@@ -1131,6 +1137,13 @@ export const getRoomingOverview = query({
       keysOut,
       keysReturned,
     };
+}
+
+export const getRoomingOverview = query({
+  args: { sessionToken: v.string() },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, args.sessionToken, [...ASSIGN_ROLES]);
+    return buildRoomingOverview(ctx);
   },
 });
 
@@ -1234,11 +1247,15 @@ export const addWalkInDelegate = mutation({
  * Rooming switches the rooms screen needs, readable by the team that uses the
  * screen (Settings itself is super-admin only).
  */
+export async function buildRoomingSettings(ctx: QueryCtx) {
+  return { autoAssignEnabled: await getAutoAssignEnabled(ctx) };
+}
+
 export const getRoomingSettings = query({
   args: { sessionToken: v.string() },
   handler: async (ctx, args) => {
     await requireRole(ctx, args.sessionToken, [...ASSIGN_ROLES]);
-    return { autoAssignEnabled: await getAutoAssignEnabled(ctx) };
+    return buildRoomingSettings(ctx);
   },
 });
 

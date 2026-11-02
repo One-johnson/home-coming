@@ -276,14 +276,16 @@ export function RoomsTab() {
     user?.role === "admin" ||
     user?.role === "accommodation" ||
     user?.role === "room_assignment";
-  const rooms = useQuery(
-    api.agcRoomAssignments.listRoomsAdmin,
+  // One subscription for the whole screen: the grid, the roster, the numbers,
+  // the switches, the bin, the fault history and the hub list all scan the same
+  // room/guest/booking tables, so as separate live queries every assignment,
+  // room edit, hold or fault re-ran all of them.
+  const snapshot = useQuery(
+    api.agcRoomsSnapshot.getRoomsSnapshot,
     sessionToken ? { sessionToken } : "skip",
   );
-  const unassigned = useQuery(
-    api.agcRoomAssignments.listUnassignedGuestsAdmin,
-    sessionToken ? { sessionToken } : "skip",
-  );
+  const rooms = snapshot?.rooms;
+  const unassigned = snapshot?.unassigned;
   const upsertRoom = useMutation(api.agcRoomAssignments.upsertRoom);
   const deleteRoom = useMutation(api.agcRoomAssignments.deleteRoom);
   const assignGuests = useMutation(api.agcRoomAssignments.assignGuests);
@@ -291,34 +293,22 @@ export function RoomsTab() {
   const releaseOrphanedBeds = useMutation(api.agcRoomAssignments.releaseOrphanedBeds);
   const moveGuests = useMutation(api.agcRoomAssignments.moveGuests);
   const autoAssign = useMutation(api.agcRoomAssignments.autoAssignGuests);
-  const roomingSettings = useQuery(
-    api.agcRoomAssignments.getRoomingSettings,
-    sessionToken ? { sessionToken } : "skip",
-  );
+  const roomingSettings = snapshot?.settings;
   // Fixed flags come along too: a room repaired three times in a month is a
   // different proposition from one with a single old repair, and the card's
   // fault history is where the room team sees that.
-  const roomIssues = useQuery(
-    api.agcRoomIssues.listRoomIssues,
-    sessionToken ? { sessionToken, includeFixed: true } : "skip",
-  );
+  const roomIssues = snapshot?.issues;
   const flagRoomIssue = useMutation(api.agcRoomIssues.flagRoom);
   const resolveRoomIssue = useMutation(api.agcRoomIssues.resolveRoomIssue);
   const holdRoom = useMutation(api.agcRoomAssignments.holdRoom);
   const releaseRoomHold = useMutation(api.agcRoomAssignments.releaseRoomHold);
   const addWalkIn = useMutation(api.agcRoomAssignments.addWalkInDelegate);
-  const roomingOverview = useQuery(
-    api.agcRoomAssignments.getRoomingOverview,
-    sessionToken ? { sessionToken } : "skip",
-  );
-  const hubs = useQuery(api.agcAdminData.listActiveHubs, {});
+  const roomingOverview = snapshot?.rooming;
+  const hubs = snapshot?.hubs;
   const publishRooms = useMutation(api.agcRoomAssignments.publishRooms);
   const deleteRooms = useMutation(api.agcRoomAssignments.deleteRooms);
   const restoreRooms = useMutation(api.agcRoomAssignments.restoreRooms);
-  const deletedRooms = useQuery(
-    api.agcRoomAssignments.listDeletedRoomsAdmin,
-    sessionToken ? { sessionToken } : "skip",
-  );
+  const deletedRooms = snapshot?.deletedRooms;
   const parseImport = useAction(api.agcRoomsImport.parseRoomImportWorkbook);
   const generateTemplate = useAction(api.agcRoomsImport.generateRoomImportTemplate);
   const importRoomsMutation = useMutation(api.agcRoomAssignments.importRooms);

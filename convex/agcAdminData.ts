@@ -510,20 +510,23 @@ export const listHubs = query({
   },
 });
 
+/** Active hubs, name-sorted — shared with the rooms snapshot. */
+export async function buildActiveHubs(ctx: QueryCtx) {
+  const hubs = await ctx.db.query("agcHubs").collect();
+  return hubs
+    .filter((hub) => hub.active !== false)
+    .map((hub) => ({
+      _id: hub._id,
+      name: hub.name,
+      region: hub.region,
+      country: hub.country,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
 export const listActiveHubs = query({
   args: {},
-  handler: async (ctx) => {
-    const hubs = await ctx.db.query("agcHubs").collect();
-    return hubs
-      .filter((hub) => hub.active !== false)
-      .map((hub) => ({
-        _id: hub._id,
-        name: hub.name,
-        region: hub.region,
-        country: hub.country,
-      }))
-      .sort((a, b) => a.name.localeCompare(b.name));
-  },
+  handler: async (ctx) => buildActiveHubs(ctx),
 });
 
 export const createHub = mutation({

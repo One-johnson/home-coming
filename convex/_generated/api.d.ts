@@ -31,6 +31,7 @@ import type * as agcRepNotifications from "../agcRepNotifications.js";
 import type * as agcRoomAssignments from "../agcRoomAssignments.js";
 import type * as agcRoomIssues from "../agcRoomIssues.js";
 import type * as agcRoomsImport from "../agcRoomsImport.js";
+import type * as agcRoomsSnapshot from "../agcRoomsSnapshot.js";
 import type * as authActions from "../authActions.js";
 import type * as content from "../content.js";
 import type * as crons from "../crons.js";
@@ -99,6 +100,7 @@ declare const fullApi: ApiFromModules<{
   agcRoomAssignments: typeof agcRoomAssignments;
   agcRoomIssues: typeof agcRoomIssues;
   agcRoomsImport: typeof agcRoomsImport;
+  agcRoomsSnapshot: typeof agcRoomsSnapshot;
   authActions: typeof authActions;
   content: typeof content;
   crons: typeof crons;
