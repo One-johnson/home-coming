@@ -22,20 +22,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { ColumnDef } from "@tanstack/react-table";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Legend as RechartsLegend,
-  ResponsiveContainer,
-  Tooltip as RechartsTooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
-
 import { api } from "@convex/_generated/api";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
-import { OverviewCharts } from "@/components/admin/OverviewCharts";
 import {
   useAdminSession,
   useSessionArgs,
@@ -52,7 +40,6 @@ import {
 import { DataTable } from "@/components/ui/data-table";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  ADMIN_CHART,
   HOUSING_TONE_CLASS,
   KPI_ACCENTS,
   auditActionBadgeClass,
@@ -703,217 +690,6 @@ function CurrencyFocusToggle({
           {option === "ALL" ? null : option}
         </Button>
       ))}
-    </div>
-  );
-}
-
-/**
- * Per-day confirmed revenue trend — Registrations and Accommodation bars
- * per day, every series held inside one currency. In the All view the
- * currency segments stack within each surface's bar so cedis and dollars
- * are visibly separate; a focused currency renders two plain bars. The
- * range picker slices the same 30-day server payload to 7 / 14 / 30 days.
- */
-const TREND_RANGES = [7, 14, 30] as const;
-type TrendRange = (typeof TREND_RANGES)[number];
-
-function RevenueTrendCard({
-  revenueTrend,
-  currencyFilter,
-}: {
-  revenueTrend: { label: string; date: string; regs: Record<string, number>; acc: Record<string, number> }[];
-  currencyFilter: CurrencyFilter;
-}) {
-  const [rangeDays, setRangeDays] = useState<TrendRange>(7);
-  const days = revenueTrend.slice(-rangeDays);
-  const allMode = currencyFilter === "ALL";
-
-  const series: {
-    key: string;
-    label: string;
-    color: string;
-    stackId?: string;
-  }[] = allMode
-    ? [
-        { key: "regsGhs", label: "Regs · GHS", color: ADMIN_CHART.gold, stackId: "regs" },
-        { key: "regsUsd", label: "Regs · USD", color: ADMIN_CHART.sky, stackId: "regs" },
-        { key: "accGhs", label: "Accom · GHS", color: ADMIN_CHART.forest, stackId: "acc" },
-        { key: "accUsd", label: "Accom · USD", color: ADMIN_CHART.violet, stackId: "acc" },
-      ]
-    : currencyFilter === "GHS"
-      ? [
-          { key: "regs", label: "Registrations", color: ADMIN_CHART.gold },
-          { key: "acc", label: "Accommodation", color: ADMIN_CHART.forest },
-        ]
-      : [
-          { key: "regs", label: "Registrations", color: ADMIN_CHART.sky },
-          { key: "acc", label: "Accommodation", color: ADMIN_CHART.violet },
-        ];
-
-  const rows = days.map((day) => {
-    const row: Record<string, string | number> = {
-      label: rangeDays <= 7 ? day.label : day.date.slice(5).replace("-", "/"),
-      date: day.date,
-    };
-    if (allMode) {
-      row.regsGhs = day.regs.GHS ?? 0;
-      row.regsUsd = day.regs.USD ?? 0;
-      row.accGhs = day.acc.GHS ?? 0;
-      row.accUsd = day.acc.USD ?? 0;
-    } else {
-      row.regs = day.regs[currencyFilter] ?? 0;
-      row.acc = day.acc[currencyFilter] ?? 0;
-    }
-    return row;
-  });
-
-  const hasAny = rows.some((row) =>
-    series.some((s) => (row[s.key] as number) > 0),
-  );
-
-  return (
-    <Card className="overflow-hidden">
-      <div className="h-1 w-full bg-gradient-to-r from-emerald-400 to-sky-500" />
-      <CardHeader className="flex flex-row items-start justify-between gap-3 pb-2">
-        <div className="space-y-1">
-          <CardTitle className="text-base">
-            Confirmed revenue · last {rangeDays} days
-          </CardTitle>
-          <CardDescription className="text-xs">
-            {allMode
-              ? "Currency segments stay separate inside each bar — never summed."
-              : `${currencyFilterLabel(currencyFilter)} · registrations and accommodation bars per day.`}
-          </CardDescription>
-        </div>
-        <div
-          role="group"
-          aria-label="Trend range"
-          className="inline-flex shrink-0 rounded-lg border border-border bg-muted/40 p-0.5"
-        >
-          {TREND_RANGES.map((range) => (
-            <Button
-              key={range}
-              type="button"
-              size="sm"
-              variant="ghost"
-              aria-pressed={rangeDays === range}
-              onClick={() => setRangeDays(range)}
-              className={cn(
-                "h-7 rounded-md px-2.5 text-xs font-medium",
-                rangeDays === range
-                  ? "bg-background text-ink shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {range}d
-            </Button>
-          ))}
-        </div>
-      </CardHeader>
-      <CardContent>
-        {!hasAny ? (
-          <EmptyTrend message={`No confirmed revenue in the last ${rangeDays} days.`} />
-        ) : (
-          <div className="h-[240px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={rows}
-                margin={{ top: 8, right: 8, left: -8, bottom: 0 }}
-              >
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  vertical={false}
-                  stroke={ADMIN_CHART.grid}
-                />
-                <XAxis
-                  dataKey="label"
-                  tickLine={false}
-                  axisLine={false}
-                  tick={{ fill: ADMIN_CHART.stone, fontSize: 11 }}
-                  interval={0}
-                  height={38}
-                  angle={rangeDays > 7 ? -35 : 0}
-                  textAnchor={rangeDays > 7 ? "end" : "middle"}
-                />
-                <YAxis
-                  tickLine={false}
-                  axisLine={false}
-                  tick={{ fill: ADMIN_CHART.stone, fontSize: 11 }}
-                  width={56}
-                  tickFormatter={(v: number) =>
-                    v >= 1000 ? `${(v / 1000).toFixed(v % 1000 === 0 ? 0 : 1)}k` : String(v)
-                  }
-                />
-                <RechartsTooltip
-                  content={(
-                    props: unknown,
-                  ) => {
-                    const {
-                      active,
-                      payload,
-                      label,
-                    } = props as {
-                      active?: boolean;
-                      payload?: readonly {
-                        name?: unknown;
-                        value?: number;
-                        color?: string;
-                        dataKey?: string | number;
-                      }[];
-                      label?: unknown;
-                    };
-                    if (!active || !payload?.length) return null;
-                    return (
-                      <div className="rounded-lg border border-border bg-white px-3 py-2 text-xs shadow-elevate">
-                        <p className="mb-1 font-medium text-ink">{String(label)}</p>
-                        {payload.map((entry) => (
-                          <p
-                            key={String(entry.dataKey)}
-                            className="text-muted-foreground"
-                          >
-                            <span style={{ color: entry.color }}>
-                              {String(entry.name)}
-                            </span>{" "}
-                            <span className="font-medium tabular-nums text-ink">
-                              {entry.value?.toLocaleString()}
-                            </span>
-                          </p>
-                        ))}
-                      </div>
-                    );
-                  }}
-                />
-                <RechartsLegend
-                  verticalAlign="bottom"
-                  height={28}
-                  formatter={(value) => (
-                    <span className="text-xs font-medium text-ink/80">{value}</span>
-                  )}
-                />
-                {series.map((s) => (
-                  <Bar
-                    key={s.key}
-                    dataKey={s.key}
-                    name={s.label}
-                    fill={s.color}
-                    stackId={s.stackId}
-                    radius={s.stackId ? undefined : [4, 4, 0, 0]}
-                    maxBarSize={rangeDays > 14 ? 12 : rangeDays > 7 ? 18 : 28}
-                  />
-                ))}
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function EmptyTrend({ message }: { message: string }) {
-  return (
-    <div className="flex h-[220px] items-center justify-center text-sm text-muted-foreground">
-      {message}
     </div>
   );
 }
@@ -1943,10 +1719,6 @@ export default function AdminOverviewPage() {
                 poa={overview.poa}
                 currencyFilter={currencyFilter}
               />
-              <RevenueTrendCard
-                revenueTrend={overview.revenueTrend}
-                currencyFilter={currencyFilter}
-              />
               <AgeingTiles ageing={overview.ageing} />
               <HubMoneyTable
                 hubBreakdown={overview.hubBreakdown}
@@ -1956,7 +1728,7 @@ export default function AdminOverviewPage() {
           )}
 
           {!isFinanceView && (
-            <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+            <div className="hidden gap-4 sm:grid xl:grid-cols-[1.2fr_0.8fr]">
               <Card className="overflow-hidden">
                 <div className="h-1 w-full bg-gradient-to-r from-amber-400 via-rose-400 to-sky-400" />
                 <CardHeader className="pb-3">
@@ -2049,43 +1821,6 @@ export default function AdminOverviewPage() {
             </div>
           )}
 
-          {canRegistration && (
-            <OverviewCharts
-              registrations={{
-                paid: overview.registrations.confirmed,
-                pending: overview.registrations.pending,
-                failed: overview.registrations.rejected,
-                revenueByCurrency: overview.registrations.revenueByCurrency,
-                awaitingByCurrency: overview.registrations.awaitingByCurrency,
-                regionBreakdown: overview.registrations.regionBreakdown,
-                gatewayBreakdown: overview.registrations.modeBreakdown,
-                last7Days: overview.registrations.last7Days,
-              }}
-              bookings={{
-                total: overview.bookings.total,
-                paid: overview.bookings.confirmed,
-                pending: overview.bookings.pending,
-                revenueByCurrency: overview.bookings.revenueByCurrency,
-                awaitingByCurrency: overview.bookings.awaitingByCurrency,
-              }}
-              housing={overview.housing}
-              emails={
-                canEmails
-                  ? {
-                      pending: overview.emails.pending,
-                      stub: overview.emails.stub,
-                      sent: overview.emails.sent,
-                      failed: overview.emails.failed,
-                    }
-                  : undefined
-              }
-              showRegistrations={canRegistration}
-              showAccommodation={canAccommodation}
-              showEmails={false}
-              showHousing={!isFinanceView}
-            />
-          )}
-
           {canAccommodation && !isFinanceView && overview.housing.length > 0 && (
             <Card className="overflow-hidden">
               <div className="h-1 w-full bg-gradient-to-r from-amber-400 to-emerald-500" />
@@ -2158,7 +1893,7 @@ export default function AdminOverviewPage() {
       )}
 
       {canSeed && sessionToken && (
-        <Card>
+        <Card className="hidden sm:block">
           <CardHeader>
             <CardTitle className="text-base">Content tools</CardTitle>
           </CardHeader>
