@@ -1409,120 +1409,150 @@ function StatusChip({
 }
 
 /**
- * Phone-first per-hub registration money: paid, awaiting review and payment on
- * arrival (POA), one thumb-sized block per hub. The wide "Money by hub" table
- * stays for desktop pivots; every amount here stays inside its own currency.
+ * Compact per-hub registration money: paid, awaiting review and payment on
+ * arrival (POA) in a single row per hub, so a long hub list costs one table row
+ * instead of four thumb-sized blocks. Amounts stay inside their own currency,
+ * the busiest hubs sort first, and lists longer than ten fold to eight rows with
+ * the totals always in view — the page stops growing with every new hub.
  */
 function HubCollectionsCard({ data }: { data: HubCollections | undefined }) {
-  if (!data) return <Skeleton className="h-72 rounded-xl" />;
+  const [expanded, setExpanded] = useState(false);
+  if (!data) return <Skeleton className="h-56 rounded-xl" />;
 
-  const moneyLine = (
-    label: string,
-    count: number,
+  const sorted = [...data.hubs].sort(
+    (a, b) =>
+      b.submissions - a.submissions || a.hubName.localeCompare(b.hubName),
+  );
+  const collapsible = sorted.length > 10;
+  const visible = collapsible && !expanded ? sorted.slice(0, 8) : sorted;
+
+  const cell = (
     money: Record<string, number>,
+    count: number,
     tone: string,
   ) => (
-    <p className="flex items-baseline justify-between gap-3">
-      <span className="text-muted-foreground">
-        {label}{" "}
-        <span className="tabular-nums text-muted-foreground/80">({count})</span>
-      </span>
-      <span className={cn("font-semibold tabular-nums", tone)}>
+    <td className="px-1 py-2 text-right align-top">
+      <p
+        className={cn(
+          "text-[11px] leading-tight font-semibold tabular-nums",
+          tone,
+        )}
+      >
         {formatMoneyByCurrency(money)}
-      </span>
-    </p>
+      </p>
+      <p className="text-[10px] tabular-nums text-muted-foreground">{count}</p>
+    </td>
   );
 
   return (
     <Card className="overflow-hidden">
       <div className="h-1 w-full bg-gradient-to-r from-emerald-400 via-amber-400 to-violet-400" />
       <CardHeader className="pb-2">
-        <CardTitle className="text-base">Registrations by hub</CardTitle>
+        <CardTitle className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5 text-base">
+          Registrations by hub
+          <span className="text-[11px] font-normal tabular-nums text-muted-foreground">
+            {data.totals.submissions} submission
+            {data.totals.submissions === 1 ? "" : "s"} · {data.totals.delegates}{" "}
+            delegate{data.totals.delegates === 1 ? "" : "s"}
+          </span>
+        </CardTitle>
         <CardDescription className="text-xs">
-          Paid, awaiting review and payment on arrival (POA) for every hub, in
-          its own currency — cedis and dollars are never added together.
+          Paid, pending and POA per hub, each in its own currency.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="space-y-1 rounded-lg border border-border/70 bg-muted/30 p-3 text-xs">
-          <p className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
-            All hubs · {data.totals.submissions} submission
-            {data.totals.submissions === 1 ? "" : "s"} ·{" "}
-            {data.totals.delegates} delegate
-            {data.totals.delegates === 1 ? "" : "s"}
-          </p>
-          {moneyLine(
-            "Paid",
-            data.totals.paidCount,
-            data.totals.paidByCurrency,
-            "text-emerald-700",
-          )}
-          {moneyLine(
-            "Pending",
-            data.totals.pendingCount,
-            data.totals.pendingByCurrency,
-            "text-amber-700",
-          )}
-          {moneyLine(
-            "POA",
-            data.totals.poaCount,
-            data.totals.poaByCurrency,
-            "text-violet-700",
-          )}
-        </div>
-
+      <CardContent className="px-0 pb-0">
         {data.hubs.length === 0 ? (
-          <p className="rounded-lg border border-dashed border-border px-3 py-6 text-center text-sm text-muted-foreground">
+          <p className="mx-4 mb-4 rounded-lg border border-dashed border-border px-3 py-6 text-center text-sm text-muted-foreground">
             No hubs yet.
           </p>
         ) : (
-          <div className="divide-y divide-border">
-            {data.hubs.map((hub) => (
-              <div
-                key={hub.hubId}
-                className="space-y-1 py-3 first:pt-0 last:pb-0"
-              >
-                <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-                  <p className="flex items-center gap-1.5 font-medium">
-                    {hub.hubName}
-                    {!hub.active && (
-                      <Badge
-                        variant="outline"
-                        className="border-stone-200 bg-stone-50 text-[10px] text-stone-600"
-                      >
-                        inactive
-                      </Badge>
+          <div className="overflow-x-auto">
+            <table className="w-full table-fixed border-collapse text-xs">
+              <thead>
+                <tr className="border-y border-border/70 bg-muted/30 text-[10px] tracking-wide text-muted-foreground uppercase">
+                  <th className="w-[37%] py-1.5 pr-2 pl-4 text-left font-semibold">
+                    Hub
+                  </th>
+                  <th className="w-[21%] px-1 py-1.5 text-right font-semibold text-emerald-700">
+                    Paid
+                  </th>
+                  <th className="w-[21%] px-1 py-1.5 text-right font-semibold text-amber-700">
+                    Pending
+                  </th>
+                  <th className="w-[21%] py-1.5 pr-4 pl-1 text-right font-semibold text-violet-700">
+                    POA
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {visible.map((hub) => (
+                  <tr
+                    key={hub.hubId}
+                    className="border-b border-border/60 last:border-b-0"
+                  >
+                    <td className="min-w-0 py-2 pr-2 pl-4 align-top">
+                      <p className="truncate font-medium">
+                        {hub.hubName}
+                        {!hub.active && (
+                          <span className="ml-1 text-[10px] font-normal text-stone-500">
+                            inactive
+                          </span>
+                        )}
+                      </p>
+                      <p className="text-[10px] tabular-nums text-muted-foreground">
+                        {hub.submissions} sub · {hub.delegates} del
+                      </p>
+                    </td>
+                    {cell(hub.paidByCurrency, hub.paidCount, "text-emerald-700")}
+                    {cell(
+                      hub.pendingByCurrency,
+                      hub.pendingCount,
+                      "text-amber-700",
                     )}
-                  </p>
-                  <p className="text-[11px] tabular-nums text-muted-foreground">
-                    {hub.submissions} submission
-                    {hub.submissions === 1 ? "" : "s"} · {hub.delegates}{" "}
-                    delegate{hub.delegates === 1 ? "" : "s"}
-                  </p>
-                </div>
-                <div className="space-y-0.5 text-xs">
-                  {moneyLine(
-                    "Paid",
-                    hub.paidCount,
-                    hub.paidByCurrency,
+                    {cell(hub.poaByCurrency, hub.poaCount, "text-violet-700")}
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t border-border bg-muted/40">
+                  <td className="py-2 pr-2 pl-4 align-top">
+                    <p className="text-[11px] font-semibold tracking-wide uppercase">
+                      All hubs
+                    </p>
+                    <p className="text-[10px] tabular-nums text-muted-foreground">
+                      {data.totals.submissions} sub · {data.totals.delegates} del
+                    </p>
+                  </td>
+                  {cell(
+                    data.totals.paidByCurrency,
+                    data.totals.paidCount,
                     "text-emerald-700",
                   )}
-                  {moneyLine(
-                    "Pending",
-                    hub.pendingCount,
-                    hub.pendingByCurrency,
+                  {cell(
+                    data.totals.pendingByCurrency,
+                    data.totals.pendingCount,
                     "text-amber-700",
                   )}
-                  {moneyLine(
-                    "POA",
-                    hub.poaCount,
-                    hub.poaByCurrency,
+                  {cell(
+                    data.totals.poaByCurrency,
+                    data.totals.poaCount,
                     "text-violet-700",
                   )}
-                </div>
-              </div>
-            ))}
+                </tr>
+              </tfoot>
+            </table>
           </div>
+        )}
+        {collapsible && (
+          <button
+            type="button"
+            onClick={() => setExpanded((value) => !value)}
+            className="w-full border-t border-border px-4 py-2 text-xs font-medium text-primary transition-colors hover:bg-muted/40"
+          >
+            {expanded
+              ? "Show fewer hubs"
+              : `Show all ${sorted.length} hubs (${sorted.length - visible.length} more)`}
+          </button>
         )}
       </CardContent>
     </Card>
