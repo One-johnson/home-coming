@@ -8,9 +8,11 @@ import { writeAuditLog } from "./lib/audit";
 import { agcKeyReturnStatus } from "./schemaTypes";
 import type { AgcKeyReturnStatus, AgcKeyStatus } from "./schemaTypes";
 import {
+  buildRoomsAdmin,
   isRoomableBooking,
   openAssignmentForGuest,
 } from "./agcRoomAssignments";
+import { buildRoomIssues } from "./agcRoomIssues";
 import { AGC_ACCOMMODATION_LABELS } from "../src/lib/agcPortal";
 
 /**
@@ -1434,10 +1436,7 @@ export const issueKey = mutation({
 });
 
 /** All key records, newest activity first, for the keys view/reports. */
-export const listKeys = query({
-  args: { sessionToken: v.string() },
-  handler: async (ctx, args) => {
-    await requireRole(ctx, args.sessionToken, [...CHECKIN_ROLES]);
+async function buildKeys(ctx: Ctx) {
     const keys = await ctx.db.query("agcKeys").collect();
     return keys
       .sort((a, b) => b.updatedAt - a.updatedAt)
@@ -1456,6 +1455,13 @@ export const listKeys = query({
         returnedAt: key.returnedAt ?? null,
         returnedBy: key.returnedBy ?? null,
       }));
+}
+
+export const listKeys = query({
+  args: { sessionToken: v.string() },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, args.sessionToken, [...CHECKIN_ROLES]);
+    return buildKeys(ctx);
   },
 });
 
@@ -1492,16 +1498,10 @@ export type ArrivalDeskRow = {
 };
 
 /** Everything the arrival desk needs in one query: your location's delegates. */
-export const listArrivalDesk = query({
-  args: {
-    sessionToken: v.string(),
-    location: v.optional(v.string()),
-    /** The desk's "Checked out" tile asks for departed delegates as well. */
-    includeCheckedOut: v.optional(v.boolean()),
-  },
-  handler: async (ctx, args): Promise<ArrivalDeskRow[]> => {
-    await requireRole(ctx, args.sessionToken, [...CHECKIN_ROLES]);
-
+async function buildArrivalDesk(
+  ctx: Ctx,
+  options: { location?: string; includeCheckedOut?: boolean },
+): Promise<ArrivalDeskRow[]> {
     const rooms = (await ctx.db.query("agcRooms").collect()).reduce(
       (map, room) => map.set(room._id, room),
       new Map<Id<"agcRooms">, Doc<"agcRooms">>(),
@@ -1539,14 +1539,14 @@ export const listArrivalDesk = query({
       if (!booking || !isRoomableBooking(booking)) continue;
       const assignment = openByGuest.get(guest._id);
       const room = assignment ? rooms.get(assignment.roomId) : undefined;
-      const location = args.location?.trim();
+      const location = options.location?.trim();
       if (location && location !== "central" && room?.building !== location) {
         continue;
       }
       const checkIn = checkInByGuest.get(guest._id);
       // Departed delegates leave the desk sheet unless the desk is looking them
       // up (the Checked out tile), so the default view stays the live queue.
-      if (checkIn?.checkedOutAt && !args.includeCheckedOut) continue;
+      if (checkIn?.checkedOutAt && !options.includeCheckedOut) continue;
       const needsKey = room ? roomNeedsKey(room.accommodationType) : false;
       const key = room ? keyByRoom.get(room._id) : undefined;
       const keyOpen = key && key.status !== "returned";
@@ -1589,6 +1589,18 @@ export const listArrivalDesk = query({
       void _t;
       return row;
     });
+}
+
+export const listArrivalDesk = query({
+  args: {
+    sessionToken: v.string(),
+    location: v.optional(v.string()),
+    /** The desk's "Checked out" tile asks for departed delegates as well. */
+    includeCheckedOut: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args): Promise<ArrivalDeskRow[]> => {
+    await requireRole(ctx, args.sessionToken, [...CHECKIN_ROLES]);
+    return buildArrivalDesk(ctx, args);
   },
 });
 
@@ -1622,11 +1634,7 @@ export type ArrivalOverview = {
 };
 
 /** §21/§23 roll-up used by the arrival dashboard (roles see the same truth). */
-export const getArrivalOverview = query({
-  args: { sessionToken: v.string() },
-  handler: async (ctx, args): Promise<ArrivalOverview> => {
-    await requireRole(ctx, args.sessionToken, [...CHECKIN_ROLES]);
-
+async function buildArrivalOverview(ctx: Ctx): Promise<ArrivalOverview> {
     const rooms = (await ctx.db.query("agcRooms").collect()).filter(
       (room) => !room.deletedAt,
     );
@@ -1697,9 +1705,8 @@ export const getArrivalOverview = query({
     ).length;
     const keysReturned = keys.filter((key) => key.status === "returned").length;
 
-    const overrides = (await ctx.db.query("agcCheckIns").collect()).filter(
-      (c) => !c.correctedAt && c.paymentOverride,
-    ).length;
+    // The counts above already read every live row — never scan this table twice.
+    const overrides = checkIns.filter((c) => c.paymentOverride).length;
 
     const offlineConflicts = (
       await ctx.db
@@ -1731,18 +1738,22 @@ export const getArrivalOverview = query({
         a.typeLabel.localeCompare(b.typeLabel),
       ),
     };
+}
+
+export const getArrivalOverview = query({
+  args: { sessionToken: v.string() },
+  handler: async (ctx, args): Promise<ArrivalOverview> => {
+    await requireRole(ctx, args.sessionToken, [...CHECKIN_ROLES]);
+    return buildArrivalOverview(ctx);
   },
 });
 
 /** Recent check-ins feed for the desk/dashboards (§23 "Recent Check-Ins"). */
-export const listRecentCheckIns = query({
-  args: { sessionToken: v.string(), limit: v.optional(v.number()) },
-  handler: async (ctx, args) => {
-    await requireRole(ctx, args.sessionToken, [...CHECKIN_ROLES]);
+async function buildRecentCheckIns(ctx: Ctx, limit?: number) {
     const rows = (await ctx.db.query("agcCheckIns").collect())
       .filter((row) => !row.correctedAt)
       .sort((a, b) => b.checkedInAt - a.checkedInAt)
-      .slice(0, args.limit ?? 20);
+      .slice(0, limit ?? 20);
     const guestById = new Map(
       (await ctx.db.query("agcGuests").collect()).map((g) => [g._id, g]),
     );
@@ -1761,6 +1772,40 @@ export const listRecentCheckIns = query({
         checkedOutAt: row.checkedOutAt ?? null,
       };
     });
+}
+
+export const listRecentCheckIns = query({
+  args: { sessionToken: v.string(), limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, args.sessionToken, [...CHECKIN_ROLES]);
+    return buildRecentCheckIns(ctx, args.limit);
+  },
+});
+
+/**
+ * The whole arrival desk in one call: the roll-up, recent arrivals, the key
+ * register, the delegate sheet and the room grid it assigns from. They read the
+ * same tables, so as separate live queries every check-in, assignment or key
+ * write re-ran all of them on every desk device.
+ */
+export const getArrivalSnapshot = query({
+  args: {
+    sessionToken: v.string(),
+    location: v.optional(v.string()),
+    includeCheckedOut: v.optional(v.boolean()),
+    recentLimit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, args.sessionToken, [...CHECKIN_ROLES]);
+    const [overview, recent, keys, rows, rooms, roomIssues] = await Promise.all([
+      buildArrivalOverview(ctx),
+      buildRecentCheckIns(ctx, args.recentLimit),
+      buildKeys(ctx),
+      buildArrivalDesk(ctx, args),
+      buildRoomsAdmin(ctx),
+      buildRoomIssues(ctx),
+    ]);
+    return { overview, recent, keys, rows, rooms, roomIssues };
   },
 });
 

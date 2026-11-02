@@ -153,6 +153,41 @@ export const getOverview = query({
   },
 });
 
+/**
+ * Sidebar badge counts only. The console shell subscribes to this on every page,
+ * so it must not read what the dashboard overview reads (faqs, messages, the
+ * audit log, weekly trends) — those stay with the dashboard's own subscription.
+ */
+export const getNavBadges = query({
+  args: { sessionToken: sessionTokenValidator },
+  handler: async (ctx, args) => {
+    const user = await requireAnyRole(ctx, args.sessionToken);
+    const canRegistration = user.role === "admin" || user.role === "registration";
+    const canAccommodation = user.role === "admin" || user.role === "accommodation";
+    const registrationsPending = canRegistration
+      ? (
+          await ctx.db
+            .query("registrations")
+            .withIndex("by_payment_status", (q) =>
+              q.eq("paymentStatus", "pending_payment"),
+            )
+            .collect()
+        ).length
+      : 0;
+    const bookingsPending = canAccommodation
+      ? (
+          await ctx.db
+            .query("agcBookings")
+            .withIndex("by_payment_status", (q) =>
+              q.eq("paymentStatus", "pending_verification"),
+            )
+            .collect()
+        ).length
+      : 0;
+    return { registrationsPending, bookingsPending };
+  },
+});
+
 export const searchQuick = query({
   args: {
     sessionToken: sessionTokenValidator,

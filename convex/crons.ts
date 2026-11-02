@@ -17,7 +17,7 @@ const crons = cronJobs();
  * default) and the registration deadline — payment-on-arrival holds never do,
  * because their money is handed over at the venue desk.
  *
- * Runs every 5 minutes; the expiry is idempotent, and the same pass rewrites
+ * Runs every 15 minutes; the expiry is idempotent, and the same pass rewrites
  * any pool counters that no longer match the reservations behind them, so
  * availability can never drift away from the bookings holding the beds.
  */
@@ -32,7 +32,7 @@ export const expireHoldsTick = internalMutation({
 
 crons.interval(
   "expire overdue accommodation holds",
-  { minutes: 5 },
+  { minutes: 15 },
   internal.crons.expireHoldsTick,
   {},
 );

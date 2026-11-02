@@ -6,7 +6,8 @@ import {
   mutation,
   query,
 } from "./_generated/server";
-import type { Doc } from "./_generated/dataModel";
+import type { QueryCtx } from "./_generated/server";
+import type { Doc, Id } from "./_generated/dataModel";
 import {
   AGC_SETTING_KEYS,
 } from "./lib/agcConfig";
@@ -584,13 +585,14 @@ export const submitOfflineBookingPayment = mutation({
 // Rep booking list (SRS §46)
 // ------------------------------------------------------------------
 
-export const listRepBookings = query({
-  args: { sessionToken: v.string() },
-  handler: async (ctx, args) => {
-    const { rep } = await requireRep(ctx, args.sessionToken);
+/** A rep's bookings with their roster and lines — shared with the bell digest. */
+export async function buildRepBookings(
+  ctx: QueryCtx,
+  repId: Id<"agcRepresentatives">,
+) {
     const bookings = await ctx.db
       .query("agcBookings")
-      .withIndex("by_rep", (q) => q.eq("repId", rep._id))
+      .withIndex("by_rep", (q) => q.eq("repId", repId))
       .collect();
 
     const result = [];
@@ -638,6 +640,13 @@ export const listRepBookings = query({
       });
     }
     return result.sort((a, b) => b.createdAt - a.createdAt);
+}
+
+export const listRepBookings = query({
+  args: { sessionToken: v.string() },
+  handler: async (ctx, args) => {
+    const { rep } = await requireRep(ctx, args.sessionToken);
+    return buildRepBookings(ctx, rep._id);
   },
 });
 

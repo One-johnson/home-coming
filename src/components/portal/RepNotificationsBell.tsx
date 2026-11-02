@@ -60,10 +60,15 @@ const TONE_DOT: Record<RepNotificationTone, string> = {
   success: "bg-emerald-500",
 };
 
-type OverviewShape = {
+type RepNotificationDigest = {
   receiptsPending: number;
   awaitingPayment: number;
   deadline: number;
+};
+
+type BellDigest = RepNotificationDigest & {
+  bookings: RepBooking[];
+  publishedRooms: PublishedRoom[];
 };
 
 type PublishedRoom = { roomId: string; name: string };
@@ -76,18 +81,15 @@ export function RepNotificationsBell({
   className?: string;
 }) {
   const { sessionToken, rep } = useRepSession();
-  const bookings = useQuery(
-    api.agcBookings.listRepBookings,
+  // One subscription for the whole bell: bookings, receipt counters and the
+  // published rooming list read the same rows, so three live queries meant
+  // three executions on every write for every rep with the portal open.
+  const digest = useQuery(
+    api.agcRepNotifications.getRepNotificationDigest,
     sessionToken ? { sessionToken } : "skip",
-  ) as RepBooking[] | undefined;
-  const overview = useQuery(
-    api.agcPortal.getRepOverview,
-    sessionToken ? { sessionToken } : "skip",
-  ) as OverviewShape | undefined;
-  const rooms = useQuery(
-    api.agcRoomAssignments.getRepRoomAssignments,
-    sessionToken ? { sessionToken } : "skip",
-  ) as PublishedRoom[] | undefined;
+  ) as BellDigest | undefined;
+  const bookings = digest?.bookings as RepBooking[] | undefined;
+  const rooms = digest?.publishedRooms as PublishedRoom[] | undefined;
 
   const [open, setOpen] = useState(false);
   const [now, setNow] = useState(() => Date.now());
@@ -125,13 +127,13 @@ export function RepNotificationsBell({
     () =>
       buildRepNotifications({
         bookings: bookings ?? [],
-        receiptsPending: overview?.receiptsPending ?? 0,
-        awaitingPayment: overview?.awaitingPayment ?? 0,
-        deadline: overview?.deadline ?? null,
+        receiptsPending: digest?.receiptsPending ?? 0,
+        awaitingPayment: digest?.awaitingPayment ?? 0,
+        deadline: digest?.deadline ?? null,
         publishedRooms: rooms ?? [],
         now,
       }),
-    [bookings, overview, rooms, now],
+    [bookings, digest, rooms, now],
   );
 
   // What the rep actually sees: dismissed entries never come back, snoozed

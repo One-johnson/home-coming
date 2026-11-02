@@ -124,11 +124,9 @@ async function requireArea(ctx: MutationCtx | QueryCtx, sessionToken: string) {
 // Room CRUD
 // ------------------------------------------------------------------
 
-/** All rooms for the room grid, with live occupancy counts. */
-export const listRoomsAdmin = query({
-  args: { sessionToken: sessionTokenValidator },
-  handler: async (ctx, args) => {
-    await requireRole(ctx, args.sessionToken, [...ASSIGN_ROLES]);
+/** Every live room with live occupancy counts — shared by the room grid and
+ * the arrival desk's single snapshot query. */
+export async function buildRoomsAdmin(ctx: QueryCtx) {
     const rooms = (await ctx.db.query("agcRooms").collect()).filter(
       (room) => !room.deletedAt,
     );
@@ -184,6 +182,14 @@ export const listRoomsAdmin = query({
           a.accommodationType.localeCompare(b.accommodationType) ||
           a.name.localeCompare(b.name, undefined, { numeric: true }),
       );
+}
+
+/** All rooms for the room grid, with live occupancy counts. */
+export const listRoomsAdmin = query({
+  args: { sessionToken: sessionTokenValidator },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, args.sessionToken, [...ASSIGN_ROLES]);
+    return buildRoomsAdmin(ctx);
   },
 });
 
@@ -1935,13 +1941,11 @@ export type RepRoomAssignment = {
  * published appear (§8); only guests belonging to this rep's bookings are
  * listed in each room, so reps never see other hubs' delegates.
  */
-export const getRepRoomAssignments = query({
-  args: { sessionToken: v.string() },
-  handler: async (ctx, args): Promise<RepRoomAssignment[]> => {
-    const result = await getRepByToken(ctx, args.sessionToken);
-    if (!result) return [];
-    const { rep } = result;
-
+/** A rep's published rooming list — shared with the portal notification bell. */
+export async function buildRepRoomAssignments(
+  ctx: QueryCtx,
+  rep: Doc<"agcRepresentatives">,
+): Promise<RepRoomAssignment[]> {
     const bookings = (
       await ctx.db
         .query("agcBookings")
@@ -2007,5 +2011,13 @@ export const getRepRoomAssignments = query({
         a.accommodationType.localeCompare(b.accommodationType) ||
         a.name.localeCompare(b.name, undefined, { numeric: true }),
     );
+}
+
+export const getRepRoomAssignments = query({
+  args: { sessionToken: v.string() },
+  handler: async (ctx, args): Promise<RepRoomAssignment[]> => {
+    const result = await getRepByToken(ctx, args.sessionToken);
+    if (!result) return [];
+    return buildRepRoomAssignments(ctx, result.rep);
   },
 });

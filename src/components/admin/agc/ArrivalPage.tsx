@@ -509,7 +509,7 @@ export function ArrivalPage() {
     role === "checkin" && assignedBuilding ? assignedBuilding : location;
 
   // --- Offline station + this device's queued arrivals (§19) ---
-  const stations = useQuery(api.agcOffline.listStations, {});
+  const stations = useQuery(api.agcOffline.listStations, sessionToken ? {} : "skip");
   const queueOfflineTransactions = useMutation(api.agcOffline.queueTransactions);
   const syncOfflineTransactions = useMutation(
     api.agcOffline.syncPendingTransactions,
@@ -537,16 +537,6 @@ export function ArrivalPage() {
   );
   const isOnline = () => typeof navigator === "undefined" || navigator.onLine;
 
-  const overview = useQuery(
-    api.agcCheckin.getArrivalOverview,
-    sessionToken ? { sessionToken } : "skip",
-  );
-  const recent = useQuery(
-    api.agcCheckin.listRecentCheckIns,
-    sessionToken ? { sessionToken, limit: 8 } : "skip",
-  );
-  const keys = useQuery(api.agcCheckin.listKeys, sessionToken ? { sessionToken } : "skip");
-
   // Search + roster filters
   const [search, setSearch] = useState("");
   const [statFilter, setStatFilter] = useState<DeskStatFilter>("all");
@@ -554,6 +544,27 @@ export function ArrivalPage() {
   const [genderFilter, setGenderFilter] = useState<"any" | "male" | "female">("any");
   const [hubFilter, setHubFilter] = useState<string>("all");
   const [selectedGuestId, setSelectedGuestId] = useState<string | null>(null);
+
+  // The whole desk in one subscription. The tiles, recent arrivals, the key
+  // register, the sheet and the room grid read the same tables, so separate
+  // live queries re-ran all of them on every check-in, assignment or key write.
+  const snapshot = useQuery(
+    api.agcCheckin.getArrivalSnapshot,
+    sessionToken
+      ? {
+          sessionToken,
+          location: deskLocation === "central" ? undefined : deskLocation,
+          // Departed delegates are off the sheet unless the Checked out tile
+          // is doing the asking.
+          includeCheckedOut: statFilter === "checked_out" ? true : undefined,
+          recentLimit: 8,
+        }
+      : "skip",
+  );
+  const overview = snapshot?.overview;
+  const recent = snapshot?.recent;
+  const keys = snapshot?.keys;
+  const deskRows = snapshot?.rows;
   const searchRef = useRef<HTMLInputElement>(null);
 
   // Desk speed: the search box is focused on load, and "/" brings it back from
@@ -594,20 +605,6 @@ export function ArrivalPage() {
       : "skip",
   );
 
-  // Grounded desk rows (dept defaults to location's building when set)
-  const deskRows = useQuery(
-    api.agcCheckin.listArrivalDesk,
-    sessionToken
-      ? {
-          sessionToken,
-          location: deskLocation === "central" ? undefined : deskLocation,
-          // Departed delegates are off the sheet unless the Checked out tile
-          // is doing the asking.
-          includeCheckedOut: statFilter === "checked_out" ? true : undefined,
-        }
-      : "skip",
-  );
-
   const checkInGuest = useMutation(api.agcCheckin.checkInGuest);
   const checkInGroup = useMutation(api.agcCheckin.checkInGroup);
   const checkInBatch = useMutation(api.agcCheckin.checkInBatch);
@@ -620,16 +617,10 @@ export function ArrivalPage() {
   const issueRoomKey = useMutation(api.agcCheckin.issueKey);
   const undoArrival = useMutation(api.agcCheckin.undoCheckIn);
   const [keyBusy, setKeyBusy] = useState(false);
-  const publishedRooms = useQuery(
-    api.agcRoomAssignments.listRoomsAdmin,
-    sessionToken ? { sessionToken } : "skip",
-  );
+  const publishedRooms = snapshot?.rooms as AdminRoomRow[] | undefined;
   // Open maintenance faults, so the desk sees a broken room before checking
   // someone into it. A blocking fault means the room is out of inventory.
-  const roomIssues = useQuery(
-    api.agcRoomIssues.listRoomIssues,
-    sessionToken ? { sessionToken } : "skip",
-  );
+  const roomIssues = snapshot?.roomIssues;
   const issuesByRoom = useMemo(() => {
     const map = new Map<string, NonNullable<typeof roomIssues>["issues"]>();
     for (const issue of roomIssues?.issues ?? []) {

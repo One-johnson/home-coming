@@ -1,5 +1,6 @@
 import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import type { QueryCtx } from "./_generated/server";
 import { requireRole, sessionTokenValidator } from "./users";
 import { writeAuditLog } from "./lib/audit";
 import { agcRoomIssueCategory } from "./schemaTypes";
@@ -21,20 +22,10 @@ const ROOM_FLAG_ROLES = ["admin", "accommodation", "room_assignment", "checkin"]
  * inventory and are the ones putting the room back into service. */
 const ROOM_FLAG_RESOLVE_ROLES = ["admin", "accommodation", "room_assignment"] as const;
 
-/**
- * Every room flag, newest first, plus a per-room open count the room grid can
- * read without walking the list again. `includeFixed` is for the history view;
- * the grid only wants what is still wrong.
- */
-export const listRoomIssues = query({
-  args: {
-    sessionToken: sessionTokenValidator,
-    includeFixed: v.optional(v.boolean()),
-  },
-  handler: async (ctx, args) => {
-    await requireRole(ctx, args.sessionToken, [...ROOM_FLAG_ROLES]);
+/** Room flags plus the open count — shared by the grid and the desk snapshot. */
+export async function buildRoomIssues(ctx: QueryCtx, includeFixed?: boolean) {
     const issues = (await ctx.db.query("agcRoomIssues").collect()).filter(
-      (issue) => !issue.resolvedAt || args.includeFixed,
+      (issue) => !issue.resolvedAt || includeFixed,
     );
     issues.sort((a, b) => b.reportedAt - a.reportedAt);
     return {
@@ -57,6 +48,21 @@ export const listRoomIssues = query({
       })),
       openCount: issues.filter((issue) => issue.status === "open").length,
     };
+}
+
+/**
+ * Every room flag, newest first, plus a per-room open count the room grid can
+ * read without walking the list again. `includeFixed` is for the history view;
+ * the grid only wants what is still wrong.
+ */
+export const listRoomIssues = query({
+  args: {
+    sessionToken: sessionTokenValidator,
+    includeFixed: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, args.sessionToken, [...ROOM_FLAG_ROLES]);
+    return buildRoomIssues(ctx, args.includeFixed);
   },
 });
 

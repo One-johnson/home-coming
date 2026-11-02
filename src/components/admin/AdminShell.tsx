@@ -419,8 +419,10 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     useAdminSession();
   const sessionArgs = useSessionArgs();
   const pathname = usePathname();
-  const overview = useQuery(
-    api.admin.getOverview,
+  // Badge counts only — the full dashboard overview stays on /admin, so a page
+  // that never shows it stops re-aggregating every table on every write.
+  const badges = useQuery(
+    api.admin.getNavBadges,
     isReady &&
       user &&
       isAdminRole(user.role) &&
@@ -514,7 +516,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
         email={user.email}
         role={user.role}
         onSignOut={signOut}
-        badges={overview?.badges}
+        badges={badges}
       >
         {children}
       </AdminConsoleFrame>
