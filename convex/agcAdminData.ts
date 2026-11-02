@@ -3816,6 +3816,136 @@ export const getAgcOverview = query({
 });
 
 /**
+ * Per-hub registration money for the phone dashboard — what each hub has paid,
+ * what is still awaiting review, and the payment-on-arrival (POA) cash left to
+ * collect. Amounts stay split per currency (cedis and dollars are never
+ * summed) and every figure carries a submission count, so "how many POA
+ * registrations" is answerable without exporting anything.
+ *
+ * Open to the dashboard-only role: this list is the whole of its console.
+ */
+export const getHubCollections = query({
+  args: { sessionToken: sessionTokenValidator },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, args.sessionToken, [
+      "admin",
+      "registration",
+      "finance",
+      "dashboard",
+    ]);
+
+    const hubs = await ctx.db.query("agcHubs").withIndex("by_name").collect();
+    const registrations = (
+      await ctx.db.query("agcRegistrations").collect()
+    ).filter((row) => !row.deletedAt);
+
+    type HubCollection = {
+      hubId: string;
+      hubName: string;
+      active: boolean;
+      submissions: number;
+      delegates: number;
+      paidCount: number;
+      paidByCurrency: Record<string, number>;
+      pendingCount: number;
+      pendingByCurrency: Record<string, number>;
+      poaCount: number;
+      poaByCurrency: Record<string, number>;
+    };
+
+    const addMoney = (
+      into: Record<string, number>,
+      currency: string,
+      amount: number,
+    ) => {
+      into[currency] = (into[currency] ?? 0) + amount;
+    };
+
+    const byHub = new Map<string, HubCollection>();
+    const hubBucket = (
+      hubId: string,
+      hubName: string,
+      active: boolean,
+    ): HubCollection => {
+      let bucket = byHub.get(hubId);
+      if (!bucket) {
+        bucket = {
+          hubId,
+          hubName,
+          active,
+          submissions: 0,
+          delegates: 0,
+          paidCount: 0,
+          paidByCurrency: {},
+          pendingCount: 0,
+          pendingByCurrency: {},
+          poaCount: 0,
+          poaByCurrency: {},
+        };
+        byHub.set(hubId, bucket);
+      }
+      return bucket;
+    };
+    // Every hub gets a row, even one with nothing recorded yet — the list is a
+    // standing per-hub ledger, not only the hubs that happen to have money.
+    for (const hub of hubs) {
+      hubBucket(String(hub._id), hub.name, hub.active);
+    }
+
+    for (const row of registrations) {
+      // A registration whose hub row no longer exists still counts (under a
+      // placeholder) so the per-hub rows keep adding up to the totals.
+      const bucket =
+        byHub.get(String(row.hubId)) ??
+        hubBucket(String(row.hubId), "Unknown hub", false);
+      bucket.submissions += 1;
+      bucket.delegates += row.quantity;
+      if (row.paymentStatus === "confirmed") {
+        bucket.paidCount += 1;
+        addMoney(bucket.paidByCurrency, row.currency, row.totalAmount);
+      } else if (row.paymentStatus === "pending_verification") {
+        bucket.pendingCount += 1;
+        addMoney(bucket.pendingByCurrency, row.currency, row.totalAmount);
+      }
+      if (row.poa && row.poa.status !== "confirmed") {
+        bucket.poaCount += 1;
+        addMoney(bucket.poaByCurrency, row.currency, row.totalAmount);
+      }
+    }
+
+    const rows = [...byHub.values()];
+    const totals = {
+      submissions: 0,
+      delegates: 0,
+      paidCount: 0,
+      paidByCurrency: {} as Record<string, number>,
+      pendingCount: 0,
+      pendingByCurrency: {} as Record<string, number>,
+      poaCount: 0,
+      poaByCurrency: {} as Record<string, number>,
+    };
+    for (const row of rows) {
+      totals.submissions += row.submissions;
+      totals.delegates += row.delegates;
+      totals.paidCount += row.paidCount;
+      totals.pendingCount += row.pendingCount;
+      totals.poaCount += row.poaCount;
+      for (const [currency, amount] of Object.entries(row.paidByCurrency)) {
+        addMoney(totals.paidByCurrency, currency, amount);
+      }
+      for (const [currency, amount] of Object.entries(row.pendingByCurrency)) {
+        addMoney(totals.pendingByCurrency, currency, amount);
+      }
+      for (const [currency, amount] of Object.entries(row.poaByCurrency)) {
+        addMoney(totals.poaByCurrency, currency, amount);
+      }
+    }
+
+    return { hubs: rows, totals };
+  },
+});
+
+/**
  * Per-hub drill-down: one row per hub with its rep account status and
  * registration/booking activity, for the dedicated Hubs & reps view.
  */

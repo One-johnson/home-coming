@@ -79,6 +79,26 @@ type AgeBucket = {
   moneyByCurrency: Record<string, number>;
 };
 
+/** One hub's registration money as delivered by getHubCollections. */
+type HubCollectionRow = {
+  hubId: string;
+  hubName: string;
+  active: boolean;
+  submissions: number;
+  delegates: number;
+  paidCount: number;
+  paidByCurrency: Record<string, number>;
+  pendingCount: number;
+  pendingByCurrency: Record<string, number>;
+  poaCount: number;
+  poaByCurrency: Record<string, number>;
+};
+
+type HubCollections = {
+  hubs: HubCollectionRow[];
+  totals: Omit<HubCollectionRow, "hubId" | "hubName" | "active">;
+};
+
 type AgcOverview = {
   /** True when signed in as finance — the client then hides non-finance widgets. */
   financeView: boolean;
@@ -1388,15 +1408,147 @@ function StatusChip({
   );
 }
 
+/**
+ * Phone-first per-hub registration money: paid, awaiting review and payment on
+ * arrival (POA), one thumb-sized block per hub. The wide "Money by hub" table
+ * stays for desktop pivots; every amount here stays inside its own currency.
+ */
+function HubCollectionsCard({ data }: { data: HubCollections | undefined }) {
+  if (!data) return <Skeleton className="h-72 rounded-xl" />;
+
+  const moneyLine = (
+    label: string,
+    count: number,
+    money: Record<string, number>,
+    tone: string,
+  ) => (
+    <p className="flex items-baseline justify-between gap-3">
+      <span className="text-muted-foreground">
+        {label}{" "}
+        <span className="tabular-nums text-muted-foreground/80">({count})</span>
+      </span>
+      <span className={cn("font-semibold tabular-nums", tone)}>
+        {formatMoneyByCurrency(money)}
+      </span>
+    </p>
+  );
+
+  return (
+    <Card className="overflow-hidden">
+      <div className="h-1 w-full bg-gradient-to-r from-emerald-400 via-amber-400 to-violet-400" />
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Registrations by hub</CardTitle>
+        <CardDescription className="text-xs">
+          Paid, awaiting review and payment on arrival (POA) for every hub, in
+          its own currency — cedis and dollars are never added together.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="space-y-1 rounded-lg border border-border/70 bg-muted/30 p-3 text-xs">
+          <p className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
+            All hubs · {data.totals.submissions} submission
+            {data.totals.submissions === 1 ? "" : "s"} ·{" "}
+            {data.totals.delegates} delegate
+            {data.totals.delegates === 1 ? "" : "s"}
+          </p>
+          {moneyLine(
+            "Paid",
+            data.totals.paidCount,
+            data.totals.paidByCurrency,
+            "text-emerald-700",
+          )}
+          {moneyLine(
+            "Pending",
+            data.totals.pendingCount,
+            data.totals.pendingByCurrency,
+            "text-amber-700",
+          )}
+          {moneyLine(
+            "POA",
+            data.totals.poaCount,
+            data.totals.poaByCurrency,
+            "text-violet-700",
+          )}
+        </div>
+
+        {data.hubs.length === 0 ? (
+          <p className="rounded-lg border border-dashed border-border px-3 py-6 text-center text-sm text-muted-foreground">
+            No hubs yet.
+          </p>
+        ) : (
+          <div className="divide-y divide-border">
+            {data.hubs.map((hub) => (
+              <div
+                key={hub.hubId}
+                className="space-y-1 py-3 first:pt-0 last:pb-0"
+              >
+                <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                  <p className="flex items-center gap-1.5 font-medium">
+                    {hub.hubName}
+                    {!hub.active && (
+                      <Badge
+                        variant="outline"
+                        className="border-stone-200 bg-stone-50 text-[10px] text-stone-600"
+                      >
+                        inactive
+                      </Badge>
+                    )}
+                  </p>
+                  <p className="text-[11px] tabular-nums text-muted-foreground">
+                    {hub.submissions} submission
+                    {hub.submissions === 1 ? "" : "s"} · {hub.delegates}{" "}
+                    delegate{hub.delegates === 1 ? "" : "s"}
+                  </p>
+                </div>
+                <div className="space-y-0.5 text-xs">
+                  {moneyLine(
+                    "Paid",
+                    hub.paidCount,
+                    hub.paidByCurrency,
+                    "text-emerald-700",
+                  )}
+                  {moneyLine(
+                    "Pending",
+                    hub.pendingCount,
+                    hub.pendingByCurrency,
+                    "text-amber-700",
+                  )}
+                  {moneyLine(
+                    "POA",
+                    hub.poaCount,
+                    hub.poaByCurrency,
+                    "text-violet-700",
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function AdminOverviewPage() {
   const { user, sessionToken } = useAdminSession();
   const role = user?.role;
   const sessionArgs = useSessionArgs();
   const seedData = useMutation(api.seed.seed);
+  const isDashboardOnly = role === "dashboard";
+  // The dashboard-only role never reads the full overview — its console is the
+  // per-hub list below.
   const overview = useQuery(
     api.agcAdminData.getAgcOverview,
-    sessionArgs ? sessionArgs : "skip",
+    sessionArgs && !isDashboardOnly ? sessionArgs : "skip",
   ) as AgcOverview | undefined;
+  const hubCollections = useQuery(
+    api.agcAdminData.getHubCollections,
+    // Same gate as the server: admins, registration/finance, and the
+    // dashboard-only role. Content/accommodation never call it.
+    sessionArgs && (isDashboardOnly || canAccessArea(role, "registration"))
+      ? sessionArgs
+      : "skip",
+  ) as HubCollections | undefined;
 
   const canRegistration = canAccessArea(role, "registration");
   const canAccommodation = canAccessArea(role, "accommodation");
@@ -1439,7 +1591,9 @@ export default function AdminOverviewPage() {
         }
       />
 
-      {!overview ? (
+      {isDashboardOnly ? (
+        <HubCollectionsCard data={hubCollections} />
+      ) : !overview ? (
         <div className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             {[1, 2, 3, 4].map((i) => (
@@ -1731,6 +1885,8 @@ export default function AdminOverviewPage() {
               </Link>
             )}
           </div>
+
+          {canRegistration && <HubCollectionsCard data={hubCollections} />}
 
           {canRegistration && !isFinanceView && (
             <CurrencyMoneyTiles

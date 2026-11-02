@@ -424,7 +424,12 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const overview = useQuery(
     api.admin.getOverview,
-    isReady && user && isAdminRole(user.role) && sessionArgs
+    isReady &&
+      user &&
+      isAdminRole(user.role) &&
+      // Dashboard-only accounts have no sidebar badges to feed.
+      user.role !== "dashboard" &&
+      sessionArgs
       ? sessionArgs
       : "skip",
   );
@@ -478,6 +483,18 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       );
+    }
+  }
+
+  // Dashboard-only accounts get the overview, their own account page and the
+  // runbook — every other console URL sends them back to the dashboard.
+  if (user.role === "dashboard") {
+    const dashboardPaths =
+      pathname === "/admin" ||
+      pathname === "/admin/profile" ||
+      pathname.startsWith("/admin/help");
+    if (!dashboardPaths) {
+      return <VenueStaffRedirect to="/admin" />;
     }
   }
 
@@ -562,7 +579,9 @@ function AdminConsoleFrame({
 
             {/* The palette searches registrations and bookings, which only
                 console admins may read — venue staff get their own search. */}
-            {isAdminRole(role) && <AdminCommandPalette />}
+            {isAdminRole(role) && role !== "dashboard" && (
+              <AdminCommandPalette />
+            )}
 
             {/* How-to for whichever page is open (see lib/adminGuides). */}
             <PageGuide />

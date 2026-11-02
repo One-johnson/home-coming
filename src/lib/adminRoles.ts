@@ -4,6 +4,9 @@ export const ADMIN_ROLES = [
   "registration",
   "accommodation",
   "finance",
+  // Read-only dashboard account: lands on the overview hub list and can open
+  // nothing else in the console (see AdminShell's route guard).
+  "dashboard",
 ] as const;
 
 /**
@@ -59,7 +62,8 @@ export function isAdminRole(role: string | undefined | null): role is AdminRole 
     role === "content" ||
     role === "registration" ||
     role === "accommodation" ||
-    role === "finance"
+    role === "finance" ||
+    role === "dashboard"
   );
 }
 
@@ -92,6 +96,7 @@ export const ROLE_LABELS: Record<StaffRole, string> = {
   registration: "Registration",
   accommodation: "Accommodation",
   finance: "Finance",
+  dashboard: "Dashboard only",
   room_assignment: "Room assignment staff",
   checkin: "Check-in staff",
   accommodation_volunteer: "Accommodation volunteer",

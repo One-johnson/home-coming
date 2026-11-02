@@ -34,6 +34,8 @@ const adminRole = v.union(
   v.literal("room_assignment"),
   v.literal("checkin"),
   v.literal("accommodation_volunteer"),
+  // Read-only dashboard account (overview hub list only).
+  v.literal("dashboard"),
 );
 
 export default defineSchema({

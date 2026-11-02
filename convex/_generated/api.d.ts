@@ -25,6 +25,8 @@ import type * as agcOpsExcel from "../agcOpsExcel.js";
 import type * as agcPoa from "../agcPoa.js";
 import type * as agcPortal from "../agcPortal.js";
 import type * as agcPreArrival from "../agcPreArrival.js";
+import type * as agcReceipts from "../agcReceipts.js";
+import type * as agcReceiptsExcel from "../agcReceiptsExcel.js";
 import type * as agcRoomAssignments from "../agcRoomAssignments.js";
 import type * as agcRoomIssues from "../agcRoomIssues.js";
 import type * as agcRoomsImport from "../agcRoomsImport.js";
@@ -90,6 +92,8 @@ declare const fullApi: ApiFromModules<{
   agcPoa: typeof agcPoa;
   agcPortal: typeof agcPortal;
   agcPreArrival: typeof agcPreArrival;
+  agcReceipts: typeof agcReceipts;
+  agcReceiptsExcel: typeof agcReceiptsExcel;
   agcRoomAssignments: typeof agcRoomAssignments;
   agcRoomIssues: typeof agcRoomIssues;
   agcRoomsImport: typeof agcRoomsImport;

@@ -16,6 +16,8 @@ export const ADMIN_ROLES = [
   "finance",
   "registration",
   "accommodation",
+  // Read-only dashboard account: the overview hub list and nothing else.
+  "dashboard",
 ] as const;
 
 /**
@@ -71,6 +73,7 @@ export const adminRoleValidator = v.union(
   v.literal("room_assignment"),
   v.literal("checkin"),
   v.literal("accommodation_volunteer"),
+  v.literal("dashboard"),
 );
 
 export const sessionTokenValidator = v.string();
