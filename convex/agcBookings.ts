@@ -6,7 +6,7 @@ import {
   mutation,
   query,
 } from "./_generated/server";
-import type { Doc, Id } from "./_generated/dataModel";
+import type { Doc } from "./_generated/dataModel";
 import {
   AGC_SETTING_KEYS,
 } from "./lib/agcConfig";
@@ -211,12 +211,11 @@ export const createBooking = mutation({
     });
 
     // §50 acknowledgment: hold window + payment instructions (or POA terms).
-    const status = isSmtpConfigured() ? ("pending" as const) : ("stub" as const);
-    if (rep.email) {
-      const emailLogId: Id<"emailLogs"> = await ctx.db.insert("emailLogs", {
+    if (rep.email && isSmtpConfigured()) {
+      await ctx.scheduler.runAfter(0, internal.emailSendAction.sendEmail, {
         to: rep.email,
         subject: `Attempt Great Things Conference 2026 — accommodation reserved (${referenceNumber})`,
-        body: isPoa
+        text: isPoa
           ? [
               `Hello ${rep.firstName ?? rep.username},`,
               "",
@@ -238,16 +237,7 @@ export const createBooking = mutation({
               "",
               "— Attempt Great Things Conference 2026 Accommodation Desk",
             ].join("\n"),
-        type: "agc_booking_reserved",
-        referenceId: result.bookingId,
-        status,
-        createdAt: Date.now(),
       });
-      if (status === "pending") {
-        await ctx.scheduler.runAfter(0, internal.emailSendAction.sendEmail, {
-          emailLogId,
-        });
-      }
     }
 
     return {
@@ -559,7 +549,7 @@ export const submitOfflineBookingPayment = mutation({
     });
 
     // Notify platform admins that a booking payment awaits review.
-    const adminNotify = await ctx.runMutation(
+    await ctx.runMutation(
       internal.agcAdminData.notifyAdminsOfPendingReview,
       {
         kind: "booking",
@@ -570,20 +560,11 @@ export const submitOfflineBookingPayment = mutation({
         recordId: args.bookingId,
       },
     );
-    for (const entry of adminNotify) {
-      if (entry.shouldSend) {
-        await ctx.scheduler.runAfter(0, internal.emailSendAction.sendEmail, {
-          emailLogId: entry.emailLogId,
-        });
-      }
-    }
-
-    const status = isSmtpConfigured() ? ("pending" as const) : ("stub" as const);
-    if (rep.email) {
-      const emailLogId: Id<"emailLogs"> = await ctx.db.insert("emailLogs", {
+    if (rep.email && isSmtpConfigured()) {
+      await ctx.scheduler.runAfter(0, internal.emailSendAction.sendEmail, {
         to: rep.email,
         subject: `Attempt Great Things Conference 2026 — receipt received (${booking.referenceNumber ?? ""})`,
-        body: [
+        text: [
           `Hello ${rep.firstName ?? rep.username},`,
           "",
           `We have received your accommodation payment receipt for ${booking.referenceNumber ?? "your booking"}.`,
@@ -591,16 +572,7 @@ export const submitOfflineBookingPayment = mutation({
           "",
           "— Attempt Great Things Conference 2026 Accommodation Desk",
         ].join("\n"),
-        type: "agc_booking_receipt_received",
-        referenceId: args.bookingId,
-        status,
-        createdAt: Date.now(),
       });
-      if (status === "pending") {
-        await ctx.scheduler.runAfter(0, internal.emailSendAction.sendEmail, {
-          emailLogId,
-        });
-      }
     }
 
     void hub;

@@ -1,6 +1,6 @@
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
 import { internalMutation, internalQuery } from "./_generated/server";
-import type { Id } from "./_generated/dataModel";
 import { writeAuditLog } from "./lib/audit";
 import { isSmtpConfigured } from "./lib/smtpConfig";
 
@@ -72,22 +72,20 @@ export const completeAdminPasswordReset = internalMutation({
   },
 });
 
-export const insertEmailLog = internalMutation({
+/** Plain-text notification for an admin account; nothing is persisted. */
+export const queueNotificationEmail = internalMutation({
   args: {
     to: v.string(),
     subject: v.string(),
     body: v.string(),
   },
   handler: async (ctx, args) => {
-    const status = isSmtpConfigured() ? ("pending" as const) : ("stub" as const);
-    const emailLogId: Id<"emailLogs"> = await ctx.db.insert("emailLogs", {
+    if (!isSmtpConfigured()) return { queued: false };
+    await ctx.scheduler.runAfter(0, internal.emailSendAction.sendEmail, {
       to: args.to,
       subject: args.subject,
-      body: args.body,
-      type: "admin_notification",
-      status,
-      createdAt: Date.now(),
+      text: args.body,
     });
-    return { emailLogId, shouldSend: status === "pending" };
+    return { queued: true };
   },
 });

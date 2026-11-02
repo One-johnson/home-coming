@@ -273,7 +273,7 @@ test("attention items point at the real review consoles and carry per-currency a
   }
 });
 
-test("finance is scoped away from content, emails and low-capacity items", async () => {
+test("finance is scoped away from content and low-capacity items", async () => {
   const t = createTestConvex();
   const token = await seedSessionToken(t, "finance", "finance3@example.com");
 
@@ -285,35 +285,12 @@ test("finance is scoped away from content, emails and low-capacity items", async
       order: 1,
     }),
   );
-  await t.run((ctx) =>
-    ctx.db.insert("emailLogs", {
-      to: "rep@example.com",
-      subject: "s",
-      body: "b",
-      type: "test",
-      status: "failed",
-      createdAt: Date.now(),
-    }),
-  );
-
   const overview = await t.query(api.agcAdminData.getAgcOverview, {
     sessionToken: token,
   });
 
   // Content counters are zeroed for finance...
   expect(overview.content).toEqual({ faqs: 0, videos: 0 });
-  // ...email counters are zeroed...
-  expect(overview.emails).toEqual({
-    total: 0,
-    pending: 0,
-    stub: 0,
-    sent: 0,
-    failed: 0,
-  });
-  // ...and attention carries no email items.
-  expect(
-    overview.attention.some((item) => item.id === "email-failed"),
-  ).toBe(false);
 });
 
 test("admin keeps the full overview with per-currency revenue labels", async () => {

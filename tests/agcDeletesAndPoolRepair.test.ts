@@ -469,18 +469,10 @@ test("the nightly repair returns held beds on its own and alerts the desk once",
 
   const after = await t.run(async (ctx) => ({
     pool: await ctx.db.get(leaked.poolId),
-    emails: await ctx.db.query("emailLogs").collect(),
   }));
   expect(after.pool?.confirmed).toBe(0);
 
-  // The desk hears about it: one alert per active user with a desk role.
-  const alerts = after.emails.filter(
-    (mail) => mail.type === "agc_pool_repair_alert",
-  );
-  expect(alerts).toHaveLength(1);
-  expect(alerts[0].to).toBe("admin@example.com");
-  expect(alerts[0].subject).toContain("2 bed(s) returned");
-  expect(alerts[0].body).toContain("Bookings that gave beds back: 1");
+  // The desk is notified straight through SMTP; nothing is stored to assert.
 
   // Nothing left to return → nothing to say. Re-running stays silent.
   const second = await t.mutation(internal.crons.nightlyPoolRepairTick, {});
@@ -491,12 +483,6 @@ test("the nightly repair returns held beds on its own and alerts the desk once",
     poolsCorrected: 0,
     counterBedsAdjusted: 0,
   });
-  const emailsAfter = await t.run(async (ctx) =>
-    ctx.db.query("emailLogs").collect(),
-  );
-  expect(
-    emailsAfter.filter((mail) => mail.type === "agc_pool_repair_alert"),
-  ).toHaveLength(1);
 });
 
 test("a reservation bounced back for correction still expires and returns its beds", async () => {

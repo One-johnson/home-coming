@@ -57,20 +57,6 @@ export function paymentStatusBadgeClass(status: string) {
   }
 }
 
-export function emailStatusBadgeClass(status: string) {
-  switch (status) {
-    case "sent":
-      return "border-sky-200 bg-sky-50 text-sky-800";
-    case "failed":
-      return "border-rose-200 bg-rose-50 text-rose-800";
-    case "pending":
-      return "border-amber-200 bg-amber-50 text-amber-800";
-    case "stub":
-    default:
-      return "border-stone-200 bg-stone-50 text-stone-700";
-  }
-}
-
 export function mediaTypeBadgeClass(mediaType: string) {
   switch (mediaType) {
     case "video":
@@ -140,10 +126,5 @@ export const KPI_ACCENTS = {
     icon: "bg-violet-100 text-violet-700",
     border: "group-hover:border-violet-300",
     tint: "from-violet-50/80 to-white",
-  },
-  emails: {
-    icon: "bg-sky-100 text-sky-700",
-    border: "group-hover:border-sky-300",
-    tint: "from-sky-50/80 to-white",
   },
 } as const;

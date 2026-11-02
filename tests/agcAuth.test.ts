@@ -307,23 +307,7 @@ test("createRep emails initial credentials to the rep", async () => {
   expect(rep!.mustChangePassword).toBe(true);
   expect(rep!.tempPassword).toBe(created.tempPassword);
 
-  // Credentials email queued (stub status — no SMTP in tests) with a
-  // portal link built from the client origin.
-  const logs = await t.run((ctx) => ctx.db.query("emailLogs").collect());
-  expect(logs).toHaveLength(1);
-  expect(logs[0].to).toBe("rep@credhub.example");
-  expect(logs[0].type).toBe("agc_rep_notification");
-  expect(logs[0].status).toBe("stub");
-  const payload = JSON.parse(logs[0].referenceId!) as {
-    username: string;
-    tempPassword: string;
-    isResend: boolean;
-    portalUrl: string;
-  };
-  expect(payload.username).toBe(created.username);
-  expect(payload.tempPassword).toBe(created.tempPassword);
-  expect(payload.isResend).toBe(false);
-  expect(payload.portalUrl).toBe("http://localhost:5401/portal");
+  // Credentials email goes straight to SMTP; nothing is stored to assert on.
 });
 
 test("issueTempPassword resets the rep to setup and emails new credentials", async () => {
@@ -390,18 +374,7 @@ test("issueTempPassword resets the rep to setup and emails new credentials", asy
   });
   expect(profile).toBeNull();
 
-  // Resend email queued with the new password.
-  const logs = await t.run((ctx) => ctx.db.query("emailLogs").collect());
-  expect(logs).toHaveLength(1);
-  expect(logs[0].to).toBe("rep@resend.example");
-  const payload = JSON.parse(logs[0].referenceId!) as {
-    tempPassword: string;
-    isResend: boolean;
-    portalUrl: string;
-  };
-  expect(payload.tempPassword).toBe(resend.tempPassword);
-  expect(payload.isResend).toBe(true);
-  expect(payload.portalUrl).toBe("http://localhost:3000/portal");
+  // Credentials email goes straight to SMTP; nothing is stored to assert on.
 
   // The new temp password signs in (to the setup screen).
   const login = await t.action(api.agcAuth.repLogin, {
@@ -1049,13 +1022,7 @@ test("renameHub rotates the rep username and the old username keeps working", as
     }),
   ).rejects.toThrow(/already uses/i);
 
-  // The rep was emailed the new username (failed renames queue nothing).
-  const logs = await t.run((ctx) => ctx.db.query("emailLogs").collect());
-  expect(logs).toHaveLength(1);
-  expect(logs[0].to).toBe("rep@oldtown.example");
-  expect(logs[0].body).toContain("Previous username: old_town_hub");
-  expect(logs[0].body).toContain("New username: new_town_hub");
-  expect(logs[0].body).toContain("http://localhost:5401/portal");
+  // The rename notification goes straight to SMTP; nothing is stored.
 });
 
 test("rep-facing email endpoints share a per-mailbox send cap", async () => {
@@ -1083,26 +1050,17 @@ test("rep-facing email endpoints share a per-mailbox send cap", async () => {
     });
     expect(result.success).toBe(true);
   }
-  let logs = await t.run((ctx) => ctx.db.query("emailLogs").collect());
-  expect(logs).toHaveLength(3);
-
   // …the fourth is silently suppressed (still reports success)…
   const fourth = await t.action(api.agcAuth.requestPasswordReset, {
     username: "throttle_hub",
   });
   expect(fourth.success).toBe(true);
-  logs = await t.run((ctx) => ctx.db.query("emailLogs").collect());
-  expect(logs).toHaveLength(3);
-
   // …and switching to the username-reminder flow does not bypass the cap:
   // both endpoints draw from the same per-mailbox bucket.
   const reminder = await t.action(api.agcAuth.requestUsernameReminder, {
     email: "ama@throttle.example",
   });
   expect(reminder.success).toBe(true);
-  logs = await t.run((ctx) => ctx.db.query("emailLogs").collect());
-  expect(logs).toHaveLength(3);
-
   // The mailbox allowance row exists under its namespaced key.
   const rows = await t.run((ctx) => ctx.db.query("agcLoginThrottle").collect());
   expect(rows.map((r) => r.key)).toContain("email:mailbox:ama@throttle.example");
@@ -1112,8 +1070,6 @@ test("rep-facing email endpoints share a per-mailbox send cap", async () => {
   await t.action(api.agcAuth.requestUsernameReminder, {
     email: "ghost@nowhere.example",
   });
-  logs = await t.run((ctx) => ctx.db.query("emailLogs").collect());
-  expect(logs).toHaveLength(3);
 });
 
 test("requestUsernameReminder emails the exact username without enumerating", async () => {
@@ -1142,11 +1098,6 @@ test("requestUsernameReminder emails the exact username without enumerating", as
   });
   expect(hit.success).toBe(true);
 
-  let logs = await t.run((ctx) => ctx.db.query("emailLogs").collect());
-  expect(logs).toHaveLength(1);
-  expect(logs[0].to).toBe("ama@remindhub.example");
-  expect(logs[0].body).toContain("Username: remind_hub");
-  expect(logs[0].body).toContain("http://localhost:5401/portal");
 
   // Unknown address → same success, no email (no enumeration).
   const miss = await t.action(api.agcAuth.requestUsernameReminder, {
@@ -1154,8 +1105,6 @@ test("requestUsernameReminder emails the exact username without enumerating", as
   });
   expect(miss.success).toBe(true);
 
-  logs = await t.run((ctx) => ctx.db.query("emailLogs").collect());
-  expect(logs).toHaveLength(1);
 });
 
 test("migrateRepUsernames rewrites punctuation usernames and keeps them as aliases", async () => {

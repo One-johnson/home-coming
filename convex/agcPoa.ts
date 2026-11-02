@@ -38,21 +38,12 @@ async function queuePoaEmail(
 ) {
   const rep = await ctx.db.get(args.repId);
   if (!rep?.email) return;
-  const status = isSmtpConfigured() ? ("pending" as const) : ("stub" as const);
-  const emailLogId: Id<"emailLogs"> = await ctx.db.insert("emailLogs", {
+  if (!isSmtpConfigured()) return;
+  await ctx.scheduler.runAfter(0, internal.emailSendAction.sendEmail, {
     to: rep.email,
     subject: args.subject,
-    body: args.body,
-    type: args.type,
-    referenceId: args.referenceId,
-    status,
-    createdAt: Date.now(),
+    text: args.body,
   });
-  if (status === "pending") {
-    await ctx.scheduler.runAfter(0, internal.emailSendAction.sendEmail, {
-      emailLogId,
-    });
-  }
 }
 
 // ------------------------------------------------------------------
@@ -588,7 +579,7 @@ export const submitPoaEvidence = mutation({
     });
 
     // Notify platform admins that POA payment evidence awaits confirmation.
-    const adminNotify = await ctx.runMutation(
+    await ctx.runMutation(
       internal.agcAdminData.notifyAdminsOfPendingReview,
       {
         kind: args.kind,
@@ -599,13 +590,6 @@ export const submitPoaEvidence = mutation({
         recordId: record._id,
       },
     );
-    for (const entry of adminNotify) {
-      if (entry.shouldSend) {
-        await ctx.scheduler.runAfter(0, internal.emailSendAction.sendEmail, {
-          emailLogId: entry.emailLogId,
-        });
-      }
-    }
 
     await queuePoaEmail(ctx, {
       repId: rep._id,

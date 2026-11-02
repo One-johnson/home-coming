@@ -1,9 +1,6 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import {
-  internalMutation,
-  internalQuery,
-} from "./_generated/server";
+import { internalMutation, internalQuery } from "./_generated/server";
 import {
   buildConfirmationEmailPayload,
   plainTextFromPayload,
@@ -15,13 +12,6 @@ const confirmationTypeValidator = v.union(
   v.literal("registration_confirmation"),
   v.literal("tour_confirmation"),
 );
-
-export const getEmailLog = internalQuery({
-  args: { id: v.id("emailLogs") },
-  handler: async (ctx, args) => {
-    return await ctx.db.get(args.id);
-  },
-});
 
 export const getConfirmationPayload = internalQuery({
   args: {
@@ -37,51 +27,18 @@ export const getConfirmationPayload = internalQuery({
   },
 });
 
-export const markEmailResult = internalMutation({
-  args: {
-    id: v.id("emailLogs"),
-    status: v.union(v.literal("sent"), v.literal("failed")),
-    errorMessage: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
-    await ctx.db.patch(args.id, {
-      status: args.status,
-      errorMessage: args.errorMessage,
-    });
-  },
-});
-
-export const storeRenderedEmail = internalMutation({
-  args: {
-    id: v.id("emailLogs"),
-    body: v.string(),
-    htmlBody: v.string(),
-  },
-  handler: async (ctx, args) => {
-    await ctx.db.patch(args.id, {
-      body: args.body,
-      htmlBody: args.htmlBody,
-    });
-  },
-});
-
+/**
+ * Queue the confirmation email for a paid registration or tour. Nothing is
+ * persisted: the recipient and the record travel straight to the Node action
+ * that renders the branded email and hands it to SMTP.
+ */
 export const queueConfirmationEmail = internalMutation({
   args: {
     type: confirmationTypeValidator,
     recordId: v.string(),
   },
   handler: async (ctx, args) => {
-    const existing = await ctx.db
-      .query("emailLogs")
-      .withIndex("by_type_reference", (q) =>
-        q.eq("type", args.type).eq("referenceId", args.recordId),
-      )
-      .collect();
-
-    const alreadyHandled = existing.some(
-      (log) => log.status === "sent" || log.status === "pending",
-    );
-    if (alreadyHandled) return null;
+    if (!isSmtpConfigured()) return null;
 
     const payload = await buildConfirmationEmailPayload(
       ctx,
@@ -90,43 +47,13 @@ export const queueConfirmationEmail = internalMutation({
     );
     if (!payload) return null;
 
-    const status = isSmtpConfigured() ? ("pending" as const) : ("stub" as const);
-    const emailLogId = await ctx.db.insert("emailLogs", {
+    await ctx.scheduler.runAfter(0, internal.emailSendAction.sendEmail, {
       to: payload.to,
       subject: payload.subject,
-      body: plainTextFromPayload(payload),
-      type: args.type,
-      referenceId: args.recordId,
-      status,
-      createdAt: Date.now(),
+      text: plainTextFromPayload(payload),
+      confirmation: { type: args.type, recordId: args.recordId },
     });
 
-    if (status === "pending") {
-      await ctx.scheduler.runAfter(0, internal.emailSendAction.sendEmail, {
-        emailLogId,
-      });
-    }
-
-    return emailLogId;
-  },
-});
-
-export const queueResendEmail = internalMutation({
-  args: { emailLogId: v.id("emailLogs") },
-  handler: async (ctx, args) => {
-    const existing = await ctx.db.get(args.emailLogId);
-    if (!existing) throw new Error("Email log not found");
-
-    const status = isSmtpConfigured() ? ("pending" as const) : ("stub" as const);
-    await ctx.db.patch(args.emailLogId, {
-      status,
-      errorMessage: undefined,
-    });
-
-    if (status === "pending") {
-      await ctx.scheduler.runAfter(0, internal.emailSendAction.sendEmail, {
-        emailLogId: args.emailLogId,
-      });
-    }
+    return payload.to;
   },
 });

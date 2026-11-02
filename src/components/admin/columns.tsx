@@ -4,10 +4,7 @@ import { ColumnDef } from "@tanstack/react-table";
 import { Badge } from "@/components/ui/badge";
 import { Doc } from "@convex/_generated/dataModel";
 import { PaymentStatusBadge } from "@/components/admin/RecordDetailSheet";
-import {
-  emailStatusBadgeClass,
-  mediaTypeBadgeClass,
-} from "@/lib/adminColors";
+import { mediaTypeBadgeClass } from "@/lib/adminColors";
 import { cn } from "@/lib/utils";
 
 function formatDate(ts: number) {
@@ -209,48 +206,6 @@ export function tourOrderExportRow(o: TourOrderRow) {
     status: o.paymentStatus,
     receipt: o.receiptUrl ? "uploaded" : "missing",
     createdAt: new Date(o.createdAt).toISOString(),
-  };
-}
-
-export const emailLogColumns: ColumnDef<Doc<"emailLogs">>[] = [
-  { accessorKey: "to", header: "To" },
-  { accessorKey: "subject", header: "Subject" },
-  {
-    accessorKey: "type",
-    header: "Type",
-    filterFn: multiSelectFilter,
-  },
-  {
-    accessorKey: "status",
-    header: "Status",
-    filterFn: multiSelectFilter,
-    cell: ({ row }) => (
-      <Badge
-        variant="outline"
-        className={cn("capitalize", emailStatusBadgeClass(row.original.status))}
-      >
-        {row.original.status}
-      </Badge>
-    ),
-  },
-  {
-    accessorKey: "createdAt",
-    header: "Created",
-    cell: ({ row }) => (
-      <span className="text-muted-foreground">
-        {formatDate(row.original.createdAt)}
-      </span>
-    ),
-  },
-];
-
-export function emailExportRow(e: Doc<"emailLogs">) {
-  return {
-    to: e.to,
-    subject: e.subject,
-    type: e.type,
-    status: e.status,
-    createdAt: new Date(e.createdAt).toISOString(),
   };
 }
 

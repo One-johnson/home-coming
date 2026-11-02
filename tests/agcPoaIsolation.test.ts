@@ -443,7 +443,6 @@ test("the hold window never releases POA beds — the venue desk does", async ()
     bookings: await ctx.db.query("agcBookings").collect(),
     lapsedPool: await ctx.db.get(lapsedPoa.poolId),
     legacyPool: await ctx.db.get(legacyPoa.poolId),
-    emails: await ctx.db.query("emailLogs").collect(),
   }));
   const lapsed = data.bookings.find(
     (row) => row.referenceNumber === "STY-POA-KEEPS-BEDS",
@@ -458,11 +457,6 @@ test("the hold window never releases POA beds — the venue desk does", async ()
   expect(data.lapsedPool?.reserved).toBe(2);
   expect(legacy?.bookingStatus).toBe("reserved");
   expect(data.legacyPool?.reserved).toBe(1);
-  expect(
-    data.emails.filter(
-      (mail) => mail.type === "agc_booking_poa_hold_released",
-    ),
-  ).toHaveLength(0);
 
   // The lapsed offline hold did expire, beds and all.
   const offlineBooking = data.bookings.find(

@@ -5,7 +5,7 @@ export type AdminNavItem = {
   label: string;
   description: string;
   area?: AdminArea;
-  badgeKey?: "registrationsPending" | "bookingsPending" | "emailsFailed";
+  badgeKey?: "registrationsPending" | "bookingsPending";
   /** Show the item only for these roles (after the area check passes). */
   visibleTo?: readonly StaffRole[];
   /** Never show the item for these roles, even if the area check passes. */
@@ -144,13 +144,6 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
   {
     label: "System",
     items: [
-      {
-        href: "/admin/emails",
-        label: "Emails",
-        description: "Delivery logs and stubs",
-        area: "emails",
-        badgeKey: "emailsFailed",
-      },
       {
         href: "/admin/team",
         label: "Team",

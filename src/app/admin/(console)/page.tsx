@@ -14,7 +14,6 @@ import {
   HandCoins,
   HelpCircle,
   Info,
-  Mail,
   TrendingDown,
   TrendingUp,
   Users,
@@ -170,13 +169,6 @@ type AgcOverview = {
     pricePerStay: number;
   }[];
   content: { faqs: number; videos: number };
-  emails: {
-    total: number;
-    pending: number;
-    stub: number;
-    sent: number;
-    failed: number;
-  };
   storage: {
     totalBytes: number;
     fileCount: number;
@@ -1150,14 +1142,6 @@ function FinanceStatsCards({
   );
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes <= 0) return "0 MB";
-  const mb = bytes / (1024 * 1024);
-  if (mb >= 1024) return `${(mb / 1024).toFixed(2)} GB`;
-  if (mb >= 1) return `${mb.toFixed(1)} MB`;
-  return `${(bytes / 1024).toFixed(0)} KB`;
-}
-
 function StatusChip({
   label,
   value,
@@ -1359,7 +1343,6 @@ export default function AdminOverviewPage() {
   const canRegistration = canAccessArea(role, "registration");
   const canAccommodation = canAccessArea(role, "accommodation");
   const canContent = canAccessArea(role, "content");
-  const canEmails = canAccessArea(role, "emails");
   const canSeed = canAccessArea(role, "seed");
   // Server truth once loaded; role check before then avoids flashing
   // non-finance widgets for the finance role.
@@ -1612,80 +1595,6 @@ export default function AdminOverviewPage() {
                     <p className="text-xs text-muted-foreground">
                       Conference messages and links
                     </p>
-                  </CardContent>
-                </Card>
-              </Link>
-            )}
-            {canEmails && (
-              <Link href="/admin/emails" className="group">
-                <Card
-                  className={cn(
-                    "h-full overflow-hidden bg-gradient-to-br transition-all group-hover:shadow-sm",
-                    KPI_ACCENTS.emails.tint,
-                    KPI_ACCENTS.emails.border,
-                  )}
-                >
-                  <CardHeader className="flex flex-row items-center justify-between pb-2">
-                    <CardTitle className="text-sm font-medium text-muted-foreground">
-                      Emails
-                    </CardTitle>
-                    <span
-                      className={cn(
-                        "flex size-9 items-center justify-center rounded-lg",
-                        KPI_ACCENTS.emails.icon,
-                      )}
-                    >
-                      <Mail className="size-4" />
-                    </span>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <p className="text-3xl font-semibold tabular-nums text-ink">
-                      {overview.emails.total}
-                    </p>
-                    <div className="flex flex-wrap gap-1.5">
-                      <StatusChip
-                        label="sent"
-                        value={overview.emails.sent}
-                        tone="info"
-                      />
-                      {overview.emails.pending > 0 && (
-                        <StatusChip
-                          label="pending"
-                          value={overview.emails.pending}
-                          tone="warn"
-                        />
-                      )}
-                      {overview.emails.stub > 0 && (
-                        <StatusChip
-                          label="stub"
-                          value={overview.emails.stub}
-                          tone="info"
-                        />
-                      )}
-                      {overview.emails.failed > 0 && (
-                        <StatusChip
-                          label="failed"
-                          value={overview.emails.failed}
-                          tone="danger"
-                        />
-                      )}
-                    </div>
-                    <div className="rounded-lg border border-border/70 bg-muted/40 p-2">
-                      <p className="text-xs font-medium text-muted-foreground">
-                        File storage · {formatBytes(overview.storage.totalBytes)}
-                        {" \u00b7 "}
-                        {overview.storage.fileCount} file
-                        {overview.storage.fileCount === 1 ? "" : "s"}
-                      </p>
-                      <p className="mt-0.5 text-[11px] text-muted-foreground">
-                        {overview.storage.galleryFiles} gallery ·{" "}
-                        {overview.storage.receiptFiles} receipts ·{" "}
-                        {overview.storage.heroTourFiles} hero/tours
-                        {overview.storage.otherFiles > 0
-                          ? ` · ${overview.storage.otherFiles} other`
-                          : ""}
-                      </p>
-                    </div>
                   </CardContent>
                 </Card>
               </Link>

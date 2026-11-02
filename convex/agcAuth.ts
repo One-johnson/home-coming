@@ -141,12 +141,7 @@ async function queueRepEmail(
   ctx: ActionCtx,
   args: { to: string; subject: string; body: string },
 ) {
-  const result = await ctx.runMutation(internal.agcAuthData.insertEmailLog, args);
-  if (result.shouldSend) {
-    await ctx.scheduler.runAfter(0, internal.emailSendAction.sendEmail, {
-      emailLogId: result.emailLogId,
-    });
-  }
+  await ctx.runMutation(internal.agcAuthData.queueNotificationEmail, args);
 }
 
 // ------------------------------------------------------------------

@@ -284,9 +284,7 @@ export const renameHub = action({
     // Keep credentials on file accurate: tell the rep their username changed.
     // The password is untouched and the old username still works as an alias.
     if (usernameChanged && rep && rep.email && previousUsername) {
-      const renameEmail = await ctx.runMutation(
-        internal.agcAuthData.insertEmailLog,
-        {
+      await ctx.runMutation(internal.agcAuthData.queueNotificationEmail, {
           to: rep.email,
           subject:
             "Attempt Great Things Conference 2026 — your hub was renamed; your sign-in username has changed",
@@ -305,13 +303,7 @@ export const renameHub = action({
             "",
             "— Attempt Great Things Conference 2026 Registration Desk",
           ].join("\n"),
-        },
-      );
-      if (renameEmail.shouldSend) {
-        await ctx.scheduler.runAfter(0, internal.emailSendAction.sendEmail, {
-          emailLogId: renameEmail.emailLogId,
-        });
-      }
+      });
     }
 
     return { hubId: args.hubId, name: newName, repUsername };
@@ -371,7 +363,7 @@ export const createRep = action({
     );
 
     // Send the credentials to the rep's email (no-op without one on file).
-    const credsEmail = await ctx.runMutation(
+    await ctx.runMutation(
       internal.agcAuthData.queueRepCredentialsEmail,
       {
         repId,
@@ -382,11 +374,6 @@ export const createRep = action({
         portalUrl: buildPortalUrl(args.clientOrigin),
       },
     );
-    if (credsEmail.shouldSend) {
-      await ctx.scheduler.runAfter(0, internal.emailSendAction.sendEmail, {
-        emailLogId: credsEmail.emailLogId as Id<"emailLogs">,
-      });
-    }
 
     await ctx.runMutation(internal.agcAdminData.insertAuditEntry, {
       actorEmail: actor.email,
@@ -497,7 +484,7 @@ export const bulkCreateReps = action({
         });
 
         // Queue the credentials email for this rep (no-op without email).
-        const credsEmail = await ctx.runMutation(
+        await ctx.runMutation(
           internal.agcAuthData.queueRepCredentialsEmail,
           {
             repId: repId,
@@ -508,11 +495,6 @@ export const bulkCreateReps = action({
             portalUrl: buildPortalUrl(args.clientOrigin),
           },
         );
-        if (credsEmail.shouldSend) {
-          await ctx.scheduler.runAfter(0, internal.emailSendAction.sendEmail, {
-            emailLogId: credsEmail.emailLogId as Id<"emailLogs">,
-          });
-        }
       } catch (err) {
         results.errors.push({
           hubName: hub.name,
@@ -571,7 +553,7 @@ export const issueTempPassword = action({
       internal.agcAdminData.getHubById,
       { hubId: rep.hubId },
     );
-    const credsEmail = await ctx.runMutation(
+    await ctx.runMutation(
       internal.agcAuthData.queueRepCredentialsEmail,
       {
         repId: rep._id,
@@ -582,11 +564,6 @@ export const issueTempPassword = action({
         portalUrl: buildPortalUrl(args.clientOrigin),
       },
     );
-    if (credsEmail.shouldSend) {
-      await ctx.scheduler.runAfter(0, internal.emailSendAction.sendEmail, {
-        emailLogId: credsEmail.emailLogId as Id<"emailLogs">,
-      });
-    }
 
     return { username: rep.username, tempPassword };
   },

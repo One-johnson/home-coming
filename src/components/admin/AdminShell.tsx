@@ -16,7 +16,6 @@ import {
   Inbox,
   LayoutDashboard,
   LogOut,
-  Mail,
   MapPin,
   Newspaper,
   ScrollText,
@@ -95,7 +94,6 @@ const NAV_ICONS: Record<
   "/admin/content": Newspaper,
   "/admin/videos": Video,
   "/admin/galleries": GalleryHorizontalEnd,
-  "/admin/emails": Mail,
   "/admin/team": Users,
   "/admin/audit": ScrollText,
   "/admin/settings": Settings,
@@ -104,7 +102,6 @@ const NAV_ICONS: Record<
 type NavBadges = {
   registrationsPending: number;
   bookingsPending: number;
-  emailsFailed: number;
 };
 
 function daysUntilEvent() {

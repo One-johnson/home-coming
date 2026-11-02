@@ -326,7 +326,7 @@ export const submitOfflineRegistration = mutation({
     });
 
     // Notify platform admins that a payment awaits review (stub-safe).
-    const adminNotify = await ctx.runMutation(
+    await ctx.runMutation(
       internal.agcAdminData.notifyAdminsOfPendingReview,
       {
         kind: "registration",
@@ -337,21 +337,12 @@ export const submitOfflineRegistration = mutation({
         recordId: registrationId,
       },
     );
-    for (const entry of adminNotify) {
-      if (entry.shouldSend) {
-        await ctx.scheduler.runAfter(0, internal.emailSendAction.sendEmail, {
-          emailLogId: entry.emailLogId,
-        });
-      }
-    }
-
-    // Notify the rep that finance will review the receipt (§50; stub-safe).
-    const status = isSmtpConfigured() ? ("pending" as const) : ("stub" as const);
-    if (rep.email) {
-      const emailLogId: Id<"emailLogs"> = await ctx.db.insert("emailLogs", {
+    // Notify the rep that finance will review the receipt (§50).
+    if (rep.email && isSmtpConfigured()) {
+      await ctx.scheduler.runAfter(0, internal.emailSendAction.sendEmail, {
         to: rep.email,
         subject: `Attempt Great Things Conference 2026 — receipt received (${referenceNumber})`,
-        body: [
+        text: [
           `Hello ${rep.firstName ?? rep.username},`,
           "",
           `We have received your payment receipt for ${args.quantity} registration(s), reference ${referenceNumber}.`,
@@ -359,16 +350,7 @@ export const submitOfflineRegistration = mutation({
           "",
           "— Attempt Great Things Conference 2026 Registration Desk",
         ].join("\n"),
-        type: "agc_registration_receipt_received",
-        referenceId: registrationId,
-        status,
-        createdAt: Date.now(),
       });
-      if (status === "pending") {
-        await ctx.scheduler.runAfter(0, internal.emailSendAction.sendEmail, {
-          emailLogId,
-        });
-      }
     }
 
     return { registrationId, referenceNumber, receiptUrl };

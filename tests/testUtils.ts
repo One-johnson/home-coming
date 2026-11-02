@@ -39,7 +39,6 @@ const modules = {
   "convex/content.ts": () => import("../convex/content"),
   "convex/crons.ts": () => import("../convex/crons"),
   "convex/emailSender.ts": () => import("../convex/emailSender"),
-  "convex/emails.ts": () => import("../convex/emails"),
   "convex/galleryStorage.ts": () => import("../convex/galleryStorage"),
   "convex/heroSlides.ts": () => import("../convex/heroSlides"),
   "convex/lib/agcSettingsRuntime.ts": () =>

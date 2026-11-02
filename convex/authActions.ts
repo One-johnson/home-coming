@@ -311,7 +311,7 @@ export const requestAdminPasswordReset = action({
       "/admin/reset-password",
       token,
     );
-    const result = await ctx.runMutation(internal.adminAuthData.insertEmailLog, {
+    await ctx.runMutation(internal.adminAuthData.queueNotificationEmail, {
       to: user.email,
       subject: "Attempt Great Things Conference admin — password reset",
       body: [
@@ -325,11 +325,6 @@ export const requestAdminPasswordReset = action({
         "— Attempt Great Things Conference Admin",
       ].join("\n"),
     });
-    if (result.shouldSend) {
-      await ctx.scheduler.runAfter(0, internal.emailSendAction.sendEmail, {
-        emailLogId: result.emailLogId,
-      });
-    }
     return { success: true };
   },
 });

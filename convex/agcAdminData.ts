@@ -1737,8 +1737,7 @@ export const purgeExpiredDeletedReps = internalMutation({
 
 /**
  * Notify every platform admin that a payment is awaiting review.
- * Returns one email log per admin (stub status when SMTP is unconfigured),
- * so the caller can schedule delivery for each.
+ * Schedules one email per active admin when SMTP is configured.
  */
 export const notifyAdminsOfPendingReview = internalMutation({
   args: {
@@ -1768,22 +1767,18 @@ export const notifyAdminsOfPendingReview = internalMutation({
       "— Attempt Great Things Conference 2026 automated notification",
     ].join("\n");
 
-    const status = isSmtpConfigured() ? ("pending" as const) : ("stub" as const);
-    const queued: { emailLogId: Id<"emailLogs">; shouldSend: boolean }[] = [];
+    if (!isSmtpConfigured()) return { notified: 0 };
+    let notified = 0;
     for (const admin of admins) {
       if (!admin.email || admin.active === false) continue;
-      const emailLogId: Id<"emailLogs"> = await ctx.db.insert("emailLogs", {
+      await ctx.scheduler.runAfter(0, internal.emailSendAction.sendEmail, {
         to: admin.email,
         subject,
-        body,
-        type: "agc_admin_pending_review",
-        referenceId: args.recordId,
-        status,
-        createdAt: Date.now(),
+        text: body,
       });
-      queued.push({ emailLogId, shouldSend: status === "pending" });
+      notified += 1;
     }
-    return queued;
+    return { notified };
   },
 });
 
@@ -1979,7 +1974,7 @@ const reviewDecision = v.union(
   v.literal("request_correction"),
 );
 
-/** §50: notify the rep of a review outcome via the email log queue. */
+/** §50: notify the rep of a review outcome. */
 async function queueReviewEmail(
   ctx: MutationCtx,
   args: {
@@ -1992,21 +1987,12 @@ async function queueReviewEmail(
 ) {
   const rep = await ctx.db.get(args.repId);
   if (!rep?.email) return;
-  const status = isSmtpConfigured() ? ("pending" as const) : ("stub" as const);
-  const emailLogId: Id<"emailLogs"> = await ctx.db.insert("emailLogs", {
+  if (!isSmtpConfigured()) return;
+  await ctx.scheduler.runAfter(0, internal.emailSendAction.sendEmail, {
     to: rep.email,
     subject: args.subject,
-    body: args.body,
-    type: args.type,
-    referenceId: args.referenceId,
-    status,
-    createdAt: Date.now(),
+    text: args.body,
   });
-  if (status === "pending") {
-    await ctx.scheduler.runAfter(0, internal.emailSendAction.sendEmail, {
-      emailLogId,
-    });
-  }
 }
 
 function reviewEmailBody(args: {
@@ -2450,19 +2436,12 @@ export const alertDeskOfPoolRepair = internalMutation({
       "— Attempt Great Things Conference 2026 automated notification",
     ].join("\n");
 
-    const status = isSmtpConfigured() ? ("pending" as const) : ("stub" as const);
-    for (const user of desk) {
-      const emailLogId: Id<"emailLogs"> = await ctx.db.insert("emailLogs", {
-        to: user.email,
-        subject,
-        body,
-        type: "agc_pool_repair_alert",
-        status,
-        createdAt: Date.now(),
-      });
-      if (status === "pending") {
+    if (isSmtpConfigured()) {
+      for (const user of desk) {
         await ctx.scheduler.runAfter(0, internal.emailSendAction.sendEmail, {
-          emailLogId,
+          to: user.email,
+          subject,
+          text: body,
         });
       }
     }
@@ -3310,9 +3289,6 @@ export const getAgcOverview = query({
     const pools = canAccommodation
       ? await ctx.db.query("agcInventoryPools").collect()
       : [];
-    const emailLogs = canEmails
-      ? await ctx.db.query("emailLogs").collect()
-      : [];
     const recentActivity =
       user.role === "admin"
         ? (
@@ -3697,28 +3673,6 @@ export const getAgcOverview = query({
         tone: "info",
       });
     }
-    if (canEmails) {
-      const failedEmails = emailLogs.filter((e) => e.status === "failed").length;
-      const pendingEmails = emailLogs.filter((e) => e.status === "pending").length;
-      if (failedEmails > 0) {
-        attention.push({
-          id: "email-failed",
-          label: "Failed emails",
-          detail: `${failedEmails} email${failedEmails === 1 ? "" : "s"} failed to send`,
-          href: "/admin/emails",
-          tone: "danger",
-        });
-      } else if (pendingEmails > 0) {
-        attention.push({
-          id: "email-pending",
-          label: "Pending emails",
-          detail: `${pendingEmails} email${pendingEmails === 1 ? "" : "s"} awaiting delivery`,
-          href: "/admin/emails",
-          tone: "info",
-        });
-      }
-    }
-
     return {
       financeView: isFinanceView,
       registrations: {
@@ -3796,20 +3750,12 @@ export const getAgcOverview = query({
           ? (await ctx.db.query("messages").collect()).length
           : 0,
       },
-      emails: {
-        total: emailLogs.length,
-        pending: emailLogs.filter((e) => e.status === "pending").length,
-        stub: emailLogs.filter((e) => e.status === "stub").length,
-        sent: emailLogs.filter((e) => e.status === "sent").length,
-        failed: emailLogs.filter((e) => e.status === "failed").length,
-      },
       storage: await storageUsage(ctx, canEmails),
       attention,
       recentActivity,
       badges: {
         registrationsPending: pendingRegistrations.length,
         bookingsPending: pendingBookings.length,
-        emailsFailed: emailLogs.filter((e) => e.status === "failed").length,
       },
     };
   },

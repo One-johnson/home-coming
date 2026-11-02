@@ -15,7 +15,6 @@ export const getOverview = query({
     const canRegistration =
       user.role === "admin" || user.role === "registration";
     const canContent = user.role === "admin" || user.role === "content";
-    const canEmails = user.role === "admin";
 
     const registrations = canRegistration
       ? await ctx.db.query("registrations").collect()
@@ -34,9 +33,6 @@ export const getOverview = query({
         : 0;
     const faqs = canContent ? await ctx.db.query("faqs").collect() : [];
     const messages = canContent ? await ctx.db.query("messages").collect() : [];
-    const emailLogs = canEmails
-      ? await ctx.db.query("emailLogs").collect()
-      : [];
     const recentActivity =
       user.role === "admin"
         ? (
@@ -130,31 +126,6 @@ export const getOverview = query({
         tone: "danger",
       });
     }
-    if (canEmails) {
-      const failedEmails = emailLogs.filter((e) => e.status === "failed").length;
-      // Only true SMTP queue pending — stubs mean delivery is intentionally skipped.
-      const pendingEmails = emailLogs.filter(
-        (e) => e.status === "pending",
-      ).length;
-      if (failedEmails > 0) {
-        attention.push({
-          id: "email-failed",
-          label: "Failed emails",
-          detail: `${failedEmails} email${failedEmails === 1 ? "" : "s"} failed to send`,
-          href: "/admin/emails",
-          tone: "danger",
-        });
-      } else if (pendingEmails > 0) {
-        attention.push({
-          id: "email-pending",
-          label: "Pending emails",
-          detail: `${pendingEmails} email${pendingEmails === 1 ? "" : "s"} awaiting delivery`,
-          href: "/admin/emails",
-          tone: "info",
-        });
-      }
-    }
-
     return {
       registrations: {
         total: registrations.length,
@@ -172,19 +143,11 @@ export const getOverview = query({
         faqs: faqs.length,
         videos: messages.length,
       },
-      emails: {
-        total: emailLogs.length,
-        pending: emailLogs.filter((e) => e.status === "pending").length,
-        stub: emailLogs.filter((e) => e.status === "stub").length,
-        sent: emailLogs.filter((e) => e.status === "sent").length,
-        failed: emailLogs.filter((e) => e.status === "failed").length,
-      },
       attention,
       recentActivity,
       badges: {
         registrationsPending: pendingRegistrations.length,
         bookingsPending: agcPendingBookings,
-        emailsFailed: emailLogs.filter((e) => e.status === "failed").length,
       },
     };
   },
@@ -210,7 +173,6 @@ export const searchQuick = query({
       { href: "/admin/hero", label: "Hero" },
       { href: "/admin/videos", label: "Videos" },
       { href: "/admin/galleries", label: "Galleries" },
-      { href: "/admin/emails", label: "Emails" },
       { href: "/admin/team", label: "Team" },
       { href: "/admin/audit", label: "Audit log" },
       { href: "/admin/profile", label: "Profile" },

@@ -1,6 +1,6 @@
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
 import { internalMutation, internalQuery } from "./_generated/server";
-import type { Id } from "./_generated/dataModel";
 import { writeAuditLog } from "./lib/audit";
 import { canonicalUsername } from "./lib/hubUsername";
 import { isSmtpConfigured } from "./lib/smtpConfig";
@@ -453,23 +453,24 @@ export const insertAuditEntry = internalMutation({
   },
 });
 
-export const insertEmailLog = internalMutation({
+/**
+ * Plain-text notification for a representative. Handed straight to the Node
+ * email action when SMTP is configured; nothing is written to the database.
+ */
+export const queueNotificationEmail = internalMutation({
   args: {
     to: v.string(),
     subject: v.string(),
     body: v.string(),
   },
   handler: async (ctx, args) => {
-    const status = isSmtpConfigured() ? ("pending" as const) : ("stub" as const);
-    const emailLogId: Id<"emailLogs"> = await ctx.db.insert("emailLogs", {
+    if (!isSmtpConfigured()) return { queued: false };
+    await ctx.scheduler.runAfter(0, internal.emailSendAction.sendEmail, {
       to: args.to,
       subject: args.subject,
-      body: args.body,
-      type: "agc_rep_notification",
-      status,
-      createdAt: Date.now(),
+      text: args.body,
     });
-    return { emailLogId, shouldSend: status === "pending" };
+    return { queued: true };
   },
 });
 
@@ -479,8 +480,7 @@ export const insertEmailLog = internalMutation({
 
 /**
  * Queue the "your username + temporary password" email for a representative.
- * Rendered to branded HTML by emailSendAction when SMTP is configured;
- * otherwise logged with status "stub" so the content is still auditable.
+ * Rendered to branded HTML by emailSendAction when SMTP is configured.
  * Safe to call for reps without an email on file — the call is a no-op.
  */
 export const queueRepCredentialsEmail = internalMutation({
@@ -494,7 +494,7 @@ export const queueRepCredentialsEmail = internalMutation({
   },
   handler: async (ctx, args) => {
     const rep = await ctx.db.get(args.repId);
-    if (!rep?.email) return { emailLogId: null, shouldSend: false };
+    if (!rep?.email) return { queued: false };
 
     const subject = args.isResend
       ? "Attempt Great Things Conference 2026 — new sign-in details for your representative account"
@@ -517,27 +517,21 @@ export const queueRepCredentialsEmail = internalMutation({
       "— Attempt Great Things Conference 2026 Registration Desk",
     ].join("\n");
 
-    const status = isSmtpConfigured() ? ("pending" as const) : ("stub" as const);
-    const emailLogId: Id<"emailLogs"> = await ctx.db.insert("emailLogs", {
+    if (!isSmtpConfigured()) return { queued: false };
+
+    await ctx.scheduler.runAfter(0, internal.emailSendAction.sendEmail, {
       to: rep.email,
       subject,
-      body,
-      type: "agc_rep_notification",
-      status,
-      createdAt: Date.now(),
-    });
-
-    // Stash the pieces needed for the branded HTML render.
-    await ctx.db.patch(emailLogId, {
-      referenceId: JSON.stringify({
+      text: body,
+      repCredentials: {
         hubName: args.hubName,
         username: args.username,
         tempPassword: args.tempPassword,
         isResend: args.isResend,
         portalUrl: args.portalUrl,
-      }),
+      },
     });
 
-    return { emailLogId, shouldSend: status === "pending" };
+    return { queued: true };
   },
 });

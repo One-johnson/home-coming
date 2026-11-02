@@ -42,7 +42,6 @@ export type AdminArea =
   | "accommodation"
   | "directory"
   | "content"
-  | "emails"
   | "team"
   | "seed"
   | "audit";
@@ -56,7 +55,6 @@ export const AREA_ROLES: Record<AdminArea, readonly StaffRole[]> = {
   // their phones; the accommodation team gets it alongside the room console.
   directory: ["admin", "accommodation", "accommodation_volunteer"],
   content: ["admin", "content"],
-  emails: ["admin"],
   team: ["admin"],
   seed: ["admin"],
   audit: ["admin", "finance"],

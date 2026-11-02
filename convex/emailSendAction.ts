@@ -19,58 +19,56 @@ import { getSmtpSettings } from "./lib/smtpConfig";
 
 const BANNER_SRC = `cid:${BANNER_CID}`;
 
+const confirmationValidator = v.object({
+  type: v.union(
+    v.literal("registration_confirmation"),
+    v.literal("tour_confirmation"),
+  ),
+  recordId: v.string(),
+});
+
+const repCredentialsValidator = v.object({
+  hubName: v.string(),
+  username: v.string(),
+  tempPassword: v.string(),
+  isResend: v.boolean(),
+  portalUrl: v.string(),
+});
+
+/**
+ * Deliver one email. The payload arrives fully formed (plain text, plus the
+ * props needed for the branded render), so nothing has to be read back from or
+ * written to the database — a failure can only be logged in the Convex logs.
+ */
 export const sendEmail = internalAction({
-  args: { emailLogId: v.id("emailLogs") },
+  args: {
+    to: v.string(),
+    subject: v.string(),
+    text: v.string(),
+    html: v.optional(v.string()),
+    repCredentials: v.optional(repCredentialsValidator),
+    confirmation: v.optional(confirmationValidator),
+  },
   handler: async (ctx, args) => {
-    const log = await ctx.runQuery(internal.emailSender.getEmailLog, {
-      id: args.emailLogId,
-    });
-    if (!log || log.status !== "pending") return;
-
     try {
-      let text = log.body;
-      let html = log.htmlBody;
+      let text = args.text;
+      let html = args.html;
 
-      if (log.referenceId && log.type === "agc_rep_notification") {
-        // Rep credentials emails stash their render props as JSON in
-        // referenceId (queued by queueRepCredentialsEmail).
-        try {
-          const props = JSON.parse(log.referenceId) as {
-            hubName: string;
-            username: string;
-            tempPassword: string;
-            isResend: boolean;
-            portalUrl: string;
-          };
-          const rendered = await renderRepCredentialsEmail({
-            bannerUrl: BANNER_SRC,
-            hubName: props.hubName,
-            username: props.username,
-            temporaryPassword: props.tempPassword,
-            isResend: props.isResend,
-            portalUrl: props.portalUrl,
-          });
-          await ctx.runMutation(internal.emailSender.storeRenderedEmail, {
-            id: args.emailLogId,
-            body: rendered.text,
-            htmlBody: rendered.html,
-          });
-          text = rendered.text;
-          html = rendered.html;
-        } catch {
-          // Malformed payload — fall through with the plain-text body.
-        }
-      } else if (
-        log.referenceId &&
-        (log.type === "registration_confirmation" ||
-          log.type === "tour_confirmation")
-      ) {
+      if (args.repCredentials) {
+        const rendered = await renderRepCredentialsEmail({
+          bannerUrl: BANNER_SRC,
+          hubName: args.repCredentials.hubName,
+          username: args.repCredentials.username,
+          temporaryPassword: args.repCredentials.tempPassword,
+          isResend: args.repCredentials.isResend,
+          portalUrl: args.repCredentials.portalUrl,
+        });
+        text = rendered.text;
+        html = rendered.html;
+      } else if (args.confirmation) {
         const payload = await ctx.runQuery(
           internal.emailSender.getConfirmationPayload,
-          {
-            type: log.type,
-            recordId: log.referenceId,
-          },
+          args.confirmation,
         );
 
         if (payload) {
@@ -86,12 +84,6 @@ export const sendEmail = internalAction({
             text = rendered.text;
             html = rendered.html;
           }
-
-          await ctx.runMutation(internal.emailSender.storeRenderedEmail, {
-            id: args.emailLogId,
-            body: text,
-            htmlBody: html,
-          });
         }
       }
 
@@ -111,8 +103,8 @@ export const sendEmail = internalAction({
 
       await transporter.sendMail({
         from: smtp.from,
-        to: log.to,
-        subject: log.subject,
+        to: args.to,
+        subject: args.subject,
         text,
         html: html ?? undefined,
         attachments: html
@@ -126,17 +118,11 @@ export const sendEmail = internalAction({
             ]
           : undefined,
       });
-
-      await ctx.runMutation(internal.emailSender.markEmailResult, {
-        id: args.emailLogId,
-        status: "sent",
-      });
     } catch (error) {
-      await ctx.runMutation(internal.emailSender.markEmailResult, {
-        id: args.emailLogId,
-        status: "failed",
-        errorMessage:
-          error instanceof Error ? error.message : "Failed to send email",
+      console.error("Email send failed", {
+        to: args.to,
+        subject: args.subject,
+        error: error instanceof Error ? error.message : error,
       });
     }
   },

@@ -368,25 +368,6 @@ export const ADMIN_GUIDES: AdminGuide[] = [
     ],
   },
   {
-    href: "/admin/emails",
-    title: "Emails",
-    intro: "Delivery log for everything the console has sent.",
-    steps: [
-      {
-        kind: "do",
-        text: "Filter by status to find failures, then open a message to read its stub, recipient and error.",
-      },
-      {
-        kind: "if-fails",
-        text: "Repeated failures to one address usually mean a typo or a full mailbox; a run of failures across addresses points at the mail provider key — escalate rather than resending in a loop.",
-      },
-      {
-        kind: "never",
-        text: "Do not resend a message whose status is unclear — check the recipient's inbox first, or delegates get duplicates.",
-      },
-    ],
-  },
-  {
     href: "/admin/team",
     title: "Team",
     intro: "Staff accounts, roles and the team sign-in doors.",
