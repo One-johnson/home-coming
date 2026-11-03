@@ -262,7 +262,11 @@ export const searchDelegates = query({
     const term = (args.search ?? "").trim().toLowerCase();
     const tokens = term.split(/\s+/).filter(Boolean);
 
-    const reads = await loadDeskReads(ctx, { allBookings: true });
+    // Search never looks at room faults, so it does not read them either.
+    const reads = await loadDeskReads(ctx, {
+      allBookings: true,
+      skipRoomIssues: true,
+    });
     const rooms = new Map(reads.rooms.map((room) => [room._id, room] as const));
     const openByGuest = new Map<string, Doc<"agcRoomAssignments">>();
     for (const a of reads.assignments) {
@@ -1546,7 +1550,7 @@ type DeskReads = {
  */
 async function loadDeskReads(
   ctx: Ctx,
-  options?: { allBookings?: boolean },
+  options?: { allBookings?: boolean; skipRoomIssues?: boolean },
 ): Promise<DeskReads> {
   const [
     rooms,
@@ -1578,7 +1582,9 @@ async function loadDeskReads(
       .query("agcCheckinFlags")
       .withIndex("by_open", (q) => q.eq("open", true))
       .collect(),
-    ctx.db.query("agcRoomIssues").collect(),
+    options?.skipRoomIssues
+      ? Promise.resolve([] as Doc<"agcRoomIssues">[])
+      : ctx.db.query("agcRoomIssues").collect(),
   ]);
   return {
     rooms,
