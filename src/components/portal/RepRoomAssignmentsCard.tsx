@@ -238,10 +238,18 @@ export function RepRoomAssignmentsGrid({ rooms }: { rooms: RepRoom[] }) {
 
 export function RepRoomAssignmentsCard() {
   const { sessionToken } = useRepSession();
-  const rooms = useQuery(
-    api.agcRoomAssignments.getRepRoomAssignments,
+  // The notification bell in the portal header already subscribes to the
+  // digest, which is built from this very rooming list. Asking for it a second
+  // time made every room write run the hub's rooming computation twice per
+  // open portal tab; two identical subscriptions share one execution instead.
+  const digest = useQuery(
+    api.agcRepNotifications.getRepNotificationDigest,
     sessionToken ? { sessionToken } : "skip",
-  ) as RepRoom[] | undefined;
+  );
+  const rooms =
+    digest === undefined
+      ? undefined
+      : ((digest?.publishedRooms ?? []) as RepRoom[]);
 
   if (rooms === undefined) {
     return (

@@ -124,15 +124,29 @@ async function requireArea(ctx: MutationCtx | QueryCtx, sessionToken: string) {
 // Room CRUD
 // ------------------------------------------------------------------
 
+/** The rows the room grid needs, when the caller already read them. */
+export type RoomsGridReads = {
+  rooms: Doc<"agcRooms">[];
+  issues: Doc<"agcRoomIssues">[];
+  assignments: Doc<"agcRoomAssignments">[];
+  /** Guests already in memory — names for rooms holding a retired delegate
+   * still fall back to a point read. */
+  guests: Doc<"agcGuests">[];
+};
+
 /** Every live room with live occupancy counts — shared by the room grid and
  * the arrival desk's single snapshot query. */
-export async function buildRoomsAdmin(ctx: QueryCtx) {
-    const rooms = (await ctx.db.query("agcRooms").collect()).filter(
+export async function buildRoomsAdmin(ctx: QueryCtx, reads?: RoomsGridReads) {
+    const rooms = (reads?.rooms ?? (await ctx.db.query("agcRooms").collect())).filter(
       (room) => !room.deletedAt,
     );
-    const blocked = await blockedRoomIds(ctx);
-    const issues = await ctx.db.query("agcRoomIssues").collect();
-    const assignments = (await ctx.db.query("agcRoomAssignments").collect()).filter(isOpen);
+    const issues = reads?.issues ?? (await ctx.db.query("agcRoomIssues").collect());
+    const blocked = new Set(
+      issues
+        .filter((issue) => issue.status === "open" && issue.blocksRoom)
+        .map((issue) => issue.roomId as string),
+    );
+    const assignments = (reads?.assignments ?? (await ctx.db.query("agcRoomAssignments").collect())).filter(isOpen);
     const occupiedByRoom = new Map<string, Doc<"agcRoomAssignments">[]>();
     for (const assignment of assignments) {
       const list = occupiedByRoom.get(assignment.roomId) ?? [];
@@ -143,8 +157,11 @@ export async function buildRoomsAdmin(ctx: QueryCtx) {
     // assignment — the console only has the unassigned roster to look names up
     // in, which is why these used to show raw guest ids.
     const guestNames = new Map<string, string>();
+    const knownGuests = new Map(
+      (reads?.guests ?? []).map((guest) => [guest._id as string, guest] as const),
+    );
     for (const guestId of new Set(assignments.map((a) => a.guestId))) {
-      const guest = await ctx.db.get(guestId);
+      const guest = knownGuests.get(guestId) ?? (await ctx.db.get(guestId));
       if (guest) {
         guestNames.set(
           guestId,

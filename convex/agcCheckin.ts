@@ -262,32 +262,24 @@ export const searchDelegates = query({
     const term = (args.search ?? "").trim().toLowerCase();
     const tokens = term.split(/\s+/).filter(Boolean);
 
-    const rooms = (await ctx.db.query("agcRooms").collect()).reduce(
-      (map, room) => map.set(room._id, room),
-      new Map<Id<"agcRooms">, Doc<"agcRooms">>(),
-    );
-    const assignments = await ctx.db.query("agcRoomAssignments").collect();
+    const reads = await loadDeskReads(ctx, { allBookings: true });
+    const rooms = new Map(reads.rooms.map((room) => [room._id, room] as const));
     const openByGuest = new Map<string, Doc<"agcRoomAssignments">>();
-    for (const a of assignments) {
+    for (const a of reads.assignments) {
       if (a.endedAt === undefined) openByGuest.set(a.guestId, a);
     }
-    const bedByGuest = bedNumbersByGuest(assignments);
-    const keyByRoom = new Map<string, Doc<"agcKeys">>();
-    for (const key of await ctx.db.query("agcKeys").collect()) {
-      keyByRoom.set(key.roomId, key);
-    }
-    const checkIns = await ctx.db.query("agcCheckIns").collect();
+    const bedByGuest = bedNumbersByGuest(reads.assignments);
+    const keyByRoom = new Map(
+      reads.keys.map((key) => [key.roomId, key] as const),
+    );
     const checkInByGuest = new Map<string, Doc<"agcCheckIns">>();
-    for (const c of checkIns) {
+    for (const c of reads.checkIns) {
       if (!c.correctedAt) checkInByGuest.set(c.guestId, c);
     }
-    const hubs = await ctx.db.query("agcHubs").collect();
-    const hubNameById = new Map(hubs.map((h) => [h._id, h.name]));
-    const flagByGuest = openReviewFlagsByGuest(
-      await ctx.db.query("agcCheckinFlags").collect(),
-    );
+    const hubNameById = new Map(reads.hubs.map((h) => [h._id, h.name] as const));
+    const flagByGuest = openReviewFlagsByGuest(reads.flags);
 
-    let guests = await ctx.db.query("agcGuests").collect();
+    let guests = reads.guests;
     if (args.accommodationType) {
       guests = guests.filter((g) => g.accommodationType === args.accommodationType);
     }
@@ -295,8 +287,7 @@ export const searchDelegates = query({
       guests = guests.filter((g) => g.hubId === args.hubId);
     }
 
-    const bookings = await ctx.db.query("agcBookings").collect();
-    const bookingById = new Map(bookings.map((b) => [b._id, b]));
+    const bookingById = new Map(reads.bookings.map((b) => [b._id, b] as const));
 
     const out: (ArrivalSearchRow & { _t: string })[] = [];
     for (const guest of guests) {
@@ -1204,30 +1195,53 @@ export const listReviewFlags = query({
       .sort((a, b) => b.raisedAt - a.raisedAt)
       .slice(0, args.limit ?? 200);
 
+    // Only the records the visible flags point at. The queue used to collect
+    // every guest, booking, hub, room, assignment and check-in in the system to
+    // draw a handful of rows.
+    const guestIds = [...new Set(flags.map((flag) => flag.guestId))];
+    const bookingIds = [...new Set(flags.map((flag) => flag.bookingId))];
+    const [guestRows, bookingRows] = await Promise.all([
+      Promise.all(guestIds.map((guestId) => ctx.db.get(guestId))),
+      Promise.all(bookingIds.map((bookingId) => ctx.db.get(bookingId))),
+    ]);
     const guestById = new Map(
-      (await ctx.db.query("agcGuests").collect()).map((g) => [g._id, g]),
+      guestRows.flatMap((guest) => (guest ? [[guest._id, guest] as const] : [])),
     );
     const bookingById = new Map(
-      (await ctx.db.query("agcBookings").collect()).map((b) => [b._id, b]),
+      bookingRows.flatMap((booking) =>
+        booking ? [[booking._id, booking] as const] : [],
+      ),
     );
+    const hubIds = [...new Set([...guestById.values()].map((guest) => guest.hubId))];
+    const [assignmentRows, checkInRows, hubRows] = await Promise.all([
+      Promise.all(guestIds.map((guestId) => openAssignmentForGuest(ctx, guestId))),
+      Promise.all(guestIds.map((guestId) => activeCheckIn(ctx, guestId))),
+      Promise.all(hubIds.map((hubId) => ctx.db.get(hubId))),
+    ]);
+    const assignmentByGuest = new Map<string, Doc<"agcRoomAssignments">>();
+    const checkInByGuest = new Map<string, Doc<"agcCheckIns">>();
+    guestIds.forEach((guestId, index) => {
+      const assignment = assignmentRows[index];
+      if (assignment) assignmentByGuest.set(guestId, assignment);
+      const checkIn = checkInRows[index];
+      if (checkIn) checkInByGuest.set(guestId, checkIn);
+    });
     const hubNameById = new Map(
-      (await ctx.db.query("agcHubs").collect()).map((h) => [h._id, h.name]),
+      hubRows.flatMap((hub) => (hub ? [[hub._id, hub.name] as const] : [])),
+    );
+    const roomIds = new Set<string>();
+    for (const flag of flags) {
+      const roomId = assignmentByGuest.get(flag.guestId)?.roomId ?? flag.roomId;
+      if (roomId) roomIds.add(roomId);
+    }
+    const roomRows = await Promise.all(
+      [...roomIds].map((roomId) => ctx.db.get(roomId as Id<"agcRooms">)),
     );
     const roomById = new Map(
-      (await ctx.db.query("agcRooms").collect())
-        .filter((room) => !room.deletedAt)
-        .map((room) => [room._id, room]),
+      roomRows.flatMap((room) =>
+        room && !room.deletedAt ? [[room._id, room] as const] : [],
+      ),
     );
-    const assignmentByGuest = new Map<string, Doc<"agcRoomAssignments">>();
-    for (const assignment of await ctx.db.query("agcRoomAssignments").collect()) {
-      if (assignment.endedAt === undefined) {
-        assignmentByGuest.set(assignment.guestId, assignment);
-      }
-    }
-    const checkInByGuest = new Map<string, Doc<"agcCheckIns">>();
-    for (const checkIn of await ctx.db.query("agcCheckIns").collect()) {
-      if (!checkIn.correctedAt) checkInByGuest.set(checkIn.guestId, checkIn);
-    }
 
     return flags.map((flag) => {
       const guest = guestById.get(flag.guestId);
@@ -1438,8 +1452,8 @@ export const issueKey = mutation({
 });
 
 /** All key records, newest activity first, for the keys view/reports. */
-async function buildKeys(ctx: Ctx) {
-    const keys = await ctx.db.query("agcKeys").collect();
+async function buildKeys(ctx: Ctx, reads?: DeskReads) {
+    const keys = reads?.keys ?? (await ctx.db.query("agcKeys").collect());
     return keys
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .map((key) => ({
@@ -1499,39 +1513,90 @@ export type ArrivalDeskRow = {
   reviewFlag: CheckinReviewFlag | null;
 };
 
+/**
+ * Every table the desk reads, loaded once. The snapshot's six builders all look
+ * at these rows, so loading them per builder made one desk render read
+ * agcRooms, agcRoomAssignments and agcCheckIns three times each.
+ */
+type DeskReads = {
+  rooms: Doc<"agcRooms">[];
+  assignments: Doc<"agcRoomAssignments">[];
+  checkIns: Doc<"agcCheckIns">[];
+  keys: Doc<"agcKeys">[];
+  guests: Doc<"agcGuests">[];
+  bookings: Doc<"agcBookings">[];
+  hubs: Doc<"agcHubs">[];
+  flags: Doc<"agcCheckinFlags">[];
+  roomIssues: Doc<"agcRoomIssues">[];
+};
+
+/**
+ * `allBookings` is for the delegate search: it must still list a reserved
+ * delegate whose payment is not on arrival terms, which the desk's roomable
+ * filter hides.
+ */
+async function loadDeskReads(
+  ctx: Ctx,
+  options?: { allBookings?: boolean },
+): Promise<DeskReads> {
+  const [
+    rooms,
+    assignments,
+    checkIns,
+    keys,
+    guests,
+    bookings,
+    hubs,
+    flags,
+    roomIssues,
+  ] = await Promise.all([
+    ctx.db.query("agcRooms").collect(),
+    ctx.db.query("agcRoomAssignments").collect(),
+    ctx.db.query("agcCheckIns").collect(),
+    ctx.db.query("agcKeys").collect(),
+    activeGuests(ctx),
+    options?.allBookings
+      ? ctx.db.query("agcBookings").collect()
+      : roomableBookings(ctx),
+    ctx.db.query("agcHubs").collect(),
+    ctx.db.query("agcCheckinFlags").collect(),
+    ctx.db.query("agcRoomIssues").collect(),
+  ]);
+  return {
+    rooms,
+    assignments,
+    checkIns,
+    keys,
+    guests,
+    bookings,
+    hubs,
+    flags,
+    roomIssues,
+  };
+}
+
 /** Everything the arrival desk needs in one query: your location's delegates. */
 async function buildArrivalDesk(
   ctx: Ctx,
   options: { location?: string; includeCheckedOut?: boolean },
+  reads?: DeskReads,
 ): Promise<ArrivalDeskRow[]> {
-    const rooms = (await ctx.db.query("agcRooms").collect()).reduce(
-      (map, room) => map.set(room._id, room),
-      new Map<Id<"agcRooms">, Doc<"agcRooms">>(),
-    );
-    const assignments = await ctx.db.query("agcRoomAssignments").collect();
+    const r = reads ?? (await loadDeskReads(ctx));
+    const rooms = new Map(r.rooms.map((room) => [room._id, room] as const));
     const openByGuest = new Map<string, Doc<"agcRoomAssignments">>();
-    for (const a of assignments) {
+    for (const a of r.assignments) {
       if (a.endedAt === undefined) openByGuest.set(a.guestId, a);
     }
-    const bedByGuest = bedNumbersByGuest(assignments);
-    const checkIns = await ctx.db.query("agcCheckIns").collect();
+    const bedByGuest = bedNumbersByGuest(r.assignments);
     const checkInByGuest = new Map<string, Doc<"agcCheckIns">>();
-    for (const c of checkIns) {
+    for (const c of r.checkIns) {
       if (!c.correctedAt) checkInByGuest.set(c.guestId, c);
     }
-    const keyByRoom = new Map<string, Doc<"agcKeys">>();
-    for (const key of await ctx.db.query("agcKeys").collect()) {
-      keyByRoom.set(key.roomId, key);
-    }
-    const guests = await activeGuests(ctx);
-    const bookings = await roomableBookings(ctx);
-    const bookingById = new Map(bookings.map((b) => [b._id, b]));
-    const hubNameById = new Map(
-      (await ctx.db.query("agcHubs").collect()).map((h) => [h._id, h.name]),
-    );
-    const flagByGuest = openReviewFlagsByGuest(
-      await ctx.db.query("agcCheckinFlags").collect(),
-    );
+    const keyByRoom = new Map(r.keys.map((key) => [key.roomId, key] as const));
+    const guests = r.guests;
+    const bookingById = new Map(r.bookings.map((b) => [b._id, b] as const));
+    const hubNameById = new Map(r.hubs.map((h) => [h._id, h.name] as const));
+    const flagByGuest = openReviewFlagsByGuest(r.flags);
 
     const rows: (ArrivalDeskRow & { _t: string })[] = [];
     for (const guest of guests) {
@@ -1636,23 +1701,21 @@ export type ArrivalOverview = {
 };
 
 /** §21/§23 roll-up used by the arrival dashboard (roles see the same truth). */
-async function buildArrivalOverview(ctx: Ctx): Promise<ArrivalOverview> {
-    const rooms = (await ctx.db.query("agcRooms").collect()).filter(
-      (room) => !room.deletedAt,
-    );
-    const assignments = (await ctx.db.query("agcRoomAssignments").collect()).filter(
-      (a) => a.endedAt === undefined,
-    );
-    const guests = await activeGuests(ctx);
-    const bookings = await roomableBookings(ctx);
+async function buildArrivalOverview(
+  ctx: Ctx,
+  reads?: DeskReads,
+): Promise<ArrivalOverview> {
+    const r = reads ?? (await loadDeskReads(ctx));
+    const rooms = r.rooms.filter((room) => !room.deletedAt);
+    const assignments = r.assignments.filter((a) => a.endedAt === undefined);
+    const guests = r.guests;
+    const bookings = r.bookings;
     const roomableBookingIds = new Set(
       bookings.filter(isRoomableBooking).map((b) => b._id),
     );
     const roomableGuests = guests.filter((g) => roomableBookingIds.has(g.bookingId));
 
-    const checkIns = (await ctx.db.query("agcCheckIns").collect()).filter(
-      (c) => !c.correctedAt,
-    );
+    const checkIns = r.checkIns.filter((c) => !c.correctedAt);
     const checkedIn = checkIns.filter((c) => !c.checkedOutAt && !c.correctedAt);
     const checkedOut = checkIns.filter((c) => c.checkedOutAt && !c.correctedAt);
     const checkedOutGuestIds = new Set(checkedOut.map((c) => c.guestId));
@@ -1699,7 +1762,7 @@ async function buildArrivalOverview(ctx: Ctx): Promise<ArrivalOverview> {
         entry.capacity > 0 ? Math.round((entry.assigned / entry.capacity) * 100) : 0;
     }
 
-    const keys = await ctx.db.query("agcKeys").collect();
+    const keys = r.keys;
     const keysIssued = keys.filter(
       (key) => key.status === "issued" || key.status === "replaced",
     ).length;
@@ -1715,7 +1778,7 @@ async function buildArrivalOverview(ctx: Ctx): Promise<ArrivalOverview> {
         .collect()
     ).length;
 
-    const reviewFlags = (await ctx.db.query("agcCheckinFlags").collect()).filter(
+    const reviewFlags = r.flags.filter(
       (flag) => flag.resolvedAt === undefined,
     ).length;
 
@@ -1810,13 +1873,22 @@ export const getArrivalSnapshot = query({
   },
   handler: async (ctx, args) => {
     await requireRole(ctx, args.sessionToken, [...CHECKIN_ROLES]);
+    // One read set for the whole desk: the builders below look at the same
+    // tables, and loading them per builder made a single desk render read
+    // agcRooms, agcRoomAssignments and agcCheckIns three times over.
+    const reads = await loadDeskReads(ctx);
     const [overview, recent, keys, rows, rooms, roomIssues] = await Promise.all([
-      buildArrivalOverview(ctx),
+      buildArrivalOverview(ctx, reads),
       buildRecentCheckIns(ctx, args.recentLimit),
-      buildKeys(ctx),
-      buildArrivalDesk(ctx, args),
-      buildRoomsAdmin(ctx),
-      buildRoomIssues(ctx),
+      buildKeys(ctx, reads),
+      buildArrivalDesk(ctx, args, reads),
+      buildRoomsAdmin(ctx, {
+        rooms: reads.rooms,
+        issues: reads.roomIssues,
+        assignments: reads.assignments,
+        guests: reads.guests,
+      }),
+      buildRoomIssues(ctx, false, reads.roomIssues),
     ]);
     return { overview, recent, keys, rows, rooms, roomIssues };
   },

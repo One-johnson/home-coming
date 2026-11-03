@@ -1,6 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import type { QueryCtx } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
 import { requireRole, sessionTokenValidator } from "./users";
 import { writeAuditLog } from "./lib/audit";
 import { agcRoomIssueCategory } from "./schemaTypes";
@@ -22,9 +23,17 @@ const ROOM_FLAG_ROLES = ["admin", "accommodation", "room_assignment", "checkin"]
  * inventory and are the ones putting the room back into service. */
 const ROOM_FLAG_RESOLVE_ROLES = ["admin", "accommodation", "room_assignment"] as const;
 
-/** Room flags plus the open count — shared by the grid and the desk snapshot. */
-export async function buildRoomIssues(ctx: QueryCtx, includeFixed?: boolean) {
-    const issues = (await ctx.db.query("agcRoomIssues").collect()).filter(
+/**
+ * Room flags plus the open count — shared by the grid and the desk snapshot.
+ * `preloaded` lets the desk snapshot hand over the rows it already read, so one
+ * desk render does not scan the flags table twice.
+ */
+export async function buildRoomIssues(
+  ctx: QueryCtx,
+  includeFixed?: boolean,
+  preloaded?: Doc<"agcRoomIssues">[],
+) {
+    const issues = (preloaded ?? (await ctx.db.query("agcRoomIssues").collect())).filter(
       (issue) => !issue.resolvedAt || includeFixed,
     );
     issues.sort((a, b) => b.reportedAt - a.reportedAt);
