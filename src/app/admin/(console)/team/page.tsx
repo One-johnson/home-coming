@@ -1,10 +1,9 @@
 "use client";
 
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useAction, useQuery } from "convex/react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
-import type { Id } from "@convex/_generated/dataModel";
 import { cleanErrorMessage } from "@/lib/friendlyError";
 import { LinkButton as Button } from "@/components/ui/app-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -39,29 +38,6 @@ export default function AdminTeamPage() {
     allowed ? sessionArgs : "skip",
   );
   const createUser = useAction(api.authActions.adminCreateUser);
-  const setUserRole = useMutation(api.users.setUserRole);
-  const setUserActive = useMutation(api.users.setUserActive);
-  const setUserLocation = useMutation(api.users.setUserDefaultLocation);
-  // Buildings come from the imported room inventory — a staff member is only
-  // ever posted somewhere the rooms screen knows about.
-  const rooms = useQuery(
-    api.agcRoomAssignments.listRoomsAdmin,
-    allowed ? sessionArgs : "skip",
-  );
-  const buildings = [
-    ...new Set([
-      ...(rooms ?? [])
-        .map((room) => room.building)
-        .filter(
-          (building): building is string =>
-            typeof building === "string" && building !== "",
-        ),
-      // Keep a posting visible even if its building has no rooms yet.
-      ...(teamMembers ?? [])
-        .map((member) => member.defaultLocation)
-        .filter((building): building is string => !!building),
-    ]),
-  ].sort((a, b) => a.localeCompare(b));
 
   const [newUser, setNewUser] = useState({
     name: "",
@@ -100,44 +76,6 @@ export default function AdminTeamPage() {
       toast.error(cleanErrorMessage(err) || "Failed to create user");
     }
   };
-
-  const handleRoleChange = async (userId: Id<"users">, nextRole: StaffRole) => {
-    if (!sessionToken) return;
-    try {
-      await setUserRole({ sessionToken, userId, role: nextRole });
-      toast.success(`Role set to ${ROLE_LABELS[nextRole]}`);
-    } catch (err) {
-      toast.error(cleanErrorMessage(err) || "Failed to update role");
-    }
-  };
-
-  const handleLocationChange = async (
-    userId: Id<"users">,
-    defaultLocation: string,
-  ) => {
-    if (!sessionToken) return;
-    try {
-      await setUserLocation({ sessionToken, userId, defaultLocation });
-      toast.success(
-        defaultLocation
-          ? `Posted to ${defaultLocation}`
-          : "Returned to the central desk",
-      );
-    } catch (err) {
-      toast.error(cleanErrorMessage(err) || "Failed to update the posting");
-    }
-  };
-
-  const handleActiveChange = async (userId: Id<"users">, active: boolean) => {
-    if (!sessionToken) return;
-    try {
-      await setUserActive({ sessionToken, userId, active });
-      toast.success(active ? "User activated" : "User deactivated");
-    } catch (err) {
-      toast.error(cleanErrorMessage(err) || "Failed to update status");
-    }
-  };
-
 
   return (
     <div className="space-y-6">
@@ -237,83 +175,6 @@ export default function AdminTeamPage() {
             ]}
           />
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Roles & access</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {(teamMembers ?? []).map((member) => (
-                <div
-                  key={member._id}
-                  className="flex flex-wrap items-center justify-between gap-3 border-b border-border py-3 last:border-0"
-                >
-                  <div>
-                    <p className="font-medium">{member.name}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {member.email}
-                      {!member.active ? " · Inactive" : ""}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Select
-                      value={member.role}
-                      onValueChange={(value) => {
-                        if (!value) return;
-                        void handleRoleChange(member._id, value as StaffRole);
-                      }}
-                    >
-                      <SelectTrigger className="min-w-[11rem]">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {[...ADMIN_ROLES, ...VENUE_STAFF_ROLES].map((r) => (
-                          <SelectItem key={r} value={r}>
-                            {ROLE_LABELS[r]}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {/* Venue staff are posted to one building; a check-in
-                        account also lands there and cannot switch away. */}
-                    <Select
-                      value={member.defaultLocation ?? "central"}
-                      onValueChange={(value) =>
-                        void handleLocationChange(
-                          member._id,
-                          value === "central" ? "" : (value ?? ""),
-                        )
-                      }
-                    >
-                      <SelectTrigger
-                        className="min-w-[12rem]"
-                        aria-label={`Building for ${member.name}`}
-                      >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="central">Building: Central (any)</SelectItem>
-                        {buildings.map((building) => (
-                          <SelectItem key={building} value={building}>
-                            Building: {building}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Button
-                      type="button"
-                      variant={member.active ? "outline" : "secondary"}
-                      size="sm"
-                      onClick={() =>
-                        void handleActiveChange(member._id, !member.active)
-                      }
-                    >
-                      {member.active ? "Deactivate" : "Activate"}
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
         </div>
       </div>
     </div>
