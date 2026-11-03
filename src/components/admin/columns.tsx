@@ -2,6 +2,7 @@
 
 import { ColumnDef } from "@tanstack/react-table";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Doc } from "@convex/_generated/dataModel";
 import { PaymentStatusBadge } from "@/components/admin/RecordDetailSheet";
 import { mediaTypeBadgeClass } from "@/lib/adminColors";
@@ -260,6 +261,48 @@ export const teamColumns: ColumnDef<{
     ),
   },
 ];
+
+export type TeamMemberRow = {
+  _id: string;
+  name: string;
+  email: string;
+  role: string;
+  active: boolean;
+  createdAt: number;
+  defaultLocation?: string | null;
+};
+
+/**
+ * The team table with a per-row Manage button: role, building posting and
+ * access sit in one dialog instead of a second list under the table.
+ */
+export function teamTableColumns(
+  onManage: (member: TeamMemberRow) => void,
+): ColumnDef<TeamMemberRow>[] {
+  return [
+    ...(teamColumns as ColumnDef<TeamMemberRow>[]),
+    {
+      id: "actions",
+      header: "",
+      enableSorting: false,
+      enableHiding: false,
+      cell: ({ row }) => (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-8"
+          onClick={(event) => {
+            event.stopPropagation();
+            onManage(row.original);
+          }}
+        >
+          Manage
+        </Button>
+      ),
+    },
+  ];
+}
 
 export const messageColumns: ColumnDef<Doc<"messages">>[] = [
   {
