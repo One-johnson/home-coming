@@ -123,6 +123,7 @@ async function assign(t: TestConvex, roomId: Id<"agcRooms">, guestIds: Id<"agcGu
   await t.run(async (ctx) => {
     for (const guestId of guestIds) {
       await ctx.db.insert("agcRoomAssignments", {
+        open: true,
         roomId,
         guestId,
         bookingId: booking,

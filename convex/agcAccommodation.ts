@@ -642,6 +642,7 @@ export async function retireBookingGuests(
       await ctx.db.patch(assignment._id, {
         endedAt: now,
         endReason: `Booking ${status}`,
+        open: false,
       });
     }
     await ctx.db.patch(guest._id, { status: "cancelled" });

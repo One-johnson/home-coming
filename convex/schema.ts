@@ -683,10 +683,18 @@ export default defineSchema({
     correctedAt: v.optional(v.number()),
     correctedBy: v.optional(v.string()),
     correctionReason: v.optional(v.string()),
+    /**
+     * Mirror of `!correctedAt`, kept because Convex cannot index a field that
+     * is missing: "not corrected yet" is exactly a missing field, so the desk
+     * could only find live check-ins by reading every check-in ever taken.
+     * Every write path sets it; `agcOpenFlags:backfill` fills in older rows.
+     */
+    live: v.optional(v.boolean()),
   })
     .index("by_guest", ["guestId"])
     .index("by_room", ["roomId"])
-    .index("by_checked_in_at", ["checkedInAt"]),
+    .index("by_checked_in_at", ["checkedInAt"])
+    .index("by_live", ["live"]),
 
   /**
    * A desk-raised "review this record" flag on a delegate's arrival record.
@@ -715,9 +723,12 @@ export default defineSchema({
     resolvedAt: v.optional(v.number()),
     resolvedBy: v.optional(v.string()),
     resolutionNote: v.optional(v.string()),
+    /** Mirror of `resolvedAt === undefined` — see `agcCheckIns.live`. */
+    open: v.optional(v.boolean()),
   })
     .index("by_guest", ["guestId"])
-    .index("by_raised_at", ["raisedAt"]),
+    .index("by_raised_at", ["raisedAt"])
+    .index("by_open", ["open"]),
 
   /** Designated offline station per building (Phase 2 §19) — one per building. */
   agcOfflineStations: defineTable({
@@ -776,8 +787,11 @@ export default defineSchema({
     endReason: v.optional(v.string()),
     replacedByAssignmentId: v.optional(v.id("agcRoomAssignments")),
     endBy: v.optional(v.string()),
+    /** Mirror of `endedAt === undefined` — see `agcCheckIns.live`. */
+    open: v.optional(v.boolean()),
   })
     .index("by_room", ["roomId"])
     .index("by_guest", ["guestId"])
-    .index("by_booking", ["bookingId"]),
+    .index("by_booking", ["bookingId"])
+    .index("by_open", ["open"]),
 });

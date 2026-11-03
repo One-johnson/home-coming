@@ -51,9 +51,10 @@ export const listDelegateDirectory = query({
 
     // Open assignment rows only: a moved delegate keeps history, and the
     // directory always shows where they are now.
-    const assignments = (
-      await ctx.db.query("agcRoomAssignments").collect()
-    ).filter((assignment) => assignment.endedAt === undefined);
+    const assignments = await ctx.db
+      .query("agcRoomAssignments")
+      .withIndex("by_open", (q) => q.eq("open", true))
+      .collect();
     const roomIdByGuest = new Map<string, string>();
     for (const assignment of assignments) {
       if (!roomIdByGuest.has(assignment.guestId)) {

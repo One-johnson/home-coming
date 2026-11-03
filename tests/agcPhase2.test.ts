@@ -240,6 +240,7 @@ test("bulk assignment enforces single-gender dorm rooms", async () => {
       capacity: 4,
     });
     await ctx.db.insert("agcRoomAssignments", {
+      open: true,
       roomId: maleRoom,
       guestId: booking.guestIds[0],
       bookingId: booking.bookingId,
@@ -279,6 +280,7 @@ test("changeRoom requires a reason and preserves history", async () => {
   const roomB = await seedRoom(t, { accommodationType: "hostel", name: "Room B", capacity: 2 });
   await t.run(async (ctx) => {
     await ctx.db.insert("agcRoomAssignments", {
+      open: true,
       roomId: roomA as Id<"agcRooms">,
       guestId: booking.guestIds[0] as Id<"agcGuests">,
       bookingId: booking.bookingId,
@@ -342,6 +344,7 @@ test("publishing gates rep visibility, hub-scoped", async () => {
   });
   await t.run(async (ctx) => {
     await ctx.db.insert("agcRoomAssignments", {
+      open: true,
       roomId: room as Id<"agcRooms">,
       guestId: booking.guestIds[0] as Id<"agcGuests">,
       bookingId: booking.bookingId,
@@ -721,6 +724,7 @@ test("check-in: duplicate prevention, unassigned referral, and payment override 
   });
   await t.run(async (ctx) => {
     await ctx.db.insert("agcRoomAssignments", {
+      open: true,
       roomId: room as Id<"agcRooms">,
       guestId: booking.guestIds[0] as Id<"agcGuests">,
       bookingId: booking.bookingId,
@@ -775,6 +779,7 @@ test("check-in: duplicate prevention, unassigned referral, and payment override 
   });
   await t.run(async (ctx) => {
     await ctx.db.insert("agcRoomAssignments", {
+      open: true,
       roomId: gglRoom as Id<"agcRooms">,
       guestId: unconfirmed.guestIds[0] as Id<"agcGuests">,
       bookingId: unconfirmed.bookingId,
@@ -861,6 +866,7 @@ test("EBPV keys go to the first arrival; later arrivals are told who holds them"
     });
     for (const guestId of booking.guestIds) {
       await ctx.db.insert("agcRoomAssignments", {
+        open: true,
         roomId: room,
         guestId,
         bookingId: booking.bookingId,
@@ -925,6 +931,7 @@ test("offline queue: designated-station rule, idempotent sync, conflicts flagged
   const room = await seedRoom(t, { accommodationType: "hostel", name: "Room O1", capacity: 4 });
   await t.run(async (ctx) => {
     await ctx.db.insert("agcRoomAssignments", {
+      open: true,
       roomId: room as Id<"agcRooms">,
       guestId: booking.guestIds[0] as Id<"agcGuests">,
       bookingId: booking.bookingId,
@@ -1053,6 +1060,7 @@ test("group check-in: only individually ticked delegates are checked in (§13)",
   await t.run(async (ctx) => {
     for (const guestId of booking.guestIds) {
       await ctx.db.insert("agcRoomAssignments", {
+        open: true,
         roomId: room as Id<"agcRooms">,
         guestId: guestId as Id<"agcGuests">,
         bookingId: booking.bookingId,
@@ -1159,6 +1167,7 @@ test("flag this record for review: a note is required, and only the admin clears
   });
   await t.run(async (ctx) => {
     await ctx.db.insert("agcRoomAssignments", {
+      open: true,
       roomId: room as Id<"agcRooms">,
       guestId,
       bookingId: booking.bookingId,
@@ -1283,6 +1292,7 @@ test("the review queue lists every open flag for the admin, newest first", async
   await t.run(async (ctx) => {
     for (const guestId of [firstGuest, secondGuest]) {
       await ctx.db.insert("agcRoomAssignments", {
+        open: true,
         roomId: room as Id<"agcRooms">,
         guestId,
         bookingId: booking.bookingId,
@@ -1439,6 +1449,7 @@ test("the reviewer beds a delegate and pre-authorizes the override from the queu
       bookingStatus: "pending_verification",
     });
     await ctx.db.insert("agcRoomAssignments", {
+      open: true,
       roomId: dorm as Id<"agcRooms">,
       guestId: unpaidGuest,
       bookingId: unpaid.bookingId,
@@ -1559,6 +1570,7 @@ test("the accommodation team corrects a delegate's name and gender, but never in
   await t.run(async (ctx) => {
     for (const guestId of [firstGuest, secondGuest]) {
       await ctx.db.insert("agcRoomAssignments", {
+        open: true,
         roomId: room as Id<"agcRooms">,
         guestId,
         bookingId: booking.bookingId,
@@ -1705,6 +1717,7 @@ test("the accommodation team corrects a delegate's name and gender, but never in
   });
   await t.run(async (ctx) => {
     await ctx.db.insert("agcRoomAssignments", {
+      open: true,
       roomId: locked as Id<"agcRooms">,
       guestId: secondGuest,
       bookingId: booking.bookingId,
@@ -2186,6 +2199,7 @@ test("desk issues a key after check-in and can undo a check-in with a reason", a
   await t.run(async (ctx) => {
     for (const guestId of booking.guestIds) {
       await ctx.db.insert("agcRoomAssignments", {
+        open: true,
         roomId: room as Id<"agcRooms">,
         guestId: guestId as Id<"agcGuests">,
         bookingId: booking.bookingId,
@@ -2421,6 +2435,7 @@ test("a delegate whose last assignment was closed can still be roomed", async ()
   await t.run(async (ctx) => {
     const guest = await ctx.db.get(guestId);
     await ctx.db.insert("agcRoomAssignments", {
+      open: false,
       roomId: oldRoom as Id<"agcRooms">,
       guestId,
       bookingId: guest!.bookingId,

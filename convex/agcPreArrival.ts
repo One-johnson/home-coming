@@ -71,8 +71,10 @@ export const getReadiness = query({
       poolExists.add(pool.accommodationType);
     }
 
-    const openAssignments = (await ctx.db.query("agcRoomAssignments").collect())
-      .filter((a) => a.endedAt === undefined);
+    const openAssignments = await ctx.db
+      .query("agcRoomAssignments")
+      .withIndex("by_open", (q) => q.eq("open", true))
+      .collect();
     const assignedGuestIds = new Set(openAssignments.map((a) => a.guestId));
     const assignedByRoom = new Map<string, number>();
     for (const a of openAssignments) {

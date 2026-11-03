@@ -129,6 +129,7 @@ test("readiness turns green once pools, imports, publishing and assignments line
     });
     // The occupied room is published → publishing check green.
     await ctx.db.insert("agcRoomAssignments", {
+      open: true,
       roomId: roomIdA,
       guestId,
       bookingId,
@@ -159,6 +160,7 @@ test("readiness turns green once pools, imports, publishing and assignments line
       (g) => (g as { status: string }).status === "active",
     );
     await ctx.db.insert("agcRoomAssignments", {
+      open: true,
       roomId: room as Id<"agcRooms">,
       guestId: guest!._id,
       bookingId: guest!.bookingId,

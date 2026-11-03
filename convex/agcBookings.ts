@@ -395,6 +395,7 @@ export const editBooking = mutation({
             endedAt: Date.now(),
             endBy: rep.email ?? rep.username,
             endReason: "Guest removed from the reservation (rep edit)",
+            open: false,
           });
         }
       }
@@ -486,6 +487,7 @@ export const deleteBooking = mutation({
             endedAt: Date.now(),
             endBy: rep.email ?? rep.username,
             endReason: "Reservation deleted before payment",
+            open: false,
           });
         }
       }

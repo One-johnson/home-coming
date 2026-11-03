@@ -533,6 +533,7 @@ export async function performCheckIn(
       location: args.location.trim() || "central",
       checkedInAt: Date.now(),
       checkedInBy: actor.email,
+      live: true,
       checkedInByRole: actor.role,
       offlineTxId: args.offlineTxId,
       paymentOverride: override,
@@ -862,6 +863,7 @@ export const correctCheckIn = mutation({
       correctedAt: Date.now(),
       correctedBy: actor.email,
       correctionReason: reason,
+      live: false,
     });
     await writeAuditLog(ctx, {
       actorUserId: actor._id,
@@ -996,6 +998,7 @@ export const flagCheckInRecord = mutation({
       raisedAt: Date.now(),
       raisedBy: actor.email,
       raisedByRole: actor.role,
+      open: true,
     });
 
     await writeAuditLog(ctx, {
@@ -1043,6 +1046,7 @@ export const resolveCheckinFlag = mutation({
       resolvedAt: Date.now(),
       resolvedBy: actor.email,
       resolutionNote: note,
+      open: false,
     });
 
     const guest = await ctx.db.get(flag.guestId);
@@ -1190,7 +1194,12 @@ export const listReviewFlags = query({
   handler: async (ctx, args): Promise<ReviewFlagRow[]> => {
     await requireRole(ctx, args.sessionToken, [...APPROVER_ROLES]);
 
-    const flags = (await ctx.db.query("agcCheckinFlags").collect())
+    const flags = (
+      await ctx.db
+        .query("agcCheckinFlags")
+        .withIndex("by_open", (q) => q.eq("open", true))
+        .collect()
+    )
       .filter((flag) => flag.resolvedAt === undefined)
       .sort((a, b) => b.raisedAt - a.raisedAt)
       .slice(0, args.limit ?? 200);
@@ -1551,15 +1560,24 @@ async function loadDeskReads(
     roomIssues,
   ] = await Promise.all([
     ctx.db.query("agcRooms").collect(),
-    ctx.db.query("agcRoomAssignments").collect(),
-    ctx.db.query("agcCheckIns").collect(),
+    ctx.db
+      .query("agcRoomAssignments")
+      .withIndex("by_open", (q) => q.eq("open", true))
+      .collect(),
+    ctx.db
+      .query("agcCheckIns")
+      .withIndex("by_live", (q) => q.eq("live", true))
+      .collect(),
     ctx.db.query("agcKeys").collect(),
     activeGuests(ctx),
     options?.allBookings
       ? ctx.db.query("agcBookings").collect()
       : roomableBookings(ctx),
     ctx.db.query("agcHubs").collect(),
-    ctx.db.query("agcCheckinFlags").collect(),
+    ctx.db
+      .query("agcCheckinFlags")
+      .withIndex("by_open", (q) => q.eq("open", true))
+      .collect(),
     ctx.db.query("agcRoomIssues").collect(),
   ]);
   return {

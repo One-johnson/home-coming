@@ -146,7 +146,13 @@ export async function buildRoomsAdmin(ctx: QueryCtx, reads?: RoomsGridReads) {
         .filter((issue) => issue.status === "open" && issue.blocksRoom)
         .map((issue) => issue.roomId as string),
     );
-    const assignments = (reads?.assignments ?? (await ctx.db.query("agcRoomAssignments").collect())).filter(isOpen);
+    const assignments = (
+      reads?.assignments ??
+      (await ctx.db
+        .query("agcRoomAssignments")
+        .withIndex("by_open", (q) => q.eq("open", true))
+        .collect())
+    ).filter(isOpen);
     const occupiedByRoom = new Map<string, Doc<"agcRoomAssignments">[]>();
     for (const assignment of assignments) {
       const list = occupiedByRoom.get(assignment.roomId) ?? [];
@@ -783,6 +789,7 @@ export const assignGuests = mutation({
           bookingId: guest.bookingId,
           assignedBy: actor.email,
           createdAt: Date.now(),
+          open: true,
         });
       }
       await writeAuditLog(ctx, {
@@ -819,6 +826,7 @@ export const unassignGuest = mutation({
       endedAt: Date.now(),
       endBy: actor.email,
       endReason: "Removed from room by staff",
+      open: false,
     });
     await writeAuditLog(ctx, {
       actorUserId: actor._id,
@@ -991,6 +999,7 @@ export async function runAutoAssignment(
         bookingId: pick.bookingId,
         assignedBy: actorEmail,
         createdAt: Date.now(),
+        open: true,
       });
       pending.delete(pick._id);
       taken.add(pick._id);
@@ -1111,7 +1120,12 @@ export async function buildRoomingOverview(ctx: QueryCtx) {
       (room) => !room.deletedAt,
     );
     const blocked = await blockedRoomIds(ctx);
-    const assignments = (await ctx.db.query("agcRoomAssignments").collect()).filter(isOpen);
+    const assignments = (
+      await ctx.db
+        .query("agcRoomAssignments")
+        .withIndex("by_open", (q) => q.eq("open", true))
+        .collect()
+    ).filter(isOpen);
     const occupiedByRoom = new Map<string, number>();
     for (const assignment of assignments) {
       occupiedByRoom.set(assignment.roomId, (occupiedByRoom.get(assignment.roomId) ?? 0) + 1);
@@ -1331,7 +1345,12 @@ export const getRoomingList = query({
     ).filter(
       (room) => !room.deletedAt && (!args.accommodationType || room.accommodationType === args.accommodationType),
     );
-    const assignments = (await ctx.db.query("agcRoomAssignments").collect()).filter(isOpen);
+    const assignments = (
+      await ctx.db
+        .query("agcRoomAssignments")
+        .withIndex("by_open", (q) => q.eq("open", true))
+        .collect()
+    ).filter(isOpen);
     const guestById = new Map(
       (await ctx.db.query("agcGuests").collect()).map((g) => [g._id, g]),
     );
@@ -1389,6 +1408,7 @@ async function closeAssignment(
     endedAt: Date.now(),
     endBy,
     endReason,
+    open: false,
   });
 }
 
@@ -1452,6 +1472,7 @@ export async function performChangeRoom(
       bookingId: guest.bookingId,
       assignedBy: actor.email,
       createdAt: Date.now(),
+      open: true,
     });
     await ctx.db.patch(current._id, { replacedByAssignmentId: newAssignmentId });
 

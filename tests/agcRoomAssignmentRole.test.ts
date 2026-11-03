@@ -147,6 +147,7 @@ test("room-assignment staff hold the room and desk powers", async () => {
   // Review queue: read and clear a flag.
   const flagId = await t.run(async (ctx) =>
     ctx.db.insert("agcCheckinFlags", {
+      open: true,
       guestId: booking.guestIds[1],
       bookingId: booking.bookingId,
       note: "Looks like the wrong delegate at the counter",
@@ -168,6 +169,7 @@ test("room-assignment staff hold the room and desk powers", async () => {
   // The desk still refuses to let check-in staff clear their own flags.
   const secondFlag = await t.run(async (ctx) =>
     ctx.db.insert("agcCheckinFlags", {
+      open: true,
       guestId: booking.guestIds[1],
       bookingId: booking.bookingId,
       note: "Second look needed",
@@ -187,6 +189,7 @@ test("room-assignment staff hold the room and desk powers", async () => {
   // Undo a check-in.
   await t.run(async (ctx) =>
     ctx.db.insert("agcCheckIns", {
+      live: true,
       guestId: booking.guestIds[0],
       bookingId: booking.bookingId,
       hubId: booking.hubId,

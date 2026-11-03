@@ -276,6 +276,7 @@ test("rejecting a receipt retires the delegates and frees the room they were giv
       capacity: 4,
     });
     return await ctx.db.insert("agcRoomAssignments", {
+      open: true,
       roomId,
       guestId: seeded.guestIds[0],
       bookingId: seeded.bookingId,

@@ -103,12 +103,14 @@ async function seedDirectory(t: TestConvex) {
       building: "Blocks 1–4",
     });
     await ctx.db.insert("agcRoomAssignments", {
+      open: true,
       roomId,
       guestId: assignedGuestId,
       bookingId,
       createdAt: now,
     });
     await ctx.db.insert("agcCheckIns", {
+      live: true,
       guestId: assignedGuestId,
       bookingId,
       hubId,
