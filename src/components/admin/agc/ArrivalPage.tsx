@@ -4,6 +4,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useConvex, useMutation, useQuery } from "convex/react";
 import {
+  type LucideIcon,
   BedDouble,
   CircleAlert,
   CircleCheck,
@@ -15,6 +16,7 @@ import {
   Pencil,
   RefreshCw,
   Search,
+  ChevronLeft,
   ChevronRight,
   ShieldAlert,
   Undo2,
@@ -206,6 +208,23 @@ const STAT_FILTER_LABEL: Record<Exclude<DeskStatFilter, "all">, string> = {
   faulty: "Faulty rooms",
 };
 
+/**
+ * The check-in filter over the sheet: who is already at the desk and who is
+ * still to come. Kept apart from the stat tiles so it can be combined with a
+ * hub, a room type or a search instead of replacing them.
+ */
+type CheckInFilter = "all" | "checked_in" | "not_checked_in";
+
+const CHECK_IN_FILTER_LABEL: Record<CheckInFilter, string> = {
+  all: "All",
+  checked_in: "Checked in",
+  not_checked_in: "Not checked in",
+};
+
+/** Page sizes the desk can pick for the sheet. */
+const PAGE_SIZES = [25, 50, 100] as const;
+const DEFAULT_PAGE_SIZE = 25;
+
 type KeyRow = {
   _id: string;
   roomId: string;
@@ -267,7 +286,6 @@ const DeskRosterRow = memo(function DeskRosterRow({
   onSelect: (guestId: string) => void;
   onTick: (guestId: string) => void;
 }) {
-  const cell = checkInCell(row);
   return (
     <TableRow
       onClick={() => onSelect(row.guestId)}
@@ -338,7 +356,7 @@ const DeskRosterRow = memo(function DeskRosterRow({
       </TableCell>
       <TableCell className="hidden capitalize sm:table-cell">{row.gender}</TableCell>
       <TableCell className="hidden md:table-cell">{row.hubName}</TableCell>
-      <TableCell className={cn("text-sm font-medium", cell.className)}>
+      <TableCell className="text-sm font-medium">
         {queued ? (
           <span title={`${queued.guestName} was checked in on this device at ${new Date(queued.originalAt).toLocaleTimeString()} — it sends when the station syncs, so do not check them in again`}>
             Queued offline
@@ -351,7 +369,7 @@ const DeskRosterRow = memo(function DeskRosterRow({
             </span>
           </span>
         ) : (
-          cell.label
+          <CheckInStatusPill row={row} />
         )}
         {queued && (
           <span className="ml-1 inline-flex items-center gap-0.5 rounded bg-sky-100 px-1 py-0.5 text-[10px] font-medium text-sky-800 dark:bg-sky-950/60 dark:text-sky-300">
@@ -392,7 +410,6 @@ const DeskRosterCard = memo(function DeskRosterCard({
   onSelect: (guestId: string) => void;
   onTick: (guestId: string) => void;
 }) {
-  const cell = checkInCell(row);
   return (
     <li
       className={cn(
@@ -440,8 +457,8 @@ const DeskRosterCard = memo(function DeskRosterCard({
           <span className="capitalize">{row.gender}</span>
         </span>
         <span className="mt-1 flex flex-wrap items-center gap-1">
-          <span className={cn("text-[11px] font-medium", cell.className)}>
-            {queued ? "Queued offline" : cell.label}
+          <span className="text-[11px] font-medium">
+            {queued ? "Queued offline" : <CheckInStatusPill row={row} />}
           </span>
           {queued && (
             <span className="inline-flex items-center gap-0.5 rounded bg-sky-100 px-1 py-0.5 text-[10px] font-medium text-sky-800 dark:bg-sky-950/60 dark:text-sky-300">
@@ -543,7 +560,10 @@ export function ArrivalPage() {
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [genderFilter, setGenderFilter] = useState<"any" | "male" | "female">("any");
   const [hubFilter, setHubFilter] = useState<string>("all");
+  const [checkInFilter, setCheckInFilter] = useState<CheckInFilter>("all");
   const [selectedGuestId, setSelectedGuestId] = useState<string | null>(null);
+  // The sheet pages in place: the page size, and the page the desk is on.
+  const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
 
   // The whole desk in one subscription. The tiles, recent arrivals, the key
   // register, the sheet and the room grid read the same tables, so separate
@@ -1129,6 +1149,9 @@ export function ArrivalPage() {
       if (genderFilter !== "any" && row.gender !== genderFilter) return false;
       if (hubFilter !== "all" && row.hubName !== hubFilter) return false;
       if (typeFilter !== "all" && row.accommodationType !== typeFilter) return false;
+      // "Not checked in" is the desk's queue: nobody who is already in it.
+      if (checkInFilter === "checked_in" && row.checkInStatus !== "checked_in") return false;
+      if (checkInFilter === "not_checked_in" && row.checkInStatus === "checked_in") return false;
       return true;
     });
     // Room order reads like the building does: 101 bed 1, 101 bed 2, then
@@ -1142,7 +1165,38 @@ export function ArrivalPage() {
       if (bedA !== bedB) return bedA - bedB;
       return a.name.localeCompare(b.name);
     });
-  }, [baseRows, genderFilter, hubFilter, typeFilter, statFilter, issuesByRoom]);
+  }, [baseRows, genderFilter, hubFilter, typeFilter, statFilter, checkInFilter, issuesByRoom]);
+
+  /**
+   * The sheet pages after the filters, so a page only ever shows rows that the
+   * current search and filters kept — and the page number is clamped, so a
+   * check-in that empties the last page does not strand the desk on it.
+   */
+  const pageCount = Math.max(1, Math.ceil(rosterRows.length / pageSize));
+  /**
+   * The page is keyed to the filters it was chosen under: a new search, filter
+   * or page size falls back to page 1 on its own, instead of an effect writing
+   * state (and re-rendering) on every keystroke.
+   */
+  const filterKey = [
+    search,
+    statFilter,
+    typeFilter,
+    genderFilter,
+    hubFilter,
+    checkInFilter,
+    pageSize,
+  ].join("|");
+  const [pager, setPager] = useState({ key: filterKey, page: 1 });
+  const page = pager.key === filterKey ? pager.page : 1;
+  const setPage = (next: number) => setPager({ key: filterKey, page: next });
+  const currentPage = Math.min(Math.max(1, page), pageCount);
+  const pageRows = useMemo(
+    () => rosterRows.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+    [rosterRows, currentPage, pageSize],
+  );
+  const firstOnPage = rosterRows.length === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+  const lastOnPage = Math.min(currentPage * pageSize, rosterRows.length);
 
   const selectedRow = useMemo(
     () => rosterRows.find((row) => row.guestId === selectedGuestId) ?? null,
@@ -1281,12 +1335,14 @@ export function ArrivalPage() {
     genderFilter !== "any" ||
     hubFilter !== "all" ||
     typeFilter !== "all" ||
-    statFilter !== "all";
+    statFilter !== "all" ||
+    checkInFilter !== "all";
   const clearFilters = () => {
     setGenderFilter("any");
     setHubFilter("all");
     setTypeFilter("all");
     setStatFilter("all");
+    setCheckInFilter("all");
     setSearch("");
     setSelectedGuestId(null);
   };
@@ -1463,6 +1519,27 @@ export function ArrivalPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {/* Who is in and who is not — the question the desk asks most. */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs font-medium text-muted-foreground">Check-in:</span>
+            {(["all", "checked_in", "not_checked_in"] as const).map((value) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={checkInFilter === value}
+                onClick={() => setCheckInFilter(value)}
+                className={cn(
+                  "h-8 rounded-full border px-3 text-xs font-medium transition-colors",
+                  checkInFilter === value
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "bg-background hover:bg-muted",
+                )}
+              >
+                {CHECK_IN_FILTER_LABEL[value]}
+              </button>
+            ))}
+          </div>
+
           <div className="flex items-center gap-1.5">
             <span className="text-xs font-medium text-muted-foreground">Gender:</span>
             {(["any", "male", "female"] as const).map((value) => (
@@ -1740,7 +1817,7 @@ export function ArrivalPage() {
                     : "No delegates on the desk yet — rooms and bookings feed this sheet."}
                 </li>
               ) : (
-                rosterRows.map((row) => (
+                pageRows.map((row) => (
                   <DeskRosterCard
                     key={row.guestId}
                     row={row}
@@ -1806,7 +1883,7 @@ export function ArrivalPage() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  rosterRows.map((row) => (
+                  pageRows.map((row) => (
                     <DeskRosterRow
                       key={row.guestId}
                       row={row}
@@ -1832,6 +1909,58 @@ export function ArrivalPage() {
             </Table>
             </div>
           </CardContent>
+          {/* Paging sits outside the 60vh scroller so the controls stay put
+              while the desk works through the page. */}
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t px-3 py-2">
+            <p className="text-xs text-muted-foreground">
+              {rosterRows.length === 0
+                ? "No delegates to page"
+                : `Showing ${firstOnPage}–${lastOnPage} of ${rosterRows.length}`}
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <Select
+                value={String(pageSize)}
+                onValueChange={(value) => setPageSize(Number(value ?? DEFAULT_PAGE_SIZE))}
+              >
+                <SelectTrigger
+                  className="h-8 w-auto gap-1 rounded-full px-3 text-xs"
+                  aria-label="Rows per page"
+                >
+                  <SelectValue>{`Rows: ${pageSize}`}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {PAGE_SIZES.map((size) => (
+                    <SelectItem key={size} value={String(size)}>
+                      Rows: {size}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 gap-1 text-xs"
+                disabled={currentPage <= 1}
+                onClick={() => setPage(Math.max(1, currentPage - 1))}
+              >
+                <ChevronLeft className="size-3.5" /> Prev
+              </Button>
+              <span className="text-xs tabular-nums text-muted-foreground">
+                Page {currentPage} of {pageCount}
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 gap-1 text-xs"
+                disabled={currentPage >= pageCount}
+                onClick={() => setPage(Math.min(pageCount, currentPage + 1))}
+              >
+                Next <ChevronRight className="size-3.5" />
+              </Button>
+            </div>
+          </div>
         </Card>
 
         {/* Nothing selected: there is no record card at all. Once a delegate is
@@ -2628,26 +2757,67 @@ export function ArrivalPage() {
 // ------------------------------------------------------------------
 
 /**
- * Check-in column as the desk reads it: "Not yet" when the delegate is ready,
- * but the blocking reason (no bed, payment first) stays visible in the list so
- * staff do not have to open each record to find out why.
+ * Check-in column as the desk reads it: a colour-coded pill — green for in,
+ * amber for blocked, grey for still waiting. The blocking reason (no bed,
+ * payment first) stays in the label so staff can see why without opening the
+ * record, while the detail rides in the hover text.
  */
-function checkInCell(row: SearchRow): { label: string; className: string } {
+function checkInCell(row: SearchRow): {
+  label: string;
+  tone: "done" | "blocked" | "waiting";
+  icon: LucideIcon;
+  hint: string;
+} {
   if (row.checkInStatus === "checked_in") {
-    return { label: "Checked in", className: "text-emerald-700 dark:text-emerald-400" };
+    return {
+      label: "Checked in",
+      tone: "done",
+      icon: CircleCheck,
+      hint: "Checked in at the desk",
+    };
   }
   if (row.checkInStatus === "checked_out") {
-    return { label: "Checked out", className: "text-muted-foreground" };
+    return {
+      label: "Checked out",
+      tone: "waiting",
+      icon: CircleSlash,
+      hint: "Key returned — the delegate has left",
+    };
   }
   if (row.assignmentStatus !== "assigned") {
-    return { label: "No room", className: "text-amber-800 dark:text-amber-400" };
+    return {
+      label: "No room",
+      tone: "blocked",
+      icon: CircleAlert,
+      hint: "Needs a bed before the desk can check them in",
+    };
   }
   const paid =
     row.paymentStatus === "confirmed" || row.poaStatus === "confirmed";
   if (!paid) {
-    return { label: "Payment first", className: "text-amber-800 dark:text-amber-400" };
+    return {
+      label: "Payment first",
+      tone: "blocked",
+      icon: CircleAlert,
+      hint: "Payment or proof of payment is not confirmed yet",
+    };
   }
-  return { label: "Not yet", className: "text-slate-600 dark:text-slate-400" };
+  return {
+    label: "Not checked in",
+    tone: "waiting",
+    icon: CircleSlash,
+    hint: "Ready — check in when they reach the desk",
+  };
+}
+
+/** The check-in cell as the shared status pill, in both the table and the card. */
+function CheckInStatusPill({ row }: { row: SearchRow }) {
+  const cell = checkInCell(row);
+  return (
+    <StatusBadge tone={cell.tone} icon={cell.icon} title={cell.hint}>
+      {cell.label}
+    </StatusBadge>
+  );
 }
 
 /** One label/value line in the delegate detail panel. */
