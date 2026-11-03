@@ -20,6 +20,7 @@ import type * as agcCheckin from "../agcCheckin.js";
 import type * as agcDirectory from "../agcDirectory.js";
 import type * as agcExcel from "../agcExcel.js";
 import type * as agcOffline from "../agcOffline.js";
+import type * as agcOpenFlags from "../agcOpenFlags.js";
 import type * as agcOpsData from "../agcOpsData.js";
 import type * as agcOpsExcel from "../agcOpsExcel.js";
 import type * as agcPoa from "../agcPoa.js";
@@ -89,6 +90,7 @@ declare const fullApi: ApiFromModules<{
   agcDirectory: typeof agcDirectory;
   agcExcel: typeof agcExcel;
   agcOffline: typeof agcOffline;
+  agcOpenFlags: typeof agcOpenFlags;
   agcOpsData: typeof agcOpsData;
   agcOpsExcel: typeof agcOpsExcel;
   agcPoa: typeof agcPoa;
