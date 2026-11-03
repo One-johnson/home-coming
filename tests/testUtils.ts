@@ -29,6 +29,7 @@ const modules = {
   "convex/agcRoomIssues.ts": () => import("../convex/agcRoomIssues"),
   "convex/lib/agcPoaRuntime.ts": () => import("../convex/lib/agcPoaRuntime"),
   "convex/agcCheckin.ts": () => import("../convex/agcCheckin"),
+  "convex/agcOpenFlags.ts": () => import("../convex/agcOpenFlags"),
   "convex/agcDirectory.ts": () => import("../convex/agcDirectory"),
   "convex/agcOffline.ts": () => import("../convex/agcOffline"),
   "convex/agcOpsData.ts": () => import("../convex/agcOpsData"),

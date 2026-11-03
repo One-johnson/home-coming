@@ -1,3 +1,4 @@
+import { v } from "convex/values";
 import { internalMutation, internalQuery } from "./_generated/server";
 
 /**
@@ -11,47 +12,96 @@ import { internalMutation, internalQuery } from "./_generated/server";
  * queries read `by_open` / `by_live` instead of the whole history.
  *
  * Rows written before the mirrors existed have neither, so they are invisible to
- * those indexes until `backfill` runs. It only ever patches the boolean: no row
- * is deleted, and `open`/`live` is recomputed from `endedAt`/`correctedAt`/
- * `resolvedAt` on the row itself. Running it twice is a no-op.
+ * those indexes until `backfill` runs: the arrival desk then reports nobody
+ * assigned and nobody checked in while the rows sit there unread. It only ever
+ * patches the boolean: no row is deleted, and `open`/`live` is recomputed from
+ * `endedAt`/`correctedAt`/`resolvedAt` on the row itself.
  *
- * `verify` is the safety check: it compares the index against the timestamps and
- * names any row the mirror would hide. It should report zero missing rows after
- * a deploy, and zero stale rows always.
+ * Production outgrew a single pass — one transaction may read at most 4,096
+ * documents, and the room-assignment table alone is larger than that, so the
+ * one-shot version failed with "Too many reads" and the mirrors stayed unset.
+ * `backfill` therefore patches one page per call and reports `isDone` and the
+ * cursor to continue from. Run the runner, which loops until every table is
+ * done (also against production):
  *
- *   npx convex run agcOpenFlags:backfill
- *   npx convex run agcOpenFlags:verify
+ *   node scripts/backfill-open-mirrors.mjs --prod
+ *
+ * `verify` is the safety check: it compares each index against the timestamps
+ * and names any row the mirror would hide. It must report zero missing rows
+ * after a backfill, and zero stale rows always.
+ *
+ *   npx convex run agcOpenFlags:verify --prod
  */
 
-/** Rows are patched in one transaction per table; nothing is ever removed. */
+/** One page of one table. Call again with `cursor` until `isDone` is true. */
 export const backfill = internalMutation({
-  args: {},
-  handler: async (ctx) => {
-    let assignments = 0;
-    for (const row of await ctx.db.query("agcRoomAssignments").collect()) {
-      const open = row.endedAt === undefined;
-      if (row.open === open) continue;
-      await ctx.db.patch(row._id, { open });
-      assignments += 1;
+  args: {
+    table: v.union(
+      v.literal("assignments"),
+      v.literal("checkIns"),
+      v.literal("flags"),
+    ),
+    /** Opaque cursor from the previous page; omit for the first page. */
+    cursor: v.optional(v.string()),
+    /** Rows per call. Kept well under the 4,096-read ceiling. */
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const numItems = Math.min(Math.max(Math.floor(args.limit ?? 500), 1), 1000);
+    const cursor = args.cursor ?? null;
+    let scanned = 0;
+    let patched = 0;
+    let isDone = false;
+    let next: string | null = null;
+
+    if (args.table === "assignments") {
+      const page = await ctx.db
+        .query("agcRoomAssignments")
+        .paginate({ numItems, cursor });
+      scanned = page.page.length;
+      isDone = page.isDone;
+      next = page.continueCursor;
+      for (const row of page.page) {
+        const open = row.endedAt === undefined;
+        if (row.open === open) continue;
+        await ctx.db.patch(row._id, { open });
+        patched += 1;
+      }
+    } else if (args.table === "checkIns") {
+      const page = await ctx.db
+        .query("agcCheckIns")
+        .paginate({ numItems, cursor });
+      scanned = page.page.length;
+      isDone = page.isDone;
+      next = page.continueCursor;
+      for (const row of page.page) {
+        const live = !row.correctedAt;
+        if (row.live === live) continue;
+        await ctx.db.patch(row._id, { live });
+        patched += 1;
+      }
+    } else {
+      const page = await ctx.db
+        .query("agcCheckinFlags")
+        .paginate({ numItems, cursor });
+      scanned = page.page.length;
+      isDone = page.isDone;
+      next = page.continueCursor;
+      for (const row of page.page) {
+        const open = row.resolvedAt === undefined;
+        if (row.open === open) continue;
+        await ctx.db.patch(row._id, { open });
+        patched += 1;
+      }
     }
 
-    let checkIns = 0;
-    for (const row of await ctx.db.query("agcCheckIns").collect()) {
-      const live = !row.correctedAt;
-      if (row.live === live) continue;
-      await ctx.db.patch(row._id, { live });
-      checkIns += 1;
-    }
-
-    let flags = 0;
-    for (const row of await ctx.db.query("agcCheckinFlags").collect()) {
-      const open = row.resolvedAt === undefined;
-      if (row.open === open) continue;
-      await ctx.db.patch(row._id, { open });
-      flags += 1;
-    }
-
-    return { patched: { assignments, checkIns, flags } };
+    return {
+      table: args.table,
+      scanned,
+      patched,
+      isDone,
+      cursor: isDone ? null : next,
+    };
   },
 });
 
