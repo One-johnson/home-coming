@@ -16,17 +16,3 @@ export function downloadBase64File(filename: string, contentBase64: string) {
   URL.revokeObjectURL(url);
 }
 
-/** Trigger a browser download of a text document (e.g. print-ready HTML for PDF). */
-export function downloadTextFile(
-  filename: string,
-  content: string,
-  mimeType = "text/html;charset=utf-8",
-) {
-  const blob = new Blob([content], { type: mimeType });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  anchor.click();
-  URL.revokeObjectURL(url);
-}

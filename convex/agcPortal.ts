@@ -137,42 +137,6 @@ export const getRepProfile = query({
   },
 });
 
-export const updateRepProfile = mutation({
-  args: {
-    sessionToken: v.string(),
-    firstName: v.string(),
-    lastName: v.string(),
-    email: v.string(),
-    phone: v.string(),
-  },
-  handler: async (ctx, args) => {
-    const { rep } = await requireRep(ctx, args.sessionToken);
-
-    const email = args.email.trim().toLowerCase();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      throw new ConvexError("A valid email address is required");
-    }
-
-    const emailTaken = await ctx.db
-      .query("agcRepresentatives")
-      .withIndex("by_email", (q) => q.eq("email", email))
-      .unique();
-    if (emailTaken && emailTaken._id !== rep._id) {
-      throw new ConvexError("This email address is already in use");
-    }
-
-    await ctx.db.patch(rep._id, {
-      firstName: args.firstName.trim(),
-      lastName: args.lastName.trim(),
-      email,
-      phone: args.phone.trim(),
-      profileComplete: true,
-      updatedAt: Date.now(),
-    });
-    return { success: true as const };
-  },
-});
-
 // ------------------------------------------------------------------
 // Public config for the portal UI (pricing, deadline, bank details)
 // ------------------------------------------------------------------

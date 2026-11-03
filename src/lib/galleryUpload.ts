@@ -19,20 +19,3 @@ export async function uploadFileToConvex(
   return storageId;
 }
 
-export async function uploadFilesToConvex(
-  files: File[],
-  generateUploadUrl: () => Promise<string>,
-  onProgress?: (completed: number, total: number, fileName: string) => void,
-) {
-  const storageIds: Id<"_storage">[] = [];
-
-  for (let i = 0; i < files.length; i++) {
-    const file = files[i];
-    onProgress?.(i, files.length, file.name);
-    const storageId = await uploadFileToConvex(file, generateUploadUrl);
-    storageIds.push(storageId);
-  }
-
-  onProgress?.(files.length, files.length, "done");
-  return storageIds;
-}

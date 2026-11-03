@@ -105,12 +105,3 @@ export async function compressImageForUpload(
   }
 }
 
-/** Convenience wrapper: compress, upload, and report the saved bytes. */
-export async function compressAndUpload(
-  file: File,
-  upload: (file: File) => Promise<unknown>,
-): Promise<CompressResult> {
-  const result = await compressImageForUpload(file);
-  await upload(result.file);
-  return result;
-}

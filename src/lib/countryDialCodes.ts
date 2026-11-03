@@ -285,12 +285,6 @@ export function findCountryByDialCode(
   return matches[0];
 }
 
-export function findCountryByIso(iso2: string): CountryDialCode | undefined {
-  return COUNTRY_DIAL_CODES.find(
-    (c) => c.iso2.toLowerCase() === iso2.toLowerCase(),
-  );
-}
-
 const REGION_PREFERRED_ISO: Record<string, string> = {
   ghana: "GH",
   usa: "US",

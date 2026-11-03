@@ -312,14 +312,6 @@ export function formatPrice(amount: number, currency: string, symbol: string) {
   return `${symbol}${amount.toLocaleString()} ${currency}`;
 }
 
-export function isOfflineCurrency(currency: string) {
-  return currency === "GHS";
-}
-
-export function isOfflineRegion(region: RegistrationRegion) {
-  return REGION_CONFIG[region].currency === "GHS";
-}
-
 export function normalizeAddOnSelections(
   selections: AddOnSelection[] | Record<string, number>,
 ): AddOnSelection[] {

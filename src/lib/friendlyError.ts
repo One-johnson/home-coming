@@ -238,19 +238,6 @@ export const toastFriendlyErrorParts = Object.assign(
   },
 );
 
-/**
- * One-liner for catch blocks: shows a friendly sonner toast and returns a
- * message string suitable for inline error state.
- */
-export function toastFriendlyError(
-  toastApi: { error: (title: string, opts?: { description?: string }) => void },
-  err: unknown,
-): string {
-  const { title, detail } = adminFriendlyError(err);
-  toastApi.error(title, { description: detail });
-  return detail ? `${title}: ${detail}` : title;
-}
-
 /** Friendly error for admin surfaces: raw message for the inline alert, title+detail for the toast. */
 export function adminFriendlyError(err: unknown): FriendlyError {
   const message = cleanErrorMessage(err);

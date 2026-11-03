@@ -60,8 +60,6 @@ export const AGC_REGIONS: Record<AgcRegion, RegionPricing> = {
   },
 };
 
-export const AGC_REGION_KEYS = Object.keys(AGC_REGIONS) as AgcRegion[];
-
 export function regionPricing(region: AgcRegion): RegionPricing {
   return AGC_REGIONS[region] ?? AGC_REGIONS.rest_of_world;
 }

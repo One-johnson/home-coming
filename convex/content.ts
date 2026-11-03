@@ -145,16 +145,6 @@ export const updateHotel = mutation({
   },
 });
 
-export const listAnnouncements = query({
-  args: {},
-  handler: async (ctx) => {
-    return await ctx.db
-      .query("announcements")
-      .withIndex("by_active", (q) => q.eq("active", true))
-      .collect();
-  },
-});
-
 export const listAnnouncementsAdmin = query({
   args: { sessionToken: sessionTokenValidator },
   handler: async (ctx, args) => {

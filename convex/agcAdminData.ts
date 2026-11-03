@@ -1842,19 +1842,6 @@ export const insertAuditEntry = internalMutation({
   },
 });
 
-export async function auditFromAction(
-  ctx: MutationCtx,
-  actorEmail: string | undefined,
-  summary: string,
-) {
-  await writeAuditLog(ctx, {
-    actorEmail,
-    action: "agc_admin.action",
-    entityType: "agcAdmin",
-    summary,
-  });
-}
-
 // ------------------------------------------------------------------
 // Admin review queues (SRS §51–54) + booking management + reallocation
 // ------------------------------------------------------------------

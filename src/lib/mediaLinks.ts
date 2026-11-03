@@ -18,14 +18,6 @@ export function getYouTubeThumbnail(videoId: string) {
   return `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
 }
 
-export function getYouTubeEmbedUrl(videoId: string) {
-  return `https://www.youtube-nocookie.com/embed/${videoId}?rel=0`;
-}
-
-export function isYouTubeUrl(url: string) {
-  return getYouTubeVideoId(url) !== null;
-}
-
 export function isRumbleUrl(url: string) {
   try {
     return new URL(url).hostname.replace(/^www\./, "").includes("rumble.com");

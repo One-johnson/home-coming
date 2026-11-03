@@ -26,7 +26,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { toastFriendlyErrorParts } from "@/lib/friendlyError";
 import { cn } from "@/lib/utils";
-import { paymentStatusMeta } from "@/lib/agcPortal";
 
 export type ReviewDecision = "approve" | "reject" | "request_correction";
 
@@ -49,10 +48,6 @@ export function amountMismatch(
 /** Whole days since createdAt, for the aging badge. */
 export function ageInDays(createdAt: number): number {
   return Math.floor((Date.now() - createdAt) / (24 * 60 * 60 * 1000));
-}
-
-export function paysMeta(value: string) {
-  return paymentStatusMeta(value);
 }
 
 /** Review-history timeline for one record (source: audit log). */

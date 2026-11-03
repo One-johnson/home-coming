@@ -164,24 +164,3 @@ export const ADD_ONS = [
 export function getGroupPricing(group: string): GroupPricing {
   return GROUP_PRICING[group] ?? GROUP_PRICING.Other;
 }
-
-export function calculateRegistrationAmounts(
-  group: string,
-  ticketQuantity: number,
-  addOns: { id: string; quantity: number }[],
-) {
-  const pricing = getGroupPricing(group);
-  const priceAmount = pricing.price * ticketQuantity;
-  // Add-ons are temporarily disabled — ignore any submitted selections.
-  void addOns;
-  const addOnAmount = 0;
-
-  return {
-    priceAmount,
-    addOnAmount,
-    totalAmount: priceAmount + addOnAmount,
-    currency: pricing.currency,
-    gateway: pricing.gateway,
-    regionKey: pricing.regionKey,
-  };
-}

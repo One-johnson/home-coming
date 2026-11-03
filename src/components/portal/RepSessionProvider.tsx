@@ -159,9 +159,3 @@ export function useRepSession() {
   return ctx;
 }
 
-/** Merge sessionToken into Convex query/mutation args when a session exists. */
-export function useRepSessionArgs<T extends Record<string, unknown>>(args?: T) {
-  const { sessionToken, isReady } = useRepSession();
-  if (!isReady || !sessionToken) return "skip" as const;
-  return { ...(args ?? {}), sessionToken } as T & { sessionToken: string };
-}

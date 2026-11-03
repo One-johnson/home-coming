@@ -460,36 +460,3 @@ export const completeFirstLoginSetup = action({
   },
 });
 
-export const changeRepPassword = action({
-  args: {
-    sessionToken: v.string(),
-    currentPassword: v.string(),
-    newPassword: v.string(),
-  },
-  handler: async (ctx, args): Promise<{ success: true }> => {
-    const rep: Doc<"agcRepresentatives"> | null = await ctx.runQuery(
-      internal.agcAuthData.getRepBySession,
-      { token: args.sessionToken },
-    );
-    if (!rep || rep.status === "disabled") {
-      throw new ConvexError("Unauthorized");
-    }
-
-    if (args.newPassword.length < 8) {
-      throw new ConvexError("New password must be at least 8 characters");
-    }
-
-    const ok = await bcrypt.compare(args.currentPassword, rep.passwordHash);
-    if (!ok) throw new ConvexError("Current password is incorrect");
-
-    const passwordHash = await bcrypt.hash(args.newPassword, BCRYPT_ROUNDS);
-    await ctx.runMutation(internal.agcAuthData.updateRepPasswordHash, {
-      repId: rep._id,
-      passwordHash,
-    });
-
-    // Rotate sessions after a password change (mirrors admin auth).
-    await ctx.runMutation(internal.agcAuthData.deleteRepSessions, { repId: rep._id });
-    return { success: true };
-  },
-});

@@ -40,18 +40,3 @@ export type PreparedStaticImage = {
   savedBytes: number;
 };
 
-export async function prepareStaticImages(
-  files: File[],
-  year: number,
-): Promise<PreparedStaticImage[]> {
-  const prepared: PreparedStaticImage[] = [];
-  for (const original of files) {
-    const { file, savedBytes } = await compressImageForUpload(original);
-    prepared.push({
-      file,
-      repoPath: staticFileName(file.name, year),
-      savedBytes,
-    });
-  }
-  return prepared;
-}
