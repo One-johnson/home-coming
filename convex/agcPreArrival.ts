@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { query } from "./_generated/server";
 import { requireRole } from "./users";
-import { isRoomableBooking } from "./agcRoomAssignments";
+import { activeGuests, roomableBookings } from "./agcRoomAssignments";
 import type { AgcAccommodationType } from "./schemaTypes";
 
 /**
@@ -81,13 +81,13 @@ export const getReadiness = query({
       assignedByRoom.set(a.roomId, (assignedByRoom.get(a.roomId) ?? 0) + 1);
     }
 
-    const guests = (await ctx.db.query("agcGuests").collect()).filter(
-      (g) => g.status === "active",
-    );
-    const bookings = await ctx.db.query("agcBookings").collect();
-    const roomableBookingIds = new Set(
-      bookings.filter(isRoomableBooking).map((b) => b._id),
-    );
+    // Both reads are index-bounded now: only active rosters and only bookings
+    // that can hold a bed, instead of the whole history of both tables.
+    const [guests, roomable] = await Promise.all([
+      activeGuests(ctx),
+      roomableBookings(ctx),
+    ]);
+    const roomableBookingIds = new Set(roomable.map((b) => b._id));
     const roomableGuests = guests.filter((g) =>
       roomableBookingIds.has(g.bookingId),
     );

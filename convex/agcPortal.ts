@@ -468,17 +468,24 @@ export const getRepOverview = query({
       }
       return entry;
     };
-    for (const booking of bookings) {
-      const [bookingGuests, bookingLines] = await Promise.all([
-        ctx.db
-          .query("agcGuests")
-          .withIndex("by_booking", (q) => q.eq("bookingId", booking._id))
-          .collect(),
-        ctx.db
-          .query("agcBookingLines")
-          .withIndex("by_booking", (q) => q.eq("bookingId", booking._id))
-          .collect(),
-      ]);
+    // Two keyed reads per booking, but issued together: awaiting each booking
+    // in turn made a rep with five reservations pay ten round trips in series.
+    const bookingDetails = await Promise.all(
+      bookings.map(async (booking) => {
+        const [bookingGuests, bookingLines] = await Promise.all([
+          ctx.db
+            .query("agcGuests")
+            .withIndex("by_booking", (q) => q.eq("bookingId", booking._id))
+            .collect(),
+          ctx.db
+            .query("agcBookingLines")
+            .withIndex("by_booking", (q) => q.eq("bookingId", booking._id))
+            .collect(),
+        ]);
+        return { booking, bookingGuests, bookingLines };
+      }),
+    );
+    for (const { booking, bookingGuests, bookingLines } of bookingDetails) {
       const activeGuestCount = bookingGuests.filter(
         (guest) => guest.status === "active",
       ).length;

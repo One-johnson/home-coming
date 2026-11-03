@@ -1,5 +1,6 @@
 import { query } from "./_generated/server";
 import { requireRole, sessionTokenValidator } from "./users";
+import { activeGuests } from "./agcRoomAssignments";
 import { AGC_ACCOMMODATION_LABELS } from "../src/lib/agcPortal";
 
 /**
@@ -45,9 +46,7 @@ export const listDelegateDirectory = query({
       bookings.map((booking) => [booking._id as string, booking]),
     );
 
-    const guests = (await ctx.db.query("agcGuests").collect()).filter(
-      (guest) => guest.status === "active",
-    );
+    const guests = await activeGuests(ctx);
 
     // Open assignment rows only: a moved delegate keeps history, and the
     // directory always shows where they are now.
@@ -67,9 +66,10 @@ export const listDelegateDirectory = query({
     );
     const roomById = new Map(rooms.map((room) => [room._id as string, room]));
 
-    const checkIns = (await ctx.db.query("agcCheckIns").collect()).filter(
-      (checkIn) => !checkIn.correctedAt,
-    );
+    const checkIns = await ctx.db
+      .query("agcCheckIns")
+      .withIndex("by_live", (q) => q.eq("live", true))
+      .collect();
     const checkedIn = new Set(
       checkIns
         .filter((checkIn) => !checkIn.checkedOutAt)

@@ -3199,33 +3199,44 @@ async function storageUsage(ctx: QueryCtx, canSee: boolean) {
     };
   }
 
-  const blobs = await ctx.db.system.query("_storage").collect();
+  // One round trip for all seven tables: this card sits on the live admin
+  // overview, so every booking write used to walk them one after another.
+  const [blobs, galleryImages, galleries, registrations, bookings, slides, packages] =
+    await Promise.all([
+      ctx.db.system.query("_storage").collect(),
+      ctx.db.query("galleryImages").collect(),
+      ctx.db.query("galleries").collect(),
+      ctx.db.query("agcRegistrations").collect(),
+      ctx.db.query("agcBookings").collect(),
+      ctx.db.query("heroSlides").collect(),
+      ctx.db.query("tourPackages").collect(),
+    ]);
   const blobById = new Map<string, { _id: string; size: number }>(
     blobs.map((b) => [b._id, { _id: b._id, size: b.size }]),
   );
 
   const usedBy = new Set<string>();
-  for (const image of await ctx.db.query("galleryImages").collect()) {
+  for (const image of galleryImages) {
     if (image.storageId) usedBy.add(image.storageId);
   }
-  for (const gallery of await ctx.db.query("galleries").collect()) {
+  for (const gallery of galleries) {
     if (gallery.coverStorageId) usedBy.add(gallery.coverStorageId);
   }
   const galleryIds = new Set(usedBy);
 
   const receiptIds = new Set<string>();
-  for (const reg of await ctx.db.query("agcRegistrations").collect()) {
+  for (const reg of registrations) {
     if (reg.offline?.receiptStorageId) receiptIds.add(reg.offline.receiptStorageId);
   }
-  for (const booking of await ctx.db.query("agcBookings").collect()) {
+  for (const booking of bookings) {
     if (booking.offline?.receiptStorageId) receiptIds.add(booking.offline.receiptStorageId);
   }
 
   const heroTourIds = new Set<string>();
-  for (const slide of await ctx.db.query("heroSlides").collect()) {
+  for (const slide of slides) {
     if (slide.storageId) heroTourIds.add(slide.storageId);
   }
-  for (const pkg of await ctx.db.query("tourPackages").collect()) {
+  for (const pkg of packages) {
     if (pkg.imageStorageId) heroTourIds.add(pkg.imageStorageId);
   }
 
