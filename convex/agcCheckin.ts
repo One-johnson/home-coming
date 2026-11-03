@@ -1750,10 +1750,19 @@ export const getArrivalOverview = query({
 
 /** Recent check-ins feed for the desk/dashboards (§23 "Recent Check-Ins"). */
 async function buildRecentCheckIns(ctx: Ctx, limit?: number) {
-    const rows = (await ctx.db.query("agcCheckIns").collect())
+    const wanted = limit ?? 20;
+    // `by_checked_in_at` walks the check-ins newest-first, so showing the last
+    // twenty rows no longer reads (and sorts) the whole arrival history. A
+    // corrected check-in is skipped by the desk, hence the small over-read.
+    const rows = (
+      await ctx.db
+        .query("agcCheckIns")
+        .withIndex("by_checked_in_at")
+        .order("desc")
+        .take(Math.max(wanted * 2, wanted + 10))
+    )
       .filter((row) => !row.correctedAt)
-      .sort((a, b) => b.checkedInAt - a.checkedInAt)
-      .slice(0, limit ?? 20);
+      .slice(0, wanted);
     // Twenty recent rows do not justify scanning the whole guest table.
     const guestRows = await Promise.all(
       rows.map((row) => ctx.db.get(row.guestId)),

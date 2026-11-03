@@ -2,7 +2,7 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useMutation, useQuery } from "convex/react";
+import { useConvex, useMutation, useQuery } from "convex/react";
 import {
   BedDouble,
   CircleAlert,
@@ -590,20 +590,84 @@ export function ArrivalPage() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
-  const searchResults = useQuery(
-    api.agcCheckin.searchDelegates,
-    sessionToken && search.trim().length >= 2
-      ? {
-          sessionToken,
-          search,
-          accommodationType:
-            typeFilter === "all"
-              ? undefined
-              : (typeFilter as (typeof TYPE_KEYS)[number]),
-          limit: 60,
-        }
-      : "skip",
+  /**
+   * Search starts on the sheet that is already on screen: the snapshot carries
+   * the name, hub, room, building and booking reference of every delegate at
+   * this desk, so typing no longer re-reads guests, bookings, assignments,
+   * check-ins, keys, flags, hubs and rooms on every keystroke — and no longer
+   * re-reads them again on every write, which a subscription did.
+   */
+  const convex = useConvex();
+  const [pausedSearch, setPausedSearch] = useState("");
+  useEffect(() => {
+    const id = setTimeout(() => setPausedSearch(search.trim()), 250);
+    return () => clearTimeout(id);
+  }, [search]);
+  const sheetMatches = useMemo<SearchRow[]>(() => {
+    const tokens = search.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    if (tokens.length === 0) return [];
+    const rows = ((deskRows ?? []) as SearchRow[]).filter((row) => {
+      const haystack = [
+        row.name,
+        row.firstName,
+        row.lastName,
+        row.hubName,
+        row.roomName ?? "",
+        row.building ?? "",
+        row.bookingRef,
+      ]
+        .join(" ")
+        .toLowerCase();
+      return tokens.every((token) => haystack.includes(token));
+    });
+    // The same ceiling as the server search, so a broad term reads the same.
+    return rows
+      .sort((a, b) =>
+        `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`),
+      )
+      .slice(0, 60);
+  }, [deskRows, search]);
+  /**
+   * The sheet only holds this desk's live delegates, so a delegate who has left,
+   * is unassigned at a posted building, or sits in another building is not on
+   * it. Only then does the desk ask the server — once the typing pauses, and as
+   * a one-off read rather than a live subscription.
+   */
+  const [offSheet, setOffSheet] = useState<{ term: string; rows: SearchRow[] } | null>(
+    null,
   );
+  // Keyed by the term it answered, so a result never lands under a newer query.
+  const offSheetRows =
+    offSheet && offSheet.term === search.trim() ? offSheet.rows : null;
+  useEffect(() => {
+    const term = search.trim();
+    if (
+      !sessionToken ||
+      term.length < 2 ||
+      pausedSearch !== term ||
+      sheetMatches.length > 0
+    ) {
+      return;
+    }
+    let cancelled = false;
+    void convex
+      .query(api.agcCheckin.searchDelegates, {
+        sessionToken,
+        search: term,
+        accommodationType:
+          typeFilter === "all" ? undefined : (typeFilter as (typeof TYPE_KEYS)[number]),
+        limit: 60,
+      })
+      .then((rows) => {
+        if (!cancelled) setOffSheet({ term, rows: rows as SearchRow[] });
+      })
+      .catch(() => {
+        if (!cancelled) setOffSheet({ term, rows: [] });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [convex, sessionToken, search, pausedSearch, sheetMatches, typeFilter]);
 
   const checkInGuest = useMutation(api.agcCheckin.checkInGuest);
   const checkInGroup = useMutation(api.agcCheckin.checkInGroup);
@@ -1027,9 +1091,10 @@ export function ArrivalPage() {
    * without re-querying.
    */
   const baseRows = useMemo<SearchRow[]>(() => {
-    if (search.trim().length >= 2) return (searchResults ?? []) as SearchRow[];
-    return (deskRows ?? []) as SearchRow[];
-  }, [search, searchResults, deskRows]);
+    if (search.trim().length < 2) return (deskRows ?? []) as SearchRow[];
+    if (sheetMatches.length > 0) return sheetMatches;
+    return offSheetRows ?? [];
+  }, [search, sheetMatches, offSheetRows, deskRows]);
 
   const rosterRows = useMemo(() => {
     const filtered = baseRows.filter((row) => {
