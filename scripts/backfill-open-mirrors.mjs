@@ -17,23 +17,28 @@
  * Safe to re-run: a second pass patches nothing.
  */
 import { spawnSync } from "node:child_process";
+import path from "node:path";
 
 const TABLES = ["assignments", "checkIns", "flags"];
 const prod = process.argv.includes("--prod");
-const onWindows = process.platform === "win32";
+/**
+ * Run the CLI through node directly: going through a shell mangles the JSON
+ * argument (Windows strips its quotes), which the CLI then fails to parse.
+ */
+const convexBin = path.resolve("node_modules/convex/bin/main.js");
 
 function runPage(table, cursor) {
   const args = JSON.stringify(cursor ? { table, cursor } : { table });
   const result = spawnSync(
-    "npx",
+    process.execPath,
     [
-      "convex",
+      convexBin,
       "run",
       "agcOpenFlags:backfill",
       ...(prod ? ["--prod"] : []),
       args,
     ],
-    { encoding: "utf8", shell: onWindows },
+    { encoding: "utf8" },
   );
   if (result.status !== 0) {
     throw new Error(
