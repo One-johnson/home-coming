@@ -92,7 +92,7 @@ import {
   StatusLegend,
 } from "@/components/admin/agc/StatusPrimitives";
 import { cn } from "@/lib/utils";
-import { composeArrivalSnapshot } from "@/lib/arrivalDesk";
+import { composeArrivalSnapshot, deskStateScope } from "@/lib/arrivalDesk";
 import { useLastValue, useLiveUpdates } from "@/hooks/use-live-updates";
 
 /**
@@ -567,11 +567,12 @@ export function ArrivalPage() {
   // The sheet pages in place: the page size, and the page the desk is on.
   const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
 
-  // The desk in two subscriptions, split by how often their tables change: a
-  // check-in, check-out or key write re-runs only the small live half, never
-  // the guests, bookings, rooms and assignments the base half reads. Both
-  // pause while the tab is hidden or nobody has used it for a while, since an
-  // open subscription is billed for every write at every other desk.
+  // The desk in three subscriptions, split by how often their tables change
+  // and by building: a check-in re-runs this building's state and the small
+  // site query, never the guests, bookings, rooms and assignments the base
+  // reads, and never another building's state. All pause while the tab is
+  // hidden or nobody has used it for a while, since an open subscription is
+  // billed for every write to what it read.
   const liveUpdates = useLiveUpdates();
   const baseLocation = deskLocation === "central" ? undefined : deskLocation;
   const deskBase = useLastValue(
@@ -583,22 +584,39 @@ export function ArrivalPage() {
     ),
     baseLocation ?? "central",
   );
-  const deskLive = useLastValue(
+  // This desk's own delegates and rooms, so the check-ins and keys it reads
+  // (and re-runs on) are its building's, not the whole site's.
+  const stateScope = useMemo(() => deskStateScope(deskBase), [deskBase]);
+  const deskState = useLastValue(
     useQuery(
-      api.agcCheckin.getArrivalDeskLive,
+      api.agcCheckin.getArrivalDeskState,
+      sessionToken && liveUpdates && stateScope
+        ? {
+            sessionToken,
+            guestIds: stateScope.guestIds as Id<"agcGuests">[] | undefined,
+            roomIds: stateScope.roomIds as Id<"agcRooms">[] | undefined,
+          }
+        : "skip",
+    ),
+    baseLocation ?? "central",
+  );
+  // Site-wide tiles, recent arrivals and review flags: small rows only.
+  const deskSite = useLastValue(
+    useQuery(
+      api.agcCheckin.getArrivalDeskSite,
       sessionToken && liveUpdates ? { sessionToken, recentLimit: 8 } : "skip",
     ),
-    "live",
+    "site",
   );
   // Departed delegates are off the sheet unless the Checked out tile is
   // doing the asking.
   const includeCheckedOut = statFilter === "checked_out";
   const snapshot = useMemo(
     () =>
-      deskBase && deskLive
-        ? composeArrivalSnapshot(deskBase, deskLive, { includeCheckedOut })
+      deskBase && deskState && deskSite
+        ? composeArrivalSnapshot(deskBase, deskState, deskSite, { includeCheckedOut })
         : undefined,
-    [deskBase, deskLive, includeCheckedOut],
+    [deskBase, deskState, deskSite, includeCheckedOut],
   );
   const overview = snapshot?.overview;
   const recent = snapshot?.recent;

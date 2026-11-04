@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery } from "./_generated/server";
+import { patchCheckIn } from "./lib/deskStats";
 
 /**
  * Keeps the `open` / `live` mirror fields in step with the timestamps they
@@ -77,7 +78,8 @@ export const backfill = internalMutation({
       for (const row of page.page) {
         const live = !row.correctedAt;
         if (row.live === live) continue;
-        await ctx.db.patch(row._id, { live });
+        // Through the desk counters: a row becoming live joins the totals.
+        await patchCheckIn(ctx, row._id, { live });
         patched += 1;
       }
     } else {

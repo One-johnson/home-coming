@@ -661,6 +661,12 @@ export default defineSchema({
     roomId: v.id("agcRooms"),
     /** Room name/building snapshot at check-in time (rooms can be renamed). */
     roomName: v.string(),
+    /**
+     * Room type at check-in, so the desk counters file the arrival under the
+     * same type when it is checked out or undone, even if the room is edited.
+     * Older rows have none; the counters read the room for those.
+     */
+    roomType: v.optional(agcAccommodationType),
     building: v.optional(v.string()),
     /** "central" or the building name of the desk that processed it. */
     location: v.string(),
@@ -702,6 +708,29 @@ export default defineSchema({
    * An Accommodation Admin clears it with a review note — the row is kept, so
    * the flag stays in the audit trail after it is closed.
    */
+  /**
+   * Running desk totals: live check-ins, departures, overrides and keys, kept
+   * by every check-in and key write (`convex/lib/deskStats.ts`). One row per
+   * building, so concurrent desks rarely write the same row, and every desk
+   * reads a handful of rows instead of counting the check-ins and keys tables.
+   * `agcDeskStats:recount` rebuilds them from the real rows; the row with
+   * shard "__seeded" marks that it has run.
+   */
+  agcDeskStats: defineTable({
+    shard: v.string(),
+    checkedIn: v.number(),
+    checkedOut: v.number(),
+    paymentOverrides: v.number(),
+    keysIssued: v.number(),
+    keysReturned: v.number(),
+    /** Arrivals per room type: { [accommodationType]: { checkedIn, checkedOut } }. */
+    byType: v.record(
+      v.string(),
+      v.object({ checkedIn: v.number(), checkedOut: v.number() }),
+    ),
+    updatedAt: v.number(),
+  }).index("by_shard", ["shard"]),
+
   agcCheckinFlags: defineTable({
     guestId: v.id("agcGuests"),
     bookingId: v.id("agcBookings"),

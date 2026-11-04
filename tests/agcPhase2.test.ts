@@ -1,8 +1,8 @@
 import { expect, test } from "vitest";
-import { api } from "../convex/_generated/api";
+import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { createTestConvex } from "./testUtils";
-import { composeArrivalSnapshot } from "../src/lib/arrivalDesk";
+import { composeArrivalSnapshot, deskStateScope } from "../src/lib/arrivalDesk";
 
 /**
  * Phase 2 — room assignment completion, accommodation check-in, keys,
@@ -114,15 +114,17 @@ async function seedConfirmedBooking(
 }
 
 /**
- * The desk now reads a base and a live query and joins them in the page; the
- * join must give exactly what the single server snapshot gave.
+ * The desk reads a base, a per-desk state and a site query and joins them in
+ * the page; the join must give exactly what the single server snapshot gave.
+ * A posted desk's key register lists its own building's keys only. Once the
+ * running totals are seeded they must also match a fresh count.
  */
 async function expectSplitMatchesSnapshot(
   t: TestConvex,
   sessionToken: string,
   options: { location?: string; includeCheckedOut?: boolean } = {},
 ) {
-  const [snapshot, base, live] = await Promise.all([
+  const [snapshot, base, site] = await Promise.all([
     t.query(api.agcCheckin.getArrivalSnapshot, {
       sessionToken,
       location: options.location,
@@ -133,13 +135,28 @@ async function expectSplitMatchesSnapshot(
       sessionToken,
       location: options.location,
     }),
-    t.query(api.agcCheckin.getArrivalDeskLive, { sessionToken, recentLimit: 8 }),
+    t.query(api.agcCheckin.getArrivalDeskSite, { sessionToken, recentLimit: 8 }),
   ]);
+  const scope = deskStateScope(base)!;
+  const state = await t.query(api.agcCheckin.getArrivalDeskState, {
+    sessionToken,
+    guestIds: scope.guestIds as Id<"agcGuests">[] | undefined,
+    roomIds: scope.roomIds as Id<"agcRooms">[] | undefined,
+  });
+  expect(state.scoped).toBe(scope.guestIds !== undefined);
+  const deskRooms = base.deskRoomIds ? new Set<string>(base.deskRoomIds) : null;
   expect(
-    composeArrivalSnapshot(base, live, {
+    composeArrivalSnapshot(base, state, site, {
       includeCheckedOut: options.includeCheckedOut,
     }),
-  ).toEqual(snapshot);
+  ).toEqual({
+    ...snapshot,
+    keys: deskRooms
+      ? snapshot.keys.filter((key) => deskRooms.has(key.roomId))
+      : snapshot.keys,
+  });
+  const stats = await t.query(internal.agcCheckin.verifyDeskStats, {});
+  if (stats.seeded) expect(stats).toMatchObject({ matches: true });
 }
 
 async function seedRoom(
@@ -737,6 +754,8 @@ test("bulk publish works by type or for every room, and a repeat pass is a no-op
 
 test("check-in: duplicate prevention, unassigned referral, and payment override gating", async () => {
   const t = createTestConvex();
+  // Seeded empty: every count below is kept by the writes themselves.
+  await t.mutation(internal.agcCheckin.recountDeskStats, {});
   const checkSeed = await seedStaff(t, "checkin");
   const approverSeed = await seedStaff(t, "accommodation");
   const adminSeed = await seedStaff(t, "admin");
@@ -2492,4 +2511,170 @@ test("a delegate whose last assignment was closed can still be roomed", async ()
     guestIds: [guestId],
   });
   expect(result.assigned).toBe(1);
+});
+
+test("desk state: scoped by building, follows a moved delegate, totals stay exact", async () => {
+  const t = createTestConvex();
+  await t.mutation(internal.agcCheckin.recountDeskStats, {});
+  const desk = await seedStaff(t, "checkin");
+  const admin = await seedStaff(t, "admin");
+  const booking = await seedConfirmedBooking(t, {
+    accommodationType: "wise_serpents",
+    gender: "male",
+    count: 3,
+  });
+  const [g0, g1, g2] = booking.guestIds as Id<"agcGuests">[];
+  const roomA = (await seedRoom(t, {
+    accommodationType: "wise_serpents",
+    name: "WSL A1",
+    capacity: 3,
+    building: "A",
+  })) as Id<"agcRooms">;
+  const roomB = (await seedRoom(t, {
+    accommodationType: "wise_serpents",
+    name: "WSL B1",
+    capacity: 3,
+    building: "B",
+  })) as Id<"agcRooms">;
+  const assign = (guestId: Id<"agcGuests">, roomId: Id<"agcRooms">) =>
+    t.run(async (ctx) =>
+      ctx.db.insert("agcRoomAssignments", {
+        open: true,
+        roomId,
+        guestId,
+        bookingId: booking.bookingId,
+        assignedBy: "seed",
+        createdAt: Date.now(),
+      }),
+    );
+  const a0 = await assign(g0, roomA);
+  await assign(g1, roomB);
+  await assign(g2, roomA);
+
+  const everyDesk = async () => {
+    await expectSplitMatchesSnapshot(t, desk.token);
+    await expectSplitMatchesSnapshot(t, desk.token, { location: "A" });
+    await expectSplitMatchesSnapshot(t, desk.token, { location: "B" });
+    await expectSplitMatchesSnapshot(t, desk.token, {
+      location: "B",
+      includeCheckedOut: true,
+    });
+  };
+
+  for (const guestId of [g0, g1]) {
+    await t.mutation(api.agcCheckin.checkInGuest, {
+      sessionToken: desk.token,
+      guestId,
+      location: "central",
+    });
+  }
+  await everyDesk();
+
+  // Building A's desk reads only A's delegates and keys.
+  const baseA = await t.query(api.agcCheckin.getArrivalDeskBase, {
+    sessionToken: desk.token,
+    location: "A",
+  });
+  const scopeA = deskStateScope(baseA)!;
+  const stateA = await t.query(api.agcCheckin.getArrivalDeskState, {
+    sessionToken: desk.token,
+    guestIds: scopeA.guestIds as Id<"agcGuests">[],
+    roomIds: scopeA.roomIds as Id<"agcRooms">[],
+  });
+  expect(stateA.checkIns.map((c) => c.guestId)).toEqual([g0]);
+  expect(stateA.keys.map((key) => key.roomName)).toEqual(["WSL A1"]);
+
+  // Moved to B after arriving: the check-in row still says A, and B's desk
+  // must still show the delegate as checked in.
+  await t.run(async (ctx) => {
+    await ctx.db.patch(a0, { endedAt: Date.now(), open: false });
+  });
+  await assign(g0, roomB);
+  await everyDesk();
+  const sheetB = await t.query(api.agcCheckin.getArrivalSnapshot, {
+    sessionToken: desk.token,
+    location: "B",
+  });
+  expect(sheetB.rows.find((row) => row.guestId === g0)?.checkInStatus).toBe(
+    "checked_in",
+  );
+
+  // Check-out with the key back, key replace and return, a fresh arrival with
+  // a new key, an undo and a correction: every write keeps the totals exact.
+  await t.mutation(api.agcCheckin.checkOutGuest, {
+    sessionToken: desk.token,
+    guestId: g1,
+    keyReturnStatus: "returned",
+  });
+  await everyDesk();
+  await t.mutation(api.agcCheckin.replaceKey, {
+    sessionToken: admin.token,
+    roomId: roomA,
+  });
+  await t.mutation(api.agcCheckin.returnKey, {
+    sessionToken: desk.token,
+    roomId: roomA,
+  });
+  await everyDesk();
+  const g2In = await t.mutation(api.agcCheckin.checkInGuest, {
+    sessionToken: desk.token,
+    guestId: g2,
+    location: "A",
+  });
+  expect(g2In.keyIssued).toBe(true);
+  await everyDesk();
+  await t.mutation(api.agcCheckin.undoCheckIn, {
+    sessionToken: desk.token,
+    checkInId: g2In.checkInId,
+    reason: "Wrong delegate at the counter",
+  });
+  const g0CheckIn = (
+    await t.query(api.agcCheckin.getArrivalSnapshot, { sessionToken: desk.token })
+  ).rows.find((row) => row.guestId === g0)?.checkInId as Id<"agcCheckIns">;
+  await t.mutation(api.agcCheckin.correctCheckIn, {
+    sessionToken: admin.token,
+    checkInId: g0CheckIn,
+    reason: "Recorded against the wrong delegate",
+  });
+  await everyDesk();
+
+  // A recount from the rows lands on the same numbers the writes kept.
+  const before = await t.query(internal.agcCheckin.verifyDeskStats, {});
+  await t.mutation(internal.agcCheckin.recountDeskStats, {});
+  const after = await t.query(internal.agcCheckin.verifyDeskStats, {});
+  expect(after.matches).toBe(true);
+  expect(after.counted).toEqual(before.counted);
+});
+
+test("desk totals: unseeded, the site query counts the rows itself", async () => {
+  const t = createTestConvex();
+  const desk = await seedStaff(t, "checkin");
+  const booking = await seedConfirmedBooking(t, {
+    accommodationType: "hostel",
+    gender: "female",
+    count: 1,
+  });
+  const room = await seedRoom(t, { accommodationType: "hostel", name: "H1", capacity: 2 });
+  await t.run(async (ctx) => {
+    await ctx.db.insert("agcRoomAssignments", {
+      open: true,
+      roomId: room as Id<"agcRooms">,
+      guestId: booking.guestIds[0] as Id<"agcGuests">,
+      bookingId: booking.bookingId,
+      assignedBy: "seed",
+      createdAt: Date.now(),
+    });
+  });
+  await t.mutation(api.agcCheckin.checkInGuest, {
+    sessionToken: desk.token,
+    guestId: booking.guestIds[0] as Id<"agcGuests">,
+    location: "central",
+  });
+  const stats = await t.query(internal.agcCheckin.verifyDeskStats, {});
+  expect(stats.seeded).toBe(false);
+  const site = await t.query(api.agcCheckin.getArrivalDeskSite, {
+    sessionToken: desk.token,
+  });
+  expect(site.totals.checkedIn).toBe(1);
+  await expectSplitMatchesSnapshot(t, desk.token);
 });

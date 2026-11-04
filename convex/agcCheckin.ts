@@ -1,10 +1,20 @@
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { mutation, query } from "./_generated/server";
+import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { requireRole } from "./users";
 import { writeAuditLog } from "./lib/audit";
+import {
+  countDeskTotals,
+  deleteCheckIn,
+  insertCheckIn,
+  insertKey,
+  patchCheckIn,
+  patchKey,
+  readDeskTotals,
+  recountDeskStats as rebuildDeskStats,
+} from "./lib/deskStats";
 import { agcKeyReturnStatus } from "./schemaTypes";
 import type { AgcKeyReturnStatus, AgcKeyStatus } from "./schemaTypes";
 import {
@@ -501,7 +511,7 @@ export async function performCheckIn(
         const recipientName =
           (args.keyRecipientName ?? "").trim() || guestLabel(guest);
         if (key) {
-          await ctx.db.patch(key._id, {
+          await patchKey(ctx, key._id, {
             recipientGuestId: guest._id,
             recipientName,
             newRecipientName: undefined,
@@ -511,7 +521,7 @@ export async function performCheckIn(
             updatedAt: Date.now(),
           });
         } else {
-          await ctx.db.insert("agcKeys", {
+          await insertKey(ctx, {
             roomId: room._id,
             accommodationType: room.accommodationType,
             roomName: room.name,
@@ -527,12 +537,13 @@ export async function performCheckIn(
       }
     }
 
-    const checkInId = await ctx.db.insert("agcCheckIns", {
+    const checkInId = await insertCheckIn(ctx, {
       guestId: guest._id,
       bookingId: guest.bookingId,
       hubId: guest.hubId,
       roomId: room._id,
       roomName: room.name,
+      roomType: room.accommodationType,
       building: room.building ?? undefined,
       location: args.location.trim() || "central",
       checkedInAt: Date.now(),
@@ -820,7 +831,7 @@ export async function performCheckOut(
     if (checkIn.checkedOutAt) {
       throw new ConvexError("The delegate is already checked out");
     }
-    await ctx.db.patch(checkIn._id, {
+    await patchCheckIn(ctx, checkIn._id, {
       checkedOutAt: Date.now(),
       checkedOutBy: actor.email,
       keyReturnStatus: args.keyReturnStatus ?? "not_applicable",
@@ -829,7 +840,7 @@ export async function performCheckOut(
     if (args.keyReturnStatus === "returned") {
       const key = await keyForRoom(ctx, checkIn.roomId);
       if (key) {
-        await ctx.db.patch(key._id, {
+        await patchKey(ctx, key._id, {
           status: "returned" as AgcKeyStatus,
           returnedAt: Date.now(),
           returnedBy: actor.email,
@@ -863,7 +874,7 @@ export const correctCheckIn = mutation({
     if (!reason) throw new ConvexError("A correction reason is required");
     const checkIn = await ctx.db.get(args.checkInId);
     if (!checkIn) throw new ConvexError("Check-in not found");
-    await ctx.db.patch(checkIn._id, {
+    await patchCheckIn(ctx, checkIn._id, {
       correctedAt: Date.now(),
       correctedBy: actor.email,
       correctionReason: reason,
@@ -925,7 +936,7 @@ export const undoCheckIn = mutation({
         ? key.newRecipientName ?? key.recipientName ?? null
         : null;
 
-    await ctx.db.delete(checkIn._id);
+    await deleteCheckIn(ctx, checkIn._id);
 
     await writeAuditLog(ctx, {
       actorUserId: actor._id,
@@ -1324,7 +1335,7 @@ export const replaceKey = mutation({
     if (!key || key.status === "returned") {
       throw new ConvexError("No keys are currently issued for this room");
     }
-    await ctx.db.patch(key._id, {
+    await patchKey(ctx, key._id, {
       status: "replaced" as AgcKeyStatus,
       replacedAt: Date.now(),
       replacedBy: actor.email,
@@ -1355,7 +1366,7 @@ export const returnKey = mutation({
     if (!key || key.status === "returned") {
       throw new ConvexError("No keys are currently issued for this room");
     }
-    await ctx.db.patch(key._id, {
+    await patchKey(ctx, key._id, {
       status: "returned" as AgcKeyStatus,
       returnedAt: Date.now(),
       returnedBy: actor.email,
@@ -1424,7 +1435,7 @@ export const issueKey = mutation({
     const recipientName = (args.recipientName ?? "").trim() || guestLabel(guest);
     let keyId: Id<"agcKeys">;
     if (key) {
-      await ctx.db.patch(key._id, {
+      await patchKey(ctx, key._id, {
         recipientGuestId: guest._id,
         recipientName,
         newRecipientName: undefined,
@@ -1437,7 +1448,7 @@ export const issueKey = mutation({
       });
       keyId = key._id;
     } else {
-      keyId = await ctx.db.insert("agcKeys", {
+      keyId = await insertKey(ctx, {
         roomId: room._id,
         accommodationType: room.accommodationType,
         roomName: room.name,
@@ -2044,6 +2055,12 @@ export const getArrivalDeskBase = query({
         void _t;
         return row;
       }),
+      // A posted desk asks for the keys of its own building's rooms only;
+      // null means the whole site (the central desk).
+      deskRoomIds:
+        location && location !== "central"
+          ? roomDocs.filter((room) => room.building === location).map((room) => room._id)
+          : null,
       overview: {
         totalRoomable: roomableGuests.length,
         assigned,
@@ -2063,6 +2080,12 @@ export const getArrivalDeskBase = query({
   },
 });
 
+/**
+ * Superseded by `getArrivalDeskState` + `getArrivalDeskSite`, which stop one
+ * building's arrivals re-running every other building's desk. Kept so desk
+ * tabs opened before that deploy keep working until they reload; delete once
+ * the Usage page shows no calls to it.
+ */
 export const getArrivalDeskLive = query({
   args: {
     sessionToken: v.string(),
@@ -2114,5 +2137,173 @@ export const getArrivalDeskLive = query({
     };
   },
 });
+
+/**
+ * Most ids one desk may ask for by key. One transaction may make at most 4,096
+ * reads, and each id is one index read, so a desk with more delegates and
+ * rooms than this reads the site-wide tables instead (always correct, just
+ * dearer).
+ */
+export const DESK_STATE_ID_LIMIT = 3_000;
+
+/**
+ * The parts of the desk that change at the counter, for this desk's own
+ * delegates and rooms. A posted desk passes the delegates on its sheet and its
+ * building's rooms (from `getArrivalDeskBase`), so it reads their check-ins and
+ * keys by index and an arrival in another building never re-runs it. Asked by
+ * delegate rather than by building on purpose: a delegate moved to another
+ * building after arriving keeps the old building on the check-in row, and
+ * would show as not arrived at the new desk. Without ids (the central desk),
+ * it reads every live check-in and key.
+ */
+export const getArrivalDeskState = query({
+  args: {
+    sessionToken: v.string(),
+    guestIds: v.optional(v.array(v.id("agcGuests"))),
+    roomIds: v.optional(v.array(v.id("agcRooms"))),
+  },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, args.sessionToken, [...CHECKIN_ROLES]);
+    const scoped =
+      args.guestIds !== undefined &&
+      args.roomIds !== undefined &&
+      args.guestIds.length + args.roomIds.length <= DESK_STATE_ID_LIMIT;
+
+    let checkInDocs: Doc<"agcCheckIns">[];
+    let keyDocs: Doc<"agcKeys">[];
+    if (scoped) {
+      const guestIds = [...new Set(args.guestIds)];
+      const roomIds = [...new Set(args.roomIds)];
+      const [checkInsByGuest, keysByRoom] = await Promise.all([
+        Promise.all(
+          guestIds.map((guestId) =>
+            ctx.db
+              .query("agcCheckIns")
+              .withIndex("by_guest", (q) => q.eq("guestId", guestId))
+              .collect(),
+          ),
+        ),
+        Promise.all(
+          roomIds.map((roomId) =>
+            ctx.db
+              .query("agcKeys")
+              .withIndex("by_room", (q) => q.eq("roomId", roomId))
+              .collect(),
+          ),
+        ),
+      ]);
+      // `by_guest` also returns corrected and pre-mirror rows; the desk only
+      // ever looked at live ones.
+      checkInDocs = checkInsByGuest.flat().filter((c) => c.live === true);
+      keyDocs = keysByRoom.flat();
+    } else {
+      [checkInDocs, keyDocs] = await Promise.all([
+        ctx.db
+          .query("agcCheckIns")
+          .withIndex("by_live", (q) => q.eq("live", true))
+          .collect(),
+        ctx.db.query("agcKeys").collect(),
+      ]);
+    }
+
+    const checkIns = checkInDocs.filter((c) => !c.correctedAt);
+    // Last key per room wins, as on the desk sheet before.
+    const keyStatusByRoom: Record<string, string> = {};
+    for (const key of keyDocs) keyStatusByRoom[key.roomId] = key.status;
+
+    return {
+      scoped,
+      checkIns: checkIns.map((c) => ({
+        _id: c._id,
+        guestId: c.guestId,
+        checkedInAt: c.checkedInAt,
+        checkedOutAt: c.checkedOutAt ?? null,
+      })),
+      keyStatusByRoom,
+      keys: await buildKeys(ctx, { keys: keyDocs } as DeskReads),
+    };
+  },
+});
+
+/**
+ * What every desk shares: the site-wide tiles from the running totals, the
+ * recent-arrivals feed, open review flags and offline conflicts. It re-runs on
+ * every arrival anywhere, so it reads only small rows: a handful of counter
+ * rows, the last few check-ins, and the open flags and conflicts.
+ */
+export const getArrivalDeskSite = query({
+  args: {
+    sessionToken: v.string(),
+    recentLimit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, args.sessionToken, [...CHECKIN_ROLES]);
+    const [stored, flags, conflicts, recent] = await Promise.all([
+      readDeskTotals(ctx),
+      ctx.db
+        .query("agcCheckinFlags")
+        .withIndex("by_open", (q) => q.eq("open", true))
+        .collect(),
+      ctx.db
+        .query("agcOfflineTransactions")
+        .withIndex("by_sync_status", (q) => q.eq("syncStatus", "conflict"))
+        .collect(),
+      buildRecentCheckIns(ctx, args.recentLimit),
+    ]);
+    // Until `recountDeskStats` has run once, count the rows: right, just dear.
+    const totals = stored ?? (await countDeskTotals(ctx)).totals;
+    return {
+      totals,
+      flagsByGuest: Object.fromEntries(openReviewFlagsByGuest(flags)),
+      reviewFlags: flags.filter((flag) => flag.resolvedAt === undefined).length,
+      offlineConflicts: conflicts.length,
+      recent,
+    };
+  },
+});
+
+/**
+ * Rebuilds the desk's running totals from the check-in and key rows, in one
+ * transaction. Run once after deploying the totals, and any time
+ * `verifyDeskStats` reports a difference:
+ *
+ *   npx convex run --prod agcCheckin:recountDeskStats
+ */
+export const recountDeskStats = internalMutation({
+  args: {},
+  handler: async (ctx) => await rebuildDeskStats(ctx),
+});
+
+/** Compares the running totals against a fresh count; `matches` must be true. */
+export const verifyDeskStats = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const [stored, counted] = await Promise.all([
+      readDeskTotals(ctx),
+      countDeskTotals(ctx),
+    ]);
+    return {
+      seeded: stored !== null,
+      stored,
+      counted: counted.totals,
+      matches:
+        stored !== null &&
+        JSON.stringify(normalize(stored)) === JSON.stringify(normalize(counted.totals)),
+    };
+  },
+});
+
+function normalize(counts: {
+  byType: Record<string, { checkedIn: number; checkedOut: number }>;
+}) {
+  return {
+    ...counts,
+    byType: Object.fromEntries(
+      Object.entries(counts.byType)
+        .filter(([, entry]) => entry.checkedIn !== 0 || entry.checkedOut !== 0)
+        .sort(([a], [b]) => a.localeCompare(b)),
+    ),
+  };
+}
 
 export type { AgcKeyReturnStatus };

@@ -9,46 +9,58 @@ import type {
 export type ArrivalDeskBase = FunctionReturnType<
   typeof api.agcCheckin.getArrivalDeskBase
 >;
-export type ArrivalDeskLive = FunctionReturnType<
-  typeof api.agcCheckin.getArrivalDeskLive
+export type ArrivalDeskState = FunctionReturnType<
+  typeof api.agcCheckin.getArrivalDeskState
 >;
+export type ArrivalDeskSite = FunctionReturnType<
+  typeof api.agcCheckin.getArrivalDeskSite
+>;
+
+/** Same cap as the server's `DESK_STATE_ID_LIMIT`. */
+const DESK_STATE_ID_LIMIT = 3_000;
+
+/**
+ * What a desk asks `getArrivalDeskState` for: its own delegates and its
+ * building's rooms, or the whole site (no ids) for the central desk or a
+ * building too large to ask for by id.
+ */
+export function deskStateScope(base: ArrivalDeskBase | undefined): {
+  guestIds?: string[];
+  roomIds?: string[];
+} | null {
+  if (!base) return null;
+  if (!base.deskRoomIds) return {};
+  const guestIds = base.rows.map((row) => row.guestId);
+  if (guestIds.length + base.deskRoomIds.length > DESK_STATE_ID_LIMIT) return {};
+  return { guestIds, roomIds: base.deskRoomIds };
+}
 
 /** The sheet never carried more than this many delegates. */
 const SHEET_LIMIT = 400;
 
 /**
- * Joins the desk's two subscriptions into the snapshot the page reads. The
- * base half (guests, rooms, assignments) rarely changes during check-in; the
- * live half (check-ins, keys, flags) does, and only it re-runs on a check-in.
+ * Joins the desk's three subscriptions into the snapshot the page reads:
+ *   - base: guests, rooms and assignments (rarely change during check-in);
+ *   - state: check-ins and keys for this desk's own delegates and rooms;
+ *   - site: the site-wide running totals, recent arrivals and review flags.
  * The result matches what `getArrivalSnapshot` built on the server.
  */
 export function composeArrivalSnapshot(
   base: ArrivalDeskBase,
-  live: ArrivalDeskLive,
+  state: ArrivalDeskState,
+  site: ArrivalDeskSite,
   options: { includeCheckedOut?: boolean },
 ) {
-  const checkInByGuest = new Map<string, ArrivalDeskLive["checkIns"][number]>();
-  const checkedInGuestIds = new Set<string>();
-  const checkedOutGuestIds = new Set<string>();
-  let checkedIn = 0;
-  let checkedOut = 0;
-  for (const c of live.checkIns) {
-    checkInByGuest.set(c.guestId, c);
-    if (c.checkedOutAt) {
-      checkedOut += 1;
-      checkedOutGuestIds.add(c.guestId);
-    } else {
-      checkedIn += 1;
-      checkedInGuestIds.add(c.guestId);
-    }
-  }
+  const checkInByGuest = new Map<string, ArrivalDeskState["checkIns"][number]>();
+  for (const c of state.checkIns) checkInByGuest.set(c.guestId, c);
+  const totals = site.totals;
 
   const rows: ArrivalDeskRow[] = [];
   for (const row of base.rows) {
     if (rows.length >= SHEET_LIMIT) break;
     const checkIn = checkInByGuest.get(row.guestId);
     if (checkIn?.checkedOutAt && !options.includeCheckedOut) continue;
-    const keyStatus = row.roomId ? live.keyStatusByRoom[row.roomId] : undefined;
+    const keyStatus = row.roomId ? state.keyStatusByRoom[row.roomId] : undefined;
     const keyOpen = keyStatus !== undefined && keyStatus !== "returned";
     let keyState: ArrivalKeyState | null = null;
     if (row.needsKey) {
@@ -70,7 +82,7 @@ export function composeArrivalSnapshot(
       checkedInAt: checkIn?.checkedInAt ?? null,
       pendingKeyRoom: row.needsKey && !keyOpen,
       keyStatus: keyState,
-      reviewFlag: live.flagsByGuest[row.guestId] ?? null,
+      reviewFlag: site.flagsByGuest[row.guestId] ?? null,
     });
   }
 
@@ -85,12 +97,17 @@ export function composeArrivalSnapshot(
       occupancyPercent: 0,
     });
   }
-  for (const { guestId, type } of base.overview.assignmentTypes) {
+  for (const { type } of base.overview.assignmentTypes) {
+    const entry = perType.get(type);
+    if (entry) entry.assigned += 1;
+  }
+  // Arrivals per type come from the running totals, filed under the room
+  // type the delegate was checked into.
+  for (const [type, counts] of Object.entries(totals.byType)) {
     const entry = perType.get(type);
     if (!entry) continue;
-    entry.assigned += 1;
-    if (checkedInGuestIds.has(guestId)) entry.checkedIn += 1;
-    if (checkedOutGuestIds.has(guestId)) entry.checkedOut += 1;
+    entry.checkedIn = Math.max(0, counts.checkedIn);
+    entry.checkedOut = Math.max(0, counts.checkedOut);
   }
   for (const entry of perType.values()) {
     entry.available = Math.max(0, entry.capacity - entry.assigned);
@@ -99,6 +116,8 @@ export function composeArrivalSnapshot(
   }
 
   const { assigned, unassigned } = base.overview;
+  const checkedIn = Math.max(0, totals.checkedIn);
+  const checkedOut = Math.max(0, totals.checkedOut);
   const overview: ArrivalOverview = {
     totalRoomable: base.overview.totalRoomable,
     assigned,
@@ -108,12 +127,12 @@ export function composeArrivalSnapshot(
     checkedOut,
     totalCapacity: base.overview.totalCapacity,
     remainingCapacity: base.overview.remainingCapacity,
-    keysIssued: live.keysIssued,
-    keysReturned: live.keysReturned,
-    unresolvedExceptions: unassigned + live.offlineConflicts,
-    paymentOverrides: live.paymentOverrides,
-    offlineConflicts: live.offlineConflicts,
-    reviewFlags: live.reviewFlags,
+    keysIssued: Math.max(0, totals.keysIssued),
+    keysReturned: Math.max(0, totals.keysReturned),
+    unresolvedExceptions: unassigned + site.offlineConflicts,
+    paymentOverrides: Math.max(0, totals.paymentOverrides),
+    offlineConflicts: site.offlineConflicts,
+    reviewFlags: site.reviewFlags,
     perLocation: [...perType.values()].sort((a, b) =>
       a.typeLabel.localeCompare(b.typeLabel),
     ),
@@ -121,8 +140,8 @@ export function composeArrivalSnapshot(
 
   return {
     overview,
-    recent: live.recent,
-    keys: live.keys,
+    recent: site.recent,
+    keys: state.keys,
     rows,
     rooms: base.rooms,
     roomIssues: base.roomIssues,
