@@ -92,6 +92,8 @@ import {
   StatusLegend,
 } from "@/components/admin/agc/StatusPrimitives";
 import { cn } from "@/lib/utils";
+import { composeArrivalSnapshot } from "@/lib/arrivalDesk";
+import { useLastValue, useLiveUpdates } from "@/hooks/use-live-updates";
 
 /**
  * Accommodation Check-In Module (Phase 2 §10–20) — the arrival desk.
@@ -565,21 +567,38 @@ export function ArrivalPage() {
   // The sheet pages in place: the page size, and the page the desk is on.
   const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
 
-  // The whole desk in one subscription. The tiles, recent arrivals, the key
-  // register, the sheet and the room grid read the same tables, so separate
-  // live queries re-ran all of them on every check-in, assignment or key write.
-  const snapshot = useQuery(
-    api.agcCheckin.getArrivalSnapshot,
-    sessionToken
-      ? {
-          sessionToken,
-          location: deskLocation === "central" ? undefined : deskLocation,
-          // Departed delegates are off the sheet unless the Checked out tile
-          // is doing the asking.
-          includeCheckedOut: statFilter === "checked_out" ? true : undefined,
-          recentLimit: 8,
-        }
-      : "skip",
+  // The desk in two subscriptions, split by how often their tables change: a
+  // check-in, check-out or key write re-runs only the small live half, never
+  // the guests, bookings, rooms and assignments the base half reads. Both
+  // pause while the tab is hidden or nobody has used it for a while, since an
+  // open subscription is billed for every write at every other desk.
+  const liveUpdates = useLiveUpdates();
+  const baseLocation = deskLocation === "central" ? undefined : deskLocation;
+  const deskBase = useLastValue(
+    useQuery(
+      api.agcCheckin.getArrivalDeskBase,
+      sessionToken && liveUpdates
+        ? { sessionToken, location: baseLocation }
+        : "skip",
+    ),
+    baseLocation ?? "central",
+  );
+  const deskLive = useLastValue(
+    useQuery(
+      api.agcCheckin.getArrivalDeskLive,
+      sessionToken && liveUpdates ? { sessionToken, recentLimit: 8 } : "skip",
+    ),
+    "live",
+  );
+  // Departed delegates are off the sheet unless the Checked out tile is
+  // doing the asking.
+  const includeCheckedOut = statFilter === "checked_out";
+  const snapshot = useMemo(
+    () =>
+      deskBase && deskLive
+        ? composeArrivalSnapshot(deskBase, deskLive, { includeCheckedOut })
+        : undefined,
+    [deskBase, deskLive, includeCheckedOut],
   );
   const overview = snapshot?.overview;
   const recent = snapshot?.recent;

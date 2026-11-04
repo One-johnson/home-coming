@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { createTestConvex } from "./testUtils";
+import { composeArrivalSnapshot } from "../src/lib/arrivalDesk";
 
 /**
  * Phase 2 — room assignment completion, accommodation check-in, keys,
@@ -110,6 +111,35 @@ async function seedConfirmedBooking(
     return { hubId, repId, bookingId, guestIds };
   });
   return ids;
+}
+
+/**
+ * The desk now reads a base and a live query and joins them in the page; the
+ * join must give exactly what the single server snapshot gave.
+ */
+async function expectSplitMatchesSnapshot(
+  t: TestConvex,
+  sessionToken: string,
+  options: { location?: string; includeCheckedOut?: boolean } = {},
+) {
+  const [snapshot, base, live] = await Promise.all([
+    t.query(api.agcCheckin.getArrivalSnapshot, {
+      sessionToken,
+      location: options.location,
+      includeCheckedOut: options.includeCheckedOut,
+      recentLimit: 8,
+    }),
+    t.query(api.agcCheckin.getArrivalDeskBase, {
+      sessionToken,
+      location: options.location,
+    }),
+    t.query(api.agcCheckin.getArrivalDeskLive, { sessionToken, recentLimit: 8 }),
+  ]);
+  expect(
+    composeArrivalSnapshot(base, live, {
+      includeCheckedOut: options.includeCheckedOut,
+    }),
+  ).toEqual(snapshot);
 }
 
 async function seedRoom(
@@ -816,6 +846,7 @@ test("check-in: duplicate prevention, unassigned referral, and payment override 
   expect(overview.checkedIn).toBe(2);
   expect(overview.paymentOverrides).toBe(1);
   expect(overview.keysIssued).toBe(2); // WSL + GGL
+  await expectSplitMatchesSnapshot(t, checkSeed.token);
 
   // Check-out with key return closes the key record (§20).
   await t.mutation(api.agcCheckin.checkOutGuest, {
@@ -834,6 +865,8 @@ test("check-in: duplicate prevention, unassigned referral, and payment override 
   });
   expect(afterCheckout.keysReturned).toBe(1);
   expect(afterCheckout.keysIssued).toBe(1);
+  await expectSplitMatchesSnapshot(t, checkSeed.token);
+  await expectSplitMatchesSnapshot(t, checkSeed.token, { includeCheckedOut: true });
 
   // The desk sheet drops departed delegates, unless the Checked out tile asks
   // for them — then they come back with their real status.
@@ -1020,6 +1053,9 @@ test("offline queue: designated-station rule, idempotent sync, conflicts flagged
   });
   expect(secondSync.conflicts).toBe(1);
   expect(secondSync.applied).toBe(0);
+  // A conflict is counted on the tiles; a scoped desk sees only its building.
+  await expectSplitMatchesSnapshot(t, staff.token);
+  await expectSplitMatchesSnapshot(t, staff.token, { location: "Blocks 1–4" });
 
   // An approver can resolve the conflict.
   const conflicts = await t.query(api.agcOffline.listConflicts, {
@@ -1199,6 +1235,7 @@ test("flag this record for review: a note is required, and only the admin clears
   const sheetRow = sheet.find((row) => row.guestId === guestId);
   expect(sheetRow?.reviewFlag?.note).toBe("Receipt does not match the booking");
   expect(sheetRow?.reviewFlag?.raisedBy).toBe("checkin@example.com");
+  await expectSplitMatchesSnapshot(t, desk.token);
   const searched = await t.query(api.agcCheckin.searchDelegates, {
     sessionToken: desk.token,
     search: "Guest0",
@@ -1228,6 +1265,7 @@ test("flag this record for review: a note is required, and only the admin clears
     sessionToken: admin.token,
   });
   expect(overview.reviewFlags).toBe(1);
+  await expectSplitMatchesSnapshot(t, desk.token);
 
   // Clearing it is an Accommodation Admin decision, and needs its own note.
   await expect(() =>

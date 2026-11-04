@@ -1918,4 +1918,201 @@ export const getArrivalSnapshot = query({
   },
 });
 
+// ------------------------------------------------------------------
+// The desk split by how often its tables change
+// ------------------------------------------------------------------
+//
+// `getArrivalSnapshot` read nine tables in one query, so every check-in, key
+// write or flag re-read guests, bookings, rooms, assignments and hubs on every
+// open desk. The desk now subscribes to two queries:
+//
+//   - `getArrivalDeskBase`: guests, bookings, rooms, assignments, hubs and room
+//     faults. Check-in, check-out and key writes never touch these tables, so
+//     this query only re-runs when rooms are assigned or bookings change.
+//   - `getArrivalDeskLive`: live check-ins, keys, open review flags and the
+//     recent feed: the rows that change at the counter, and small ones.
+//
+// The page joins the two (`src/lib/arrivalDesk.ts`) into the snapshot shape.
+// `getArrivalSnapshot` stays until desk tabs opened before this deploy reload.
+
+/** A desk sheet row without the parts that change at the counter. */
+export type ArrivalDeskBaseRow = Omit<
+  ArrivalDeskRow,
+  "checkInStatus" | "checkInId" | "checkedInAt" | "pendingKeyRoom" | "keyStatus" | "reviewFlag"
+>;
+
+export const getArrivalDeskBase = query({
+  args: {
+    sessionToken: v.string(),
+    location: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, args.sessionToken, [...CHECKIN_ROLES]);
+    const [roomDocs, assignments, guests, bookings, hubs, roomIssueDocs] =
+      await Promise.all([
+        ctx.db.query("agcRooms").collect(),
+        ctx.db
+          .query("agcRoomAssignments")
+          .withIndex("by_open", (q) => q.eq("open", true))
+          .collect(),
+        activeGuests(ctx),
+        roomableBookings(ctx),
+        ctx.db.query("agcHubs").collect(),
+        ctx.db.query("agcRoomIssues").collect(),
+      ]);
+
+    const roomById = new Map(roomDocs.map((room) => [room._id, room] as const));
+    const openAssignments = assignments.filter((a) => a.endedAt === undefined);
+    const openByGuest = new Map<string, Doc<"agcRoomAssignments">>();
+    for (const a of openAssignments) openByGuest.set(a.guestId, a);
+    const bedByGuest = bedNumbersByGuest(assignments);
+    const bookingById = new Map(bookings.map((b) => [b._id, b] as const));
+    const hubNameById = new Map(hubs.map((h) => [h._id, h.name] as const));
+    const location = args.location?.trim();
+
+    // Same filters and order as `buildArrivalDesk`, minus the check-in state.
+    const rows: (ArrivalDeskBaseRow & { _t: string })[] = [];
+    for (const guest of guests) {
+      if (guest.status !== "active") continue;
+      const booking = bookingById.get(guest.bookingId);
+      if (!booking || !isRoomableBooking(booking)) continue;
+      const assignment = openByGuest.get(guest._id);
+      const room = assignment ? roomById.get(assignment.roomId) : undefined;
+      if (location && location !== "central" && room?.building !== location) {
+        continue;
+      }
+      rows.push({
+        guestId: guest._id,
+        name: guestLabel(guest),
+        title: guest.title,
+        firstName: guest.firstName,
+        lastName: guest.lastName,
+        hubName: hubNameById.get(guest.hubId) ?? "(unknown)",
+        gender: guest.gender,
+        accommodationType: guest.accommodationType,
+        bookingRef: booking.referenceNumber ?? "",
+        paymentStatus: booking.paymentStatus,
+        poaStatus: booking.poa?.status ?? null,
+        assignmentStatus: room ? "assigned" : "unassigned",
+        roomId: room?._id ?? null,
+        roomName: room?.name ?? null,
+        building: room?.building ?? null,
+        bedNumber: bedByGuest.get(guest._id) ?? null,
+        needsKey: room ? roomNeedsKey(room.accommodationType) : false,
+        _t: `${guest.lastName} ${guest.firstName}`.toLowerCase(),
+      });
+    }
+    rows.sort((a, b) => a._t.localeCompare(b._t));
+
+    // The overview's room-side half (see `buildArrivalOverview`).
+    const liveRooms = roomDocs.filter((room) => !room.deletedAt);
+    const roomableGuests = guests.filter((g) => bookingById.has(g.bookingId));
+    const assignedGuestIds = new Set(openAssignments.map((a) => a.guestId));
+    const assigned = roomableGuests.filter((g) => assignedGuestIds.has(g._id)).length;
+    const totalCapacity = liveRooms.reduce((sum, room) => sum + room.capacity, 0);
+    const capacityByType = new Map<Doc<"agcRooms">["accommodationType"], number>();
+    for (const room of liveRooms) {
+      capacityByType.set(
+        room.accommodationType,
+        (capacityByType.get(room.accommodationType) ?? 0) + room.capacity,
+      );
+    }
+    const liveRoomTypeById = new Map(
+      liveRooms.map((room) => [room._id, room.accommodationType] as const),
+    );
+    // One entry per open assignment, so the live half can count arrivals per
+    // room type without reading rooms or assignments itself.
+    const assignmentTypes: { guestId: string; type: string }[] = [];
+    for (const a of openAssignments) {
+      const type = liveRoomTypeById.get(a.roomId);
+      if (type) assignmentTypes.push({ guestId: a.guestId, type });
+    }
+
+    const [rooms, roomIssues] = await Promise.all([
+      buildRoomsAdmin(ctx, {
+        rooms: roomDocs,
+        issues: roomIssueDocs,
+        assignments,
+        guests,
+      }),
+      buildRoomIssues(ctx, false, roomIssueDocs),
+    ]);
+
+    return {
+      rows: rows.map((entry) => {
+        const { _t, ...row } = entry;
+        void _t;
+        return row;
+      }),
+      overview: {
+        totalRoomable: roomableGuests.length,
+        assigned,
+        unassigned: roomableGuests.length - assigned,
+        totalCapacity,
+        remainingCapacity: Math.max(0, totalCapacity - openAssignments.length),
+        capacityByType: [...capacityByType.entries()].map(([type, capacity]) => ({
+          accommodationType: type,
+          typeLabel: AGC_ACCOMMODATION_LABELS[type] ?? type,
+          capacity,
+        })),
+        assignmentTypes,
+      },
+      rooms,
+      roomIssues,
+    };
+  },
+});
+
+export const getArrivalDeskLive = query({
+  args: {
+    sessionToken: v.string(),
+    recentLimit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, args.sessionToken, [...CHECKIN_ROLES]);
+    const [checkInDocs, keyDocs, flags, conflicts, recent] = await Promise.all([
+      ctx.db
+        .query("agcCheckIns")
+        .withIndex("by_live", (q) => q.eq("live", true))
+        .collect(),
+      ctx.db.query("agcKeys").collect(),
+      ctx.db
+        .query("agcCheckinFlags")
+        .withIndex("by_open", (q) => q.eq("open", true))
+        .collect(),
+      ctx.db
+        .query("agcOfflineTransactions")
+        .withIndex("by_sync_status", (q) => q.eq("syncStatus", "conflict"))
+        .collect(),
+      buildRecentCheckIns(ctx, args.recentLimit),
+    ]);
+
+    const checkIns = checkInDocs.filter((c) => !c.correctedAt);
+    // Last key per room in table order wins, as on the desk sheet before.
+    const keyStatusByRoom: Record<string, string> = {};
+    for (const key of keyDocs) keyStatusByRoom[key.roomId] = key.status;
+
+    return {
+      // In table order: the page keeps the last row per guest, as before.
+      checkIns: checkIns.map((c) => ({
+        _id: c._id,
+        guestId: c.guestId,
+        checkedInAt: c.checkedInAt,
+        checkedOutAt: c.checkedOutAt ?? null,
+      })),
+      paymentOverrides: checkIns.filter((c) => c.paymentOverride).length,
+      keyStatusByRoom,
+      keysIssued: keyDocs.filter(
+        (key) => key.status === "issued" || key.status === "replaced",
+      ).length,
+      keysReturned: keyDocs.filter((key) => key.status === "returned").length,
+      keys: await buildKeys(ctx, { keys: keyDocs } as DeskReads),
+      flagsByGuest: Object.fromEntries(openReviewFlagsByGuest(flags)),
+      reviewFlags: flags.filter((flag) => flag.resolvedAt === undefined).length,
+      offlineConflicts: conflicts.length,
+      recent,
+    };
+  },
+});
+
 export type { AgcKeyReturnStatus };
