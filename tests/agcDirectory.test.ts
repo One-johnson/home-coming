@@ -14,7 +14,7 @@ type TestConvex = ReturnType<typeof createTestConvex>;
 
 async function seedStaff(
   t: TestConvex,
-  role: "admin" | "accommodation_volunteer" | "content",
+  role: "admin" | "accommodation" | "accommodation_volunteer" | "content",
 ) {
   const { createHash, randomBytes } = await import("node:crypto");
   const token = createHash("sha256").update(randomBytes(24)).digest("hex");
@@ -214,20 +214,23 @@ test("an admin can hand an existing staff account the volunteer role", async () 
   );
 });
 
-test("admins read the same directory, and other staff roles cannot", async () => {
+test("the accommodation team reads the same directory; admins and other staff roles cannot", async () => {
   const t = createTestConvex();
   const admin = await seedStaff(t, "admin");
+  const accommodation = await seedStaff(t, "accommodation");
   const content = await seedStaff(t, "content");
   await seedDirectory(t);
 
-  const asAdmin = await t.query(api.agcDirectory.listDelegateDirectory, {
-    sessionToken: admin.token,
+  const asAccommodation = await t.query(api.agcDirectory.listDelegateDirectory, {
+    sessionToken: accommodation.token,
   });
-  expect(asAdmin.delegates).toHaveLength(2);
+  expect(asAccommodation.delegates).toHaveLength(2);
 
-  await expect(() =>
-    t.query(api.agcDirectory.listDelegateDirectory, {
-      sessionToken: content.token,
-    }),
-  ).rejects.toThrow(/Unauthorized/);
+  for (const staff of [admin, content]) {
+    await expect(() =>
+      t.query(api.agcDirectory.listDelegateDirectory, {
+        sessionToken: staff.token,
+      }),
+    ).rejects.toThrow(/Unauthorized/);
+  }
 });

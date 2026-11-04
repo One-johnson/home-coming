@@ -53,7 +53,8 @@ export const AREA_ROLES: Record<AdminArea, readonly StaffRole[]> = {
   accommodation: ["admin", "accommodation", "room_assignment"],
   // Read-only reps / delegates / rooms directory. Volunteers work from it on
   // their phones; the accommodation team gets it alongside the room console.
-  directory: ["admin", "accommodation", "accommodation_volunteer"],
+  // Super admins deliberately do not see it.
+  directory: ["accommodation", "accommodation_volunteer"],
   content: ["admin", "content"],
   team: ["admin"],
   seed: ["admin"],
