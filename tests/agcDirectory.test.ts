@@ -214,23 +214,23 @@ test("an admin can hand an existing staff account the volunteer role", async () 
   );
 });
 
-test("the accommodation team reads the same directory; admins and other staff roles cannot", async () => {
+test("admins and the accommodation team read the same directory; other staff roles cannot", async () => {
   const t = createTestConvex();
   const admin = await seedStaff(t, "admin");
   const accommodation = await seedStaff(t, "accommodation");
   const content = await seedStaff(t, "content");
   await seedDirectory(t);
 
-  const asAccommodation = await t.query(api.agcDirectory.listDelegateDirectory, {
-    sessionToken: accommodation.token,
-  });
-  expect(asAccommodation.delegates).toHaveLength(2);
-
-  for (const staff of [admin, content]) {
-    await expect(() =>
-      t.query(api.agcDirectory.listDelegateDirectory, {
-        sessionToken: staff.token,
-      }),
-    ).rejects.toThrow(/Unauthorized/);
+  for (const staff of [admin, accommodation]) {
+    const result = await t.query(api.agcDirectory.listDelegateDirectory, {
+      sessionToken: staff.token,
+    });
+    expect(result.delegates).toHaveLength(2);
   }
+
+  await expect(() =>
+    t.query(api.agcDirectory.listDelegateDirectory, {
+      sessionToken: content.token,
+    }),
+  ).rejects.toThrow(/Unauthorized/);
 });
