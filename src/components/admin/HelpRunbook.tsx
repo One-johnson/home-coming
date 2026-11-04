@@ -198,7 +198,6 @@ const SECTIONS: RunbookSection[] = [
     ],
     links: [
       { href: "/admin/accommodation", label: "Open Rooms tab" },
-      { href: "/admin/pre-arrival", label: "Pre-arrival checklist" },
     ],
   },
   {

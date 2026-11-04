@@ -154,25 +154,6 @@ export const ADMIN_GUIDES: AdminGuide[] = [
     ],
   },
   {
-    href: "/admin/pre-arrival",
-    title: "Pre-arrival",
-    intro: "Readiness checks for November 3 — imports against pools, EBPV sanity, publishing and assignments.",
-    steps: [
-      {
-        kind: "do",
-        text: "Work top to bottom. Each check names what is missing and links to the screen that fixes it; fix, then reload the checklist.",
-      },
-      {
-        kind: "if-fails",
-        text: "A check that stays red after the fix usually means the change landed on another type or building — open the check's detail to see which slice it is measuring.",
-      },
-      {
-        kind: "never",
-        text: "Do not publish rooms or assign delegates just to turn a check green. Publish after the inventory is right; assign after the pools and rooms are.",
-      },
-    ],
-  },
-  {
     href: "/admin/reports",
     title: "Ops reports",
     intro: "Operational exports — room assignment, occupancy, check-in state, keys, overrides and offline exceptions.",

@@ -94,7 +94,7 @@ export function StatusLegend({
 
 /**
  * A count tile with a colour role: used for the desk's action row, cash totals
- * and pre-arrival readiness. `rail` draws the same tone down the left edge so
+ * and report totals. `rail` draws the same tone down the left edge so
  * it still reads when a projector washes the tint out.
  */
 export function StatTile({

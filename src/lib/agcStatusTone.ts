@@ -1,6 +1,6 @@
 /**
  * One colour vocabulary for every arrival-day surface — desk, runbook, ops
- * reports, desk check-in and the pre-arrival checklist.
+ * reports and desk check-in.
  *
  * The rule staff learn once:
  *   emerald = done, nothing to do      amber  = blocked, needs a human

@@ -54,7 +54,7 @@ const GROUPS: ReportGroup[] = [
   {
     id: "before",
     title: "Before arrival — inventory & rooming",
-    hint: "Run these while rooms are still being prepared; the pre-arrival checklist links here.",
+    hint: "Run these while rooms are still being prepared.",
     tone: "info",
     icon: BedDouble,
     reports: [
