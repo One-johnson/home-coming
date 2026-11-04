@@ -16,8 +16,8 @@ import { AGC_ACCOMMODATION_LABELS } from "../src/lib/agcPortal";
  * room/assignment surface stays closed to it.
  */
 
-// Super admins are deliberately excluded.
 const DIRECTORY_ROLES = [
+  "admin",
   "accommodation",
   "accommodation_volunteer",
 ] as const;
