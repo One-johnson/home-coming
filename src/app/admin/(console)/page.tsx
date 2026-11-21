@@ -307,8 +307,8 @@ function CurrencyMoneyTiles({
               className={cn(
                 "h-1 w-full",
                 currency === "GHS"
-                  ? "bg-gradient-to-r from-gold to-amber-400"
-                  : "bg-gradient-to-r from-sky-500 to-emerald-400",
+                  ? "bg-amber-500"
+                  : "bg-emerald-600",
               )}
             />
             <CardHeader className="pb-2">
@@ -713,7 +713,6 @@ function AgeingTiles({
   ];
   return (
     <Card className="overflow-hidden">
-      <div className="h-1 w-full bg-gradient-to-r from-rose-400 via-amber-400 to-sky-400" />
       <CardHeader className="pb-2">
         <CardTitle className="text-base">Awaiting review ageing</CardTitle>
         <CardDescription className="text-xs">
@@ -849,7 +848,6 @@ function HubMoneyTable({
 
   return (
     <Card className="overflow-hidden">
-      <div className="h-1 w-full bg-gradient-to-r from-forest via-sky-500 to-gold" />
       <CardHeader className="pb-1">
         <CardTitle className="text-base">Money by hub</CardTitle>
         <CardDescription className="text-xs">
@@ -1094,8 +1092,8 @@ function FinanceStatsCards({
                 className={cn(
                   "h-1 w-full",
                   currency === "GHS"
-                    ? "bg-gradient-to-r from-gold to-amber-400"
-                    : "bg-gradient-to-r from-sky-500 to-emerald-400",
+                    ? "bg-amber-500"
+                    : "bg-emerald-600",
                 )}
               />
               <CardHeader className="pb-2">
@@ -1105,7 +1103,7 @@ function FinanceStatsCards({
                     className={cn(
                       "flex size-7 items-center justify-center rounded-lg",
                       currency === "GHS"
-                        ? "bg-gold/15 text-gold-dark"
+                        ? "bg-primary/10 text-primary"
                         : "bg-sky-100 text-sky-700",
                     )}
                   >
@@ -1206,7 +1204,6 @@ function HubCollectionsCard({ data }: { data: HubCollections | undefined }) {
 
   return (
     <Card className="overflow-hidden">
-      <div className="h-1 w-full bg-gradient-to-r from-emerald-400 via-amber-400 to-violet-400" />
       <CardHeader className="pb-2">
         <CardTitle className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5 text-base">
           Registrations by hub
@@ -1639,7 +1636,6 @@ export default function AdminOverviewPage() {
           {!isFinanceView && (
             <div className="hidden gap-4 sm:grid xl:grid-cols-[1.2fr_0.8fr]">
               <Card className="overflow-hidden">
-                <div className="h-1 w-full bg-gradient-to-r from-amber-400 via-rose-400 to-sky-400" />
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base">Needs attention</CardTitle>
                 </CardHeader>
@@ -1677,7 +1673,6 @@ export default function AdminOverviewPage() {
             </Card>
 
             <Card className="overflow-hidden">
-              <div className="h-1 w-full bg-gradient-to-r from-gold via-forest to-sky-500" />
               <CardHeader className="flex flex-row items-center justify-between pb-3">
                 <CardTitle className="text-base">Recent activity</CardTitle>
                 {canAccessArea(role, "audit") && (
@@ -1732,7 +1727,6 @@ export default function AdminOverviewPage() {
 
           {canAccommodation && !isFinanceView && overview.housing.length > 0 && (
             <Card className="overflow-hidden">
-              <div className="h-1 w-full bg-gradient-to-r from-amber-400 to-emerald-500" />
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle className="text-base">
                   Accommodation capacity

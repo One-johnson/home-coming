@@ -64,7 +64,7 @@ const TYPE_ACCENTS: Record<string, { chip: string; bar: string }> = {
 };
 
 const FALLBACK_ACCENT = {
-  chip: "bg-gold/15 text-gold-dark",
+  chip: "bg-primary/10 text-primary",
   bar: "bg-gold",
 };
 
@@ -256,7 +256,7 @@ export function RepRoomAssignmentsCard() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg">
-            <BedDouble className="size-4 text-gold-dark" /> Room assignments
+            <BedDouble className="size-4 text-primary" /> Room assignments
           </CardTitle>
           <CardDescription>Loading…</CardDescription>
         </CardHeader>
@@ -279,7 +279,7 @@ export function RepRoomAssignmentsCard() {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-lg">
-          <BedDouble className="size-4 text-gold-dark" /> Room assignments
+          <BedDouble className="size-4 text-primary" /> Room assignments
           <Badge variant="outline" className="text-[11px] font-normal text-muted-foreground">
             Published
           </Badge>

@@ -81,8 +81,8 @@ const NAV_TITLES: Record<PortalTab, { title: string; description: string }> = {
 
 function ConvexRequiredMessage() {
   return (
-    <div className="flex min-h-svh items-center justify-center bg-neutral-100 px-4">
-      <div className="w-full max-w-md rounded-2xl border bg-white p-8 text-center shadow-elevate">
+    <div className="flex min-h-svh items-center justify-center bg-background px-4">
+      <div className="w-full max-w-md rounded-xl border bg-card p-8 text-center shadow-elevate">
         <h1 className="font-display text-2xl text-ink">Portal unavailable</h1>
         <p className="mt-2 text-sm text-muted-foreground">
           The representative portal requires Convex. Run{" "}
@@ -98,7 +98,7 @@ function ConvexRequiredMessage() {
 
 function PortalLoading() {
   return (
-    <div className="flex min-h-svh items-center justify-center bg-neutral-100 text-sm text-muted-foreground">
+    <div className="flex min-h-svh items-center justify-center bg-background text-sm text-muted-foreground">
       Loading your portal…
     </div>
   );
@@ -127,7 +127,7 @@ function PortalSidebar({
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" tooltip={CONFERENCE_NAME}>
-              <div className="flex h-8 min-w-8 shrink-0 items-center justify-center rounded-lg bg-gold/20 px-1.5 font-display text-[11px] font-bold tracking-wide text-gold-dark">
+              <div className="flex h-8 min-w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 px-1.5 text-[11px] font-bold tracking-wide text-primary">
                 {CONFERENCE_MONOGRAM}
               </div>
               <div className="grid flex-1 text-left text-sm leading-tight">
@@ -183,7 +183,7 @@ function PortalBottomNav({
   return (
     <nav
       aria-label="Portal navigation"
-      className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-white/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-1px_0_0_rgba(212,175,55,0.2)] backdrop-blur-md md:hidden"
+      className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/90 pb-[env(safe-area-inset-bottom)] backdrop-blur-md md:hidden"
     >
       <div className="mx-auto grid max-w-lg grid-cols-3">
         {NAV_ITEMS.map((item) => {
@@ -201,8 +201,8 @@ function PortalBottomNav({
                   : "text-muted-foreground hover:text-foreground",
               )}
             >
-              <item.icon className={cn("size-5", active && "text-gold-dark")} />
-              <span className={cn(active && "text-gold-dark")}>{item.label}</span>
+              <item.icon className={cn("size-5", active && "text-primary")} />
+              <span className={cn(active && "text-primary")}>{item.label}</span>
             </button>
           );
         })}
@@ -359,11 +359,11 @@ function PortalFrame({
     // shadcn sidebar becomes a slide-in sheet on mobile — the bottom nav
     // replaces the permanent rail, and the header stays fixed on top.
     return (
-      <SidebarInset className="min-w-0 overflow-x-hidden bg-neutral-100">
-        <header className="fixed top-0 right-0 z-30 border-b border-border/80 bg-white/95 pt-[env(safe-area-inset-top)] shadow-[0_1px_0_0_rgba(212,175,55,0.35)] backdrop-blur-md supports-backdrop-filter:bg-white/85">
+      <SidebarInset className="min-w-0 overflow-x-hidden bg-background">
+        <header className="fixed top-0 right-0 z-30 border-b bg-background/85 pt-[env(safe-area-inset-top)] backdrop-blur-md">
           <div className="flex h-14 w-full min-w-0 items-center gap-3 px-4">
             <div className="min-w-0 flex-1">
-              <h1 className="truncate text-base font-semibold tracking-tight text-ink">
+              <h1 className="truncate text-[15px] font-semibold leading-tight">
                 {meta.title}
               </h1>
               <p className="truncate text-xs text-muted-foreground">
@@ -388,23 +388,22 @@ function PortalFrame({
         onSelect={onSelect}
         onSignOut={onSignOut}
       />
-      <SidebarInset className="min-w-0 overflow-x-hidden bg-neutral-100">
+      <SidebarInset className="min-w-0 overflow-x-hidden bg-background">
         <header
-          className="fixed top-0 right-0 z-30 border-b border-border/80 bg-white/95 shadow-[0_1px_0_0_rgba(212,175,55,0.35)] backdrop-blur-md transition-[left] duration-200 ease-linear supports-backdrop-filter:bg-white/85"
+          className="fixed top-0 right-0 z-30 border-b bg-background/85 backdrop-blur-md transition-[left] duration-200 ease-linear"
           style={{ left: headerLeft }}
         >
-          <div className="flex h-16 w-full min-w-0 items-center gap-3 px-4 sm:px-6">
-            <SidebarTrigger className="-ml-1" />
-            <div className="h-5 w-px shrink-0 bg-border" />
-            <div className="min-w-0 flex-1">
-              <h1 className="truncate text-base font-semibold tracking-tight text-ink">
+          <div className="flex h-14 w-full min-w-0 items-center gap-2 px-4 sm:px-6">
+            <SidebarTrigger className="-ml-1 text-muted-foreground" />
+            <div className="min-w-0 flex-1 pl-1">
+              <h1 className="truncate text-[15px] font-semibold leading-tight">
                 {meta.title}
               </h1>
               <p className="hidden truncate text-xs text-muted-foreground sm:block">
                 {meta.description}
               </p>
             </div>
-            <div className="hidden items-center gap-2 rounded-lg border border-border bg-muted/40 px-2.5 py-1.5 text-xs text-muted-foreground lg:flex">
+            <div className="hidden items-center gap-2 rounded-full border bg-card px-2.5 py-1 text-xs text-muted-foreground lg:flex">
               <span className="font-medium text-foreground">{rep.hubName}</span>
               <span>·</span>
               <span>Rep portal</span>
@@ -413,8 +412,8 @@ function PortalFrame({
             <RepProfileMenu rep={rep} onSignOut={onSignOut} />
           </div>
         </header>
-        <div className="min-w-0 flex-1 overflow-x-hidden px-4 pt-20 pb-4 sm:px-6 sm:pb-6 lg:px-8 lg:pb-8">
-          {children}
+        <div className="min-w-0 flex-1 overflow-x-hidden px-4 pt-[4.75rem] pb-6 sm:px-6 lg:px-8 lg:pb-10">
+          <div className="mx-auto w-full max-w-[1440px]">{children}</div>
         </div>
       </SidebarInset>
     </>

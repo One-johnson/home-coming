@@ -99,7 +99,7 @@ export function VolunteerRegisterForm() {
           Already have an account?{" "}
           <Link
             href={TEAM.signInPath}
-            className="font-medium text-gold hover:text-gold-dark"
+            className="font-medium text-gold hover:text-primary"
           >
             Sign in
           </Link>
@@ -107,7 +107,7 @@ export function VolunteerRegisterForm() {
       }
     >
       <div className="rounded-2xl border border-border/70 bg-white p-6 shadow-elevate">
-        <div className="mb-4 flex size-11 items-center justify-center rounded-full bg-gold/15 text-gold-dark">
+        <div className="mb-4 flex size-11 items-center justify-center rounded-full bg-primary/10 text-primary">
           <ShieldCheck className="size-5" aria-hidden />
         </div>
         <h1 className="font-display text-2xl">Create your volunteer account</h1>

@@ -271,7 +271,7 @@ export function RepOverviewTab({
       <div className="flex flex-wrap items-center gap-2">
         <Badge
           variant="outline"
-          className="border-gold/40 bg-gold/10 text-ink"
+          className="border-primary/20 bg-primary/10 text-ink"
         >
           {overview.hubName}
         </Badge>
@@ -359,7 +359,7 @@ export function RepOverviewTab({
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              <ClipboardListIcon className="size-4 text-gold-dark" />
+              <ClipboardListIcon className="size-4 text-primary" />
               Registration
             </CardTitle>
             <CardDescription>
@@ -397,7 +397,7 @@ export function RepOverviewTab({
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              <BedDoubleIcon className="size-4 text-gold-dark" />
+              <BedDoubleIcon className="size-4 text-primary" />
               Accommodation
             </CardTitle>
             <CardDescription>

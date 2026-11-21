@@ -167,7 +167,7 @@ export function AdminResetPassword() {
             <p className="text-center text-sm text-muted-foreground">
               <Link
                 href="/admin/reset-password"
-                className="font-medium text-gold hover:text-gold-dark"
+                className="font-medium text-gold hover:text-primary"
               >
                 Request a new link
               </Link>
@@ -237,7 +237,7 @@ export function AdminResetPassword() {
             <p className="text-center text-sm text-muted-foreground">
               <Link
                 href="/admin"
-                className="font-medium text-gold hover:text-gold-dark"
+                className="font-medium text-gold hover:text-primary"
               >
                 Back to sign in
               </Link>

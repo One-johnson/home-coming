@@ -120,7 +120,7 @@ function StatusTimeline({ status }: { status: string }) {
                 active && stage.rejected &&
                   "bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-400",
                 active && !stage.rejected &&
-                  "bg-gold/20 text-ink dark:bg-gold/15 dark:text-gold",
+                  "bg-primary/10 text-ink dark:bg-primary/10 dark:text-gold",
                 !done && !active && "bg-muted text-muted-foreground"
               )}
             >
@@ -180,7 +180,7 @@ function ReceiptDropzone({
             />
           ) : (
             <span className="flex size-14 shrink-0 items-center justify-center rounded-lg border bg-card">
-              <ReceiptTextIcon className="size-6 text-gold-dark" />
+              <ReceiptTextIcon className="size-6 text-primary" />
             </span>
           )}
           <div className="min-w-0 flex-1">
@@ -219,8 +219,8 @@ function ReceiptDropzone({
             dragging ? "border-gold bg-gold/5" : "border-border hover:border-gold/50 hover:bg-muted/40",
           )}
         >
-          <span className="flex size-9 items-center justify-center rounded-full bg-gold/15">
-            <UploadIcon className="size-4 text-gold-dark" />
+          <span className="flex size-9 items-center justify-center rounded-full bg-primary/10">
+            <UploadIcon className="size-4 text-primary" />
           </span>
           <span className="text-sm font-medium">Drop receipt here or tap to browse</span>
           <span className="text-xs text-muted-foreground">
@@ -691,7 +691,7 @@ export function RepRegistrationTab({
             {/* Step 1 — choose delegates */}
             <section className="space-y-3">
               <p className="flex items-center gap-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-                <span className="flex size-5 items-center justify-center rounded-full bg-gold/20 text-[10px] font-bold text-gold-dark">1</span>
+                <span className="flex size-5 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary">1</span>
                 Choose delegates
               </p>
               <div className="rounded-xl border bg-muted/40 p-4">
@@ -744,8 +744,8 @@ export function RepRegistrationTab({
                       className={cn(
                         "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors max-md:min-h-10",
                         qty === n
-                          ? "border-gold bg-gold/15 text-ink"
-                          : "text-muted-foreground hover:border-gold/40 hover:text-foreground",
+                          ? "border-gold bg-primary/10 text-ink"
+                          : "text-muted-foreground hover:border-primary/20 hover:text-foreground",
                       )}
                     >
                       {n}
@@ -762,10 +762,10 @@ export function RepRegistrationTab({
                 {/* Step 2 — pay & upload receipt */}
                 <section className="space-y-3">
                   <p className="flex items-center gap-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-                    <span className="flex size-5 items-center justify-center rounded-full bg-gold/20 text-[10px] font-bold text-gold-dark">2</span>
+                    <span className="flex size-5 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary">2</span>
                     Pay &amp; upload receipt
                   </p>
-                  <div className="flex items-center justify-between gap-3 rounded-xl border border-gold/40 bg-gold/5 px-4 py-3">
+                  <div className="flex items-center justify-between gap-3 rounded-xl border border-primary/20 bg-gold/5 px-4 py-3">
                     <div>
                       <p className="text-xs text-muted-foreground">Total due</p>
                       <p className="text-xl font-semibold tabular-nums text-ink">
@@ -979,8 +979,8 @@ export function RepRegistrationTab({
                     onClick={() => setFilter(f.id)}                      className={cn(
                         "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors max-md:min-h-10",
                         filter === f.id
-                        ? "border-gold bg-gold/15 text-ink"
-                        : "text-muted-foreground hover:border-gold/40 hover:text-foreground",
+                        ? "border-gold bg-primary/10 text-ink"
+                        : "text-muted-foreground hover:border-primary/20 hover:text-foreground",
                     )}
                   >
                     {f.label}
@@ -991,8 +991,8 @@ export function RepRegistrationTab({
 
             {history.length === 0 ? (
               <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed p-8 text-center">
-                <span className="flex size-10 items-center justify-center rounded-full bg-gold/15">
-                  <ClipboardListIcon className="size-5 text-gold-dark" />
+                <span className="flex size-10 items-center justify-center rounded-full bg-primary/10">
+                  <ClipboardListIcon className="size-5 text-primary" />
                 </span>
                 <p className="text-sm font-medium">No registrations yet</p>
                 <p className="max-w-xs text-xs text-muted-foreground">
@@ -1010,7 +1010,7 @@ export function RepRegistrationTab({
                 return (
                   <div
                     key={row._id}
-                    className="rounded-xl border p-4 text-sm transition-colors hover:border-gold/40"
+                    className="rounded-xl border p-4 text-sm transition-colors hover:border-primary/20"
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="font-mono text-xs tracking-wider">

@@ -202,7 +202,7 @@ export function AdminSignIn({ team }: { team?: TeamKey } = {}) {
             <p className="text-center text-sm text-muted-foreground">
               <Link
                 href="/admin/reset-password"
-                className="font-medium text-gold hover:text-gold-dark"
+                className="font-medium text-gold hover:text-primary"
               >
                 Forgot your password?
               </Link>
@@ -214,7 +214,7 @@ export function AdminSignIn({ team }: { team?: TeamKey } = {}) {
                     New volunteer?{" "}
                     <Link
                       href={teamConfig.selfSignUpPath}
-                      className="font-medium text-gold hover:text-gold-dark"
+                      className="font-medium text-gold hover:text-primary"
                     >
                       Create your own account
                     </Link>
@@ -232,7 +232,7 @@ export function AdminSignIn({ team }: { team?: TeamKey } = {}) {
                       {index > 0 ? " · " : ""}
                       <Link
                         href={other.signInPath}
-                        className="font-medium text-gold hover:text-gold-dark"
+                        className="font-medium text-gold hover:text-primary"
                       >
                         {other.label}
                       </Link>
@@ -245,7 +245,7 @@ export function AdminSignIn({ team }: { team?: TeamKey } = {}) {
                 Need an account?{" "}
                 <Link
                   href="/admin/register"
-                  className="font-medium text-gold hover:text-gold-dark"
+                  className="font-medium text-gold hover:text-primary"
                 >
                   Create one
                 </Link>{" "}

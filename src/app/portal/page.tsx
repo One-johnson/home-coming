@@ -16,5 +16,10 @@ export const metadata: Metadata = {
 };
 
 export default function PortalPage() {
-  return <PortalShell />;
+  // Same neutral workspace theme as the admin console (globals.css).
+  return (
+    <div className="admin-theme contents">
+      <PortalShell />
+    </div>
+  );
 }

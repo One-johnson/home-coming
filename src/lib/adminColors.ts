@@ -48,7 +48,7 @@ export function paymentStatusBadgeClass(status: string) {
     case "paid":
       return "border-emerald-200 bg-emerald-50 text-emerald-800";
     case "mock_paid":
-      return "border-gold/40 bg-gold/10 text-gold-dark";
+      return "border-primary/20 bg-primary/5 text-primary";
     case "failed":
       return "border-rose-200 bg-rose-50 text-rose-800";
     case "pending_payment":
@@ -82,7 +82,7 @@ export function auditActionBadgeClass(action: string) {
   if (action.includes("email")) {
     return "border-sky-200 bg-sky-50 text-sky-800";
   }
-  return "border-gold/30 bg-gold/10 text-gold-dark";
+  return "border-border bg-muted text-foreground/70";
 }
 
 export function housingCapacityTone(remaining: number, capacity: number) {
@@ -95,36 +95,27 @@ export function housingCapacityTone(remaining: number, capacity: number) {
 }
 
 export const HOUSING_TONE_CLASS = {
-  full: "border-rose-200 bg-rose-50/70",
-  low: "border-amber-200 bg-amber-50/70",
-  mid: "border-sky-200 bg-sky-50/50",
-  ok: "border-emerald-200 bg-emerald-50/40",
+  full: "border-rose-200 bg-rose-50/60",
+  low: "border-amber-200 bg-amber-50/60",
+  mid: "bg-card",
+  ok: "bg-card",
 } as const;
 
+/**
+ * KPI card accents. The console keeps cards plain (white, hairline border) and
+ * lets one small icon tile carry the colour, so status colours stay meaningful.
+ */
+const kpi = (icon: string) =>
+  ({
+    icon,
+    border: "group-hover:border-foreground/20",
+    tint: "from-card to-card",
+  }) as const;
+
 export const KPI_ACCENTS = {
-  registrations: {
-    icon: "bg-emerald-100 text-emerald-700",
-    border: "group-hover:border-emerald-300",
-    tint: "from-emerald-50/80 to-white",
-  },
-  poa: {
-    icon: "bg-violet-100 text-violet-700",
-    border: "group-hover:border-violet-300",
-    tint: "from-violet-50/80 to-white",
-  },
-  bookings: {
-    icon: "bg-amber-100 text-amber-800",
-    border: "group-hover:border-amber-300",
-    tint: "from-amber-50/80 to-white",
-  },
-  faqs: {
-    icon: "bg-forest/10 text-forest",
-    border: "group-hover:border-forest/40",
-    tint: "from-forest/5 to-white",
-  },
-  videos: {
-    icon: "bg-violet-100 text-violet-700",
-    border: "group-hover:border-violet-300",
-    tint: "from-violet-50/80 to-white",
-  },
+  registrations: kpi("bg-emerald-50 text-emerald-700"),
+  poa: kpi("bg-violet-50 text-violet-700"),
+  bookings: kpi("bg-amber-50 text-amber-700"),
+  faqs: kpi("bg-muted text-foreground/70"),
+  videos: kpi("bg-muted text-foreground/70"),
 } as const;

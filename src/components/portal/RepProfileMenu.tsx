@@ -40,7 +40,7 @@ function RepAvatar({
     <span
       aria-hidden
       className={cn(
-        "flex size-8 shrink-0 items-center justify-center rounded-full bg-gold/20 text-xs font-bold text-gold-dark",
+        "flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary",
         className,
       )}
     >

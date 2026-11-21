@@ -384,7 +384,7 @@ function RepCard({
         <button
           type="button"
           onClick={() => setShowAll(true)}
-          className="flex w-full items-center justify-center gap-1.5 border-t px-3 py-2 text-xs font-medium text-gold-dark transition-colors hover:bg-muted/40"
+          className="flex w-full items-center justify-center gap-1.5 border-t px-3 py-2 text-xs font-medium text-primary transition-colors hover:bg-muted/40"
         >
           Show all {flat ? `${rows.length} delegates` : `${groups.length} rooms`}
           <ChevronDown className="size-3.5" />
@@ -636,7 +636,7 @@ export function DelegateDirectory() {
             <button
               type="button"
               onClick={clearFilters}
-              className="inline-flex items-center gap-1 font-medium text-gold-dark hover:underline"
+              className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
             >
               <X className="size-3" />
               Clear filters
@@ -667,7 +667,7 @@ export function DelegateDirectory() {
             <button
               type="button"
               onClick={clearFilters}
-              className="mt-3 text-xs font-medium text-gold-dark hover:underline"
+              className="mt-3 text-xs font-medium text-primary hover:underline"
             >
               Clear filters
             </button>

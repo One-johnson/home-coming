@@ -8,5 +8,11 @@ export default function AdminConsoleLayout({
 }: {
   children: React.ReactNode;
 }) {
-  return <AdminShell>{children}</AdminShell>;
+  // `admin-theme` switches the console to its own neutral tokens (globals.css);
+  // `contents` keeps the wrapper out of the layout.
+  return (
+    <div className="admin-theme contents">
+      <AdminShell>{children}</AdminShell>
+    </div>
+  );
 }

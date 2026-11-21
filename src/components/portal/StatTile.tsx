@@ -16,7 +16,7 @@ export type StatTone = "neutral" | "positive" | "warning" | "danger" | "info";
 
 const TONE_CLASSES: Record<StatTone, { chip: string; value: string }> = {
   neutral: {
-    chip: "bg-gold/15 text-gold-dark",
+    chip: "bg-primary/10 text-primary",
     value: "text-ink",
   },
   positive: {

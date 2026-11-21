@@ -34,7 +34,6 @@ import {
   useSessionArgs,
 } from "@/components/admin/AdminSessionProvider";
 import { SessionExpiryBanner } from "@/components/auth/SessionExpiryBanner";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -60,7 +59,6 @@ import {
   SidebarMenuItem,
   SidebarProvider,
   SidebarRail,
-  SidebarSeparator,
   SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar";
@@ -130,7 +128,7 @@ function UserAvatar({
   return (
     <div
       className={cn(
-        "flex size-8 shrink-0 items-center justify-center rounded-lg bg-gold/20 text-xs font-semibold text-gold-dark",
+        "flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary",
         className,
       )}
     >
@@ -155,10 +153,10 @@ function HeaderUserMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        className="inline-flex size-9 items-center justify-center rounded-lg border border-border bg-white outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+        className="inline-flex size-9 items-center justify-center rounded-full outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
         aria-label="Account menu"
       >
-        <UserAvatar name={name} email={email} className="size-7 rounded-md" />
+        <UserAvatar name={name} email={email} className="size-8" />
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-56 rounded-lg" align="end" sideOffset={8}>
         <DropdownMenuGroup>
@@ -324,9 +322,11 @@ function AdminSidebar({
                 className="size-8 shrink-0 object-contain"
               />
               <div className="grid flex-1 text-left text-sm leading-tight">
-                <span className="font-semibold leading-snug">{EVENT.name}</span>
+                <span className="truncate font-semibold leading-snug text-sidebar-accent-foreground">
+                  {EVENT.name}
+                </span>
                 <span className="truncate text-xs text-sidebar-foreground/60">
-                  Admin console
+                  Admin · {EVENT.dates}
                 </span>
               </div>
             </SidebarMenuButton>
@@ -334,12 +334,12 @@ function AdminSidebar({
         </SidebarMenu>
       </SidebarHeader>
 
-      <SidebarSeparator />
-
-      <SidebarContent>
+      <SidebarContent className="gap-0">
         {groups.map((group) => (
           <SidebarGroup key={group.label}>
-            <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
+            <SidebarGroupLabel className="text-[11px] font-medium uppercase tracking-wider text-sidebar-foreground/50">
+              {group.label}
+            </SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
                 {group.items.map((item) => {
@@ -356,15 +356,15 @@ function AdminSidebar({
                         tooltip={item.label}
                         render={<Link href={item.href} />}
                         className={cn(
-                          active &&
-                            "bg-sidebar-accent font-medium shadow-[inset_3px_0_0_0_var(--color-gold-light,#d4af37)]",
+                          "h-9 text-sidebar-foreground/80",
+                          active && "font-medium text-sidebar-accent-foreground",
                         )}
                       >
                         <Icon />
                         <span>{item.label}</span>
                       </SidebarMenuButton>
                       {count > 0 ? (
-                        <SidebarMenuBadge className="bg-amber-100 text-amber-900">
+                        <SidebarMenuBadge className="rounded-full bg-amber-100 px-1.5 text-[11px] text-amber-900">
                           {count > 99 ? "99+" : count}
                         </SidebarMenuBadge>
                       ) : null}
@@ -408,7 +408,7 @@ function VenueStaffRedirect({ to }: { to: string }) {
   }, [router, to]);
 
   return (
-    <div className="flex min-h-svh items-center justify-center bg-neutral-100 text-sm text-muted-foreground">
+    <div className="flex min-h-svh items-center justify-center bg-background text-sm text-muted-foreground">
       Opening your workspace…
     </div>
   );
@@ -439,7 +439,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
 
   if (!isReady || sessionValidating) {
     return (
-      <div className="flex min-h-svh items-center justify-center bg-neutral-100 text-sm text-muted-foreground">
+      <div className="flex min-h-svh items-center justify-center bg-background text-sm text-muted-foreground">
         Loading admin console...
       </div>
     );
@@ -463,8 +463,8 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
       }
     } else {
       return (
-        <div className="flex min-h-svh items-center justify-center bg-neutral-100 px-4">
-          <div className="w-full max-w-md rounded-2xl border bg-white p-8 shadow-elevate">
+        <div className="flex min-h-svh items-center justify-center bg-background px-4">
+          <div className="w-full max-w-md rounded-xl border bg-card p-8 shadow-elevate">
             <h1 className="font-display text-2xl">No admin access</h1>
             <p className="mt-2 text-sm text-muted-foreground">
               Signed in as {user.email}, but no staff role is assigned.
@@ -555,26 +555,37 @@ function AdminConsoleFrame({
     <>
       <AdminSidebar
         name={name}
-        email={email}                role={role}
-                onSignOut={onSignOut}
-                badges={badges}
+        email={email}
+        role={role}
+        onSignOut={onSignOut}
+        badges={badges}
       />
-      <SidebarInset className="min-w-0 overflow-x-clip bg-neutral-100">
+      <SidebarInset className="min-w-0 overflow-x-clip bg-background">
         <header
-          className="fixed top-0 right-0 z-30 border-b border-border/80 bg-white/95 shadow-[0_1px_0_0_rgba(212,175,55,0.35)] backdrop-blur-md transition-[left] duration-200 ease-linear supports-backdrop-filter:bg-white/85"
+          className="fixed top-0 right-0 z-30 border-b bg-background/85 backdrop-blur-md transition-[left] duration-200 ease-linear"
           style={{ left: headerLeft }}
         >
-          <div className="flex h-16 w-full min-w-0 items-center gap-3 px-4 sm:px-6">
-            <SidebarTrigger className="-ml-1" />
-            <div className="h-5 w-px shrink-0 bg-border" />
-            <div className="min-w-0 flex-1">
-              <h1 className="truncate text-base font-semibold tracking-tight text-ink">
+          <div className="flex h-14 w-full min-w-0 items-center gap-2 px-4 sm:px-6">
+            <SidebarTrigger className="-ml-1 text-muted-foreground" />
+            <div className="min-w-0 flex-1 pl-1">
+              <h1 className="truncate text-[15px] font-semibold leading-tight">
                 {pageMeta.title}
               </h1>
-              <p className="hidden truncate text-xs text-muted-foreground sm:block">
+              <p className="hidden truncate text-xs leading-tight text-muted-foreground md:block">
                 {pageMeta.description}
               </p>
             </div>
+
+            {/* Event countdown, only while there is something to count down to. */}
+            {daysLeft > 0 && (
+              <span className="hidden items-center gap-1.5 rounded-full border bg-card px-2.5 py-1 text-xs text-muted-foreground lg:inline-flex">
+                <CalendarDays className="size-3.5" />
+                <span className="font-medium tabular-nums text-foreground">
+                  {daysLeft} days
+                </span>
+                to go
+              </span>
+            )}
 
             {/* The palette searches registrations and bookings, which only
                 console admins may read — venue staff get their own search. */}
@@ -586,30 +597,16 @@ function AdminConsoleFrame({
             <PageGuide />
 
             <Button
-              size="sm"
-              variant="outline"
-              className="hidden sm:inline-flex"
+              size="icon-sm"
+              variant="ghost"
+              className="hidden text-muted-foreground sm:inline-flex"
+              aria-label="View public site"
+              title="View public site"
               nativeButton={false}
               render={<Link href="/" target="_blank" rel="noopener noreferrer" />}
             >
-              <ExternalLink className="size-3.5" />
-              <span className="hidden md:inline">View site</span>
+              <ExternalLink className="size-4" />
             </Button>
-
-            <div className="hidden items-center gap-1.5 rounded-lg border border-border bg-muted/40 px-2.5 py-1.5 text-xs text-muted-foreground lg:flex">
-              <CalendarDays className="size-3.5 text-gold-dark" />
-              <span className="font-medium text-foreground tabular-nums">
-                {daysLeft}d
-              </span>
-              <span className="hidden xl:inline">· {EVENT.dates}</span>
-            </div>
-
-            <Badge
-              variant="outline"
-              className="hidden shrink-0 border-gold/40 bg-gold/10 text-ink sm:inline-flex"
-            >
-              {ROLE_LABELS[role]}
-            </Badge>
 
             <HeaderUserMenu
               name={name}
@@ -621,8 +618,8 @@ function AdminConsoleFrame({
         </header>
         {/* overflow-x-clip, not hidden: hidden makes this a scroll container,
             which silently disables position: sticky in every admin page. */}
-        <div className="min-w-0 flex-1 overflow-x-clip px-4 pt-20 pb-4 sm:px-6 sm:pb-6 lg:px-8 lg:pb-8">
-          {children}
+        <div className="min-w-0 flex-1 overflow-x-clip px-4 pt-[4.75rem] pb-6 sm:px-6 lg:px-8 lg:pb-10">
+          <div className="mx-auto w-full max-w-[1440px]">{children}</div>
         </div>
       </SidebarInset>
     </>

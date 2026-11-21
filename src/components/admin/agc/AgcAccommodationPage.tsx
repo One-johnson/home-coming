@@ -63,7 +63,7 @@ export function AgcAccommodationPage({
             className={cn(
               "flex min-h-9 items-center gap-1.5 rounded-full px-3.5 text-sm font-medium transition-colors",
               activeSection === id
-                ? "bg-gold/15 text-ink"
+                ? "bg-primary/10 text-ink"
                 : "text-muted-foreground hover:text-foreground",
             )}
           >

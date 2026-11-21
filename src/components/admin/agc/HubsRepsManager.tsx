@@ -1575,8 +1575,8 @@ export function HubsRepsManager() {
                 className={cn(
                   "rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
                   filter === f.id
-                    ? "border-gold bg-gold/15 text-ink"
-                    : "text-muted-foreground hover:border-gold/40 hover:text-foreground",
+                    ? "border-gold bg-primary/10 text-ink"
+                    : "text-muted-foreground hover:border-primary/20 hover:text-foreground",
                 )}
               >
                 {f.label}
@@ -1586,8 +1586,8 @@ export function HubsRepsManager() {
 
           {rows.length === 0 ? (
             <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed p-10 text-center">
-              <span className="flex size-10 items-center justify-center rounded-full bg-gold/15">
-                <InboxIcon className="size-5 text-gold-dark" />
+              <span className="flex size-10 items-center justify-center rounded-full bg-primary/10">
+                <InboxIcon className="size-5 text-primary" />
               </span>
               <p className="text-sm font-medium">No hubs match</p>
               <p className="max-w-xs text-xs text-muted-foreground">

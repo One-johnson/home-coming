@@ -1211,7 +1211,7 @@ export function VideoManager() {
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge
                         variant="outline"
-                        className="border-gold/30 bg-gold/10 text-gold-dark"
+                        className="border-primary/20 bg-primary/10 text-primary"
                       >
                         {message.year}
                       </Badge>

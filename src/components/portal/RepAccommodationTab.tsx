@@ -408,7 +408,7 @@ function ZoneHeader({
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div className="min-w-0 space-y-1.5">
         <CardTitle className="flex flex-wrap items-center gap-2 text-lg">
-          <Icon className="size-4 shrink-0 text-gold-dark" />
+          <Icon className="size-4 shrink-0 text-primary" />
           {title}
           {badge !== undefined ? (
             <Badge
@@ -3167,7 +3167,7 @@ export function RepAccommodationTab({
           {(bookings?.length ?? 0) > 0 ? (
             <div className="sticky top-[calc(env(safe-area-inset-top)+56px)] z-20 space-y-3 rounded-lg bg-card/95 px-1 py-2 backdrop-blur md:top-16">
               {selectedIds.length > 0 && (
-                <div className="flex flex-wrap items-center gap-2 rounded-lg border border-gold/40 bg-gold/10 px-3 py-2 text-xs">
+                <div className="flex flex-wrap items-center gap-2 rounded-lg border border-primary/20 bg-primary/10 px-3 py-2 text-xs">
                   <span className="font-semibold">
                     {selectedIds.length} selected
                   </span>
