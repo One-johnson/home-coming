@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { createTestConvex } from "./testUtils";
+import { reserveUnits } from "../convex/agcAccommodation";
 
 /**
  * Two related rules:
@@ -485,6 +486,69 @@ test("the nightly repair returns held beds on its own and alerts the desk once",
   });
 });
 
+test("a lapsed hold never blocks a booking, even before the nightly pass", async () => {
+  const t = createTestConvex();
+  const { hubId, repId } = await seedAdminAndHub(t);
+  const now = Date.now();
+
+  const result = await t.run(async (ctx) => {
+    const insertBooking = (referenceNumber: string, expiresAt: number) =>
+      ctx.db.insert("agcBookings", {
+        hubId,
+        repId,
+        region: "ghana",
+        currency: "GHS",
+        totalAmount: 300,
+        paymentMode: "offline",
+        paymentStatus: "awaiting_payment",
+        bookingStatus: "reserved",
+        expiresAt,
+        referenceNumber,
+        createdAt: now - 86_400_000,
+        updatedAt: now - 86_400_000,
+      });
+    // The only two beds are held by a hold that lapsed a minute ago.
+    const lapsedId = await insertBooking("STY-LAPSED", now - 60_000);
+    await ctx.db.insert("agcBookingLines", {
+      bookingId: lapsedId,
+      accommodationType: "hostel",
+      quantity: 2,
+      unitPrice: 150,
+      isBishopRate: false,
+    });
+    const poolId = await ctx.db.insert("agcInventoryPools", {
+      accommodationType: "hostel",
+      scope: "africa",
+      total: 2,
+      reserved: 2,
+      confirmed: 0,
+    });
+    await ctx.db.insert("agcInventoryLedger", {
+      poolId,
+      accommodationType: "hostel",
+      scope: "africa",
+      action: "reserve",
+      delta: 2,
+      bookingId: lapsedId,
+      createdAt: now - 86_400_000,
+    });
+
+    // A new booking asks for both beds: the lapsed hold is expired on the
+    // spot instead of making the booking wait for the nightly pass.
+    const newId = await insertBooking("STY-NEW", now + 86_400_000);
+    const pool = (await ctx.db.get(poolId))!;
+    await reserveUnits(ctx, pool, 2, newId);
+
+    return {
+      lapsed: await ctx.db.get(lapsedId),
+      pool: await ctx.db.get(poolId),
+    };
+  });
+
+  expect(result.lapsed?.bookingStatus).toBe("expired");
+  expect(result.pool?.reserved).toBe(2);
+});
+
 test("a reservation bounced back for correction still expires and returns its beds", async () => {
   const t = createTestConvex();
   const { token, hubId, repId } = await seedAdminAndHub(t);
@@ -533,10 +597,14 @@ test("a reservation bounced back for correction still expires and returns its be
     return { bookingId, poolId };
   });
 
-  // The expiry sweep is the automatic path (the cron runs every 5 minutes).
+  // The expiry sweep is the automatic path (the nightly maintenance pass).
   // The counters were already right, so there is nothing for it to rewrite.
-  const tick = await t.mutation(internal.crons.expireHoldsTick, {});
-  expect(tick).toEqual({ expired: 1, pools: 0, beds: 0 });
+  const tick = await t.mutation(internal.crons.nightlyPoolRepairTick, {});
+  expect(tick).toMatchObject({
+    expiredHolds: 1,
+    poolsCorrected: 0,
+    counterBedsAdjusted: 0,
+  });
 
   const after = await t.run(async (ctx) => ({
     booking: await ctx.db.get(ids.bookingId),
@@ -645,9 +713,9 @@ test("the pool counters rewrite themselves when they drift from the reservations
     return { poolId };
   });
 
-  // Nobody presses anything: the 5-minute tick heals the drift on its own.
-  const tick = await t.mutation(internal.crons.expireHoldsTick, {});
-  expect(tick).toEqual({ expired: 0, pools: 1, beds: 3 });
+  // Nobody presses anything: the nightly repair heals the drift on its own.
+  const nightly = await t.mutation(internal.crons.nightlyPoolRepairTick, {});
+  expect(nightly).toMatchObject({ poolsCorrected: 1, counterBedsAdjusted: 3 });
 
   const pool = await t.run((ctx) => ctx.db.get(ids.poolId));
   expect(pool?.reserved).toBe(1);
@@ -675,6 +743,6 @@ test("the pool counters rewrite themselves when they drift from the reservations
     available: 97,
     ledgerReserved: 1,
   });
-  const again = await t.mutation(internal.crons.expireHoldsTick, {});
-  expect(again).toEqual({ expired: 0, pools: 0, beds: 0 });
+  const again = await t.mutation(internal.crons.nightlyPoolRepairTick, {});
+  expect(again).toMatchObject({ poolsCorrected: 0, counterBedsAdjusted: 0 });
 });

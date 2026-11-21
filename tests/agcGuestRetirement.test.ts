@@ -179,8 +179,8 @@ test("the expiry sweep retires a lapsed hold's delegates and the desk searches t
     "HC82752",
   ]);
 
-  const tick = await t.mutation(internal.crons.expireHoldsTick, {});
-  expect(tick.expired).toBe(1);
+  const tick = await t.mutation(internal.crons.nightlyPoolRepairTick, {});
+  expect(tick.expiredHolds).toBe(1);
 
   const after = await t.run(async (ctx) => ({
     lapsedBooking: await ctx.db.get(lapsed.bookingId),

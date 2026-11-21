@@ -1728,9 +1728,12 @@ export const purgeExpiredDeletedReps = internalMutation({
   args: {},
   handler: async (ctx) => {
     const cutoff = Date.now() - REP_SOFT_DELETE_TTL_MS;
-    const expired = (await ctx.db.query("agcRepresentatives").collect()).filter(
-      (rep) => rep.deletedAt !== undefined && rep.deletedAt < cutoff,
-    );
+    // Index range: only soft-deleted reps past the window are read, not the
+    // whole table (live reps have no `deletedAt` and sort before 0).
+    const expired = await ctx.db
+      .query("agcRepresentatives")
+      .withIndex("by_deleted_at", (q) => q.gt("deletedAt", 0).lt("deletedAt", cutoff))
+      .collect();
     for (const rep of expired) {
       await purgeRepInternal(ctx, rep._id);
     }
@@ -2890,9 +2893,11 @@ export const purgeExpiredTrashInternal = internalMutation({
 async function purgeExpiredTrashForCtx(ctx: MutationCtx): Promise<number> {
   const now = Date.now();
     let purged = 0;
+    // Index range: read only trashed rows past the TTL, never live ones.
+    const cutoff = now - AGC_TRASH_TTL_MS;
     for (const record of await ctx.db
       .query("agcRegistrations")
-      .withIndex("by_deleted_at")
+      .withIndex("by_deleted_at", (q) => q.gt("deletedAt", 0).lt("deletedAt", cutoff))
       .collect()) {
       if (!record.deletedAt) continue;
       if (now - record.deletedAt < AGC_TRASH_TTL_MS) continue;
@@ -2901,7 +2906,7 @@ async function purgeExpiredTrashForCtx(ctx: MutationCtx): Promise<number> {
     }
     for (const booking of await ctx.db
       .query("agcBookings")
-      .withIndex("by_deleted_at")
+      .withIndex("by_deleted_at", (q) => q.gt("deletedAt", 0).lt("deletedAt", cutoff))
       .collect()) {
       if (!booking.deletedAt) continue;
       if (now - booking.deletedAt < AGC_TRASH_TTL_MS) continue;

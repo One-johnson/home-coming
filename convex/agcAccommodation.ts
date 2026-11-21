@@ -274,6 +274,15 @@ export async function reserveUnits(
 ) {
   if (units <= 0) return;
   if (availableUnits(pool) < units) {
+    // Lapsed holds are expired lazily, here, instead of by a frequent cron:
+    // only when they would actually stand in the way of a booking. Expire
+    // them (never the booking being saved) and check the pool again.
+    if ((await expireOverdueHolds(ctx, bookingId)) > 0) {
+      const fresh = await ctx.db.get(pool._id);
+      if (fresh) pool = fresh;
+    }
+  }
+  if (availableUnits(pool) < units) {
     throw new ConvexError(
       `Not enough ${AGC_ACCOMMODATION_TYPES[pool.accommodationType].label} capacity in the ${pool.scope.replace(/_/g, " ")} pool. Available: ${availableUnits(pool)}, requested: ${units}.`,
     );
@@ -651,7 +660,8 @@ export async function retireBookingGuests(
 }
 
 /**
- * Scheduled job: expire bookings whose hold has lapsed (§32–34). Expiring
+ * Expire bookings whose hold has lapsed (§32–34). Runs in the nightly
+ * maintenance pass and on demand when a lapsed hold blocks a new reservation. Expiring
  * returns the held beds to their pools and flips the booking to `expired`, so a
  * lapsed reservation never keeps counting as held inventory.
  *
@@ -659,7 +669,11 @@ export async function retireBookingGuests(
  * held until the venue desk confirms the payment or closes the booking, because
  * that money is handed over on arrival instead of inside a reservation window.
  */
-export async function expireOverdueHolds(ctx: MutationCtx): Promise<number> {
+export async function expireOverdueHolds(
+  ctx: MutationCtx,
+  /** A booking being saved right now — never expired from under its own edit. */
+  skipBookingId?: Id<"agcBookings">,
+): Promise<number> {
   const now = Date.now();
   // Every open state holds beds, so every open state expires: a reservation
   // awaiting payment, one whose receipt is in review, and one bounced back to
@@ -680,6 +694,7 @@ export async function expireOverdueHolds(ctx: MutationCtx): Promise<number> {
   let expired = 0;
   for (const booking of open) {
     if (booking.deletedAt) continue;
+    if (booking._id === skipBookingId) continue;
     // A POA hold is never on a timer — the desk releases it.
     if (!holdTimerApplies(booking)) continue;
     const deadline = holdDeadline(booking);

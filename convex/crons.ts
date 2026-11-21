@@ -1,41 +1,14 @@
 import { cronJobs } from "convex/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import { internalMutation } from "./_generated/server";
+import { internalAction, internalMutation } from "./_generated/server";
 import {
-  expireOverdueHolds,
   reconcileExpiredBookingInventory,
-  reconcilePoolCounters,
   retireBookingGuests,
 } from "./agcAccommodation";
 import { MAX_NIGHTLY_BATCHES } from "./storageMaintenance";
 
 const crons = cronJobs();
-
-/**
- * §32–34: a timed hold expires at the earlier of the hold window (72h by
- * default) and the registration deadline — payment-on-arrival holds never do,
- * because their money is handed over at the venue desk.
- *
- * Runs every 15 minutes; the expiry is idempotent, and the same pass rewrites
- * any pool counters that no longer match the reservations behind them, so
- * availability can never drift away from the bookings holding the beds.
- */
-export const expireHoldsTick = internalMutation({
-  args: {},
-  handler: async (ctx) => {
-    const expired = await expireOverdueHolds(ctx);
-    const counters = await reconcilePoolCounters(ctx);
-    return { expired, ...counters };
-  },
-});
-
-crons.interval(
-  "expire overdue accommodation holds",
-  { minutes: 15 },
-  internal.crons.expireHoldsTick,
-  {},
-);
 
 /**
  * One-off pool repair, runnable from the CLI:
@@ -105,7 +78,8 @@ export const backfillRetiredGuests = internalMutation({
 });
 
 /**
- * Nightly inventory repair: beds still held by finished bookings go back to
+ * Nightly inventory repair (step 1 of `nightlyMaintenance`): lapsed holds are
+ * expired, beds still held by finished bookings go back to
  * their pools on their own and the pool counters are rewritten to match the
  * reservations, and the desk is told when something actually moved — nobody
  * has to press the repair button for the inventory to heal.
@@ -127,27 +101,10 @@ export const nightlyPoolRepairTick = internalMutation({
   },
 });
 
-crons.daily(
-  "return beds held by finished bookings",
-  { hourUTC: 2, minuteUTC: 30 },
-  internal.crons.nightlyPoolRepairTick,
-  {},
-);
+
 
 /**
- * Payment receipts and POA evidence are evidence only while the payment is
- * being verified: 15 days after finance confirms it, the image is deleted and
- * an audit entry records what left storage. Runs nightly; idempotent.
- */
-crons.daily(
-  "delete payment images 15 days after confirmation",
-  { hourUTC: 3, minuteUTC: 15 },
-  internal.storageMaintenance.purgeExpiredPaymentImages,
-  {},
-);
-
-/**
- * Nightly reclamation of stranded uploads: blobs no row points at, older than
+ * Nightly reclamation of stranded uploads (a `nightlyMaintenance` step): blobs no row points at, older than
  * the 24h grace window — the same rule the admin button applies, so nobody has
  * to press it for storage to stop growing.
  *
@@ -183,54 +140,54 @@ export const nightlyOrphanSweepTick = internalMutation({
   },
 });
 
+
+/**
+ * The only scheduled job: one nightly maintenance pass at 02:30 UTC.
+ *
+ * Everything here is housekeeping with windows measured in days (72h holds,
+ * 7-day rep purge, 15-day receipt retention, 30-day trash), so once a night
+ * gives the same outcome as the old 15-minute/hourly crons without an idle
+ * deployment re-reading whole tables all day. Lapsed holds that would block a
+ * booking during the day are expired on the spot by `reserveUnits`.
+ *
+ * Each step is its own transaction (an action calling mutations), so a large
+ * step never pushes another over Convex's per-mutation limits, and one failing
+ * step is logged without stopping the rest.
+ */
+export const nightlyMaintenance = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    const steps: Array<[string, () => Promise<unknown>]> = [
+      // Expire lapsed holds, return beds from finished bookings, rewrite
+      // drifted pool counters (and tell the desk if anything moved).
+      ["pool repair", () => ctx.runMutation(internal.crons.nightlyPoolRepairTick, {})],
+      // Receipt / POA images 15 days after the payment was confirmed.
+      ["payment images", () => ctx.runMutation(internal.storageMaintenance.purgeExpiredPaymentImages, {})],
+      // Uploads no row points at, older than the 24h grace window.
+      ["orphan sweep", () => ctx.runMutation(internal.crons.nightlyOrphanSweepTick, {})],
+      // Reps soft-deleted more than 7 days ago.
+      ["rep purge", () => ctx.runMutation(internal.agcAdminData.purgeExpiredDeletedReps, {})],
+      // Registrations / bookings in the trash more than 30 days.
+      ["trash purge", () => ctx.runMutation(internal.agcAdminData.purgeExpiredTrashInternal, {})],
+    ];
+
+    const results: Record<string, unknown> = {};
+    for (const [name, run] of steps) {
+      try {
+        results[name] = await run();
+      } catch (error) {
+        console.error(`nightly maintenance: ${name} failed`, error);
+        results[name] = { error: String(error) };
+      }
+    }
+    return results;
+  },
+});
+
 crons.daily(
-  "sweep orphaned file uploads",
-  { hourUTC: 3, minuteUTC: 45 },
-  internal.crons.nightlyOrphanSweepTick,
-  {},
-);
-
-/**
- * Permanently purge representative accounts that were soft-deleted more than
- * 7 days ago (REP_SOFT_DELETE_TTL_MS). Runs hourly; the purge is idempotent.
- */
-export const purgeDeletedRepsTick = internalMutation({
-  args: {},
-  handler: async (ctx) => {
-    const result: { purged: number } = await ctx.runMutation(
-      internal.agcAdminData.purgeExpiredDeletedReps,
-      {},
-    );
-    return result;
-  },
-});
-
-crons.interval(
-  "purge soft-deleted representative accounts",
-  { hours: 1 },
-  internal.crons.purgeDeletedRepsTick,
-  {},
-);
-
-/**
- * Permanently purge AGC registrations/bookings soft-deleted more than 30
- * days ago (AGC_TRASH_TTL_MS). Runs hourly; idempotent.
- */
-export const purgeAgcTrashTick = internalMutation({
-  args: {},
-  handler: async (ctx) => {
-    const result: { purged: number } = await ctx.runMutation(
-      internal.agcAdminData.purgeExpiredTrashInternal,
-      {},
-    );
-    return result;
-  },
-});
-
-crons.interval(
-  "purge soft-deleted AGC registrations and bookings",
-  { hours: 1 },
-  internal.crons.purgeAgcTrashTick,
+  "nightly maintenance",
+  { hourUTC: 2, minuteUTC: 30 },
+  internal.crons.nightlyMaintenance,
   {},
 );
 
