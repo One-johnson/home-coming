@@ -5,10 +5,11 @@ import { toastFriendlyErrorParts } from "@/lib/friendlyError";
 import Image from "next/image";
 import { useMutation, useQuery } from "convex/react";
 import {
-  ArrowDown,
-  ArrowUp,
+  ArrowLeft,
+  ArrowRight,
   ImagePlus,
-  Pencil,
+  ImageUp,
+  MoreHorizontal,
   Trash2,
 } from "lucide-react";
 import { useRef, useState } from "react";
@@ -23,6 +24,14 @@ import {
 import { Button } from "@/components/ui/app-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { EmptyState } from "@/components/admin/kit/EmptyState";
 import { Label } from "@/components/ui/label";
 import { uploadFileToConvex } from "@/lib/galleryUpload";
 
@@ -218,115 +227,133 @@ export function HeroManager() {
             />
           </div>
         </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent>
           {slides === undefined ? (
-            <p className="text-sm text-muted-foreground">Loading slides…</p>
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {[0, 1, 2].map((i) => (
+                <Skeleton key={i} className="aspect-[16/10] rounded-xl" />
+              ))}
+            </div>
           ) : ordered.length === 0 ? (
-            <p className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
-              No hero slides yet. Add images or load the default gallery set.
-            </p>
+            <button
+              type="button"
+              disabled={uploading || !sessionToken}
+              onClick={() => fileInputRef.current?.click()}
+              className="w-full"
+            >
+              <EmptyState
+                icon={ImagePlus}
+                title="No hero slides yet"
+                description="Click to add images, or load the default gallery set."
+              />
+            </button>
           ) : (
-            ordered.map((slide, index) => (
-              <div
-                key={slide._id}
-                className="flex flex-col gap-3 rounded-xl border border-border p-3 sm:flex-row sm:items-center"
-              >
-                <div className="relative aspect-[16/10] w-full shrink-0 overflow-hidden rounded-lg bg-muted sm:w-44">
-                  {slide.imageUrl ? (
-                    <Image
-                      src={slide.imageUrl}
-                      alt={slide.alt}
-                      fill
-                      className="object-cover"
-                      sizes="176px"
-                      unoptimized={slide.imageUrl.startsWith("http")}
-                    />
-                  ) : (
-                    <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-                      No image
-                    </div>
-                  )}
-                </div>
-
-                <div className="min-w-0 flex-1 space-y-2">
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <span className="font-medium text-ink">
-                      Slide {index + 1}
-                    </span>
-                    <span>·</span>
-                    <span>Order {slide.order + 1}</span>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor={`hero-alt-${slide._id}`}>Alt text</Label>
-                    <div className="flex flex-wrap gap-2">
-                      <Input
-                        id={`hero-alt-${slide._id}`}
-                        value={getAlt(slide)}
-                        onChange={(e) =>
-                          setAltDrafts((prev) => ({
-                            ...prev,
-                            [slide._id]: e.target.value,
-                          }))
-                        }
+            <div className="admin-stagger grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {ordered.map((slide, index) => (
+                <div
+                  key={slide._id}
+                  className="group overflow-hidden rounded-xl border bg-card shadow-soft transition-shadow duration-300 hover:shadow-elevate"
+                >
+                  <div className="relative aspect-[16/10] w-full overflow-hidden bg-muted">
+                    {slide.imageUrl ? (
+                      <Image
+                        src={slide.imageUrl}
+                        alt={slide.alt}
+                        fill
+                        className="object-cover transition-transform duration-500 group-hover:scale-105"
+                        sizes="(min-width: 1280px) 33vw, (min-width: 640px) 50vw, 100vw"
+                        unoptimized={slide.imageUrl.startsWith("http")}
                       />
+                    ) : (
+                      <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+                        No image
+                      </div>
+                    )}
+                    <span className="absolute top-2 left-2 flex size-7 items-center justify-center rounded-full bg-gradient-to-br from-gold-light to-gold text-xs font-semibold text-[#2b1b12] shadow">
+                      {index + 1}
+                    </span>
+                    <div className="absolute top-2 right-2 flex gap-1">
                       <Button
                         type="button"
-                        variant="outline"
-                        size="sm"
-                        disabled={getAlt(slide).trim() === slide.alt}
-                        onClick={() => void saveAlt(slide)}
+                        size="icon-sm"
+                        variant="secondary"
+                        disabled={index === 0}
+                        onClick={() => void moveSlide(index, -1)}
+                        aria-label="Move slide earlier"
+                        title="Move earlier"
                       >
-                        <Pencil className="size-3.5" />
-                        Save
+                        <ArrowLeft className="size-4" />
                       </Button>
+                      <Button
+                        type="button"
+                        size="icon-sm"
+                        variant="secondary"
+                        disabled={index === ordered.length - 1}
+                        onClick={() => void moveSlide(index, 1)}
+                        aria-label="Move slide later"
+                        title="Move later"
+                      >
+                        <ArrowRight className="size-4" />
+                      </Button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger
+                          render={
+                            <Button
+                              type="button"
+                              size="icon-sm"
+                              variant="secondary"
+                              aria-label="Slide actions"
+                            />
+                          }
+                        >
+                          <MoreHorizontal className="size-4" />
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            disabled={uploading}
+                            onClick={() => {
+                              setReplaceTargetId(slide._id);
+                              replaceInputRef.current?.click();
+                            }}
+                          >
+                            <ImageUp /> Replace image
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            variant="destructive"
+                            onClick={() => setDeleteTarget(slide)}
+                          >
+                            <Trash2 /> Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                   </div>
+                  <div className="space-y-1 p-3">
+                    <Label
+                      htmlFor={`hero-alt-${slide._id}`}
+                      className="text-xs text-muted-foreground"
+                    >
+                      Alt text {getAlt(slide).trim() !== slide.alt ? "· saves when you leave the field" : ""}
+                    </Label>
+                    <Input
+                      id={`hero-alt-${slide._id}`}
+                      value={getAlt(slide)}
+                      onChange={(e) =>
+                        setAltDrafts((prev) => ({
+                          ...prev,
+                          [slide._id]: e.target.value,
+                        }))
+                      }
+                      onBlur={() => {
+                        if (getAlt(slide).trim() !== slide.alt) {
+                          void saveAlt(slide);
+                        }
+                      }}
+                    />
+                  </div>
                 </div>
-
-                <div className="flex shrink-0 flex-wrap gap-1.5 sm:flex-col">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    disabled={index === 0}
-                    onClick={() => void moveSlide(index, -1)}
-                    aria-label="Move slide up"
-                  >
-                    <ArrowUp className="size-4" />
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    disabled={index === ordered.length - 1}
-                    onClick={() => void moveSlide(index, 1)}
-                    aria-label="Move slide down"
-                  >
-                    <ArrowDown className="size-4" />
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    disabled={uploading}
-                    onClick={() => {
-                      setReplaceTargetId(slide._id);
-                      replaceInputRef.current?.click();
-                    }}
-                  >
-                    Replace
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="destructive"
-                    onClick={() => setDeleteTarget(slide)}
-                  >
-                    <Trash2 className="size-4" />
-                  </Button>
-                </div>
-              </div>
-            ))
+              ))}
+            </div>
           )}
         </CardContent>
       </Card>

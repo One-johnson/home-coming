@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { AgcExcelExportButton } from "@/components/admin/agc/AgcAdminClient";
 import { AgcAccommodationPage } from "@/components/admin/agc/AgcAccommodationPage";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
@@ -9,6 +10,8 @@ import { canAccessArea } from "@/lib/adminRoles";
 
 function AdminAccommodationInner() {
   const { user } = useAdminSession();
+  // The bookings workbook belongs to the Bookings tab only.
+  const onBookings = (useSearchParams().get("tab") ?? "bookings") === "bookings";
   if (!canAccessArea(user?.role, "accommodation")) {
     return (
       <p className="text-sm text-muted-foreground">
@@ -23,7 +26,7 @@ function AdminAccommodationInner() {
         description="Review room bookings and manage accommodation capacity pools."
         // The bookings export is a finance/accommodation view; the room team
         // only sees the room inventory and the review queue.
-        {...(user?.role === "room_assignment"
+        {...(user?.role === "room_assignment" || !onBookings
           ? {}
           : {
               actions: (

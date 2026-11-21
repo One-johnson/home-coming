@@ -6,7 +6,7 @@ import {
   ColumnDef,
   type ColumnFiltersState,
 } from "@tanstack/react-table";
-import { DownloadIcon, Loader2Icon, Trash2 } from "lucide-react";
+import { ChevronDownIcon, DownloadIcon, Loader2Icon, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
@@ -15,6 +15,12 @@ import { ConfirmDeleteDialog } from "@/components/admin/ConfirmDeleteDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/ui/data-table";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Textarea } from "@/components/ui/textarea";
 import { multiSelectFilter } from "@/components/admin/columns";
 import {
@@ -589,13 +595,8 @@ type AgcExportKind =
   | "inventory";
 
 /** Shared export-button wiring for the Registrations and Accommodation pages. */
-export function AgcExcelExportButton({
-  which,
-  label,
-}: {
-  which: AgcExportKind;
-  label: string;
-}) {
+/** Runs one of the console's .xlsx exports and downloads the file. */
+function useAgcExcelExport() {
   const { sessionToken } = useAdminSession();
   const exportBookingsAction = useAction(api.agcExcel.exportBookingsExcel);
   const exportRegistrationsAction = useAction(
@@ -611,11 +612,11 @@ export function AgcExcelExportButton({
     api.agcExcel.exportPoaReconciliationExcel,
   );
   const exportInventoryAction = useAction(api.agcExcel.exportInventoryExcel);
-  const [exporting, setExporting] = useState(false);
+  const [exporting, setExporting] = useState<AgcExportKind | null>(null);
 
-  const runExport = async () => {
+  const run = async (which: AgcExportKind) => {
     if (!sessionToken) return;
-    setExporting(true);
+    setExporting(which);
     try {
       const result =
         which === "bookings"
@@ -633,17 +634,28 @@ export function AgcExcelExportButton({
     } catch (err) {
       toast.error(...toastFriendlyErrorParts(err, "Export failed"));
     } finally {
-      setExporting(false);
+      setExporting(null);
     }
   };
 
+  return { run, exporting };
+}
+
+export function AgcExcelExportButton({
+  which,
+  label,
+}: {
+  which: AgcExportKind;
+  label: string;
+}) {
+  const { run, exporting } = useAgcExcelExport();
   return (
     <Button
       type="button"
       variant="outline"
       size="sm"
-      disabled={exporting}
-      onClick={() => void runExport()}
+      disabled={exporting !== null}
+      onClick={() => void run(which)}
     >
       {exporting ? (
         <Loader2Icon className="size-4 animate-spin" />
@@ -652,5 +664,52 @@ export function AgcExcelExportButton({
       )}
       {label}
     </Button>
+  );
+}
+
+/**
+ * Several workbooks behind one "Export" button, so a page never shows a row
+ * of download buttons.
+ */
+export function AgcExportMenu({
+  items,
+  label = "Export",
+}: {
+  items: Array<{ which: AgcExportKind; label: string; hint?: string }>;
+  label?: string;
+}) {
+  const { run, exporting } = useAgcExcelExport();
+  if (items.length === 1) {
+    return <AgcExcelExportButton which={items[0].which} label={items[0].label} />;
+  }
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={<Button type="button" variant="outline" size="sm" />}
+        disabled={exporting !== null}
+      >
+        {exporting ? (
+          <Loader2Icon className="size-4 animate-spin" />
+        ) : (
+          <DownloadIcon className="size-4" />
+        )}
+        {label}
+        <ChevronDownIcon className="size-3.5 opacity-60" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-72">
+        {items.map((item) => (
+          <DropdownMenuItem
+            key={item.which}
+            onClick={() => void run(item.which)}
+            className="flex-col items-start gap-0"
+          >
+            <span>{item.label}</span>
+            {item.hint ? (
+              <span className="text-xs text-muted-foreground">{item.hint}</span>
+            ) : null}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

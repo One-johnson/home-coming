@@ -22,6 +22,7 @@ import {
   Upload,
   UserPlus,
   Wrench,
+  MoreHorizontal,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
@@ -31,6 +32,13 @@ import { BulkAssignPanel } from "@/components/admin/agc/BulkAssignPanel";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -1026,15 +1034,13 @@ export function RoomsTab() {
     // the panel — has to end above it or the last room's buttons sit under it.
     // The padding follows the bar: no bar, no dead space at the end.
     <div className={cn("space-y-4", assignBarActive && "max-lg:pb-28")}>
+      {/* Actions: the everyday ones as buttons, the rest in "More". */}
       <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" onClick={() => openRoomForm(null)}>
           <BedDouble className="size-4" /> Add room
         </Button>
         <Button size="sm" variant="outline" onClick={() => setImportOpen(true)}>
           <Upload className="size-4" /> Import inventory
-        </Button>
-        <Button size="sm" variant="outline" onClick={() => setWalkInOpen(true)}>
-          <UserPlus className="size-4" /> Add last-minute delegate
         </Button>
         {/* Auto rooming stays visible but inactive until a super admin arms
             it in Settings, so the shortcut is discoverable without ever
@@ -1052,39 +1058,8 @@ export function RoomsTab() {
           }
           onClick={() => void runAutoAssign()}
         >
-          <Sparkles className="size-4" /> Auto-assign guests ({guests.length})
+          <Sparkles className="size-4" /> Auto-assign ({guests.length})
         </Button>
-        {roomingSettings && !autoAssignEnabled && (
-          <span className="text-[11px] text-muted-foreground">
-            Off — enable in Settings → Operations
-          </span>
-        )}
-        <Button size="sm" variant="outline" onClick={() => setRoomingOpen(true)} disabled={list.length === 0}>
-          <Printer className="size-4" /> Rooming list
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          className="gap-1 text-destructive hover:text-destructive"
-          onClick={() => setBulkDeleteOpen(true)}
-          disabled={busy || list.length === 0}
-        >
-          <Trash2 className="size-4" /> Bulk delete
-        </Button>
-        {deletedList.length > 0 && (
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => {
-              setRestorePicks([]);
-              setRestoreOpen(true);
-            }}
-            disabled={busy}
-          >
-            <Undo2 className="size-4" /> Restore deleted (
-            {deletedRooms?.total ?? deletedList.length})
-          </Button>
-        )}
         {/* One menu, both directions: a scope is all rooms, one type, or a
             block, and each can be published or unpublished in one pass. */}
         <Select
@@ -1174,10 +1149,54 @@ export function RoomsTab() {
             </SelectGroup>
           </SelectContent>
         </Select>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button size="sm" variant="outline" aria-label="More room actions" />
+            }
+          >
+            <MoreHorizontal className="size-4" /> More
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-60">
+            <DropdownMenuItem onClick={() => setWalkInOpen(true)}>
+              <UserPlus /> Add last-minute delegate
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={list.length === 0}
+              onClick={() => setRoomingOpen(true)}
+            >
+              <Printer /> Rooming list
+            </DropdownMenuItem>
+            {deletedList.length > 0 && (
+              <DropdownMenuItem
+                disabled={busy}
+                onClick={() => {
+                  setRestorePicks([]);
+                  setRestoreOpen(true);
+                }}
+              >
+                <Undo2 /> Restore deleted (
+                {deletedRooms?.total ?? deletedList.length})
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              variant="destructive"
+              disabled={busy || list.length === 0}
+              onClick={() => setBulkDeleteOpen(true)}
+            >
+              <Trash2 /> Bulk delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
+      {/* Find: search, publish-state view, and the live bed count. */}
+      <div className="flex flex-wrap items-center gap-2">
         <Input
           placeholder="Search room or building…"
           aria-label="Search rooms"
-          className="h-9 w-48"
+          className="h-9 w-full sm:w-64"
           value={roomSearch}
           onChange={(e) => {
             setRoomSearch(e.target.value);

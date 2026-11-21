@@ -2,19 +2,36 @@
 
 import { useMutation, useQuery } from "convex/react";
 import { useMemo, useState } from "react";
+import {
+  ArrowDown,
+  ArrowUp,
+  Hotel,
+  MapPin,
+  Pencil,
+  RefreshCw,
+} from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import type { Doc, Id } from "@convex/_generated/dataModel";
 import { cleanErrorMessage } from "@/lib/friendlyError";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
+import { EmptyState } from "@/components/admin/kit/EmptyState";
 import {
   useAdminSession,
   useSessionArgs,
 } from "@/components/admin/AdminSessionProvider";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { canAccessArea } from "@/lib/adminRoles";
@@ -26,7 +43,6 @@ type HotelDraft = {
   distance: string;
   instructions: string;
   discountCode: string;
-  order: string;
 };
 
 function toDraft(hotel: Doc<"hotels">): HotelDraft {
@@ -37,10 +53,13 @@ function toDraft(hotel: Doc<"hotels">): HotelDraft {
     distance: hotel.distance ?? "",
     instructions: hotel.instructions ?? "",
     discountCode: hotel.discountCode ?? "",
-    order: String(hotel.order),
   };
 }
 
+/**
+ * Preferred hotels: a compact, ordered list. Reorder with the arrows, edit in
+ * a side sheet — no wall of always-open forms.
+ */
 export default function AdminHotelsPage() {
   const { user, sessionToken } = useAdminSession();
   const sessionArgs = useSessionArgs();
@@ -51,9 +70,10 @@ export default function AdminHotelsPage() {
   );
   const syncHotels = useMutation(api.content.syncHotels);
   const updateHotel = useMutation(api.content.updateHotel);
-  const [drafts, setDrafts] = useState<Record<string, HotelDraft>>({});
+  const [draft, setDraft] = useState<HotelDraft | null>(null);
+  const [editingId, setEditingId] = useState<Id<"hotels"> | null>(null);
   const [syncing, setSyncing] = useState(false);
-  const [savingId, setSavingId] = useState<Id<"hotels"> | null>(null);
+  const [busy, setBusy] = useState(false);
 
   const sortedHotels = useMemo(
     () => [...(hotels ?? [])].sort((a, b) => a.order - b.order),
@@ -68,27 +88,24 @@ export default function AdminHotelsPage() {
     );
   }
 
-  const getDraft = (hotel: Doc<"hotels">) => drafts[hotel._id] ?? toDraft(hotel);
-
-  const setDraftField = (
-    id: Id<"hotels">,
-    field: keyof HotelDraft,
-    value: string,
-  ) => {
-    setDrafts((current) => {
-      const hotel = hotels?.find((item) => item._id === id);
-      const base = current[id] ?? (hotel ? toDraft(hotel) : null);
-      if (!base) return current;
-      return { ...current, [id]: { ...base, [field]: value } };
+  const save = (hotel: Doc<"hotels">, values: HotelDraft, order: number) =>
+    updateHotel({
+      sessionToken: sessionToken!,
+      id: hotel._id,
+      name: values.name,
+      contact: values.contact || undefined,
+      rate: values.rate || undefined,
+      distance: values.distance || undefined,
+      instructions: values.instructions || undefined,
+      discountCode: values.discountCode || undefined,
+      order,
     });
-  };
 
   const handleSync = async () => {
     if (!sessionToken) return;
     setSyncing(true);
     try {
       const result = await syncHotels({ sessionToken });
-      setDrafts({});
       toast.success(
         `Hotels synced (${result.inserted} new, ${result.updated} updated, ${result.deleted} removed)`,
       );
@@ -99,179 +116,200 @@ export default function AdminHotelsPage() {
     }
   };
 
-  const handleSave = async (id: Id<"hotels">) => {
-    if (!sessionToken || !hotels) return;
-    const hotel = hotels.find((item) => item._id === id);
-    if (!hotel) return;
-    const draft = getDraft(hotel);
-    const order = Number(draft.order);
-    if (!Number.isFinite(order)) {
-      toast.error("Order must be a number");
+  const editing = sortedHotels.find((hotel) => hotel._id === editingId);
+
+  const openEditor = (hotel: Doc<"hotels">) => {
+    setEditingId(hotel._id);
+    setDraft(toDraft(hotel));
+  };
+
+  const handleSave = async () => {
+    if (!sessionToken || !editing || !draft) return;
+    if (!draft.name.trim()) {
+      toast.error("A hotel needs a name");
       return;
     }
-
-    setSavingId(id);
+    setBusy(true);
     try {
-      await updateHotel({
-        sessionToken,
-        id,
-        name: draft.name,
-        contact: draft.contact || undefined,
-        rate: draft.rate || undefined,
-        distance: draft.distance || undefined,
-        instructions: draft.instructions || undefined,
-        discountCode: draft.discountCode || undefined,
-        order,
-      });
-      setDrafts((current) => {
-        const next = { ...current };
-        delete next[id];
-        return next;
-      });
+      await save(editing, draft, editing.order);
       toast.success(`Updated ${draft.name}`);
+      setEditingId(null);
     } catch (err) {
       toast.error(cleanErrorMessage(err) || "Update failed");
     } finally {
-      setSavingId(null);
+      setBusy(false);
     }
   };
 
+  /** Swap a hotel with its neighbour — replaces typing order numbers. */
+  const move = async (index: number, delta: -1 | 1) => {
+    if (!sessionToken) return;
+    const a = sortedHotels[index];
+    const b = sortedHotels[index + delta];
+    if (!a || !b) return;
+    setBusy(true);
+    try {
+      // Write list positions, not the stored values, which can collide.
+      await save(a, toDraft(a), index + delta);
+      await save(b, toDraft(b), index);
+    } catch (err) {
+      toast.error(cleanErrorMessage(err) || "Reorder failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const field = (
+    key: keyof HotelDraft,
+    label: string,
+    options: { textarea?: boolean; wide?: boolean } = {},
+  ) =>
+    draft ? (
+      <div className={options.wide ? "space-y-1.5 sm:col-span-2" : "space-y-1.5"}>
+        <Label htmlFor={`hotel-${key}`}>{label}</Label>
+        {options.textarea ? (
+          <Textarea
+            id={`hotel-${key}`}
+            rows={4}
+            value={draft[key]}
+            onChange={(e) => setDraft({ ...draft, [key]: e.target.value })}
+          />
+        ) : (
+          <Input
+            id={`hotel-${key}`}
+            value={draft[key]}
+            onChange={(e) => setDraft({ ...draft, [key]: e.target.value })}
+          />
+        )}
+      </div>
+    ) : null;
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <AdminPageHeader
-        description="Preferred commercial hotels near campus. Sync from the hotels PDF seed list, then edit details as needed."
+        description="Preferred hotels near campus, in the order the public page lists them."
         actions={
-          <Button onClick={() => void handleSync()} disabled={syncing}>
+          <Button
+            variant="outline"
+            onClick={() => void handleSync()}
+            disabled={syncing}
+            title="Re-import the hotels from the PDF seed list"
+          >
+            <RefreshCw className={syncing ? "size-4 animate-spin" : "size-4"} />
             {syncing ? "Syncing…" : "Sync from PDF seed"}
           </Button>
         }
       />
 
       {hotels === undefined ? (
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-2">
           {[1, 2, 3, 4].map((i) => (
-            <Skeleton key={i} className="h-72 rounded-xl" />
+            <Skeleton key={i} className="h-20 rounded-xl" />
           ))}
         </div>
       ) : sortedHotels.length === 0 ? (
-        <Card>
-          <CardContent className="space-y-3 py-8 text-sm text-muted-foreground">
-            <p>No hotels in the database yet.</p>
+        <EmptyState
+          icon={Hotel}
+          title="No hotels yet"
+          description="Import the preferred hotels from the PDF seed list."
+          action={
             <Button onClick={() => void handleSync()} disabled={syncing}>
               {syncing ? "Syncing…" : "Sync hotels now"}
             </Button>
-          </CardContent>
-        </Card>
+          }
+        />
       ) : (
-        <div className="grid gap-4 xl:grid-cols-2">
-          {sortedHotels.map((hotel) => {
-            const draft = getDraft(hotel);
-            return (
-              <Card key={hotel._id}>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base">{hotel.name}</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="space-y-1.5 sm:col-span-2">
-                      <Label htmlFor={`${hotel._id}-name`}>Name</Label>
-                      <Input
-                        id={`${hotel._id}-name`}
-                        value={draft.name}
-                        onChange={(e) =>
-                          setDraftField(hotel._id, "name", e.target.value)
-                        }
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor={`${hotel._id}-distance`}>Location</Label>
-                      <Input
-                        id={`${hotel._id}-distance`}
-                        value={draft.distance}
-                        onChange={(e) =>
-                          setDraftField(hotel._id, "distance", e.target.value)
-                        }
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor={`${hotel._id}-rate`}>Rate</Label>
-                      <Input
-                        id={`${hotel._id}-rate`}
-                        value={draft.rate}
-                        onChange={(e) =>
-                          setDraftField(hotel._id, "rate", e.target.value)
-                        }
-                      />
-                    </div>
-                    <div className="space-y-1.5 sm:col-span-2">
-                      <Label htmlFor={`${hotel._id}-contact`}>Contact</Label>
-                      <Input
-                        id={`${hotel._id}-contact`}
-                        value={draft.contact}
-                        onChange={(e) =>
-                          setDraftField(hotel._id, "contact", e.target.value)
-                        }
-                      />
-                    </div>
-                    <div className="space-y-1.5 sm:col-span-2">
-                      <Label htmlFor={`${hotel._id}-instructions`}>
-                        Rooms & capacity
-                      </Label>
-                      <Textarea
-                        id={`${hotel._id}-instructions`}
-                        value={draft.instructions}
-                        rows={3}
-                        onChange={(e) =>
-                          setDraftField(
-                            hotel._id,
-                            "instructions",
-                            e.target.value,
-                          )
-                        }
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor={`${hotel._id}-discount`}>
-                        Discount code
-                      </Label>
-                      <Input
-                        id={`${hotel._id}-discount`}
-                        value={draft.discountCode}
-                        onChange={(e) =>
-                          setDraftField(
-                            hotel._id,
-                            "discountCode",
-                            e.target.value,
-                          )
-                        }
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor={`${hotel._id}-order`}>Order</Label>
-                      <Input
-                        id={`${hotel._id}-order`}
-                        type="number"
-                        value={draft.order}
-                        onChange={(e) =>
-                          setDraftField(hotel._id, "order", e.target.value)
-                        }
-                      />
-                    </div>
-                  </div>
-                  <div className="flex justify-end">
-                    <Button
-                      onClick={() => void handleSave(hotel._id)}
-                      disabled={savingId === hotel._id}
-                    >
-                      {savingId === hotel._id ? "Saving…" : "Save"}
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
+        <ul className="admin-stagger space-y-2">
+          {sortedHotels.map((hotel, index) => (
+            <li
+              key={hotel._id}
+              className="flex flex-wrap items-center gap-3 rounded-xl border bg-card p-3 shadow-soft transition-shadow duration-300 hover:shadow-elevate"
+            >
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-gold/15 text-sm font-semibold text-gold-dark">
+                {index + 1}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-medium">{hotel.name}</p>
+                <p className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+                  {hotel.distance && (
+                    <span className="inline-flex items-center gap-1">
+                      <MapPin className="size-3" /> {hotel.distance}
+                    </span>
+                  )}
+                  {hotel.rate && <span>{hotel.rate}</span>}
+                  {hotel.contact && (
+                    <span className="truncate">{hotel.contact}</span>
+                  )}
+                </p>
+              </div>
+              {hotel.discountCode && (
+                <Badge
+                  variant="outline"
+                  className="border-gold/40 bg-gold/10 font-mono text-gold-dark"
+                >
+                  {hotel.discountCode}
+                </Badge>
+              )}
+              <div className="flex items-center gap-1">
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label={`Move ${hotel.name} up`}
+                  disabled={index === 0 || busy}
+                  onClick={() => void move(index, -1)}
+                >
+                  <ArrowUp className="size-4" />
+                </Button>
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label={`Move ${hotel.name} down`}
+                  disabled={index === sortedHotels.length - 1 || busy}
+                  onClick={() => void move(index, 1)}
+                >
+                  <ArrowDown className="size-4" />
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => openEditor(hotel)}>
+                  <Pencil className="size-3.5" /> Edit
+                </Button>
+              </div>
+            </li>
+          ))}
+        </ul>
       )}
+
+      <Sheet
+        open={editing !== undefined}
+        onOpenChange={(open) => {
+          if (!open) setEditingId(null);
+        }}
+      >
+        <SheetContent className="w-full overflow-y-auto sm:max-w-lg">
+          <SheetHeader>
+            <SheetTitle>Edit hotel</SheetTitle>
+            <SheetDescription>{editing?.name}</SheetDescription>
+          </SheetHeader>
+          <div className="grid gap-3 px-4 sm:grid-cols-2">
+            {field("name", "Name", { wide: true })}
+            {field("distance", "Location")}
+            {field("rate", "Rate")}
+            {field("contact", "Contact", { wide: true })}
+            {field("instructions", "Rooms & capacity", {
+              textarea: true,
+              wide: true,
+            })}
+            {field("discountCode", "Discount code")}
+          </div>
+          <SheetFooter className="flex-row justify-end gap-2">
+            <Button variant="outline" onClick={() => setEditingId(null)}>
+              Cancel
+            </Button>
+            <Button onClick={() => void handleSave()} disabled={busy}>
+              {busy ? "Saving…" : "Save"}
+            </Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

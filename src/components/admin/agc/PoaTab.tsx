@@ -13,7 +13,7 @@ import {
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import { useAdminSession } from "@/components/admin/AdminSessionProvider";
-import { AgcExcelExportButton } from "@/components/admin/agc/AgcAdminClient";
+import { AgcExportMenu } from "@/components/admin/agc/AgcAdminClient";
 import {
   RowDetailDialog,
   RowDetailItem,
@@ -463,20 +463,28 @@ export function PoaTab({ kind = "all" }: { kind?: "all" | "registration" | "book
   return (
     <div className="space-y-4">
       {user?.role === "admin" && (
-        <div className="flex flex-wrap justify-end gap-2">
-          {kind !== "registration" && (
-            <AgcExcelExportButton
-              which="poa-bookings"
-              label="Accommodation bookings (.xlsx)"
-            />
-          )}
-          <AgcExcelExportButton
-            which="poa-collections"
-            label="Cash-collection sheet (.xlsx)"
-          />
-          <AgcExcelExportButton
-            which="poa-reconciliation"
-            label="End-of-day reconciliation (.xlsx)"
+        <div className="flex justify-end">
+          <AgcExportMenu
+            items={[
+              ...(kind !== "registration"
+                ? [
+                    {
+                      which: "poa-bookings" as const,
+                      label: "Accommodation bookings (.xlsx)",
+                    },
+                  ]
+                : []),
+              {
+                which: "poa-collections",
+                label: "Cash-collection sheet (.xlsx)",
+                hint: "Tick-off list for the door",
+              },
+              {
+                which: "poa-reconciliation",
+                label: "End-of-day reconciliation (.xlsx)",
+                hint: "Collected vs outstanding, per currency",
+              },
+            ]}
           />
         </div>
       )}
