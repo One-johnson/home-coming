@@ -25,6 +25,7 @@ import {
 } from "@/components/admin/agc/StatusPrimitives";
 import { TONE_RAIL, TONE_ROW, TONE_TEXT } from "@/lib/agcStatusTone";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   Dialog,
@@ -319,12 +320,89 @@ export function DeskCheckinPage() {
 
       <div className="flex flex-wrap items-center justify-between gap-2 print:hidden">
         <StatusLegend tones={["blocked", "done", "info"]} />
-        <p className="text-[11px] text-muted-foreground">
-          Amber rows still owe cash · green rows are ticked off this shift.
-        </p>
       </div>
 
-      <div className="overflow-x-auto rounded-xl border">
+      <ul className="space-y-2 md:hidden print:hidden">
+        {rows === undefined ? (
+          <Skeleton className="h-24 rounded-xl" />
+        ) : filtered.length === 0 ? (
+          <li className="rounded-xl border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
+            {search
+              ? "No record matches the search."
+              : "Nothing to collect — every payment-on-arrival record is confirmed."}
+          </li>
+        ) : (
+          filtered.map((row) => {
+            const isTicked = tickSet.has(row.recordId);
+            return (
+              <li
+                key={row.recordId}
+                className={cn(
+                  "rounded-xl border border-l-4 bg-card p-3 shadow-soft",
+                  isTicked
+                    ? [TONE_RAIL.done, TONE_ROW.done]
+                    : [TONE_RAIL.blocked, TONE_ROW.blocked],
+                )}
+              >
+                <div className="flex items-start gap-3">
+                  <Checkbox
+                    className="mt-1"
+                    aria-label={`Ticked off ${row.referenceNumber || row.recordId}`}
+                    checked={isTicked}
+                    onCheckedChange={() => toggleTick(row.recordId)}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="flex items-center justify-between gap-2">
+                      <span className="font-mono text-xs">
+                        {row.referenceNumber || "(pending)"}
+                        {row.kind === "booking" ? " · stay" : ""}
+                      </span>
+                      <span className="font-semibold tabular-nums">
+                        {row.currency} {row.totalAmount.toLocaleString()}
+                      </span>
+                    </p>
+                    <p className="truncate text-sm">{row.hubName}</p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {row.units} unit{row.units === 1 ? "" : "s"}
+                      {row.guests.length > 0
+                        ? ` · ${row.guests.map((guest) => guest.name).join(", ")}`
+                        : ""}
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-2 flex items-center justify-between gap-2">
+                  <StatusBadge
+                    tone={row.poaStatus === "evidence_submitted" ? "info" : "blocked"}
+                    icon={row.poaStatus === "evidence_submitted" ? CircleCheck : CircleAlert}
+                    className="text-[10px]"
+                  >
+                    {row.poaStatus === "evidence_submitted"
+                      ? "Evidence submitted"
+                      : "IOU pending"}
+                  </StatusBadge>
+                  {row.poaStatus === "confirmed" ? (
+                    <StatusBadge tone="done" icon={BadgeCheckIcon}>
+                      Collected
+                    </StatusBadge>
+                  ) : (
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={busyId === row.recordId}
+                      onClick={() => setConfirmTarget(row)}
+                    >
+                      <HandCoins className="size-4" />
+                      {busyId === row.recordId ? "Confirming…" : "Cash received"}
+                    </Button>
+                  )}
+                </div>
+              </li>
+            );
+          })
+        )}
+      </ul>
+
+      <div className="hidden overflow-x-auto rounded-xl border md:block print:block">
         <Table>
           <TableHeader className="sticky top-14 z-10 bg-card">
             <TableRow>
@@ -372,12 +450,10 @@ export function DeskCheckinPage() {
                     )}
                   >
                     <TableCell>
-                      <input
-                        type="checkbox"
+                      <Checkbox
                         aria-label={`Ticked off ${row.referenceNumber || row.recordId}`}
-                        className="size-4 cursor-pointer"
                         checked={isTicked}
-                        onChange={() => toggleTick(row.recordId)}
+                        onCheckedChange={() => toggleTick(row.recordId)}
                       />
                     </TableCell>
                     <TableCell className="font-mono text-xs">
@@ -452,18 +528,10 @@ export function DeskCheckinPage() {
         </Table>
       </div>
 
-      <Card className="print:hidden">
-        <CardContent className="flex items-start gap-2 p-3 text-xs text-muted-foreground">
-          <ClipboardCheck className="mt-0.5 size-4 shrink-0" />
-          <p>
-            Ticks are kept on this device only — they are a desk checklist, not
-            payment records. “Confirm ticked” collects every ticked row in one
-            batch; both it and “Cash received” ask for confirmation first,
-            because confirming credits the IOU system-wide and locks the held
-            beds in — do it only when the money is in hand.
-          </p>
-        </CardContent>
-      </Card>
+      <p className="flex items-center gap-2 text-xs text-muted-foreground print:hidden">
+        <ClipboardCheck className="size-4 shrink-0" />
+        Ticks stay on this device; confirm a payment only when the cash is in hand.
+      </p>
 
       {/* Single-row confirmation — the money is only credited after this. */}
       <Dialog

@@ -1586,85 +1586,60 @@ export function RoomsTab() {
                     <span className="max-sm:hidden">Move</span>
                   </Button>
                 )}
-                {room.hold ? (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-7 gap-1 text-xs text-sky-700 hover:text-sky-800 dark:text-sky-400"
-                    aria-label={`Release the reservation on ${room.name}`}
-                    title="Release reservation"
-                    onClick={() => void releaseHold(room)}
+                {/* Everything else about the room, one tap away. */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    render={
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="ml-auto h-7 px-2"
+                        aria-label={`More actions for ${room.name}`}
+                      />
+                    }
                   >
-                    <Unlock className="size-3" />
-                    <span className="max-sm:hidden">Release</span>
-                  </Button>
-                ) : (
-                  room.occupants === 0 && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-7 gap-1 text-xs"
-                      aria-label={`Reserve ${room.name}`}
-                      title="Reserve room"
+                    <MoreHorizontal className="size-4" />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-52">
+                    {room.hold ? (
+                      <DropdownMenuItem onClick={() => void releaseHold(room)}>
+                        <Unlock /> Release reservation
+                      </DropdownMenuItem>
+                    ) : room.occupants === 0 ? (
+                      <DropdownMenuItem
+                        onClick={() => {
+                          setHoldTarget(room);
+                          setHoldNote("");
+                        }}
+                      >
+                        <Lock /> Reserve room
+                      </DropdownMenuItem>
+                    ) : null}
+                    <DropdownMenuItem onClick={() => openRoomForm(room)}>
+                      <Pencil /> Edit room
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
                       onClick={() => {
-                        setHoldTarget(room);
-                        setHoldNote("");
+                        setFlagTarget(room);
+                        setFlagCategory("toilet");
+                        setFlagNote("");
                       }}
                     >
-                      <Lock className="size-3" />
-                      <span className="max-sm:hidden">Reserve</span>
-                    </Button>
-                  )
-                )}
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-7 gap-1 text-xs"
-                  aria-label={`Edit ${room.name}`}
-                  title="Edit room"
-                  onClick={() => openRoomForm(room)}
-                >
-                  <Pencil className="size-3" />
-                  <span className="max-sm:hidden">Edit</span>
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-7 gap-1 text-xs text-rose-700 hover:text-rose-800 dark:text-rose-400"
-                  title="Flag a problem with this room — broken toilet, no water, faulty lock"
-                  aria-label={`Flag an issue with ${room.name}`}
-                  onClick={() => {
-                    setFlagTarget(room);
-                    setFlagCategory("toilet");
-                    setFlagNote("");
-                  }}
-                >
-                  <Flag className="size-3" />
-                  <span className="max-sm:hidden">Flag issue</span>
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-7 gap-1 text-xs"
-                  aria-label={`History for ${room.name}`}
-                  title="Assignment history"
-                  onClick={() => setHistoryRoom(room)}
-                >
-                  <Eye className="size-3" />
-                  <span className="max-sm:hidden">History</span>
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-7 gap-1 text-xs text-destructive hover:text-destructive"
-                  aria-label={`Delete ${room.name}`}
-                  title="Delete room"
-                  disabled={room.occupants > 0}
-                  onClick={() => void removeRoom(room)}
-                >
-                  <DoorOpen className="size-3" />
-                  <span className="max-sm:hidden">Delete</span>
-                </Button>
+                      <Flag /> Flag an issue
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setHistoryRoom(room)}>
+                      <Eye /> Assignment history
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      variant="destructive"
+                      disabled={room.occupants > 0}
+                      onClick={() => void removeRoom(room)}
+                    >
+                      <DoorOpen /> Delete room
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             </div>
                   );

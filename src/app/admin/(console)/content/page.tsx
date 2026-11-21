@@ -38,6 +38,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { canAccessArea } from "@/lib/adminRoles";
 
@@ -262,29 +263,46 @@ export default function AdminContentPage() {
                 }
               }}
             >
-              <Input
-                placeholder="Category"
-                value={faqForm.category}
-                onChange={(e) =>
-                  setFaqForm({ ...faqForm, category: e.target.value })
-                }
-              />
-              <Input
-                placeholder="Question"
-                required
-                value={faqForm.question}
-                onChange={(e) =>
-                  setFaqForm({ ...faqForm, question: e.target.value })
-                }
-              />
-              <Textarea
-                placeholder="Answer"
-                required
-                value={faqForm.answer}
-                onChange={(e) =>
-                  setFaqForm({ ...faqForm, answer: e.target.value })
-                }
-              />
+              <div className="space-y-1.5">
+                <Label htmlFor="faq-category">Category</Label>
+                <datalist id="faq-categories">
+                  {Array.from(new Set((faqs ?? []).map((faq) => faq.category))).map(
+                    (category) => (
+                      <option key={category} value={category} />
+                    ),
+                  )}
+                </datalist>
+                <Input
+                  id="faq-category"
+                  list="faq-categories"
+                  value={faqForm.category}
+                  onChange={(e) =>
+                    setFaqForm({ ...faqForm, category: e.target.value })
+                  }
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="faq-question">Question</Label>
+                <Input
+                  id="faq-question"
+                  required
+                  value={faqForm.question}
+                  onChange={(e) =>
+                    setFaqForm({ ...faqForm, question: e.target.value })
+                  }
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="faq-answer">Answer</Label>
+                <Textarea
+                  id="faq-answer"
+                  required
+                  value={faqForm.answer}
+                  onChange={(e) =>
+                    setFaqForm({ ...faqForm, answer: e.target.value })
+                  }
+                />
+              </div>
               <div className="flex flex-wrap gap-2">
                 <Button type="submit">
                   {editingFaq ? "Update FAQ" : "Save FAQ"}
@@ -436,28 +454,34 @@ export default function AdminContentPage() {
                 }
               }}
             >
-              <Input
-                placeholder="Title"
-                required
-                value={announcementForm.title}
-                onChange={(e) =>
-                  setAnnouncementForm({
-                    ...announcementForm,
-                    title: e.target.value,
-                  })
-                }
-              />
-              <Textarea
-                placeholder="Body"
-                required
-                value={announcementForm.body}
-                onChange={(e) =>
-                  setAnnouncementForm({
-                    ...announcementForm,
-                    body: e.target.value,
-                  })
-                }
-              />
+              <div className="space-y-1.5">
+                <Label htmlFor="announcement-title">Title</Label>
+                <Input
+                  id="announcement-title"
+                  required
+                  value={announcementForm.title}
+                  onChange={(e) =>
+                    setAnnouncementForm({
+                      ...announcementForm,
+                      title: e.target.value,
+                    })
+                  }
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="announcement-body">Body</Label>
+                <Textarea
+                  id="announcement-body"
+                  required
+                  value={announcementForm.body}
+                  onChange={(e) =>
+                    setAnnouncementForm({
+                      ...announcementForm,
+                      body: e.target.value,
+                    })
+                  }
+                />
+              </div>
               <label className="flex items-center gap-2 text-sm">
                 <Checkbox
                   checked={announcementForm.active}

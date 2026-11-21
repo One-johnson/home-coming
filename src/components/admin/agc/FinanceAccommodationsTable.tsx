@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "convex/react";
 import {
   ColumnDef,
@@ -9,9 +9,15 @@ import {
 import { api } from "@convex/_generated/api";
 import { useAdminSession } from "@/components/admin/AdminSessionProvider";
 import { Badge } from "@/components/ui/badge";
-import { Card } from "@/components/ui/card";
 import { DataTable } from "@/components/ui/data-table";
-import { StatTile } from "@/components/portal/StatTile";
+import { StatTile } from "@/components/admin/agc/StatusPrimitives";
+import {
+  RowDetailDialog,
+  RowDetailItem,
+  RowDetailList,
+  RowDetailSection,
+} from "@/components/admin/agc/RowDetailDialog";
+import { Banknote, BedDouble, CheckCircle2, Clock3 } from "lucide-react";
 import { multiSelectFilter } from "@/components/admin/columns";
 import {
   AGEING_BUCKET_KEYS,
@@ -99,6 +105,8 @@ export default function FinanceAccommodationsTable({
   );
 
   const list = useMemo(() => bookings ?? [], [bookings]);
+  const [tileStatus, setTileStatus] = useState<string | null>(null);
+  const [detail, setDetail] = useState<FinanceBookingRow | null>(null);
 
   const summary = useMemo(() => {
     // Money is summed per currency only — cedis and dollars are never mixed.
@@ -219,30 +227,58 @@ export default function FinanceAccommodationsTable({
     [],
   );
 
+  const tableFilters: ColumnFiltersState = tileStatus
+    ? [
+        { id: "paymentStatus", value: [tileStatus] },
+        ...(initialFilters ?? []).filter((f) => f.id !== "paymentStatus"),
+      ]
+    : (initialFilters ?? []);
+  const toggleTile = (status: string | null) =>
+    setTileStatus((current) => (current === status ? null : status));
+
   return (
     <div className="space-y-4">
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Total bookings" value={summary.total} />
-        <StatTile label="Confirmed" value={summary.confirmed} tone="positive" />
+      <div className="admin-stagger grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatTile
-          label="Awaiting review"
-          value={summary.awaiting}
-          tone={summary.awaiting > 0 ? "warning" : "neutral"}
-          hint="payments to be verified"
+          icon={BedDouble}
+          label="Total bookings"
+          value={summary.total}
+          hint="Click a tile to filter the table"
+          active={tileStatus === null}
+          onClick={() => setTileStatus(null)}
         />
         <StatTile
+          tone="done"
+          icon={CheckCircle2}
+          label="Confirmed"
+          value={summary.confirmed}
+          active={tileStatus === "confirmed"}
+          onClick={() => toggleTile("confirmed")}
+        />
+        <StatTile
+          tone={summary.awaiting > 0 ? "blocked" : "neutral"}
+          icon={Clock3}
+          label="Awaiting review"
+          value={summary.awaiting}
+          hint="Payments to be verified"
+          active={tileStatus === "pending_verification"}
+          onClick={() => toggleTile("pending_verification")}
+        />
+        <StatTile
+          tone="done"
+          icon={Banknote}
           label="Confirmed revenue"
-          value={formatMoneyByCurrency(summary.revenue)}
-          tone="positive"
-          hint="per currency, never mixed"
+          value={<span className="text-xl">{formatMoneyByCurrency(summary.revenue)}</span>}
+          hint="Cedis and dollars shown separately"
         />
       </div>
 
-      <Card className="p-4">
-        <DataTable
+      <DataTable
+          key={tileStatus ?? "all"}
           columns={columns}
           data={list}
-          initialColumnFilters={initialFilters}
+          initialColumnFilters={tableFilters}
+          onRowClick={setDetail}
           isLoading={bookings === undefined}
           emptyMessage="No bookings yet."
           searchPlaceholder="Search reference, hub, guest…"
@@ -300,7 +336,100 @@ export default function FinanceAccommodationsTable({
             },
           ]}
         />
-      </Card>
+
+      <RowDetailDialog
+        open={detail !== null}
+        onOpenChange={(open) => {
+          if (!open) setDetail(null);
+        }}
+        title={detail?.referenceNumber || "Booking"}
+        summary={
+          detail ? (
+            <span className="flex flex-wrap items-center gap-2 text-xs">
+              <Badge variant="outline" className={paymentStatusMeta(detail.paymentStatus).className}>
+                {paymentStatusMeta(detail.paymentStatus).label}
+              </Badge>
+              <Badge variant="outline" className={bookingStatusMeta(detail.bookingStatus).className}>
+                {bookingStatusMeta(detail.bookingStatus).label}
+              </Badge>
+              <span className="text-muted-foreground">{detail.hubName}</span>
+            </span>
+          ) : null
+        }
+      >
+        {detail ? (
+          <>
+            <RowDetailSection title="Booking">
+              <RowDetailList>
+                <RowDetailItem label="Total">
+                  {formatMoneyByCurrency({ [detail.currency]: detail.totalAmount })}
+                </RowDetailItem>
+                <RowDetailItem label="Region">{detail.region}</RowDetailItem>
+                <RowDetailItem label="Payment mode">
+                  {detail.paymentMode.replace(/_/g, " ")}
+                </RowDetailItem>
+                <RowDetailItem label="Created">
+                  {formatDateTime(detail.createdAt)}
+                </RowDetailItem>
+                {detail.expiresAt ? (
+                  <RowDetailItem label="Hold expires">
+                    {formatDateTime(detail.expiresAt)}
+                  </RowDetailItem>
+                ) : null}
+              </RowDetailList>
+            </RowDetailSection>
+            {detail.offline ? (
+              <RowDetailSection title="Offline payment">
+                <RowDetailList>
+                  <RowDetailItem label="Amount paid">
+                    {formatMoneyByCurrency({ [detail.currency]: detail.offline.amountPaid })}
+                  </RowDetailItem>
+                  <RowDetailItem label="Method">{detail.offline.method}</RowDetailItem>
+                  <RowDetailItem label="Reference">
+                    {detail.offline.referenceNumber}
+                  </RowDetailItem>
+                  <RowDetailItem label="Paid on">{detail.offline.paymentDate}</RowDetailItem>
+                </RowDetailList>
+                {detail.receiptUrl ? (
+                  <a
+                    href={detail.receiptUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-2 inline-flex text-xs font-medium text-primary underline underline-offset-2"
+                  >
+                    Open receipt{detail.offline.receiptFileName ? ` (${detail.offline.receiptFileName})` : ""}
+                  </a>
+                ) : null}
+              </RowDetailSection>
+            ) : null}
+            <RowDetailSection
+              title={`Guests (${detail.guests.filter((g) => g.status === "active").length} active)`}
+            >
+              <ul className="divide-y rounded-lg border text-sm">
+                {detail.guests.map((guest) => (
+                  <li key={guest._id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+                    <span>
+                      {[guest.title, guest.firstName, guest.lastName].filter(Boolean).join(" ")}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {guest.accommodationType} · {guest.gender}
+                      {guest.isBishopRate ? " · bishop rate" : ""}
+                      {guest.status !== "active" ? ` · ${guest.status}` : ""}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </RowDetailSection>
+            {detail.adminMessage ? (
+              <RowDetailSection title="Last message">
+                <p className="rounded-lg bg-amber-50 p-2 text-xs text-amber-900">
+                  {detail.adminMessage}
+                </p>
+              </RowDetailSection>
+            ) : null}
+          </>
+        ) : null}
+      </RowDetailDialog>
     </div>
   );
 }

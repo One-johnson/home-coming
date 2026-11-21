@@ -4,11 +4,15 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery } from "convex/react";
 import {
+  Banknote,
+  BedDouble,
   HandCoins,
   Loader2Icon,
   Plus,
   Save,
+  Settings2,
   ShieldAlert,
+  Tags,
   Trash2,
   TriangleAlert,
 } from "lucide-react";
@@ -108,6 +112,15 @@ type SettingsDraft = {
 
 /** In-page section anchors. Operations and POA are instant — never part of a save. */
 type SectionId = "general" | "payments" | "accommodation" | "titles" | "poa" | "operations";
+
+const SECTION_ICONS: Record<SectionId, React.ComponentType<{ className?: string }>> = {
+  general: Settings2,
+  payments: Banknote,
+  accommodation: BedDouble,
+  titles: Tags,
+  poa: HandCoins,
+  operations: ShieldAlert,
+};
 
 const SECTIONS: Array<{ id: SectionId; label: string; href: string }> = [
   { id: "general", label: "General", href: "/admin/settings/general" },
@@ -854,27 +867,34 @@ function AgcSettingsForm({
 
       {/* Section navigation — each section is its own page. Unsaved-edit
           dots can only appear for the section on screen. */}
+      {/* Phones and tablets: a pill row. Desktop: a side menu (below). */}
+      <div className="grid gap-5 lg:grid-cols-[13rem_minmax(0,1fr)] lg:items-start">
       <nav
         aria-label="Settings sections"
-        className="flex gap-1 overflow-x-auto rounded-full border bg-card p-1 shadow-soft"
+        className="flex gap-1 overflow-x-auto rounded-full border bg-card p-1 shadow-soft lg:sticky lg:top-20 lg:flex-col lg:overflow-visible lg:rounded-xl lg:p-2"
       >
-        {SECTIONS.map((s) => (
-          <Link
-            key={s.id}
-            href={s.href}
-            aria-current={section === s.id ? "page" : undefined}
-            className={cn(
-              "flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm transition-all duration-200",
-              section === s.id
-                ? "bg-primary font-medium text-primary-foreground shadow-sm"
-                : "text-muted-foreground hover:bg-muted hover:text-foreground",
-            )}
-          >
-            {s.label}
-            {dirtySections[s.id] && <DirtyDot />}
-          </Link>
-        ))}
+        {SECTIONS.map((s) => {
+          const Icon = SECTION_ICONS[s.id];
+          return (
+            <Link
+              key={s.id}
+              href={s.href}
+              aria-current={section === s.id ? "page" : undefined}
+              className={cn(
+                "flex shrink-0 items-center gap-2 rounded-full px-3.5 py-1.5 text-sm transition-all duration-200 lg:rounded-lg lg:py-2",
+                section === s.id
+                  ? "bg-primary font-medium text-primary-foreground shadow-sm [&_svg]:text-gold-light"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground",
+              )}
+            >
+              <Icon className="size-4 shrink-0" />
+              <span className="flex-1">{s.label}</span>
+              {dirtySections[s.id] && <DirtyDot />}
+            </Link>
+          );
+        })}
       </nav>
+      <div key={section} className="admin-rise min-w-0 space-y-5">
 
       {section === "general" && (
       <Card id="agc-section-general" data-agc-section="general" className="scroll-mt-24">
@@ -1452,6 +1472,8 @@ function AgcSettingsForm({
       {section === "operations" && (
         <ReceiptsArchiveCard sessionToken={sessionToken} />
       )}
+      </div>
+      </div>
 
       {/* Floating unsaved-changes bar: only present when there is work to
           commit, anchored bottom-right so it never covers the sidebar. */}

@@ -6,7 +6,16 @@ import {
   ColumnDef,
   type ColumnFiltersState,
 } from "@tanstack/react-table";
-import { ChevronDownIcon, DownloadIcon, Loader2Icon, Trash2 } from "lucide-react";
+import {
+  Banknote,
+  CheckCircle2,
+  ChevronDownIcon,
+  Clock3,
+  DownloadIcon,
+  Loader2Icon,
+  MessageSquareWarning,
+  Trash2,
+} from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
@@ -35,8 +44,10 @@ import {
   AGEING_BUCKET_LABELS,
   ageingBadgeClass,
   ageingBucketKey,
+  formatMoneyByCurrency,
   paymentStatusMeta,
 } from "@/lib/agcPortal";
+import { StatTile } from "@/components/admin/agc/StatusPrimitives";
 
 type AdminRegistrationRow = {
   _id: string;
@@ -158,6 +169,8 @@ export default function RegistrationsTab({
   // Row shown in the detail dialog (opened by clicking a table row).
   const [detailRow, setDetailRow] = useState<AdminRegistrationRow | null>(null);
   const [deleting, setDeleting] = useState(false);
+  // Stat tile acting as a status filter (null = whatever the URL seeded).
+  const [tileStatus, setTileStatus] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<RegistrationDeleteTarget | null>(null);
 
   const decide = async (
@@ -407,18 +420,91 @@ export default function RegistrationsTab({
       ),
     [initialFilters, showAgeing],
   );
+  const tableFilters = useMemo(
+    () =>
+      tileStatus
+        ? [
+            { id: "paymentStatus", value: [tileStatus] },
+            ...safeInitialFilters.filter((filter) => filter.id !== "paymentStatus"),
+          ]
+        : safeInitialFilters,
+    [tileStatus, safeInitialFilters],
+  );
+
+  const summary = useMemo(() => {
+    const list = rows ?? [];
+    const count = (status: string) =>
+      list.filter((row) => row.paymentStatus === status).length;
+    const revenue: Record<string, number> = {};
+    let delegates = 0;
+    for (const row of list) {
+      if (row.paymentStatus !== "confirmed") continue;
+      revenue[row.currency] = (revenue[row.currency] ?? 0) + row.totalAmount;
+      delegates += row.quantity;
+    }
+    return {
+      awaiting: count("pending_verification"),
+      correction: count("correction_requested"),
+      confirmed: count("confirmed"),
+      revenue,
+      delegates,
+    };
+  }, [rows]);
+  const toggleTile = (status: string) =>
+    setTileStatus((current) => (current === status ? null : status));
 
   return (
     <div className="space-y-3">
+      <div className="admin-stagger grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <StatTile
+          tone="blocked"
+          icon={Clock3}
+          label="Awaiting review"
+          value={rows === undefined ? "–" : summary.awaiting}
+          hint="Click to show only these"
+          active={tileStatus === "pending_verification"}
+          onClick={() => toggleTile("pending_verification")}
+        />
+        <StatTile
+          tone="refused"
+          icon={MessageSquareWarning}
+          label="Correction requested"
+          value={rows === undefined ? "–" : summary.correction}
+          hint="Sent back to the rep"
+          active={tileStatus === "correction_requested"}
+          onClick={() => toggleTile("correction_requested")}
+        />
+        <StatTile
+          tone="done"
+          icon={CheckCircle2}
+          label="Confirmed"
+          value={rows === undefined ? "–" : summary.confirmed}
+          hint={`${summary.delegates.toLocaleString()} delegate${summary.delegates === 1 ? "" : "s"} paid`}
+          active={tileStatus === "confirmed"}
+          onClick={() => toggleTile("confirmed")}
+        />
+        <StatTile
+          icon={Banknote}
+          label="Confirmed revenue"
+          value={
+            <span className="text-xl">
+              {rows === undefined ? "–" : formatMoneyByCurrency(summary.revenue)}
+            </span>
+          }
+          hint="Cedis and dollars never summed"
+        />
+      </div>
       {!canManage && (
         <p className="inline-flex items-center gap-1.5 rounded-full bg-sky-100 px-2.5 py-1 text-xs font-medium text-sky-800">
           Read-only · approvals are handled by the registration team
         </p>
       )}
       <DataTable
+        // Re-seeded when a stat tile changes the status filter.
+        key={tileStatus ?? "url"}
         columns={columns}
         data={rows ?? []}
-        initialColumnFilters={safeInitialFilters}
+        initialColumnFilters={tableFilters}
         isLoading={rows === undefined}
         emptyMessage="No registrations yet."
         searchPlaceholder="Search reference, hub…"          getRowId={(row) => row._id}
