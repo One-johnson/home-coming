@@ -10,9 +10,11 @@ import {
   Search,
   Users,
   X,
+  SlidersHorizontal,
 } from "lucide-react";
 import { api } from "@convex/_generated/api";
 import { useAdminSession } from "@/components/admin/AdminSessionProvider";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -409,6 +411,7 @@ export function DelegateDirectory() {
   );
 
   const [term, setTerm] = useState("");
+  const [moreOpen, setMoreOpen] = useState(false);
   const [repId, setRepId] = useState<string>(ALL);
   const [accommodationType, setAccommodationType] = useState<string>(ALL);
   const [gender, setGender] = useState<string>(ALL);
@@ -541,12 +544,18 @@ export function DelegateDirectory() {
     setRoomFilter("all");
   };
 
+  // Filters behind "More filters" that are currently narrowing the list.
+  const extraFilters = [accommodationType, gender, building, room].filter(
+    (value) => value !== ALL,
+  ).length;
+
   return (
     <div className="space-y-4">
       {/* Sticky so a volunteer can re-filter a long list without scrolling
-          back up on a phone. The console header is 64px tall (top-16). */}
-      <div className="sticky top-16 z-20 -mx-4 space-y-2 border-b border-border/60 bg-neutral-100/95 px-4 pt-2 pb-3 backdrop-blur sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
-        <div className="relative">
+          back up on a phone. The console header is 56px tall (top-14). */}
+      <div className="sticky top-14 z-20 -mx-4 space-y-2 border-b border-border/60 bg-background/95 px-4 pt-2 pb-3 backdrop-blur sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
+        <div className="flex flex-wrap items-center gap-2">
+        <div className="relative min-w-[14rem] flex-1">
           <Search
             className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
             aria-hidden
@@ -556,11 +565,10 @@ export function DelegateDirectory() {
             onChange={(event) => setTerm(event.target.value)}
             placeholder="Search name, hub, room, gender or type…"
             aria-label="Search the directory"
-            className="h-10 bg-white pl-9 text-base sm:text-sm"
+            className="h-10 bg-card pl-9 text-base sm:text-sm"
           />
         </div>
-
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
+          <div className="w-40 sm:w-48">
           <FilterSelect
             value={repId}
             onChange={setRepId}
@@ -571,6 +579,38 @@ export function DelegateDirectory() {
               label: rep.hubName || rep.repName,
             }))}
           />
+          </div>
+          <div className="w-36 sm:w-40">
+            <FilterSelect
+              value={roomFilter}
+              onChange={(next) => setRoomFilter(next as RoomFilter)}
+              placeholder="Any status"
+              ariaLabel="Filter by room status"
+              options={[
+                { value: "in_room", label: "In a room" },
+                { value: "unassigned", label: "No room yet" },
+              ]}
+            />
+          </div>
+          <Button
+            type="button"
+            variant={moreOpen || extraFilters > 0 ? "secondary" : "outline"}
+            className="h-10"
+            aria-expanded={moreOpen}
+            onClick={() => setMoreOpen((open) => !open)}
+          >
+            <SlidersHorizontal className="size-4" />
+            More filters
+            {extraFilters > 0 ? (
+              <span className="rounded-full bg-gold-light px-1.5 text-[11px] font-semibold text-[#2b1b12]">
+                {extraFilters}
+              </span>
+            ) : null}
+          </Button>
+        </div>
+
+        {moreOpen && (
+        <div className="admin-rise grid grid-cols-2 gap-2 sm:grid-cols-4">
           <FilterSelect
             value={accommodationType}
             onChange={setAccommodationType}
@@ -608,17 +648,8 @@ export function DelegateDirectory() {
             ariaLabel="Filter by room"
             options={rooms.map((value) => ({ value, label: value }))}
           />
-          <FilterSelect
-            value={roomFilter}
-            onChange={(next) => setRoomFilter(next as RoomFilter)}
-            placeholder="Any status"
-            ariaLabel="Filter by room status"
-            options={[
-              { value: "in_room", label: "In a room" },
-              { value: "unassigned", label: "No room yet" },
-            ]}
-          />
         </div>
+        )}
 
         <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
           <p>

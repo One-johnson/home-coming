@@ -5,21 +5,29 @@ import { toastFriendlyErrorParts } from "@/lib/friendlyError";
 import { useRef, useState } from "react";
 import Image from "next/image";
 import { useMutation, useQuery } from "convex/react";
-import { ImagePlusIcon, Trash2Icon } from "lucide-react";
+import {
+  ImagePlusIcon,
+  MapIcon,
+  PencilIcon,
+  PlusIcon,
+  Trash2Icon,
+} from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import type { Doc, Id } from "@convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { ConfirmDeleteDialog } from "@/components/admin/ConfirmDeleteDialog";
+import { EmptyState } from "@/components/admin/kit/EmptyState";
+import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -467,6 +475,9 @@ export function TourPackageManager() {
     id: Id<"tourPackages">;
     label: string;
   } | null>(null);
+  /** Which package the side sheet is editing: an id, "new", or closed. */
+  const [editor, setEditor] = useState<Id<"tourPackages"> | "new" | null>(null);
+
   const [deleting, setDeleting] = useState(false);
   const [drafts, setDrafts] = useState<Record<string, PackageDraft>>({});
   const [newDraft, setNewDraft] = useState(emptyDraft);
@@ -555,8 +566,10 @@ export function TourPackageManager() {
         return next;
       });
       toast.success(`Updated ${parsed.label}`);
+      return true;
     } catch (err) {
       toast.error(...toastFriendlyErrorParts(err, "Update failed"));
+      return false;
     } finally {
       setSavingId(null);
     }
@@ -573,8 +586,10 @@ export function TourPackageManager() {
       }
       setNewDraft(emptyDraft());
       toast.success(`Created ${parsed.label}`);
+      return true;
     } catch (err) {
       toast.error(...toastFriendlyErrorParts(err, "Create failed"));
+      return false;
     } finally {
       setCreating(false);
     }
@@ -594,143 +609,204 @@ export function TourPackageManager() {
     }
   };
 
+  const editingPkg =
+    editor && editor !== "new"
+      ? packages?.find((pkg) => pkg._id === editor)
+      : undefined;
+  const closeEditor = () => setEditor(null);
+
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="max-w-prose space-y-1">
-          <p className="text-sm text-muted-foreground">
-            Changes go live on the public Tours page immediately.
-          </p>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-muted-foreground">
+          Changes go live on the public Tours page immediately.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void seedDefaults()}
+            disabled={seeding}
+            title="Re-adds any default tour that is missing. Never edits or deletes an existing package."
+          >
+            {seeding ? "Checking…" : "Add missing tours"}
+          </Button>
+          <Button size="sm" onClick={() => setEditor("new")}>
+            <PlusIcon className="size-4" /> Add package
+          </Button>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => void seedDefaults()}
-          disabled={seeding}
-          title="Re-adds any default tour that is missing. Never edits or deletes an existing package."
-        >
-          {seeding ? "Checking…" : "Add missing tours"}
-        </Button>
       </div>
 
       {packages === undefined ? (
-        <div className="grid gap-4 md:grid-cols-2">
-          {[1, 2].map((i) => (
-            <Skeleton key={i} className="h-80 rounded-xl" />
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {[1, 2, 3].map((i) => (
+            <Skeleton key={i} className="h-64 rounded-xl" />
           ))}
         </div>
+      ) : packages.length === 0 ? (
+        <EmptyState
+          icon={MapIcon}
+          title="No tour packages yet"
+          action={
+            <Button size="sm" onClick={() => setEditor("new")}>
+              <PlusIcon className="size-4" /> Add package
+            </Button>
+          }
+        />
       ) : (
-        <div className="grid gap-4 xl:grid-cols-2">
-          {packages.map((pkg) => {
-            const draft = getDraft(pkg);
-            return (
-              <Card key={pkg._id}>
-                <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
-                  <div>
-                    <CardTitle className="text-base">{pkg.label}</CardTitle>
-                    <p className="text-xs text-muted-foreground">
-                      slug: {pkg.slug} · {pkg.active ? "Active" : "Inactive"}
-                    </p>
+        <div className="admin-stagger grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {packages.map((pkg) => (
+            <div
+              key={pkg._id}
+              className="group flex flex-col overflow-hidden rounded-xl border bg-card shadow-soft transition-shadow duration-300 hover:shadow-elevate"
+            >
+              <div className="relative aspect-[16/9] overflow-hidden bg-muted">
+                {pkg.imageUrl ? (
+                  <Image
+                    src={pkg.imageUrl}
+                    alt={pkg.label}
+                    fill
+                    className="object-cover transition-transform duration-500 group-hover:scale-105"
+                    sizes="(min-width: 1280px) 33vw, (min-width: 640px) 50vw, 100vw"
+                    unoptimized={pkg.imageUrl.startsWith("http")}
+                  />
+                ) : (
+                  <div className="flex h-full items-center justify-center text-muted-foreground">
+                    <MapIcon className="size-6" />
                   </div>
+                )}
+                <span
+                  className={cn(
+                    "absolute top-2 left-2 rounded-full px-2.5 py-0.5 text-xs font-medium shadow",
+                    pkg.active
+                      ? "bg-emerald-100 text-emerald-800"
+                      : "bg-slate-100 text-slate-600",
+                  )}
+                >
+                  {pkg.active ? "Active" : "Hidden"}
+                </span>
+                {pkg.badge ? (
+                  <span className="absolute top-2 right-2 rounded-full bg-gradient-to-br from-gold-light to-gold px-2.5 py-0.5 text-xs font-semibold text-[#2b1b12] shadow">
+                    {pkg.badge}
+                  </span>
+                ) : null}
+              </div>
+              <div className="flex flex-1 flex-col gap-2 p-3">
+                <div className="min-w-0">
+                  <p className="truncate font-medium">{pkg.label}</p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {[pkg.dateLabel, pkg.timeRange].filter(Boolean).join(" · ")}
+                  </p>
+                </div>
+                <p className="text-sm font-semibold tabular-nums">
+                  US${pkg.priceUsd}
+                  {pkg.priceGhs != null ? (
+                    <span className="ml-2 font-normal text-muted-foreground">
+                      GH₵{pkg.priceGhs}
+                    </span>
+                  ) : null}
+                </p>
+                <p className="line-clamp-2 text-xs text-muted-foreground">
+                  {pkg.sites.join(" · ")}
+                </p>
+                <div className="mt-auto flex justify-end gap-2 pt-1">
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="text-destructive"
-                    onClick={() =>
-                      setDeleteTarget({ id: pkg._id, label: pkg.label })
-                    }
+                    className="text-destructive hover:text-destructive"
+                    onClick={() => setDeleteTarget({ id: pkg._id, label: pkg.label })}
                   >
-                    Delete
+                    <Trash2Icon className="size-3.5" /> Delete
                   </Button>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <PackageFormFields
-                    idPrefix={pkg._id}
-                    draft={draft}
-                    savedPkg={pkg}
-                    uploading={uploadingKey === pkg._id}
-                    onChange={(next) =>
-                      setDrafts((current) => ({ ...current, [pkg._id]: next }))
-                    }
-                    onUpload={(file) =>
-                      uploadForDraft(pkg._id, file, draft, (next) =>
-                        setDrafts((current) => ({
-                          ...current,
-                          [pkg._id]: next,
-                        })),
-                      )
-                    }
-                  />
-                  <Button
-                    onClick={() => void save(pkg._id)}
-                    disabled={savingId === pkg._id || uploadingKey === pkg._id}
-                  >
-                    {savingId === pkg._id ? "Saving…" : "Save changes"}
+                  <Button variant="outline" size="sm" onClick={() => setEditor(pkg._id)}>
+                    <PencilIcon className="size-3.5" /> Edit
                   </Button>
-                </CardContent>
-              </Card>
-            );
-          })}
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Add tour package</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <PackageFormFields
-            idPrefix="new"
-            draft={newDraft}
-            uploading={uploadingKey === "new"}
-            onChange={setNewDraft}
-            onUpload={(file) =>
-              uploadForDraft("new", file, newDraft, setNewDraft)
-            }
-          />
-          <Button
-            onClick={() => void create()}
-            disabled={creating || uploadingKey === "new"}
-          >
-            {creating ? "Creating…" : "Create package"}
-          </Button>
-        </CardContent>
-      </Card>
-
-      <Dialog
-        open={deleteTarget !== null}
-        onOpenChange={(next) => {
-          if (!deleting) setDeleteTarget(next ? deleteTarget : null);
+      <Sheet
+        open={editor !== null}
+        onOpenChange={(open) => {
+          if (!open) closeEditor();
         }}
       >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete tour package?</DialogTitle>
-            <DialogDescription>
-              “{deleteTarget?.label}” will be permanently removed. This cannot
-              be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={deleting}
-              onClick={() => setDeleteTarget(null)}
-            >
+        <SheetContent className="w-full overflow-y-auto sm:max-w-xl">
+          <SheetHeader>
+            <SheetTitle>
+              {editor === "new" ? "Add tour package" : "Edit tour package"}
+            </SheetTitle>
+            <SheetDescription>
+              {editingPkg ? editingPkg.label : "Live on the Tours page once saved."}
+            </SheetDescription>
+          </SheetHeader>
+          <div className="px-4">
+            {editor === "new" ? (
+              <PackageFormFields
+                idPrefix="new"
+                draft={newDraft}
+                uploading={uploadingKey === "new"}
+                onChange={setNewDraft}
+                onUpload={(file) => uploadForDraft("new", file, newDraft, setNewDraft)}
+              />
+            ) : editingPkg ? (
+              <PackageFormFields
+                idPrefix={editingPkg._id}
+                draft={getDraft(editingPkg)}
+                savedPkg={editingPkg}
+                uploading={uploadingKey === editingPkg._id}
+                onChange={(next) =>
+                  setDrafts((current) => ({ ...current, [editingPkg._id]: next }))
+                }
+                onUpload={(file) =>
+                  uploadForDraft(editingPkg._id, file, getDraft(editingPkg), (next) =>
+                    setDrafts((current) => ({ ...current, [editingPkg._id]: next })),
+                  )
+                }
+              />
+            ) : null}
+          </div>
+          <SheetFooter className="flex-row justify-end gap-2">
+            <Button variant="outline" onClick={closeEditor}>
               Cancel
             </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              disabled={deleting}
-              onClick={() => void remove()}
-            >
-              {deleting ? "Deleting…" : "Delete"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            {editor === "new" ? (
+              <Button
+                onClick={async () => {
+                  if (await create()) closeEditor();
+                }}
+                disabled={creating || uploadingKey === "new"}
+              >
+                {creating ? "Creating…" : "Create package"}
+              </Button>
+            ) : editingPkg ? (
+              <Button
+                onClick={async () => {
+                  if (await save(editingPkg._id)) closeEditor();
+                }}
+                disabled={savingId === editingPkg._id || uploadingKey === editingPkg._id}
+              >
+                {savingId === editingPkg._id ? "Saving…" : "Save changes"}
+              </Button>
+            ) : null}
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+
+      <ConfirmDeleteDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !deleting) setDeleteTarget(null);
+        }}
+        title="Delete tour package?"
+        description={`“${deleteTarget?.label ?? "This package"}” will be permanently removed. This cannot be undone.`}
+        confirmLabel="Delete package"
+        loading={deleting}
+        onConfirm={remove}
+      />
     </div>
   );
 }

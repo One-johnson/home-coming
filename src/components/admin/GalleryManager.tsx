@@ -4,7 +4,7 @@ import { toastFriendlyErrorParts } from "@/lib/friendlyError";
 
 import Image from "next/image";
 import { useMutation, useQuery } from "convex/react";
-import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { Images, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
@@ -31,13 +31,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   compressImageForUpload,
   emptyGalleryForm,
   type GalleryForm,
@@ -45,14 +38,9 @@ import {
 } from "./galleryManagerForm";
 import { computeGalleryDrift } from "@/lib/galleryDrift";
 import { cn } from "@/lib/utils";
+import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/admin/kit/EmptyState";
 
-function galleryLabel(gallery: {
-  year: number;
-  title: string;
-  images: unknown[];
-}) {
-  return `${gallery.year} — ${gallery.title} (${gallery.images.length} photos)`;
-}
 
 export function GalleryManager() {
   const { sessionToken } = useAdminSession();
@@ -77,6 +65,7 @@ export function GalleryManager() {
   >(new Set());
 
   const [editAlbumOpen, setEditAlbumOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
   const [editAlbumForm, setEditAlbumForm] = useState<GalleryForm>(
     emptyGalleryForm(),
   );
@@ -101,14 +90,6 @@ export function GalleryManager() {
     [galleries, selectedGalleryId],
   );
 
-  const galleryItems = useMemo(
-    () =>
-      (galleries ?? []).map((gallery) => ({
-        value: gallery._id,
-        label: galleryLabel(gallery),
-      })),
-    [galleries],
-  );
 
   /**
    * Compares the admin's curated rows against the committed manifest so the
@@ -171,6 +152,7 @@ export function GalleryManager() {
       setSelectedGalleryId(id);
       setNewGallery(emptyGalleryForm());
       clearImageSelection();
+      setCreateOpen(false);
       toast.success("Gallery created");
     } catch {
       toast.error("Failed to create gallery");
@@ -370,12 +352,88 @@ export function GalleryManager() {
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,22rem)_1fr]">
-        <Card>
-          <CardHeader>
-            <CardTitle>Create album</CardTitle>
-          </CardHeader>
-          <CardContent>
+      {/* Albums as cover cards: pick one to manage it below. */}
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm text-muted-foreground">
+            Pick an album to add photos and edit captions.
+          </p>
+          <Button size="sm" onClick={() => setCreateOpen(true)}>
+            <Plus className="size-4" /> New album
+          </Button>
+        </div>
+        {galleries === undefined ? (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {[0, 1, 2, 3].map((i) => (
+              <Skeleton key={i} className="aspect-[4/3] rounded-xl" />
+            ))}
+          </div>
+        ) : galleries.length === 0 ? (
+          <EmptyState
+            icon={Images}
+            title="No albums yet"
+            action={
+              <Button size="sm" onClick={() => setCreateOpen(true)}>
+                <Plus className="size-4" /> New album
+              </Button>
+            }
+          />
+        ) : (
+          <div className="admin-stagger grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {galleries.map((gallery) => {
+              const active = gallery._id === selectedGalleryId;
+              const cover = gallery.coverImageUrl ?? gallery.images[0]?.imageUrl;
+              return (
+                <button
+                  key={gallery._id}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => {
+                    setSelectedGalleryId(gallery._id);
+                    clearImageSelection();
+                  }}
+                  className={cn(
+                    "group overflow-hidden rounded-xl border bg-card text-left shadow-soft transition-all duration-300 outline-none hover:-translate-y-0.5 hover:shadow-elevate focus-visible:ring-3 focus-visible:ring-ring/50",
+                    active && "ring-2 ring-gold",
+                  )}
+                >
+                  <div className="relative aspect-[4/3] overflow-hidden bg-muted">
+                    {cover ? (
+                      <Image
+                        src={cover}
+                        alt=""
+                        fill
+                        className="object-cover transition-transform duration-500 group-hover:scale-105"
+                        sizes="(min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw"
+                        unoptimized={cover.startsWith("http")}
+                      />
+                    ) : (
+                      <div className="flex h-full items-center justify-center text-muted-foreground">
+                        <Images className="size-6" />
+                      </div>
+                    )}
+                    <span className="absolute top-2 left-2 rounded-full bg-gradient-to-br from-gold-light to-gold px-2 py-0.5 text-xs font-semibold text-[#2b1b12] shadow">
+                      {gallery.year}
+                    </span>
+                  </div>
+                  <div className="p-3">
+                    <p className="truncate text-sm font-medium">{gallery.title}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {gallery.images.length} photo{gallery.images.length === 1 ? "" : "s"} · {gallery.theme}
+                    </p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>New album</DialogTitle>
+          </DialogHeader>
             <form onSubmit={handleCreateGallery} className="space-y-3">
               <div className="space-y-2">
                 <Label htmlFor="gallery-year">Year</Label>
@@ -420,9 +478,10 @@ export function GalleryManager() {
                 Create gallery
               </Button>
             </form>
-          </CardContent>
-        </Card>
+        </DialogContent>
+      </Dialog>
 
+      <div className="space-y-6">
         <Card>
           <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
             <div className="space-y-1">
@@ -455,28 +514,6 @@ export function GalleryManager() {
             ) : null}
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label>Gallery album</Label>
-              <Select
-                value={selectedGalleryId || null}
-                items={galleryItems}
-                onValueChange={(value) => {
-                  setSelectedGalleryId(value ?? "");
-                  clearImageSelection();
-                }}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Choose a gallery album" />
-                </SelectTrigger>
-                <SelectContent>
-                  {(galleries ?? []).map((gallery) => (
-                    <SelectItem key={gallery._id} value={gallery._id}>
-                      {galleryLabel(gallery)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
 
             <div className="space-y-2">
               <Label htmlFor="gallery-files">Register images</Label>

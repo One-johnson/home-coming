@@ -2015,7 +2015,7 @@ export function ArrivalPage() {
             />
             <Card
               className={cn(
-                "h-fit lg:sticky lg:top-16 lg:max-h-[calc(100vh-5rem)] lg:overflow-y-auto",
+                "h-fit lg:sticky lg:top-14 lg:max-h-[calc(100vh-5rem)] lg:overflow-y-auto",
                 "max-lg:fixed max-lg:inset-x-0 max-lg:bottom-0 max-lg:z-40 max-lg:max-h-[85dvh] max-lg:overflow-y-auto max-lg:overscroll-contain max-lg:rounded-t-2xl max-lg:rounded-b-none max-lg:border-x-0 max-lg:pb-[env(safe-area-inset-bottom)] max-lg:shadow-2xl",
               )}
             >

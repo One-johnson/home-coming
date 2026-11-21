@@ -320,45 +320,55 @@ function VideoRowEditor({
           </Button>
         ) : null}
       </div>
-      <Input
-        placeholder="Title"
-        required
-        className="md:col-span-2"
-        value={row.title}
-        onChange={(e) => onChange({ title: e.target.value })}
-      />
-      <Input
-        placeholder="Video / media URL"
-        required
-        type="url"
-        className="md:col-span-2"
-        value={row.url}
-        onChange={(e) => onChange({ url: e.target.value })}
-      />
-      <Input
-        placeholder="Speaker"
-        required
-        value={row.speaker}
-        onChange={(e) => onChange({ speaker: e.target.value })}
-      />
-      <Input
-        type="number"
-        placeholder="Year"
-        required
-        value={row.year}
-        onChange={(e) => onChange({ year: Number(e.target.value) })}
-      />
-      <Input
-        type="number"
-        placeholder="Order"
-        required
-        value={row.order}
-        onChange={(e) => onChange({ order: Number(e.target.value) })}
-      />
-      <MediaTypeSelect
-        value={row.mediaType}
-        onValueChange={(mediaType) => onChange({ mediaType })}
-      />
+      <div className="md:col-span-2">
+        <FormField label="Title">
+          <Input
+            required
+            value={row.title}
+            onChange={(e) => onChange({ title: e.target.value })}
+          />
+        </FormField>
+      </div>
+      <div className="md:col-span-2">
+        <FormField label="Video / media URL">
+          <Input
+            required
+            type="url"
+            placeholder="https://…"
+            value={row.url}
+            onChange={(e) => onChange({ url: e.target.value })}
+          />
+        </FormField>
+      </div>
+      <FormField label="Speaker">
+        <Input
+          required
+          value={row.speaker}
+          onChange={(e) => onChange({ speaker: e.target.value })}
+        />
+      </FormField>
+      <FormField label="Year">
+        <Input
+          type="number"
+          required
+          value={row.year}
+          onChange={(e) => onChange({ year: Number(e.target.value) })}
+        />
+      </FormField>
+      <FormField label="Order">
+        <Input
+          type="number"
+          required
+          value={row.order}
+          onChange={(e) => onChange({ order: Number(e.target.value) })}
+        />
+      </FormField>
+      <FormField label="Type">
+        <MediaTypeSelect
+          value={row.mediaType}
+          onValueChange={(mediaType) => onChange({ mediaType })}
+        />
+      </FormField>
     </div>
   );
 }
@@ -453,7 +463,7 @@ function ResponsiveEditorShell({
             "flex flex-col gap-0 overflow-hidden p-0",
             isCompact
               ? "rounded-t-2xl sm:max-w-none data-[side=bottom]:max-h-[92dvh]"
-              : "w-full sm:max-w-lg",
+              : "w-full sm:max-w-xl",
           )}
         >
           {isCompact ? (
@@ -925,7 +935,7 @@ export function VideoManager() {
 
       <ResponsiveEditorShell
         open={editorOpen}
-        layout={editorMode === "edit" ? "sheet" : "dialog"}
+        layout="sheet"
         onOpenChange={(open) => {
           if (!open && !saving) closeEditor();
         }}

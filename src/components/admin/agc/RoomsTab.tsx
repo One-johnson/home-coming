@@ -1372,7 +1372,7 @@ export function RoomsTab() {
                 aria-controls={panelId}
                 onClick={() => toggleGroup(group.type)}
                 className={cn(
-                  "sticky top-16 z-20 flex w-full flex-wrap items-center gap-2 rounded-t-xl bg-background px-3 py-2 text-left transition-colors hover:bg-muted/60",
+                  "sticky top-14 z-20 flex w-full flex-wrap items-center gap-2 rounded-t-xl bg-background px-3 py-2 text-left transition-colors hover:bg-muted/60",
                   isOpen && "border-b",
                 )}
               >

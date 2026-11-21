@@ -1423,16 +1423,98 @@ export function HubsRepsManager() {
 
 
       <Card>
-        <CardHeader className="pb-3">
+        <CardHeader className="space-y-3 pb-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <CardTitle className="text-base">Hubs &amp; representatives</CardTitle>
-            <div className="flex flex-wrap items-center gap-2">
+            {isAdmin && (
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  className="h-9"
+                  onClick={() => setAddHubOpen(true)}
+                >
+                  <Plus className="size-4" />
+                  Add hub
+                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    render={
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-9"
+                      />
+                    }
+                  >
+                    {exportingReps || bulkResetting ? (
+                      <Loader2Icon className="size-4 animate-spin" />
+                    ) : (
+                      <UsersRound className="size-4" />
+                    )}
+                    Accounts
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-64">
+                    <DropdownMenuItem onClick={() => setBulkCreateOpen(true)}>
+                      <UserPlus className="size-4" />
+                      Create reps in bulk…
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      disabled={exportingReps}
+                      onClick={() => void exportRepsSheet()}
+                    >
+                      <Download className="size-4" />
+                      Export hubs &amp; reps (.xlsx)
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      disabled={bulkResetting || pendingSetupCount === 0}
+                      title={
+                        pendingSetupCount === 0
+                          ? "No pending-setup accounts to reset"
+                          : `Reset the temporary password of ${pendingSetupCount} pending-setup account(s)`
+                      }
+                      onClick={() => {
+                        setBulkResetConfirmText("");
+                        setBulkResetConfirmOpen(true);
+                      }}
+                    >
+                      <KeyRound className="size-4" />
+                      Reset pending passwords ({pendingSetupCount})
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      disabled={legacyUsernames.length === 0}
+                      title={
+                        legacyUsernames.length === 0
+                          ? "All usernames already use the canonical form"
+                          : `Rewrite ${legacyUsernames.length} username(s) that still contain punctuation`
+                      }
+                      onClick={() => setMigrateUsernamesOpen(true)}
+                    >
+                      <Sparkles className="size-4" />
+                      Migrate legacy usernames…
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      variant="destructive"
+                      disabled={selected.size === 0}
+                      onClick={() => setBulkDeleteOpen(true)}
+                    >
+                      <Trash2 className="size-4" />
+                      Delete selected ({selected.size})
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
               <div className="relative">
                 <SearchIcon className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   type="search"
                   placeholder="Hub, username or email…"
-                  className="h-9 w-56 pl-8"
+                  className="h-9 w-full pl-8 sm:w-72"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                 />
@@ -1449,105 +1531,6 @@ export function HubsRepsManager() {
                   ))}
                 </SelectContent>
               </Select>
-              {isAdmin && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-9"
-                  disabled={exportingReps}
-                  onClick={() => void exportRepsSheet()}
-                >
-                  {exportingReps ? (
-                    <Loader2Icon className="size-4 animate-spin" />
-                  ) : (
-                    <Download className="size-4" />
-                  )}
-                  Export hubs &amp; reps
-                </Button>
-              )}
-              {isAdmin && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-9"
-                  disabled={bulkResetting || pendingSetupCount === 0}
-                  title={
-                    pendingSetupCount === 0
-                      ? "No pending-setup accounts to reset"
-                      : `Reset the temporary password of ${pendingSetupCount} pending-setup account(s)`
-                  }
-                  onClick={() => {
-                    setBulkResetConfirmText("");
-                    setBulkResetConfirmOpen(true);
-                  }}
-                >
-                  {bulkResetting ? (
-                    <Loader2Icon className="size-4 animate-spin" />
-                  ) : (
-                    <KeyRound className="size-4" />
-                  )}
-                  Reset all passwords
-                </Button>
-              )}
-              {isAdmin && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-9"
-                  onClick={() => setAddHubOpen(true)}
-                >
-                  <Plus className="size-4" />
-                  Add hub
-                </Button>
-              )}
-              {isAdmin && (
-                <DropdownMenu>
-                  <DropdownMenuTrigger
-                    render={
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-9"
-                      />
-                    }
-                  >
-                    <UsersRound className="size-4" />
-                    Rep accounts
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={() => setBulkCreateOpen(true)}>
-                      <UserPlus className="size-4" />
-                      Create reps in bulk…
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      disabled={legacyUsernames.length === 0}
-                      title={
-                        legacyUsernames.length === 0
-                          ? "All usernames already use the canonical form"
-                          : `Rewrite ${legacyUsernames.length} username(s) that still contain punctuation`
-                      }
-                      onClick={() => setMigrateUsernamesOpen(true)}
-                    >
-                      <Sparkles className="size-4" />
-                      Migrate legacy usernames…
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      disabled={selected.size === 0}
-                      onClick={() => setBulkDeleteOpen(true)}
-                      className="text-destructive focus:text-destructive"
-                    >
-                      <Trash2 className="size-4" />
-                      Delete selected ({selected.size})
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              )}
-            </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-3">

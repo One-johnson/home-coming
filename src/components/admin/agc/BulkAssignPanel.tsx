@@ -387,7 +387,7 @@ export function BulkAssignPanel({
     >
       <div className="rounded-xl border bg-card">
         {/* Filters and the name search ride along while the list scrolls. */}
-        <div className="sticky top-16 z-20 rounded-t-xl border-b bg-card px-4 py-3">
+        <div className="sticky top-14 z-20 rounded-t-xl border-b bg-card px-4 py-3">
           <h2 className="text-base font-semibold">Unassigned delegates ({shown.length})</h2>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <div className="flex items-center gap-1.5">

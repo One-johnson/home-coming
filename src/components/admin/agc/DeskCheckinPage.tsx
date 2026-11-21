@@ -326,7 +326,7 @@ export function DeskCheckinPage() {
 
       <div className="overflow-x-auto rounded-xl border">
         <Table>
-          <TableHeader className="sticky top-16 z-10 bg-card">
+          <TableHeader className="sticky top-14 z-10 bg-card">
             <TableRow>
               <TableHead className="w-10 print:table-cell"></TableHead>
               <TableHead>Reference</TableHead>

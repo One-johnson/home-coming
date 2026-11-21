@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import { useState } from "react";
 import { useAction } from "convex/react";
 import {
@@ -27,9 +29,8 @@ import {
 } from "@/components/ui/select";
 import { toastFriendlyErrorParts } from "@/lib/friendlyError";
 import { AGC_ACCOMMODATION_LABELS } from "@/lib/agcPortal";
-import { TONE_BADGE, TONE_RAIL, TONE_SURFACE, TONE_TEXT, type StatusTone } from "@/lib/agcStatusTone";
+import type { StatusTone } from "@/lib/agcStatusTone";
 import { StatusLegend } from "@/components/admin/agc/StatusPrimitives";
-import { cn } from "@/lib/utils";
 
 /**
  * Phase 2 §24 operational exports. Every report flies through the same
@@ -244,91 +245,71 @@ export function OpsReportsPage() {
                 ? `Filters: ${activeFilters.join(" · ")}`
                 : "No filters — every record"}
             </Badge>
-            <span>
-              Filters apply to every export below. Excel is the machine-readable copy;
-              Ctrl/Cmd+P → Save as PDF prints a clean copy of any live screen.
-            </span>
+            <span>Filters apply to every export below.</span>
           </div>
           <StatusLegend tones={["info", "done", "blocked"]} />
         </CardContent>
       </Card>
 
+      <div className="admin-stagger grid gap-4 xl:grid-cols-2">
       {GROUPS.map((group) => {
         const GroupIcon = group.icon;
         return (
-          <section key={group.id} className="space-y-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <span
-                className={cn(
-                  "inline-flex size-7 items-center justify-center rounded-lg border",
-                  TONE_BADGE[group.tone],
-                )}
-              >
+          <Card key={group.id} className="gap-0 py-0">
+            <div className="flex items-center gap-2 border-b px-4 py-3">
+              <span className="inline-flex size-8 items-center justify-center rounded-xl bg-gold/15 text-gold-dark">
                 <GroupIcon className="size-4" />
               </span>
-              <h2 className="text-sm font-semibold">{group.title}</h2>
+              <div className="min-w-0 flex-1">
+                <h2 className="text-sm font-semibold">{group.title}</h2>
+                <p className="truncate text-xs text-muted-foreground">
+                  {group.hint}
+                </p>
+              </div>
               <Badge variant="outline" className="text-[10px] tabular-nums">
-                {group.reports.length} report(s)
+                {group.reports.length}
               </Badge>
-              <p className="text-[11px] text-muted-foreground">{group.hint}</p>
             </div>
-
-            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            <ul className="divide-y">
               {group.reports.map((report, index) => (
-                <Card
+                <li
                   key={report.kind}
-                  className={cn("border-l-4", TONE_RAIL[group.tone])}
+                  className="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-muted/50"
                 >
-                  <CardContent className="flex items-start justify-between gap-2 p-3">
-                    <div className="min-w-0">
-                      <p className="flex items-start gap-1.5 text-sm font-medium">
-                        {group.ordered ? (
-                          <span
-                            className={cn(
-                              "mt-0.5 inline-flex size-4 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold tabular-nums",
-                              TONE_SURFACE[group.tone],
-                              TONE_TEXT[group.tone],
-                              "border",
-                            )}
-                          >
-                            {index + 1}
-                          </span>
-                        ) : null}
-                        <span>{report.label}</span>
-                      </p>
-                      <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
-                        {report.purpose}
-                      </p>
-                    </div>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="shrink-0"
-                      disabled={busyKind !== null}
-                      onClick={() => void exportReport(report.kind)}
-                    >
-                      {busyKind === report.kind ? (
-                        <Loader2Icon className="size-4 animate-spin" />
-                      ) : (
-                        <Download className="size-4" />
-                      )}
-                      .xlsx
-                    </Button>
-                  </CardContent>
-                </Card>
+                  {group.ordered ? (
+                    <span className="inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-primary text-[11px] font-semibold text-primary-foreground tabular-nums">
+                      {index + 1}
+                    </span>
+                  ) : null}
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{report.label}</p>
+                    <p className="truncate text-xs text-muted-foreground" title={report.purpose}>
+                      {report.purpose}
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="shrink-0"
+                    disabled={busyKind !== null}
+                    onClick={() => void exportReport(report.kind)}
+                  >
+                    {busyKind === report.kind ? (
+                      <Loader2Icon className="size-4 animate-spin" />
+                    ) : (
+                      <Download className="size-4" />
+                    )}
+                    .xlsx
+                  </Button>
+                </li>
               ))}
-            </div>
-          </section>
+            </ul>
+          </Card>
         );
       })}
+      </div>
 
-      <div
-        className={cn(
-          "rounded-xl border border-l-4 p-3 text-xs text-muted-foreground",
-          TONE_SURFACE.info,
-          TONE_RAIL.info,
-        )}
-      >
+      <div className="rounded-xl border bg-card p-4 text-xs text-muted-foreground shadow-soft">
         <p className="mb-1 font-medium text-foreground">Close-out order</p>
         <p>
           Room assignment → Unassigned delegates → Occupancy → Checked-in / Not-arrived /
@@ -337,18 +318,18 @@ export function OpsReportsPage() {
           override and room move is reviewed by the Accommodation Admin.
         </p>
         <div className="mt-2 flex flex-wrap gap-1.5 print:hidden">
-          <a
-            className="inline-flex h-7 items-center rounded-md border px-2 text-[11px] font-medium hover:bg-muted"
+          <Link
+            className="inline-flex h-7 items-center rounded-full border px-3 text-[11px] font-medium transition-colors hover:bg-muted"
             href="/admin/desk-checkin"
           >
             Desk check-in ↗
-          </a>
-          <a
-            className="inline-flex h-7 items-center rounded-md border px-2 text-[11px] font-medium hover:bg-muted"
+          </Link>
+          <Link
+            className="inline-flex h-7 items-center rounded-full border px-3 text-[11px] font-medium transition-colors hover:bg-muted"
             href="/admin/arrival"
           >
             Arrival desk ↗
-          </a>
+          </Link>
         </div>
       </div>
     </div>
