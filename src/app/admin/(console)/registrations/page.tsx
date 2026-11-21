@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useMemo, useState } from "react";
+import { Suspense, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import { ClipboardList, HandCoins } from "lucide-react";
 import type { ColumnFiltersState } from "@tanstack/react-table";
@@ -12,7 +12,10 @@ import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { useAdminSession } from "@/components/admin/AdminSessionProvider";
 import { isAgeingBucketKey } from "@/lib/agcPortal";
 import { canAccessArea } from "@/lib/adminRoles";
-import { cn } from "@/lib/utils";
+import {
+  SectionTabs,
+  useUrlSection,
+} from "@/components/admin/kit/SectionTabs";
 
 const PAYMENT_STATUSES = [
   "awaiting_payment",
@@ -33,10 +36,13 @@ function AdminRegistrationsInner() {
   const { user } = useAdminSession();
   const searchParams = useSearchParams();
   const showPoa = user?.role === "admin" || user?.role === "finance";
-  // ?tab=poa deep link (finance overview card / attention banner).
-  const [section, setSection] = useState<PageSection>(
-    searchParams.get("tab") === "poa" && showPoa ? "poa" : "registrations",
+  // ?tab=poa deep link (finance overview card / attention banner); the open
+  // tab stays in the URL.
+  const [urlSection, setSection] = useUrlSection<PageSection>(
+    ["registrations", "poa"],
+    "registrations",
   );
+  const section: PageSection = showPoa ? urlSection : "registrations";
 
   const initialFilters = useMemo<ColumnFiltersState>(() => {
     const filters: ColumnFiltersState = [];
@@ -74,47 +80,15 @@ function AdminRegistrationsInner() {
       />
 
       {showPoa && (
-        <div
-          role="tablist"
-          aria-label="Registration sections"
-          className="flex w-fit items-center gap-1 rounded-full border p-1"
-        >
-          {(
-            [
-              {
-                id: "registrations" as const,
-                label: "Registrations",
-                icon: ClipboardList,
-              },
-              {
-                id: "poa" as const,
-                label: "Payment on arrival",
-                icon: HandCoins,
-              },
-            ] satisfies Array<{
-              id: PageSection;
-              label: string;
-              icon: React.ComponentType<{ className?: string }>;
-            }>
-          ).map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              type="button"
-              role="tab"
-              aria-selected={section === id}
-              onClick={() => setSection(id)}
-              className={cn(
-                "flex min-h-9 items-center gap-1.5 rounded-full px-3.5 text-sm font-medium transition-colors",
-                section === id
-                  ? "bg-primary/10 text-ink"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              <Icon className="size-4" />
-              {label}
-            </button>
-          ))}
-        </div>
+        <SectionTabs
+          label="Registration sections"
+          value={section}
+          onChange={setSection}
+          items={[
+            { id: "registrations", label: "Registrations", icon: ClipboardList },
+            { id: "poa", label: "Payment on arrival", icon: HandCoins },
+          ]}
+        />
       )}
 
       {section === "registrations" || !showPoa ? (

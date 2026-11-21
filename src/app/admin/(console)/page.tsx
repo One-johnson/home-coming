@@ -3,7 +3,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { useMemo, useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useQuery } from "convex/react";
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -12,14 +12,12 @@ import {
   Layers,
   ClipboardList,
   HandCoins,
-  HelpCircle,
+  Newspaper,
   Info,
   TrendingDown,
   TrendingUp,
   Users,
-  Video,
 } from "lucide-react";
-import { toast } from "sonner";
 import { ColumnDef } from "@tanstack/react-table";
 import { api } from "@convex/_generated/api";
 import {
@@ -45,7 +43,6 @@ import {
 } from "@/lib/adminColors";
 import { canAccessArea } from "@/lib/adminRoles";
 import { EVENT } from "@/lib/eventConfig";
-import { cleanErrorMessage } from "@/lib/friendlyError";
 import {
   AGEING_BUCKET_LABELS,
   byCurrencyDesc,
@@ -939,6 +936,85 @@ function FinanceStatsCards({
   );
 }
 
+/** One overview metric: number, one note, up to a few chips, money, trend. */
+function KpiCard({
+  href,
+  icon: Icon,
+  label,
+  accent,
+  value,
+  note,
+  chips,
+  confirmed,
+  awaiting,
+  footer,
+}: {
+  href: string;
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  accent: { icon: string; border: string; tint: string };
+  value: number;
+  note: string;
+  chips?: ReactNode;
+  confirmed?: string;
+  awaiting?: string;
+  footer?: ReactNode;
+}) {
+  return (
+    <Link href={href} className="group">
+      <Card
+        className={cn(
+          "h-full bg-gradient-to-br transition-all",
+          accent.tint,
+          accent.border,
+        )}
+      >
+        <CardHeader className="flex flex-row items-center justify-between pb-1">
+          <CardTitle className="text-sm font-medium text-muted-foreground">
+            {label}
+          </CardTitle>
+          <span
+            className={cn(
+              "flex size-9 items-center justify-center rounded-xl transition-transform duration-300 group-hover:scale-110",
+              accent.icon,
+            )}
+          >
+            <Icon className="size-4" />
+          </span>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div>
+            <p className="text-3xl font-semibold tabular-nums">{value}</p>
+            <p className="text-xs text-muted-foreground">{note}</p>
+          </div>
+          {chips ? <div className="flex flex-wrap gap-1.5">{chips}</div> : null}
+          {confirmed || (awaiting && awaiting !== "—") ? (
+            <dl className="grid grid-cols-2 gap-2 rounded-lg bg-muted/60 p-2 text-xs">
+              {confirmed ? (
+                <div>
+                  <dt className="text-muted-foreground">Confirmed</dt>
+                  <dd className="font-semibold tabular-nums text-emerald-700">
+                    {confirmed}
+                  </dd>
+                </div>
+              ) : null}
+              {awaiting && awaiting !== "—" ? (
+                <div>
+                  <dt className="text-muted-foreground">Awaiting review</dt>
+                  <dd className="font-semibold tabular-nums text-amber-700">
+                    {awaiting}
+                  </dd>
+                </div>
+              ) : null}
+            </dl>
+          ) : null}
+          {footer}
+        </CardContent>
+      </Card>
+    </Link>
+  );
+}
+
 function StatusChip({
   label,
   value,
@@ -1116,10 +1192,9 @@ function HubCollectionsCard({ data }: { data: HubCollections | undefined }) {
 }
 
 export default function AdminOverviewPage() {
-  const { user, sessionToken } = useAdminSession();
+  const { user } = useAdminSession();
   const role = user?.role;
   const sessionArgs = useSessionArgs();
-  const seedData = useMutation(api.seed.seed);
   const isDashboardOnly = role === "dashboard";
   // The dashboard-only role never reads the full overview — its console is the
   // per-hub list below.
@@ -1139,7 +1214,6 @@ export default function AdminOverviewPage() {
   const canRegistration = canAccessArea(role, "registration");
   const canAccommodation = canAccessArea(role, "accommodation");
   const canContent = canAccessArea(role, "content");
-  const canSeed = canAccessArea(role, "seed");
   // Server truth once loaded; role check before then avoids flashing
   // non-finance widgets for the finance role.
   const isFinanceView = overview ? overview.financeView : role === "finance";
@@ -1181,242 +1255,93 @@ export default function AdminOverviewPage() {
         </div>
       ) : (
         <>
-          <div className="admin-stagger grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="admin-stagger grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {canRegistration && !isFinanceView && (
-              <Link href="/admin/registrations" className="group">
-                <Card
-                  className={cn(
-                    "h-full overflow-hidden bg-gradient-to-br transition-all group-hover:shadow-sm",
-                    KPI_ACCENTS.registrations.tint,
-                    KPI_ACCENTS.registrations.border,
-                  )}
-                >
-                  <CardHeader className="flex flex-row items-center justify-between pb-2">
-                    <CardTitle className="text-sm font-medium text-muted-foreground">
-                      Registrations
-                    </CardTitle>
-                    <span
-                      className={cn(
-                        "flex size-9 items-center justify-center rounded-lg",
-                        KPI_ACCENTS.registrations.icon,
-                      )}
-                    >
-                      <ClipboardList className="size-4" />
-                    </span>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <p className="text-3xl font-semibold tabular-nums text-ink">
-                      {overview.registrations.delegates}
-                    </p>
-                    <p className="-mt-2 text-xs text-muted-foreground">
-                      delegates · {overview.registrations.total} submission
-                      {overview.registrations.total === 1 ? "" : "s"}
-                    </p>
-                    <div className="flex flex-wrap gap-1.5">
-                      <StatusChip
-                        label="confirmed"
-                        value={overview.registrations.confirmed}
-                        tone="ok"
-                      />
-                      <StatusChip
-                        label="awaiting review"
-                        value={overview.registrations.pending}
-                        tone="warn"
-                      />
-                      {overview.registrations.rejected > 0 && (
-                        <StatusChip
-                          label="rejected"
-                          value={overview.registrations.rejected}
-                          tone="danger"
-                        />
-                      )}
-                    </div>
-                    <div className="space-y-0.5 text-xs">
-                      <p className="text-muted-foreground">
-                        Confirmed revenue:{" "}
-                        <span className="font-semibold tabular-nums text-emerald-700">
-                          {formatMoneyByCurrency(
-                            overview.registrations.revenueByCurrency,
-                          )}
-                        </span>
-                      </p>
-                      {overview.registrations.awaitingLabel !== "—" && (
-                        <p className="text-muted-foreground">
-                          Awaiting review:{" "}
-                          <span className="font-medium tabular-nums text-amber-700">
-                            {overview.registrations.awaitingLabel}
-                          </span>
-                        </p>
-                      )}
-                    </div>
-                    <WeekDelta
-                      thisWeek={overview.registrations.thisWeek}
-                      lastWeek={overview.registrations.lastWeek}
+              <KpiCard
+                href="/admin/registrations"
+                icon={ClipboardList}
+                label="Registrations"
+                accent={KPI_ACCENTS.registrations}
+                value={overview.registrations.delegates}
+                note={`delegates · ${overview.registrations.total} submission${overview.registrations.total === 1 ? "" : "s"}`}
+                chips={
+                  <>
+                    <StatusChip
+                      label="confirmed"
+                      value={overview.registrations.confirmed}
+                      tone="ok"
                     />
-                  </CardContent>
-                </Card>
-              </Link>
+                    <StatusChip
+                      label="awaiting review"
+                      value={overview.registrations.pending}
+                      tone="warn"
+                    />
+                    {overview.registrations.rejected > 0 && (
+                      <StatusChip
+                        label="rejected"
+                        value={overview.registrations.rejected}
+                        tone="danger"
+                      />
+                    )}
+                  </>
+                }
+                confirmed={formatMoneyByCurrency(
+                  overview.registrations.revenueByCurrency,
+                )}
+                awaiting={overview.registrations.awaitingLabel}
+                footer={
+                  <WeekDelta
+                    thisWeek={overview.registrations.thisWeek}
+                    lastWeek={overview.registrations.lastWeek}
+                  />
+                }
+              />
             )}
             {canAccommodation && (
-              <Link href="/admin/accommodation" className="group">
-                <Card
-                  className={cn(
-                    "h-full overflow-hidden bg-gradient-to-br transition-all group-hover:shadow-sm",
-                    KPI_ACCENTS.bookings.tint,
-                    KPI_ACCENTS.bookings.border,
-                  )}
-                >
-                  <CardHeader className="flex flex-row items-center justify-between pb-2">
-                    <CardTitle className="text-sm font-medium text-muted-foreground">
-                      Bookings
-                    </CardTitle>
-                    <span
-                      className={cn(
-                        "flex size-9 items-center justify-center rounded-lg",
-                        KPI_ACCENTS.bookings.icon,
-                      )}
-                    >
-                      <BedDouble className="size-4" />
-                    </span>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <p className="text-3xl font-semibold tabular-nums text-ink">
-                      {overview.bookings.activeGuests}
-                    </p>
-                    <p className="-mt-2 text-xs text-muted-foreground">
-                      active guests · {overview.bookings.confirmed} confirmed
-                      booking{overview.bookings.confirmed === 1 ? "" : "s"}
-                    </p>
-                    <div className="flex flex-wrap gap-1.5">
-                      <StatusChip
-                        label="awaiting review"
-                        value={overview.bookings.pending}
-                        tone="warn"
-                      />
-                    </div>
-                    <div className="space-y-0.5 text-xs">
-                      <p className="font-medium text-muted-foreground">
-                        Confirmed:{" "}
-                        <span className="font-semibold tabular-nums text-emerald-700">
-                          {formatMoneyByCurrency(
-                            overview.bookings.revenueByCurrency,
-                          )}
-                        </span>{" "}
-                        · +{overview.bookings.thisWeek} this week
-                      </p>
-                      {overview.bookings.awaitingLabel !== "—" && (
-                        <p className="text-muted-foreground">
-                          Awaiting review:{" "}
-                          <span className="font-medium tabular-nums text-amber-700">
-                            {overview.bookings.awaitingLabel}
-                          </span>
-                        </p>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              </Link>
+              <KpiCard
+                href="/admin/accommodation"
+                icon={BedDouble}
+                label="Accommodation"
+                accent={KPI_ACCENTS.bookings}
+                value={overview.bookings.activeGuests}
+                note={`active guests · ${overview.bookings.confirmed} confirmed booking${overview.bookings.confirmed === 1 ? "" : "s"}`}
+                chips={
+                  <StatusChip
+                    label="awaiting review"
+                    value={overview.bookings.pending}
+                    tone="warn"
+                  />
+                }
+                confirmed={formatMoneyByCurrency(
+                  overview.bookings.revenueByCurrency,
+                )}
+                awaiting={overview.bookings.awaitingLabel}
+                footer={
+                  <span className="text-xs font-medium text-muted-foreground">
+                    +{overview.bookings.thisWeek} this week
+                  </span>
+                }
+              />
             )}
             {canContent && (
-              <Link href="/admin/content" className="group">
-                <Card
-                  className={cn(
-                    "h-full overflow-hidden bg-gradient-to-br transition-all group-hover:shadow-sm",
-                    KPI_ACCENTS.faqs.tint,
-                    KPI_ACCENTS.faqs.border,
-                  )}
-                >
-                  <CardHeader className="flex flex-row items-center justify-between pb-2">
-                    <CardTitle className="text-sm font-medium text-muted-foreground">
-                      FAQs
-                    </CardTitle>
-                    <span
-                      className={cn(
-                        "flex size-9 items-center justify-center rounded-lg",
-                        KPI_ACCENTS.faqs.icon,
-                      )}
-                    >
-                      <HelpCircle className="size-4" />
-                    </span>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <p className="text-3xl font-semibold tabular-nums text-ink">
-                      {overview.content.faqs}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Manage FAQs and announcements
-                    </p>
-                  </CardContent>
-                </Card>
-              </Link>
-            )}
-            {canContent && (
-              <Link href="/admin/videos" className="group">
-                <Card
-                  className={cn(
-                    "h-full overflow-hidden bg-gradient-to-br transition-all group-hover:shadow-sm",
-                    KPI_ACCENTS.videos.tint,
-                    KPI_ACCENTS.videos.border,
-                  )}
-                >
-                  <CardHeader className="flex flex-row items-center justify-between pb-2">
-                    <CardTitle className="text-sm font-medium text-muted-foreground">
-                      Videos
-                    </CardTitle>
-                    <span
-                      className={cn(
-                        "flex size-9 items-center justify-center rounded-lg",
-                        KPI_ACCENTS.videos.icon,
-                      )}
-                    >
-                      <Video className="size-4" />
-                    </span>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <p className="text-3xl font-semibold tabular-nums text-ink">
-                      {overview.content.videos}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Conference messages and links
-                    </p>
-                  </CardContent>
-                </Card>
-              </Link>
+              <KpiCard
+                href="/admin/content"
+                icon={Newspaper}
+                label="Content"
+                accent={KPI_ACCENTS.faqs}
+                value={overview.content.faqs}
+                note={`FAQs · ${overview.content.videos} video${overview.content.videos === 1 ? "" : "s"}`}
+                footer={
+                  <span className="text-xs text-muted-foreground">
+                    FAQs, announcements, hero, videos and galleries
+                  </span>
+                }
+              />
             )}
           </div>
 
-          {canRegistration && !isFinanceView && (
-            <HubCollectionsCard data={hubCollections} />
-          )}
-
-
-          {isFinanceView && (
-            <div className="space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <h2 className="text-sm font-semibold tracking-wide text-muted-foreground uppercase">
-                  Money overview
-                </h2>
-                <CurrencyFocusToggle
-                  value={currencyFilter}
-                  onChange={setCurrencyFilter}
-                />
-              </div>
-              <FinanceStatsCards
-                registrations={overview.registrations}
-                bookings={overview.bookings}
-                poa={overview.poa}
-                currencyFilter={currencyFilter}
-              />
-              <AgeingTiles ageing={overview.ageing} />
-              <HubMoneyTable
-                hubBreakdown={overview.hubBreakdown}
-                currencyFilter={currencyFilter}
-              />
-            </div>
-          )}
-
           {!isFinanceView && (
-            <div className="hidden gap-4 sm:grid xl:grid-cols-[1.2fr_0.8fr]">
+            <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
               <Card className="overflow-hidden">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base">Needs attention</CardTitle>
@@ -1507,6 +1432,36 @@ export default function AdminOverviewPage() {
             </div>
           )}
 
+          {canRegistration && !isFinanceView && (
+            <HubCollectionsCard data={hubCollections} />
+          )}
+
+
+          {isFinanceView && (
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 className="text-sm font-semibold tracking-wide text-muted-foreground uppercase">
+                  Money overview
+                </h2>
+                <CurrencyFocusToggle
+                  value={currencyFilter}
+                  onChange={setCurrencyFilter}
+                />
+              </div>
+              <FinanceStatsCards
+                registrations={overview.registrations}
+                bookings={overview.bookings}
+                poa={overview.poa}
+                currencyFilter={currencyFilter}
+              />
+              <AgeingTiles ageing={overview.ageing} />
+              <HubMoneyTable
+                hubBreakdown={overview.hubBreakdown}
+                currencyFilter={currencyFilter}
+              />
+            </div>
+          )}
+
           {canAccommodation && !isFinanceView && overview.housing.length > 0 && (
             <Card className="overflow-hidden">
               <CardHeader className="flex flex-row items-center justify-between">
@@ -1577,33 +1532,6 @@ export default function AdminOverviewPage() {
         </>
       )}
 
-      {canSeed && sessionToken && (
-        <Card className="hidden sm:block">
-          <CardHeader>
-            <CardTitle className="text-base">Content tools</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-wrap items-center gap-3">
-            <Button
-              variant="secondary"
-              onClick={async () => {
-                try {
-                  await seedData({ sessionToken });
-                  toast.success("Default content seeded");
-                } catch (err) {
-                  toast.error(
-                    cleanErrorMessage(err) || "Failed to seed content",
-                  );
-                }
-              }}
-            >
-              Seed / refresh default content
-            </Button>
-            <p className="text-sm text-muted-foreground">
-              Safe to re-run — only fills empty content collections.
-            </p>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }

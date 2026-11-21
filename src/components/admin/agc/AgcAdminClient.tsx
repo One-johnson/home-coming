@@ -14,7 +14,6 @@ import { useAdminSession } from "@/components/admin/AdminSessionProvider";
 import { ConfirmDeleteDialog } from "@/components/admin/ConfirmDeleteDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { DataTable } from "@/components/ui/data-table";
 import { Textarea } from "@/components/ui/textarea";
 import { multiSelectFilter } from "@/components/admin/columns";
@@ -94,7 +93,6 @@ export function ReviewActions({
           type="button"
           disabled={disabled}
           onClick={() => onDecision("approve", message || undefined)}
-          className="bg-emerald-600 text-white hover:bg-emerald-700"
         >
           Approve
         </Button>
@@ -103,7 +101,7 @@ export function ReviewActions({
           variant="outline"
           disabled={disabled || !message.trim()}
           onClick={() => onDecision("request_correction", message)}
-          className="border-orange-400 text-orange-700 hover:bg-orange-50"
+          className="border-amber-300 text-amber-800 hover:bg-amber-50"
         >
           Request correction
         </Button>
@@ -384,7 +382,7 @@ export default function RegistrationsTab({
       )}
       {row.adminMessage && (
         <RowDetailSection title="Last message">
-          <p className="rounded bg-orange-50 p-2 text-xs text-orange-900 dark:bg-orange-950 dark:text-orange-300">
+          <p className="rounded-lg bg-amber-50 p-2 text-xs text-amber-900">
             {row.adminMessage}
           </p>
         </RowDetailSection>
@@ -405,11 +403,10 @@ export default function RegistrationsTab({
   );
 
   return (
-    <Card className="p-4">
+    <div className="space-y-3">
       {!canManage && (
-        <p className="mb-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
-          Finance view — read-only. Approvals and deletions are handled by the
-          registration team.
+        <p className="inline-flex items-center gap-1.5 rounded-full bg-sky-100 px-2.5 py-1 text-xs font-medium text-sky-800">
+          Read-only · approvals are handled by the registration team
         </p>
       )}
       <DataTable
@@ -558,7 +555,7 @@ export default function RegistrationsTab({
         loading={deleting}
         onConfirm={handleConfirmDelete}
       />
-    </Card>
+    </div>
   );
 }
 

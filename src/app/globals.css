@@ -111,6 +111,31 @@
   --sidebar-ring: var(--gold-light);
 }
 
+/*
+ * Status palette, warmed to sit with chocolate and gold. Tailwind v4 utilities
+ * read these variables, so every hard-coded emerald / amber / rose / sky class
+ * in the console and portal re-tones here without touching the pages:
+ * success = olive, warning = gold, danger = brick, info = dusty blue,
+ * accent = plum, greys = taupe. White surfaces become warm paper.
+ */
+:root:has(.admin-theme) {
+  --color-emerald-50: #f2f5ec; --color-emerald-100: #e3ead6; --color-emerald-200: #cad9b5; --color-emerald-300: #aac28c; --color-emerald-400: #88a764; --color-emerald-500: #6c8c4c; --color-emerald-600: #56723e; --color-emerald-700: #445b33; --color-emerald-800: #38492c; --color-emerald-900: #2f3d26; --color-emerald-950: #182111;
+  --color-amber-50: #fdf8ea; --color-amber-100: #faeecb; --color-amber-200: #f3dc95; --color-amber-300: #e9c45c; --color-amber-400: #dbab3a; --color-amber-500: #c29024; --color-amber-600: #a2741b; --color-amber-700: #815918; --color-amber-800: #6a481a; --color-amber-900: #5a3d1a; --color-amber-950: #33200a;
+  --color-orange-50: #fcf4ec; --color-orange-100: #f8e4d0; --color-orange-200: #f0c7a0; --color-orange-300: #e5a46c; --color-orange-400: #d78545; --color-orange-500: #c06b2f; --color-orange-600: #a05525; --color-orange-700: #814423; --color-orange-800: #6a3921; --color-orange-900: #58311e; --color-orange-950: #32170c;
+  --color-rose-50: #fbf1ee; --color-rose-100: #f6dfd8; --color-rose-200: #edc0b3; --color-rose-300: #e09a86; --color-rose-400: #cf735b; --color-rose-500: #b8573f; --color-rose-600: #9c4532; --color-rose-700: #82392b; --color-rose-800: #6b3127; --color-rose-900: #5a2c24; --color-rose-950: #311410;
+  --color-sky-50: #f0f4f7; --color-sky-100: #dfe8ee; --color-sky-200: #c2d3de; --color-sky-300: #9cb7c9; --color-sky-400: #7096b0; --color-sky-500: #567c97; --color-sky-600: #45657d; --color-sky-700: #3a5266; --color-sky-800: #324555; --color-sky-900: #2c3b48; --color-sky-950: #1c2630;
+  --color-violet-50: #f7f1f4; --color-violet-100: #eedfe7; --color-violet-200: #dfc2d1; --color-violet-300: #c99cb3; --color-violet-400: #b07592; --color-violet-500: #965978; --color-violet-600: #7d4762; --color-violet-700: #683b52; --color-violet-800: #573345; --color-violet-900: #4a2e3c; --color-violet-950: #2b1621;
+  --color-slate-50: #faf7f3; --color-slate-100: #f3ede5; --color-slate-200: #e7ddd0; --color-slate-300: #d4c6b4; --color-slate-400: #ab9a85; --color-slate-500: #85745f; --color-slate-600: #6b5b49; --color-slate-700: #56483a; --color-slate-800: #43382d; --color-slate-900: #352b23; --color-slate-950: #1f1914;
+  --color-neutral-50: #faf7f3; --color-neutral-100: #f3ede5; --color-neutral-200: #e7ddd0; --color-neutral-300: #d4c6b4; --color-neutral-400: #ab9a85; --color-neutral-500: #85745f; --color-neutral-600: #6b5b49; --color-neutral-700: #56483a; --color-neutral-800: #43382d; --color-neutral-900: #352b23; --color-neutral-950: #1f1914;
+  --color-stone-50: #faf7f3; --color-stone-100: #f3ede5; --color-stone-200: #e7ddd0; --color-stone-300: #d4c6b4; --color-stone-400: #ab9a85; --color-stone-500: #85745f; --color-stone-600: #6b5b49; --color-stone-700: #56483a; --color-stone-800: #43382d; --color-stone-900: #352b23; --color-stone-950: #1f1914;
+  --color-gray-50: #faf7f3; --color-gray-100: #f3ede5; --color-gray-200: #e7ddd0; --color-gray-300: #d4c6b4; --color-gray-400: #ab9a85; --color-gray-500: #85745f; --color-gray-600: #6b5b49; --color-gray-700: #56483a; --color-gray-800: #43382d; --color-gray-900: #352b23; --color-gray-950: #1f1914;
+  --color-zinc-50: #faf7f3; --color-zinc-100: #f3ede5; --color-zinc-200: #e7ddd0; --color-zinc-300: #d4c6b4; --color-zinc-400: #ab9a85; --color-zinc-500: #85745f; --color-zinc-600: #6b5b49; --color-zinc-700: #56483a; --color-zinc-800: #43382d; --color-zinc-900: #352b23; --color-zinc-950: #1f1914;
+  --color-white: #fffdf9;
+  --ink: var(--choc-900);
+  --soft-ink: var(--choc-800);
+  --stone: #7a6555;
+}
+
 :root:has(.admin-theme) body {
   letter-spacing: 0;
   line-height: 1.5;

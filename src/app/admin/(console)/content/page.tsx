@@ -1,13 +1,22 @@
 "use client";
 
 import { useMutation, useQuery } from "convex/react";
-import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import {
+  HelpCircle,
+  Megaphone,
+  MoreHorizontal,
+  Pencil,
+  Sparkles,
+  Trash2,
+} from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import type { Doc, Id } from "@convex/_generated/dataModel";
 import { cleanErrorMessage } from "@/lib/friendlyError";
 import { ConfirmDeleteDialog } from "@/components/admin/ConfirmDeleteDialog";
+import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
+import { SectionTabs } from "@/components/admin/kit/SectionTabs";
 import {
   useAdminSession,
   useSessionArgs,
@@ -48,6 +57,10 @@ export default function AdminContentPage() {
   const bulkDeleteFaqs = useMutation(api.content.bulkDeleteFaqs);
   const upsertAnnouncement = useMutation(api.content.upsertAnnouncement);
   const deleteAnnouncement = useMutation(api.content.deleteAnnouncement);
+  const seedData = useMutation(api.seed.seed);
+  const canSeed = canAccessArea(user?.role, "seed");
+  const [seeding, setSeeding] = useState(false);
+  const [section, setSection] = useState<"faqs" | "announcements">("faqs");
 
   const [faqForm, setFaqForm] = useState({
     category: "Registration",
@@ -168,8 +181,51 @@ export default function AdminContentPage() {
   const faqCount = faqs?.length ?? 0;
 
   return (
-    <div className="space-y-6">
-      <div className="grid gap-6 xl:grid-cols-2">
+    <div className="space-y-4">
+      <AdminPageHeader
+        description="FAQs and announcements shown on the public site."
+        actions={
+          canSeed ? (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={seeding}
+              onClick={async () => {
+                if (!sessionToken) return;
+                setSeeding(true);
+                try {
+                  await seedData({ sessionToken });
+                  toast.success("Default content seeded");
+                } catch (err) {
+                  toast.error(cleanErrorMessage(err) || "Failed to seed content");
+                } finally {
+                  setSeeding(false);
+                }
+              }}
+              title="Only fills empty content collections — safe to re-run"
+            >
+              <Sparkles className="size-4" />
+              Seed default content
+            </Button>
+          ) : undefined
+        }
+      />
+      <SectionTabs
+        label="Content sections"
+        value={section}
+        onChange={setSection}
+        items={[
+          { id: "faqs", label: "FAQs", icon: HelpCircle, count: faqCount },
+          {
+            id: "announcements",
+            label: "Announcements",
+            icon: Megaphone,
+            count: announcements?.length ?? 0,
+          },
+        ]}
+      />
+      <div className="grid gap-6">
+        {section === "faqs" && (
         <Card>
           <CardHeader>
             <CardTitle>{editingFaq ? "Edit FAQ" : "Add FAQ"}</CardTitle>
@@ -344,7 +400,9 @@ export default function AdminContentPage() {
             </Accordion>
           </CardContent>
         </Card>
+        )}
 
+        {section === "announcements" && (
         <Card>
           <CardHeader>
             <CardTitle>
@@ -487,6 +545,7 @@ export default function AdminContentPage() {
             </div>
           </CardContent>
         </Card>
+        )}
       </div>
 
       <ConfirmDeleteDialog

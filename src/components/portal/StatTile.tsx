@@ -16,8 +16,8 @@ export type StatTone = "neutral" | "positive" | "warning" | "danger" | "info";
 
 const TONE_CLASSES: Record<StatTone, { chip: string; value: string }> = {
   neutral: {
-    chip: "bg-primary/10 text-primary",
-    value: "text-ink",
+    chip: "bg-gold/15 text-gold-dark",
+    value: "text-foreground",
   },
   positive: {
     chip: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400",
@@ -66,7 +66,7 @@ export function StatTile({
   return (
     <div
       className={cn(
-        "flex min-w-0 flex-col rounded-xl bg-card ring-1 ring-foreground/10",
+        "flex min-w-0 flex-col rounded-xl bg-card shadow-soft ring-1 ring-foreground/10 transition-shadow duration-300",
         large ? "p-4" : "p-3",
         className,
       )}

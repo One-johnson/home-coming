@@ -1,7 +1,6 @@
 "use client";
 
 import { Suspense } from "react";
-import { useSearchParams } from "next/navigation";
 import { AgcExcelExportButton } from "@/components/admin/agc/AgcAdminClient";
 import { AgcAccommodationPage } from "@/components/admin/agc/AgcAccommodationPage";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
@@ -10,7 +9,6 @@ import { canAccessArea } from "@/lib/adminRoles";
 
 function AdminAccommodationInner() {
   const { user } = useAdminSession();
-  const searchParams = useSearchParams();
   if (!canAccessArea(user?.role, "accommodation")) {
     return (
       <p className="text-sm text-muted-foreground">
@@ -18,20 +16,6 @@ function AdminAccommodationInner() {
       </p>
     );
   }
-
-  const showPoa = user?.role === "admin" || user?.role === "finance";
-  const tab = searchParams.get("tab");
-  // Deep links: the POA queue (admin/finance), the rooms grid with the
-  // bulk-assign panel (the arrival desk's "Bulk assign" shortcut), and the
-  // review-flags queue raised at the desk.
-  const initialSection =
-    tab === "poa" && showPoa
-      ? ("poa" as const)
-      : tab === "rooms"
-        ? ("rooms" as const)
-        : tab === "flags"
-          ? ("flags" as const)
-          : undefined;
 
   return (
     <div className="space-y-4">
@@ -50,7 +34,7 @@ function AdminAccommodationInner() {
               ),
             })}
       />
-      <AgcAccommodationPage initialSection={initialSection} />
+      <AgcAccommodationPage />
     </div>
   );
 }

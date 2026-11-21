@@ -1,13 +1,10 @@
 import type { ComponentType, ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import {
   TONE_BADGE,
   TONE_DOT,
   TONE_LEGEND,
-  TONE_RAIL,
-  TONE_SURFACE,
   TONE_TEXT,
   type StatusTone,
 } from "@/lib/agcStatusTone";
@@ -92,10 +89,20 @@ export function StatusLegend({
   );
 }
 
+/** Icon chip tint per tone (the tile itself stays a plain card). */
+const TONE_CHIP: Record<StatusTone, string> = {
+  done: "bg-emerald-100 text-emerald-700",
+  blocked: "bg-amber-100 text-amber-800",
+  refused: "bg-rose-100 text-rose-700",
+  waiting: "bg-slate-100 text-slate-600",
+  info: "bg-sky-100 text-sky-700",
+  neutral: "bg-gold/15 text-gold-dark",
+};
+
 /**
- * A count tile with a colour role: used for the desk's action row, cash totals
- * and report totals. `rail` draws the same tone down the left edge so
- * it still reads when a projector washes the tint out.
+ * A count tile with a colour role — the console's one stat tile look (same as
+ * the rep portal's): a plain card, a tinted icon chip, a tinted number. Pass
+ * `onClick` to make it a filter shortcut; `active` marks the applied filter.
  */
 export function StatTile({
   tone = "neutral",
@@ -103,6 +110,8 @@ export function StatTile({
   value,
   hint,
   icon: IconComponent,
+  onClick,
+  active = false,
   className,
 }: {
   tone?: StatusTone;
@@ -110,40 +119,61 @@ export function StatTile({
   value: ReactNode;
   hint?: ReactNode;
   icon?: Icon;
+  onClick?: () => void;
+  active?: boolean;
   className?: string;
 }) {
-  return (
-    <Card
-      className={cn(
-        "border-l-4",
-        TONE_SURFACE[tone],
-        TONE_RAIL[tone],
-        className,
-      )}
-    >
-      <CardContent className="p-3">
-        <p className="flex items-center gap-1.5 text-xs font-medium">
-          {IconComponent ? (
-            <IconComponent className={cn("size-3.5 shrink-0", TONE_TEXT[tone])} />
-          ) : (
-            <ToneDot tone={tone} />
-          )}
-          <span className="text-muted-foreground">{label}</span>
-        </p>
-        <p
+  const body = (
+    <>
+      <p className="flex min-w-0 items-center gap-1.5 text-xs font-medium text-muted-foreground">
+        <span
           className={cn(
-            "mt-1 text-2xl font-semibold tabular-nums",
-            tone === "neutral" ? "text-foreground" : TONE_TEXT[tone],
+            "inline-flex size-5 shrink-0 items-center justify-center rounded-md",
+            TONE_CHIP[tone],
           )}
         >
-          {value}
+          {IconComponent ? (
+            <IconComponent className="size-3" />
+          ) : (
+            <ToneDot tone={tone} className="size-1.5" />
+          )}
+        </span>
+        <span className="truncate">{label}</span>
+      </p>
+      <p
+        className={cn(
+          "mt-1 text-2xl font-semibold tabular-nums",
+          tone === "neutral" ? "text-foreground" : TONE_TEXT[tone],
+        )}
+      >
+        {value}
+      </p>
+      {hint ? (
+        <p className="mt-0.5 text-xs leading-tight text-muted-foreground">
+          {hint}
         </p>
-        {hint ? (
-          <p className="mt-0.5 text-[11px] leading-tight text-muted-foreground">
-            {hint}
-          </p>
-        ) : null}
-      </CardContent>
-    </Card>
+      ) : null}
+    </>
   );
+  const frame = cn(
+    "flex min-w-0 flex-col rounded-xl bg-card p-3.5 text-left shadow-soft ring-1 ring-foreground/10 transition-all duration-300",
+    active && "ring-2 ring-gold",
+    className,
+  );
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        aria-pressed={active}
+        className={cn(
+          frame,
+          "outline-none hover:-translate-y-0.5 hover:shadow-elevate hover:ring-gold/50 focus-visible:ring-3 focus-visible:ring-ring/50",
+        )}
+      >
+        {body}
+      </button>
+    );
+  }
+  return <div className={frame}>{body}</div>;
 }
