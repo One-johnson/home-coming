@@ -85,7 +85,7 @@ type HubCollections = {
 };
 
 type AgcOverview = {
-  /** True when signed in as finance â€” the client then hides non-finance widgets. */
+  /** True when signed in as finance — the client then hides non-finance widgets. */
   financeView: boolean;
   registrations: {
     total: number;
@@ -93,7 +93,7 @@ type AgcOverview = {
     confirmed: number;
     pending: number;
     rejected: number;
-    /** Confirmed revenue per currency â€” cedis and dollars are never summed. */
+    /** Confirmed revenue per currency — cedis and dollars are never summed. */
     revenueByCurrency: Record<string, number>;
     /** Money awaiting finance review, per currency. */
     awaitingByCurrency: Record<string, number>;
@@ -110,7 +110,7 @@ type AgcOverview = {
     activeGuests: number;
     confirmed: number;
     pending: number;
-    /** Confirmed revenue per currency â€” cedis and dollars are never summed. */
+    /** Confirmed revenue per currency — cedis and dollars are never summed. */
     revenueByCurrency: Record<string, number>;
     /** Money awaiting finance review, per currency. */
     awaitingByCurrency: Record<string, number>;
@@ -124,14 +124,14 @@ type AgcOverview = {
     outstandingBookings: number;
     outstandingCount: number;
     outstandingByCurrency: Record<string, number>;
-    /** Per-currency outstanding split by surface â€” regs vs accommodation each stay inside one currency. */
+    /** Per-currency outstanding split by surface — regs vs accommodation each stay inside one currency. */
     outstandingSurfacesByCurrency: Record<
       string,
       { registrations: number; bookings: number }
     >;
     outstandingLabel: string;
   };
-  /** Confirmed revenue per day (per surface, per currency) â€” last 7 days. */
+  /** Confirmed revenue per day (per surface, per currency) — last 7 days. */
   revenueTrend: {
     label: string;
     date: string;
@@ -249,13 +249,13 @@ function currencyTitle(currency: string): string {
 /**
  * One finance surface (registrations or accommodation) as a stat card:
  * volume headline and status chips on top, then every money line held per
- * currency â€” cedis and dollars are never summed into one number. The
+ * currency — cedis and dollars are never summed into one number. The
  * headline opens the surface's console; drill-down links open the review
  * queues pre-filtered (drill-downs can't nest inside the card link).
  */
 /**
  * Payment-on-arrival cash the venue desk must still collect at check-in.
- * Kept out of the registrations/accommodation "awaiting review" boards â€”
+ * Kept out of the registrations/accommodation "awaiting review" boards —
  * POA money is IOU cash on the day, not receipt-verification workload.
  */
 function PoaOutstandingCard({
@@ -302,7 +302,7 @@ function PoaOutstandingCard({
       >
         <CardHeader className="flex flex-row items-center justify-between pb-2">
           <CardTitle className="text-sm font-medium text-muted-foreground">
-            Payment on arrival Â· outstanding
+            Payment on arrival · outstanding
           </CardTitle>
           <span
             className={cn(
@@ -321,7 +321,7 @@ function PoaOutstandingCard({
             {poa.outstandingCount}
           </Link>
           <p className="-mt-2 text-xs text-muted-foreground">
-            IOU record{poa.outstandingCount === 1 ? "" : "s"} Â· cash to collect
+            IOU record{poa.outstandingCount === 1 ? "" : "s"} · cash to collect
             at check-in
           </p>
           <div className="flex flex-wrap gap-1.5">
@@ -357,7 +357,7 @@ function PoaOutstandingCard({
                     </p>
                     <p className="mt-0.5 text-[11px] text-muted-foreground tabular-nums">
                       Registrations {formatMoneyByCurrency({ [currency]: split.registrations })}
-                      {" Â· "}
+                      {" · "}
                       Accommodation {formatMoneyByCurrency({ [currency]: split.bookings })}
                     </p>
                   </div>
@@ -494,7 +494,7 @@ function FinanceSurfaceCard({
                 {formatMoneyByCurrency(confirmed)}
               </span>
             </p>
-            {formatMoneyByCurrency(awaiting) !== "â€”" && (
+            {formatMoneyByCurrency(awaiting) !== "—" && (
               <p className="text-muted-foreground">
                 Awaiting review:{" "}
                 <span className="font-medium tabular-nums text-amber-700">
@@ -503,7 +503,7 @@ function FinanceSurfaceCard({
               </p>
             )}
             <p className="text-muted-foreground">
-              Total Â· confirmed + awaiting:{" "}
+              Total · confirmed + awaiting:{" "}
               <span className="font-semibold tabular-nums text-ink">
                 {formatMoneyByCurrency(totalsByCurrency)}
               </span>
@@ -533,7 +533,7 @@ function FinanceSurfaceCard({
 }
 
 /**
- * All / GHS / USD focus control â€” one statement of which cedis-and-dollars
+ * All / GHS / USD focus control — one statement of which cedis-and-dollars
  * lens the finance stat cards read through.
  */
 function CurrencyFocusToggle({
@@ -580,7 +580,7 @@ function CurrencyFocusToggle({
 }
 
 /**
- * Awaiting-review ageing â€” how long money has sat unverified. Every bucket
+ * Awaiting-review ageing — how long money has sat unverified. Every bucket
  * keeps its money per currency; the 7+ day bucket is the escalator. Buckets
  * with money deep-link into the review queue pre-filtered to that age span.
  */
@@ -609,7 +609,7 @@ function AgeingTiles({
       <CardHeader className="pb-2">
         <CardTitle className="text-base">Awaiting review ageing</CardTitle>
         <CardDescription className="text-xs">
-          How long unverified money has been sitting â€” the 7+ day bucket needs
+          How long unverified money has been sitting — the 7+ day bucket needs
           chasing today.
         </CardDescription>
       </CardHeader>
@@ -651,7 +651,7 @@ function AgeingTiles({
                     )}
                   >
                     {bucket.count === 0
-                      ? "â€”"
+                      ? "—"
                       : formatMoneyByCurrency(bucket.moneyByCurrency)}
                   </span>
                 </>
@@ -681,7 +681,7 @@ function AgeingTiles({
 }
 
 /**
- * Per-hub money table â€” one row per hub across both surfaces, per currency.
+ * Per-hub money table — one row per hub across both surfaces, per currency.
  * USD splits into dedicated columns so cedis and dollar columns are never
  * forced to share a number; every column stays mono-currency. Exports as
  * one CSV row per hub and currency.
@@ -745,7 +745,7 @@ function HubMoneyTable({
         <CardTitle className="text-base">Money by hub</CardTitle>
         <CardDescription className="text-xs">
           Per-hub registrations and accommodation money. Every column stays in
-          one currency â€” showing {selectedCurrencyLabel}. Use the column picker
+          one currency — showing {selectedCurrencyLabel}. Use the column picker
           to focus a currency, and Export CSV for the full sheet.
         </CardDescription>
       </CardHeader>
@@ -754,7 +754,7 @@ function HubMoneyTable({
           <DataTable
             columns={columns}
             data={hubBreakdown}
-            searchPlaceholder="Search hubâ€¦"
+            searchPlaceholder="Search hub…"
             getRowId={(row) => row.hubId}
             exportFilename="finance-hub-money.csv"
             exportRow={(row) => ({
@@ -812,7 +812,7 @@ function HubMoneyTable({
 }
 
 /**
- * Finance totals block â€” stat cards for each money surface (registrations,
+ * Finance totals block — stat cards for each money surface (registrations,
  * accommodation) plus one board per currency (GHS, USD), where every number
  * stays inside a single currency so nothing is ever summed across cedis and
  * dollars.
@@ -861,7 +861,7 @@ function FinanceStatsCards({
           icon={<ClipboardList className="size-4" />}
           title="Registrations totals"
           headline={registrations.total}
-          headlineNote={`submission${registrations.total === 1 ? "" : "s"} Â· ${registrations.delegates} delegate${registrations.delegates === 1 ? "" : "s"}`}
+          headlineNote={`submission${registrations.total === 1 ? "" : "s"} · ${registrations.delegates} delegate${registrations.delegates === 1 ? "" : "s"}`}
           chips={
             <>
               <StatusChip
@@ -903,7 +903,7 @@ function FinanceStatsCards({
           icon={<BedDouble className="size-4" />}
           title="Accommodation totals"
           headline={bookings.total}
-          headlineNote={`booking${bookings.total === 1 ? "" : "s"} Â· ${bookings.activeGuests} active guest${bookings.activeGuests === 1 ? "" : "s"}`}
+          headlineNote={`booking${bookings.total === 1 ? "" : "s"} · ${bookings.activeGuests} active guest${bookings.activeGuests === 1 ? "" : "s"}`}
           chips={
             <>
               <StatusChip
@@ -970,7 +970,7 @@ function StatusChip({
  * arrival (POA) in a single row per hub, so a long hub list costs one table row
  * instead of four thumb-sized blocks. Amounts stay inside their own currency,
  * the busiest hubs sort first, and lists longer than ten fold to eight rows with
- * the totals always in view â€” the page stops growing with every new hub.
+ * the totals always in view — the page stops growing with every new hub.
  */
 function HubCollectionsCard({ data }: { data: HubCollections | undefined }) {
   const [expanded, setExpanded] = useState(false);
@@ -1008,7 +1008,7 @@ function HubCollectionsCard({ data }: { data: HubCollections | undefined }) {
           Registrations by hub
           <span className="text-[11px] font-normal tabular-nums text-muted-foreground">
             {data.totals.submissions} submission
-            {data.totals.submissions === 1 ? "" : "s"} Â· {data.totals.delegates}{" "}
+            {data.totals.submissions === 1 ? "" : "s"} · {data.totals.delegates}{" "}
             delegate{data.totals.delegates === 1 ? "" : "s"}
           </span>
         </CardTitle>
@@ -1056,7 +1056,7 @@ function HubCollectionsCard({ data }: { data: HubCollections | undefined }) {
                         )}
                       </p>
                       <p className="text-[10px] tabular-nums text-muted-foreground">
-                        {hub.submissions} sub Â· {hub.delegates} del
+                        {hub.submissions} sub · {hub.delegates} del
                       </p>
                     </td>
                     {cell(hub.paidByCurrency, hub.paidCount, "text-emerald-700")}
@@ -1076,7 +1076,7 @@ function HubCollectionsCard({ data }: { data: HubCollections | undefined }) {
                       All hubs
                     </p>
                     <p className="text-[10px] tabular-nums text-muted-foreground">
-                      {data.totals.submissions} sub Â· {data.totals.delegates} del
+                      {data.totals.submissions} sub · {data.totals.delegates} del
                     </p>
                   </td>
                   {cell(
@@ -1121,7 +1121,7 @@ export default function AdminOverviewPage() {
   const sessionArgs = useSessionArgs();
   const seedData = useMutation(api.seed.seed);
   const isDashboardOnly = role === "dashboard";
-  // The dashboard-only role never reads the full overview â€” its console is the
+  // The dashboard-only role never reads the full overview — its console is the
   // per-hub list below.
   const overview = useQuery(
     api.agcAdminData.getAgcOverview,
@@ -1143,7 +1143,7 @@ export default function AdminOverviewPage() {
   // Server truth once loaded; role check before then avoids flashing
   // non-finance widgets for the finance role.
   const isFinanceView = overview ? overview.financeView : role === "finance";
-  // Finance currency focus â€” All / GHS / USD lens for every finance widget.
+  // Finance currency focus — All / GHS / USD lens for every finance widget.
   const [currencyFilter, setCurrencyFilter] = useState<CurrencyFilter>("ALL");
   const firstName = user?.name?.split(" ")[0];
 
@@ -1160,7 +1160,7 @@ export default function AdminOverviewPage() {
           Welcome back{firstName ? `, ${firstName}` : ""}
         </h2>
         <p className="relative mt-1 text-sm text-[#e9dccb]">
-          {EVENT.name} Â· {EVENT.dates} Â· {EVENT.location}
+          {EVENT.name} · {EVENT.dates} · {EVENT.location}
         </p>
       </section>
 
@@ -1209,7 +1209,7 @@ export default function AdminOverviewPage() {
                       {overview.registrations.delegates}
                     </p>
                     <p className="-mt-2 text-xs text-muted-foreground">
-                      delegates Â· {overview.registrations.total} submission
+                      delegates · {overview.registrations.total} submission
                       {overview.registrations.total === 1 ? "" : "s"}
                     </p>
                     <div className="flex flex-wrap gap-1.5">
@@ -1240,7 +1240,7 @@ export default function AdminOverviewPage() {
                           )}
                         </span>
                       </p>
-                      {overview.registrations.awaitingLabel !== "â€”" && (
+                      {overview.registrations.awaitingLabel !== "—" && (
                         <p className="text-muted-foreground">
                           Awaiting review:{" "}
                           <span className="font-medium tabular-nums text-amber-700">
@@ -1284,7 +1284,7 @@ export default function AdminOverviewPage() {
                       {overview.bookings.activeGuests}
                     </p>
                     <p className="-mt-2 text-xs text-muted-foreground">
-                      active guests Â· {overview.bookings.confirmed} confirmed
+                      active guests · {overview.bookings.confirmed} confirmed
                       booking{overview.bookings.confirmed === 1 ? "" : "s"}
                     </p>
                     <div className="flex flex-wrap gap-1.5">
@@ -1302,9 +1302,9 @@ export default function AdminOverviewPage() {
                             overview.bookings.revenueByCurrency,
                           )}
                         </span>{" "}
-                        Â· +{overview.bookings.thisWeek} this week
+                        · +{overview.bookings.thisWeek} this week
                       </p>
-                      {overview.bookings.awaitingLabel !== "â€”" && (
+                      {overview.bookings.awaitingLabel !== "—" && (
                         <p className="text-muted-foreground">
                           Awaiting review:{" "}
                           <span className="font-medium tabular-nums text-amber-700">
@@ -1496,7 +1496,7 @@ export default function AdminOverviewPage() {
                         </Badge>
                       </div>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        {log.actorEmail ?? "System"} Â·{" "}
+                        {log.actorEmail ?? "System"} ·{" "}
                         {new Date(log.createdAt).toLocaleString()}
                       </p>
                     </div>
@@ -1562,7 +1562,7 @@ export default function AdminOverviewPage() {
                         </Badge>
                       </div>
                       <p className="mt-1 text-sm text-muted-foreground">
-                        {h.booked}/{h.capacityLimit} taken Â· {h.remaining} left
+                        {h.booked}/{h.capacityLimit} taken · {h.remaining} left
                       </p>
                       <p className="text-sm font-medium tabular-nums text-ink">
                         <Users className="mr-1 inline size-3.5" />
@@ -1599,7 +1599,7 @@ export default function AdminOverviewPage() {
               Seed / refresh default content
             </Button>
             <p className="text-sm text-muted-foreground">
-              Safe to re-run â€” only fills empty content collections.
+              Safe to re-run — only fills empty content collections.
             </p>
           </CardContent>
         </Card>
