@@ -506,7 +506,7 @@ export function ReviewFlagsTab() {
             >
               <p className="flex items-center gap-1.5 text-sm font-medium">
                 <HandCoins className="size-4 shrink-0" />
-                Payment override (§18)
+                Payment override
               </p>
               {targetRow?.paymentOverride ? (
                 <>

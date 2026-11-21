@@ -28,6 +28,7 @@ import { useAdminSession } from "@/components/admin/AdminSessionProvider";
 import { toastFriendlyErrorParts } from "@/lib/friendlyError";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -315,10 +316,8 @@ function PayOnArrivalSwitch({ hub, disabled }: { hub: HubRow; disabled: boolean 
   };
 
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={enabled}
+    <Switch
+      checked={enabled}
       aria-label={`Pay on arrival for ${hub.hubName}`}
       title={
         disabled
@@ -328,22 +327,9 @@ function PayOnArrivalSwitch({ hub, disabled }: { hub: HubRow; disabled: boolean 
             : "Click to let this hub pay on arrival"
       }
       disabled={busy || disabled}
-      onClick={(e) => {
-        e.stopPropagation();
-        void toggle();
-      }}
-      className={cn(
-        "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors disabled:opacity-50",
-        enabled ? "bg-emerald-600" : "border border-border bg-muted",
-      )}
-    >
-      <span
-        className={cn(
-          "pointer-events-none block size-3.5 rounded-full bg-white shadow transition-transform",
-          enabled ? "translate-x-[1.15rem]" : "translate-x-0.5",
-        )}
-      />
-    </button>
+      onClick={(e) => e.stopPropagation()}
+      onCheckedChange={() => void toggle()}
+    />
   );
 }
 

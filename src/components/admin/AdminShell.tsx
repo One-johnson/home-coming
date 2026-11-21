@@ -11,7 +11,11 @@ import {
   ChevronsUpDown,
   ExternalLink,
   FileSpreadsheet,
+  DoorOpen,
+  FileBarChart,
   GalleryHorizontalEnd,
+  HandCoins,
+  Layers,
   Hotel,
   Inbox,
   LayoutDashboard,
@@ -23,6 +27,7 @@ import {
   UserRound,
   Users,
   Video,
+  Wallet,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
@@ -86,7 +91,12 @@ const NAV_ICONS: Record<
   "/admin/accommodation": BedDouble,
   "/admin/directory": MapPin,
   "/admin/hubs-reps": Inbox,
-  "/admin/groups": CalendarDays,
+  "/admin/groups": Layers,
+  "/admin/desk-checkin": HandCoins,
+  "/admin/arrival": DoorOpen,
+  "/admin/reports": FileBarChart,
+  "/admin/finance/accommodations": Wallet,
+  "/admin/profile": UserRound,
   "/admin/hotels": Hotel,
   "/admin/tours": CalendarDays,
   "/admin/content": Newspaper,

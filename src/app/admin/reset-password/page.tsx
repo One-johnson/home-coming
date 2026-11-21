@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import type { Metadata } from "next";
 import { AuthShell } from "@/components/auth/AuthShell";
 import { AdminResetPassword } from "@/components/admin/AdminResetPassword";
-import { EVENT } from "@/lib/eventConfig";
+import { CONFERENCE_MONOGRAM, EVENT } from "@/lib/eventConfig";
 
 export const metadata: Metadata = {
   title: "Admin password reset",
@@ -15,7 +15,7 @@ export const metadata: Metadata = {
 
 export default function AdminResetPasswordPage() {
   return (
-    <AuthShell brand={EVENT.name} monogram="H" eyebrow="Admin console">
+    <AuthShell brand={EVENT.name} monogram={CONFERENCE_MONOGRAM} eyebrow="Admin console">
       <Suspense
         fallback={
           <p className="text-center text-sm text-muted-foreground">Loading…</p>

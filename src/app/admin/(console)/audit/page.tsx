@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
-import { Trash2 } from "lucide-react";
+import { Archive, ClipboardPen, ScrollText, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
@@ -12,12 +12,14 @@ import { DataTable } from "@/components/ui/data-table";
 import { ConfirmDeleteDialog } from "@/components/admin/ConfirmDeleteDialog";
 import { DelegateCorrectionsPanel } from "@/components/admin/DelegateCorrectionsPanel";
 import { StorageMaintenancePanel } from "@/components/admin/StorageMaintenancePanel";
+import { TrashPanel } from "@/components/admin/agc/TrashPanel";
 import { auditLogColumns } from "@/components/admin/columns";
 import {
   useAdminSession,
   useSessionArgs,
 } from "@/components/admin/AdminSessionProvider";
 import { canAccessArea } from "@/lib/adminRoles";
+import { SectionTabs } from "@/components/admin/kit/SectionTabs";
 
 type DeleteTarget = {
   ids: Id<"auditLogs">[];
@@ -35,6 +37,10 @@ export default function AdminAuditPage() {
   const bulkRemove = useMutation(api.admin.bulkRemoveAuditLogs);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [section, setSection] = useState<"log" | "corrections" | "housekeeping">(
+    "log",
+  );
+  const isAdmin = user?.role === "admin";
 
   if (!allowed) {
     return (
@@ -66,10 +72,36 @@ export default function AdminAuditPage() {
 
   return (
     <div className="w-full min-w-0 space-y-4">
-      {/* What the accommodation team changed on a locked reservation, with the
-          reasons — the audit log below still holds every event. */}
-      <DelegateCorrectionsPanel />
+      <SectionTabs
+        label="Audit sections"
+        value={section}
+        onChange={setSection}
+        items={[
+          {
+            id: "log",
+            label: "Activity log",
+            icon: ScrollText,
+            count: logs?.length,
+          },
+          { id: "corrections", label: "Delegate corrections", icon: ClipboardPen },
+          ...(isAdmin
+            ? [{ id: "housekeeping" as const, label: "Housekeeping", icon: Archive }]
+            : []),
+        ]}
+      />
 
+      {/* What the accommodation team changed on a locked reservation, with the
+          reasons — the activity log still holds every event. */}
+      {section === "corrections" && <DelegateCorrectionsPanel />}
+
+      {section === "housekeeping" && isAdmin && (
+        <div className="grid gap-4 xl:grid-cols-2">
+          <TrashPanel />
+          <StorageMaintenancePanel />
+        </div>
+      )}
+
+      {section === "log" && (
       <DataTable
         columns={auditLogColumns}
         data={logs ?? []}
@@ -102,9 +134,7 @@ export default function AdminAuditPage() {
           </Button>
         )}
       />
-
-      {/* Admin-only housekeeping for uploads that no record claimed. */}
-      <StorageMaintenancePanel />
+      )}
 
       <ConfirmDeleteDialog
         open={deleteTarget !== null}

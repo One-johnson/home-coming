@@ -9,7 +9,6 @@ import { LinkButton as Button } from "@/components/ui/app-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import { useAdminSession } from "@/components/admin/AdminSessionProvider";
 import { ROLE_LABELS } from "@/lib/adminRoles";
 import { cleanErrorMessage } from "@/lib/friendlyError";
@@ -77,11 +76,26 @@ export default function AdminProfilePage() {
   };
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
+    <div className="mx-auto max-w-5xl space-y-6">
+      <section className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[var(--choc-900)] via-[var(--choc-800)] to-[var(--choc-600)] px-6 py-5 text-[#fff8ec] shadow-elevate">
+        <div aria-hidden className="admin-sheen pointer-events-none absolute inset-0" />
+        <div className="relative flex items-center gap-4">
+          <span className="flex size-14 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-gold-light to-gold text-lg font-semibold text-[#2b1b12]">
+            {(user.name.trim()[0] ?? user.email[0] ?? "A").toUpperCase()}
+          </span>
+          <div className="min-w-0">
+            <h2 className="truncate text-xl">{user.name}</h2>
+            <p className="truncate text-sm text-[#e9dccb]">{user.email}</p>
+          </div>
+          <span className="ml-auto rounded-full border border-gold-light/40 bg-gold-light/15 px-3 py-1 text-xs font-medium text-gold-light">
+            {ROLE_LABELS[user.role]}
+          </span>
+        </div>
+      </section>
+      <div className="grid gap-6 lg:grid-cols-2">
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-4">
           <CardTitle>Account</CardTitle>
-          <Badge variant="outline">{ROLE_LABELS[user.role]}</Badge>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSaveProfile} className="space-y-4">
@@ -112,7 +126,7 @@ export default function AdminProfilePage() {
               </p>
             </div>
             <Button type="submit" disabled={savingProfile}>
-              {savingProfile ? "Saving..." : "Save profile"}
+              {savingProfile ? "Saving…" : "Save profile"}
             </Button>
           </form>
         </CardContent>
@@ -183,22 +197,26 @@ export default function AdminProfilePage() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="confirm-password">Confirm new password</Label>
-              <Input
-                id="confirm-password"
-                type="password"
-                required
-                minLength={8}
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                className="h-11"
-              />
+              <div className="relative">
+                <Lock className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-stone" />
+                <Input
+                  id="confirm-password"
+                  type={showNew ? "text" : "password"}
+                  required
+                  minLength={8}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="h-11 pl-10"
+                />
+              </div>
             </div>
             <Button type="submit" disabled={savingPassword}>
-              {savingPassword ? "Updating..." : "Update password"}
+              {savingPassword ? "Updating…" : "Update password"}
             </Button>
           </form>
         </CardContent>
       </Card>
+      </div>
     </div>
   );
 }

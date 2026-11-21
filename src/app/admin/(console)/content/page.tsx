@@ -61,6 +61,11 @@ export default function AdminContentPage() {
   const canSeed = canAccessArea(user?.role, "seed");
   const [seeding, setSeeding] = useState(false);
   const [section, setSection] = useState<"faqs" | "announcements">("faqs");
+  const [announcementDelete, setAnnouncementDelete] = useState<{
+    id: Id<"announcements">;
+    title: string;
+  } | null>(null);
+  const [deletingAnnouncement, setDeletingAnnouncement] = useState(false);
 
   const [faqForm, setFaqForm] = useState({
     category: "Registration",
@@ -519,20 +524,9 @@ export default function AdminContentPage() {
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           variant="destructive"
-                          onClick={async () => {
-                            if (!sessionToken) return;
-                            try {
-                              await deleteAnnouncement({
-                                sessionToken,
-                                id: a._id,
-                              });
-                              toast.success("Announcement deleted");
-                            } catch (err) {
-                              toast.error(
-                                cleanErrorMessage(err) || "Delete failed",
-                              );
-                            }
-                          }}
+                          onClick={() =>
+                            setAnnouncementDelete({ id: a._id, title: a.title })
+                          }
                         >
                           <Trash2 />
                           Delete
@@ -547,6 +541,30 @@ export default function AdminContentPage() {
         </Card>
         )}
       </div>
+
+      <ConfirmDeleteDialog
+        open={announcementDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setAnnouncementDelete(null);
+        }}
+        title="Delete announcement?"
+        description={`“${announcementDelete?.title ?? "This announcement"}” will be permanently removed.`}
+        confirmLabel="Delete announcement"
+        loading={deletingAnnouncement}
+        onConfirm={async () => {
+          if (!sessionToken || !announcementDelete) return;
+          setDeletingAnnouncement(true);
+          try {
+            await deleteAnnouncement({ sessionToken, id: announcementDelete.id });
+            toast.success("Announcement deleted");
+            setAnnouncementDelete(null);
+          } catch (err) {
+            toast.error(cleanErrorMessage(err) || "Delete failed");
+          } finally {
+            setDeletingAnnouncement(false);
+          }
+        }}
+      />
 
       <ConfirmDeleteDialog
         open={faqDeleteTarget !== null}

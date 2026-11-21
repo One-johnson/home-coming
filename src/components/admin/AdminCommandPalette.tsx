@@ -67,7 +67,7 @@ function CommandBody({
                 value={page.label}
                 onSelect={() => go(page.href)}
                 className={cn(
-                  "flex min-h-11 cursor-pointer items-center rounded-md px-2 py-2.5 text-sm aria-selected:bg-muted",
+                  "flex min-h-11 cursor-pointer items-center rounded-md px-2 py-2.5 text-sm aria-selected:bg-gold/15",
                 )}
               >
                 {page.label}
@@ -86,7 +86,7 @@ function CommandBody({
                 key={r._id}
                 value={r.label}
                 onSelect={() => go(`/admin/registrations?id=${r._id}`)}
-                className="flex min-h-11 cursor-pointer flex-col rounded-md px-2 py-2.5 text-sm aria-selected:bg-muted"
+                className="flex min-h-11 cursor-pointer flex-col rounded-md px-2 py-2.5 text-sm aria-selected:bg-gold/15"
               >
                 <span>{r.label}</span>
                 <span className="text-xs text-muted-foreground">{r.sub}</span>
@@ -105,7 +105,7 @@ function CommandBody({
                 key={b._id}
                 value={b.label}
                 onSelect={() => go(`/admin/accommodation?id=${b._id}`)}
-                className="flex min-h-11 cursor-pointer flex-col rounded-md px-2 py-2.5 text-sm aria-selected:bg-muted"
+                className="flex min-h-11 cursor-pointer flex-col rounded-md px-2 py-2.5 text-sm aria-selected:bg-gold/15"
               >
                 <span>{b.label}</span>
                 <span className="text-xs text-muted-foreground">{b.sub}</span>

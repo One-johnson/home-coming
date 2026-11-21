@@ -86,7 +86,7 @@ export const backfillRetiredGuests = internalMutation({
  * `reserveUnits`, so nothing needs to poll more often than this.
  *
  * Storage cleanup, receipt retention and the rep / trash purges are admin
- * buttons (Settings → Housekeeping, Review tools → Trash), not crons: an idle
+ * buttons (Audit log → Housekeeping), not crons: an idle
  * deployment should not spend reads re-scanning tables nobody is changing.
  */
 export const nightlyPoolRepairTick = internalMutation({

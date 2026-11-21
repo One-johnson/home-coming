@@ -34,6 +34,8 @@ test("finance sidebar filter yields overview, registrations, accommodations and 
   expect(visible.map((item) => item.href)).toEqual([
     "/admin",
     "/admin/registrations",
+    // Payment-on-arrival cash collection at the door.
+    "/admin/desk-checkin",
     "/admin/finance/accommodations",
     // Phase 2 §24 operational exports are open to finance as well.
     "/admin/reports",

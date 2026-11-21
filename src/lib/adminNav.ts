@@ -58,6 +58,12 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         visibleTo: ["admin", "accommodation", "room_assignment", "checkin"],
       },
       {
+        href: "/admin/desk-checkin",
+        label: "Desk check-in",
+        description: "Collect payment-on-arrival cash at the door",
+        visibleTo: ["admin", "finance"],
+      },
+      {
         href: "/admin/finance/accommodations",
         label: "Accommodations",
         description: "Finance view of bookings and payments",
@@ -74,6 +80,13 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         href: "/admin/hubs-reps",
         label: "Hubs & reps",
         description: "Per-hub roster, activity, and drill-down",
+        area: "registration",
+        hiddenFrom: ["finance"],
+      },
+      {
+        href: "/admin/groups",
+        label: "Groups",
+        description: "Registration groups, pricing and denomination lists",
         area: "registration",
         hiddenFrom: ["finance"],
       },

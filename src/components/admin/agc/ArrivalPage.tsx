@@ -10,6 +10,7 @@ import {
   CircleCheck,
   CircleSlash,
   Flag,
+  History as HistoryIcon,
   KeyRound,
   Loader2Icon,
   LogOut,
@@ -31,6 +32,7 @@ import {
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
+import { SectionTabs } from "@/components/admin/kit/SectionTabs";
 import { useAdminSession } from "@/components/admin/AdminSessionProvider";
 import {
   GuestCorrectionDialog,
@@ -790,6 +792,7 @@ export function ArrivalPage() {
 
   // --- Group check-in (§13) ---
   const [groupHub, setGroupHub] = useState<string>("");
+  const [deskTool, setDeskTool] = useState<DeskTool>("overview");
   const [groupTicked, setGroupTicked] = useState<string[]>([]);
   const [groupBusy, setGroupBusy] = useState(false);
 
@@ -2319,25 +2322,46 @@ export function ArrivalPage() {
       {/* Keyboard advice is noise on a touch screen — it sits exactly where a
           phone user is trying to reach the list. */}
       <p className="hidden text-xs text-muted-foreground sm:block">
-        Press <kbd className="rounded border px-1">/</kbd> to jump to search.
-        Enter checks in a single ready match. Row colour follows the desk
-        legend: green ready, amber blocked, sky already in, slate waiting.
+        Press <kbd className="rounded border px-1">/</kbd> to jump to search ·
+        Enter checks in a single ready match.
       </p>
 
-      <details className="group rounded-xl border bg-card">
-        <summary className="flex cursor-pointer list-none flex-wrap items-center gap-2 px-4 py-3 text-sm font-medium">
-          <BedDouble className="size-4 text-muted-foreground" />
-          Desk overview &amp; tools
-          <span className="text-xs font-normal text-muted-foreground">
-            occupancy, group check-in, keys, room faults, offline station and
-            sync exceptions
-          </span>
+      {/* Desk tools: one tab each instead of a collapsed drawer. */}
+      <section className="rounded-xl border bg-card shadow-soft">
+        <div className="flex flex-wrap items-center gap-2 border-b px-3 pt-3 pb-2">
+          <SectionTabs
+            label="Desk tools"
+            value={deskTool}
+            onChange={setDeskTool}
+            className="pb-0"
+            items={[
+              { id: "overview", label: "Overview", icon: BedDouble },
+              { id: "group", label: "Group check-in", icon: ListChecks },
+              {
+                id: "keys",
+                label: "Keys & offline",
+                icon: KeyRound,
+                count: keys?.length ?? 0,
+              },
+              {
+                id: "faults",
+                label: "Faults & reserved",
+                icon: Wrench,
+                count: deskIssues.length,
+              },
+              { id: "recent", label: "Recent", icon: HistoryIcon },
+              ...(isApprover
+                ? [{ id: "conflicts" as const, label: "Sync conflicts", icon: WifiOff }]
+                : []),
+            ]}
+          />
           <span className="grow" />
           <StatusLegend tones={["done", "blocked", "info", "waiting"]} />
-        </summary>
-        <div className="space-y-3 border-t p-3">
-          <ArrivalStats data={overview} />
-          <div className="grid gap-3 lg:grid-cols-2">
+        </div>
+        <div className="admin-rise p-3" key={deskTool}>
+          {deskTool === "overview" ? (
+            <ArrivalStats data={overview} />
+          ) : deskTool === "group" ? (
             <GroupCheckInPanel
               hubOptions={hubOptions}
               selectedHub={groupHub}
@@ -2353,7 +2377,8 @@ export function ArrivalPage() {
               busy={groupBusy}
               onSubmit={() => void doGroupCheckIn()}
             />
-            <div className="space-y-3">
+          ) : deskTool === "keys" ? (
+            <div className="grid gap-3 lg:grid-cols-2">
               <OfflinePanel
                 sessionToken={sessionToken}
                 location={deskLocation}
@@ -2367,9 +2392,8 @@ export function ArrivalPage() {
               />
               <KeysPanel keys={keys ?? []} sessionToken={sessionToken} />
             </div>
-          </div>
-          <div className="grid gap-3 lg:grid-cols-2">
-            <div className="space-y-3">
+          ) : deskTool === "faults" ? (
+            <div className="grid gap-3 lg:grid-cols-2">
               <FaultsPanel
                 issues={deskIssues}
                 rooms={deskRooms}
@@ -2378,11 +2402,13 @@ export function ArrivalPage() {
               />
               <ReservedPanel rooms={deskRooms} />
             </div>
+          ) : deskTool === "recent" ? (
             <RecentCheckIns data={recent ?? []} />
-          </div>
-          {isApprover && <ConflictsPanel sessionToken={sessionToken} />}
+          ) : isApprover ? (
+            <ConflictsPanel sessionToken={sessionToken} />
+          ) : null}
         </div>
-      </details>
+      </section>
 
       {/* Check-in dialog */}
       <Dialog
@@ -2492,7 +2518,7 @@ export function ArrivalPage() {
             </div>
             {paymentOutstanding && !preAuthorizedOverride && !isApprover && (
               <p className="text-xs text-muted-foreground">
-                Ordinary check-in staff cannot authorize overrides (§18). Ask the
+                Ordinary check-in staff cannot authorize overrides. Ask the
                 Accommodation Admin to authorize one from the review queue.
               </p>
             )}
@@ -2506,7 +2532,7 @@ export function ArrivalPage() {
           <DialogHeader>
             <DialogTitle>Check out — {checkoutTarget?.name}</DialogTitle>
             <DialogDescription>
-              Check-out never releases paid inventory (§20).
+              Check-out never releases paid inventory.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
@@ -2540,7 +2566,7 @@ export function ArrivalPage() {
             <DialogTitle>Correct check-in — {correctTarget?.name}</DialogTitle>
             <DialogDescription>
               The erroneous record is kept and marked corrected; all changes are
-              audit-logged (§16).
+              audit-logged.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
@@ -2657,7 +2683,7 @@ export function ArrivalPage() {
             <DialogTitle>Move — {roomChangeTarget?.name}</DialogTitle>
             <DialogDescription>
               Destination capacity and gender rules are validated; a reason is
-              required and history is preserved (§9).
+              required and history is preserved.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
@@ -2981,6 +3007,8 @@ const STAT_STRIP_CLASS =
  * and the rooms that must not be handed out. The drawer below keeps the action
  * tiles (overrides, review flags, sync exceptions) for the detailed read.
  */
+type DeskTool = "overview" | "group" | "keys" | "faults" | "recent" | "conflicts";
+
 function DeskStatStrip({
   data,
   reservedRooms,
@@ -3193,15 +3221,13 @@ function ArrivalStats({ data }: { data: Overview | undefined }) {
   const progress = [
     { label: "Roomable", value: data.totalRoomable, tone: "neutral" as const },
     { label: "Assigned", value: data.assigned, tone: "info" as const },
-    { label: "Checked in", value: data.checkedIn, tone: "done" as const },
-    { label: "Not arrived", value: data.notArrived, tone: "waiting" as const },
-    { label: "Checked out", value: data.checkedOut, tone: "waiting" as const },
-    { label: "Keys out", value: data.keysIssued, tone: "info" as const },
+    // Checked in / not arrived / checked out / keys are in the desk strip at
+    // the top of the page — not repeated here.
   ];
 
   return (
     <div className="space-y-3">
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         {actions.map((action) => (
           <StatTile
             key={action.label}
@@ -3212,40 +3238,13 @@ function ArrivalStats({ data }: { data: Overview | undefined }) {
             icon={action.icon}
           />
         ))}
-      </div>
-
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
         {progress.map((stat) => (
-          <div key={stat.label} className="rounded-lg border bg-card px-2.5 py-2">
-            <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-              <span
-                aria-hidden
-                className={cn(
-                  "inline-block size-1.5 rounded-full",
-                  stat.tone === "done"
-                    ? "bg-emerald-500"
-                    : stat.tone === "info"
-                      ? "bg-sky-500"
-                      : stat.tone === "waiting"
-                        ? "bg-slate-400"
-                        : "bg-muted-foreground/40",
-                )}
-              />
-              {stat.label}
-            </p>
-            <p
-              className={cn(
-                "text-lg font-semibold tabular-nums",
-                stat.tone === "done"
-                  ? TONE_TEXT.done
-                  : stat.tone === "info"
-                    ? TONE_TEXT.info
-                    : "text-foreground",
-              )}
-            >
-              {stat.value}
-            </p>
-          </div>
+          <StatTile
+            key={stat.label}
+            label={stat.label}
+            value={stat.value}
+            tone={stat.tone}
+          />
         ))}
       </div>
 
@@ -3253,7 +3252,7 @@ function ArrivalStats({ data }: { data: Overview | undefined }) {
         <CardContent className="p-3">
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs font-medium text-muted-foreground">
-              Occupancy by location (§21)
+              Occupancy by location
             </p>
             <p className="text-[11px] text-muted-foreground">
               Green has room · amber is filling · rose is full
@@ -3336,7 +3335,7 @@ function GroupCheckInPanel({
     <Card>
       <CardContent className="p-3">
         <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-          <ListChecks className="size-3.5" /> Group check-in (§13)
+          <ListChecks className="size-3.5" /> Group check-in
         </p>
         <div className="mb-2 flex flex-wrap items-center gap-2">
           <Select
@@ -3519,7 +3518,7 @@ function KeysPanel({
         </p>
         {open.length === 0 ? (
           <p className="text-xs text-muted-foreground">
-            No keys currently issued. Lodges and EBPV apartments track keys; wristbands are not tracked (§14).
+            No keys currently issued. Lodges and EBPV apartments track keys; wristbands are not tracked.
           </p>
         ) : (
           <ul className="space-y-1.5">
@@ -3960,7 +3959,7 @@ function OfflinePanel({
     <Card>
       <CardContent className="p-3">
         <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-          <WifiOff className="size-3.5" /> Offline station (§19)
+          <WifiOff className="size-3.5" /> Offline station
         </p>
         {!isBuilding ? (
           <p className="text-xs text-muted-foreground">

@@ -1420,7 +1420,7 @@ export function RoomsTab() {
               </div>
               {isApartment && (
                 <p className="mt-1 text-[11px] text-muted-foreground">
-                  Apartment — occupants choose their rooms; keys go to the first arrival (§7).
+                  Apartment — occupants choose their rooms; keys go to the first arrival.
                 </p>
               )}
               <div className="mt-1.5 flex items-center gap-1.5">
@@ -1666,7 +1666,7 @@ export function RoomsTab() {
             <DialogDescription>
               Rooms belong to an accommodation type and hold a fixed number of
               beds. A gender lock keeps shared rooms single-sex. EBPV apartments
-              hold at most 4 delegates (§7).
+              hold at most 4 delegates.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
@@ -2134,7 +2134,7 @@ export function RoomsTab() {
             <DialogDescription>
               This removes rooms from the inventory and from what hub reps can
               see. Rooms that still hold delegates are never deleted — move
-              those guests first. Assignment history is kept (§9).
+              those guests first. Assignment history is kept.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
@@ -2362,7 +2362,7 @@ export function RoomsTab() {
       <Dialog open={importOpen} onOpenChange={setImportOpen}>
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Import physical room inventory (§3)</DialogTitle>
+            <DialogTitle>Import physical room inventory</DialogTitle>
             <DialogDescription>
               Upload the inventory workbook as the accommodation team keeps it:
               one sheet per accommodation type, a title row, then the room number
@@ -2667,7 +2667,7 @@ export function RoomsTab() {
           <DialogHeader>
             <DialogTitle>History — {historyRoom?.name}</DialogTitle>
             <DialogDescription>
-              Every assignment, move and removal is preserved (§9).
+              Every assignment, move and removal is preserved.
             </DialogDescription>
           </DialogHeader>
           <div className="max-h-80 overflow-y-auto">

@@ -426,15 +426,19 @@ export const ADMIN_GUIDES: AdminGuide[] = [
   {
     href: "/admin/groups",
     title: "Groups",
-    intro: "Arrival groups used by group check-in at the desk.",
+    intro: "Registration groups, ticket pricing and the denomination / country / hub lists the forms offer.",
     steps: [
       {
         kind: "do",
-        text: "Open a group to see the delegates it contains, then use the Arrival desk's Group check-in to tick only the delegates who physically arrived.",
+        text: "Add or edit a group to set its ticket price and the denomination, country and hub options the registration forms show.",
+      },
+      {
+        kind: "do",
+        text: "On a fresh database, Load defaults fills the standard groups; Replace with defaults resets them.",
       },
       {
         kind: "never",
-        text: "A group is a convenience for the desk, not a check-in: nothing in a group is checked in automatically.",
+        text: "Replace with defaults overwrites your edits — export or note custom groups first.",
       },
     ],
   },

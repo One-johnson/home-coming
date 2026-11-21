@@ -489,10 +489,9 @@ export function GalleryManager() {
                 disabled={!selectedGalleryId || saving}
                 onChange={(e) => handleUpload(e.target.files)}
               />
-              <p className="text-sm text-muted-foreground">
-                Rows point at repo-hosted files in public/gallery — zero storage
-                cost. Save the optimized files locally with the exact listed
-                names, commit them, and run gallery:sync to publish.
+              <p className="text-xs text-muted-foreground">
+                Photos are served from the site itself — see “How to publish”
+                below.
               </p>
             </div>
 
@@ -515,17 +514,23 @@ export function GalleryManager() {
                   </span>
                 )}
               </div>
-              <p className="text-sm text-muted-foreground">
-                Captions and album edits go live when the gallery manifest is
-                regenerated and committed. From the project root:
-              </p>
-              <code className="block rounded bg-muted px-2 py-1 text-xs">
-                npm run gallery:sync && git commit src/data/galleryManifest.json
-              </code>
-              <p className="text-sm text-muted-foreground">
-                The public site reads only the committed manifest, so an edit is
-                not live until that commit deploys.
-              </p>
+              <details className="text-xs text-muted-foreground">
+                <summary className="cursor-pointer select-none font-medium text-foreground">
+                  How to publish
+                </summary>
+                <div className="mt-2 space-y-2">
+                  <p>
+                    Save the optimized files in public/gallery with the exact
+                    listed names. Captions and album edits go live when the
+                    gallery manifest is regenerated and committed, from the
+                    project root:
+                  </p>
+                  <code className="block rounded bg-muted px-2 py-1">
+                    npm run gallery:sync && git commit src/data/galleryManifest.json
+                  </code>
+                  <p>The public site reads only the committed manifest.</p>
+                </div>
+              </details>
             </div>
           </CardContent>
         </Card>

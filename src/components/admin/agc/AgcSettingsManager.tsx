@@ -38,6 +38,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
   computeBookingSummary,
@@ -200,7 +201,7 @@ function DirtyDot({ className }: { className?: string }) {
     <span
       title="Unsaved changes"
       aria-label="Unsaved changes"
-      className={cn("inline-block size-2 shrink-0 rounded-full bg-amber-500", className)}
+      className={cn("inline-block size-2 shrink-0 rounded-full bg-gold-light ring-2 ring-gold/30", className)}
     />
   );
 }
@@ -842,27 +843,11 @@ function AgcSettingsForm({
                 Lockdown active
               </Badge>
             )}
-            <span className="self-center text-xs text-muted-foreground">
-              {savedAt
-                ? `Saved ${new Date(savedAt).toLocaleTimeString()}`
-                : "No changes saved this session."}
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              nativeButton={false}
-              render={<Link href="/admin/accommodation" />}
-            >
-              Accommodation console
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              nativeButton={false}
-              render={<Link href="/admin/registrations" />}
-            >
-              Registrations
-            </Button>
+            {savedAt ? (
+              <span className="self-center text-xs text-muted-foreground">
+                Saved {new Date(savedAt).toLocaleTimeString()}
+              </span>
+            ) : null}
           </>
         }
       />
@@ -871,7 +856,7 @@ function AgcSettingsForm({
           dots can only appear for the section on screen. */}
       <nav
         aria-label="Settings sections"
-        className="flex gap-1 overflow-x-auto rounded-xl border bg-card p-1"
+        className="flex gap-1 overflow-x-auto rounded-full border bg-card p-1 shadow-soft"
       >
         {SECTIONS.map((s) => (
           <Link
@@ -879,9 +864,9 @@ function AgcSettingsForm({
             href={s.href}
             aria-current={section === s.id ? "page" : undefined}
             className={cn(
-              "flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm transition-colors",
+              "flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm transition-all duration-200",
               section === s.id
-                ? "bg-accent font-medium text-accent-foreground"
+                ? "bg-primary font-medium text-primary-foreground shadow-sm"
                 : "text-muted-foreground hover:bg-muted hover:text-foreground",
             )}
           >
@@ -1324,27 +1309,12 @@ function AgcSettingsForm({
                           {hub.repUsername ? ` · rep: ${hub.repUsername}` : ""}
                         </p>
                       </div>
-                      <button
-                        type="button"
-                        role="switch"
-                        aria-checked={hub.poaEnabled}
+                      <Switch
+                        checked={hub.poaEnabled}
                         aria-label={`Payment on arrival for ${hub.name}`}
                         disabled={poaBusyHub === hub._id}
-                        onClick={() => void toggleHubPoa(hub)}
-                        className={cn(
-                          "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50",
-                          hub.poaEnabled
-                            ? "bg-emerald-600"
-                            : "border border-border bg-muted",
-                        )}
-                      >
-                        <span
-                          className={cn(
-                            "pointer-events-none block size-4 rounded-full bg-white shadow transition-transform",
-                            hub.poaEnabled ? "translate-x-6" : "translate-x-1",
-                          )}
-                        />
-                      </button>
+                        onCheckedChange={() => void toggleHubPoa(hub)}
+                      />
                     </div>
                   ))
               )}
@@ -1397,27 +1367,13 @@ function AgcSettingsForm({
             {systemStatus === undefined ? (
               <Skeleton className="h-6 w-11 rounded-full" />
             ) : (
-              <button
-                type="button"
-                role="switch"
-                aria-checked={systemStatus.locked}
+              <Switch
+                checked={systemStatus.locked}
                 aria-label="Registration lockdown"
                 disabled={lockdownBusy}
-                onClick={handleLockdownSwitch}
-                className={cn(
-                  "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50",
-                  systemStatus.locked
-                    ? "bg-destructive"
-                    : "border border-border bg-muted",
-                )}
-              >
-                <span
-                  className={cn(
-                    "pointer-events-none block size-4 rounded-full bg-white shadow transition-transform",
-                    systemStatus.locked ? "translate-x-6" : "translate-x-1",
-                  )}
-                />
-              </button>
+                onCheckedChange={() => handleLockdownSwitch()}
+                className="data-checked:bg-destructive"
+              />
             )}
           </div>
 
@@ -1439,27 +1395,12 @@ function AgcSettingsForm({
             {systemStatus === undefined ? (
               <Skeleton className="h-6 w-11 rounded-full" />
             ) : (
-              <button
-                type="button"
-                role="switch"
-                aria-checked={systemStatus.autoAssignEnabled}
+              <Switch
+                checked={systemStatus.autoAssignEnabled}
                 aria-label="Auto-assign rooms"
                 disabled={autoAssignBusy}
-                onClick={() => void toggleAutoAssign()}
-                className={cn(
-                  "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50",
-                  systemStatus.autoAssignEnabled
-                    ? "bg-emerald-600"
-                    : "border border-border bg-muted",
-                )}
-              >
-                <span
-                  className={cn(
-                    "pointer-events-none block size-4 rounded-full bg-white shadow transition-transform",
-                    systemStatus.autoAssignEnabled ? "translate-x-6" : "translate-x-1",
-                  )}
-                />
-              </button>
+                onCheckedChange={() => void toggleAutoAssign()}
+              />
             )}
           </div>
 

@@ -14,5 +14,7 @@ export default function AdminRootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  return children;
+  // Every /admin route — console, sign-in, reset, register — uses the
+  // chocolate-and-gold workspace theme (globals.css `.admin-theme`).
+  return <div className="admin-theme contents">{children}</div>;
 }
