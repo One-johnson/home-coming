@@ -127,7 +127,7 @@ function PortalSidebar({
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" tooltip={CONFERENCE_NAME}>
-              <div className="flex h-8 min-w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 px-1.5 text-[11px] font-bold tracking-wide text-primary">
+              <div className="flex h-8 min-w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-gold-light to-gold px-1.5 text-[11px] font-bold tracking-wide text-[#2b1b12]">
                 {CONFERENCE_MONOGRAM}
               </div>
               <div className="grid flex-1 text-left text-sm leading-tight">
@@ -150,6 +150,11 @@ function PortalSidebar({
                     isActive={tab === item.id}
                     tooltip={item.label}
                     onClick={() => onSelect(item.id)}
+                    className={cn(
+                      "h-9 text-sidebar-foreground/75 transition-colors",
+                      tab === item.id &&
+                        "font-medium text-sidebar-accent-foreground shadow-[inset_2px_0_0_0_var(--gold-light)] [&_svg]:text-gold-light",
+                    )}
                   >
                     <item.icon />
                     <span>{item.label}</span>
@@ -390,7 +395,7 @@ function PortalFrame({
       />
       <SidebarInset className="min-w-0 overflow-x-hidden bg-background">
         <header
-          className="fixed top-0 right-0 z-30 border-b bg-background/85 backdrop-blur-md transition-[left] duration-200 ease-linear"
+          className="fixed top-0 right-0 z-30 border-b bg-background/85 shadow-[0_1px_0_0_color-mix(in_srgb,var(--gold)_25%,transparent)] backdrop-blur-md transition-[left] duration-200 ease-linear"
           style={{ left: headerLeft }}
         >
           <div className="flex h-14 w-full min-w-0 items-center gap-2 px-4 sm:px-6">
@@ -413,7 +418,7 @@ function PortalFrame({
           </div>
         </header>
         <div className="min-w-0 flex-1 overflow-x-hidden px-4 pt-[4.75rem] pb-6 sm:px-6 lg:px-8 lg:pb-10">
-          <div className="mx-auto w-full max-w-[1440px]">{children}</div>
+          <div key={tab} className="admin-rise mx-auto w-full max-w-[1440px]">{children}</div>
         </div>
       </SidebarInset>
     </>

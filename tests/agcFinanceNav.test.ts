@@ -34,8 +34,6 @@ test("finance sidebar filter yields overview, registrations, accommodations and 
   expect(visible.map((item) => item.href)).toEqual([
     "/admin",
     "/admin/registrations",
-    // The searchable runbook helps staff on arrival day.
-    "/admin/help",
     "/admin/finance/accommodations",
     // Phase 2 §24 operational exports are open to finance as well.
     "/admin/reports",

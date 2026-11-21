@@ -22,7 +22,6 @@ import {
 import { toast } from "sonner";
 import { ColumnDef } from "@tanstack/react-table";
 import { api } from "@convex/_generated/api";
-import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import {
   useAdminSession,
   useSessionArgs,
@@ -86,7 +85,7 @@ type HubCollections = {
 };
 
 type AgcOverview = {
-  /** True when signed in as finance — the client then hides non-finance widgets. */
+  /** True when signed in as finance â€” the client then hides non-finance widgets. */
   financeView: boolean;
   registrations: {
     total: number;
@@ -94,7 +93,7 @@ type AgcOverview = {
     confirmed: number;
     pending: number;
     rejected: number;
-    /** Confirmed revenue per currency — cedis and dollars are never summed. */
+    /** Confirmed revenue per currency â€” cedis and dollars are never summed. */
     revenueByCurrency: Record<string, number>;
     /** Money awaiting finance review, per currency. */
     awaitingByCurrency: Record<string, number>;
@@ -111,7 +110,7 @@ type AgcOverview = {
     activeGuests: number;
     confirmed: number;
     pending: number;
-    /** Confirmed revenue per currency — cedis and dollars are never summed. */
+    /** Confirmed revenue per currency â€” cedis and dollars are never summed. */
     revenueByCurrency: Record<string, number>;
     /** Money awaiting finance review, per currency. */
     awaitingByCurrency: Record<string, number>;
@@ -125,14 +124,14 @@ type AgcOverview = {
     outstandingBookings: number;
     outstandingCount: number;
     outstandingByCurrency: Record<string, number>;
-    /** Per-currency outstanding split by surface — regs vs accommodation each stay inside one currency. */
+    /** Per-currency outstanding split by surface â€” regs vs accommodation each stay inside one currency. */
     outstandingSurfacesByCurrency: Record<
       string,
       { registrations: number; bookings: number }
     >;
     outstandingLabel: string;
   };
-  /** Confirmed revenue per day (per surface, per currency) — last 7 days. */
+  /** Confirmed revenue per day (per surface, per currency) â€” last 7 days. */
   revenueTrend: {
     label: string;
     date: string;
@@ -240,112 +239,6 @@ function AttentionIcon({ tone }: { tone: "warn" | "danger" | "info" }) {
   );
 }
 
-/**
- * One tile per currency when both cedis and dollars are in play, so a finance
- * admin can read each ledger side without cross-currency arithmetic. Each row
- * stays within one currency.
- */
-function CurrencyMoneyTiles({
-  registrations,
-  bookings,
-  currencyFilter,
-}: {
-  registrations: {
-    revenueByCurrency: Record<string, number>;
-    awaitingByCurrency: Record<string, number>;
-  };
-  bookings: {
-    revenueByCurrency: Record<string, number>;
-    awaitingByCurrency: Record<string, number>;
-  };
-  currencyFilter: CurrencyFilter;
-}) {
-  const currencies = Array.from(
-    new Set([
-      ...Object.keys(registrations.revenueByCurrency),
-      ...Object.keys(registrations.awaitingByCurrency),
-      ...Object.keys(bookings.revenueByCurrency),
-      ...Object.keys(bookings.awaitingByCurrency),
-    ]),
-  ).sort(byCurrencyDesc);
-
-  if (currencies.length < 2) return null;
-
-  // Honor the shared currency focus — when a currency is selected, render
-  // only that ledger board (finance surface cards already show headline
-  // numbers filtered the same way).
-  const visibleCurrencies =
-    currencyFilter === "ALL"
-      ? currencies
-      : currencies.filter((currency) => currency === currencyFilter);
-
-  return (
-    <div className="grid gap-4 sm:grid-cols-2">
-      {visibleCurrencies.map((currency) => {
-        const rows = [
-          {
-            label: "Registrations · confirmed",
-            value: registrations.revenueByCurrency[currency] ?? 0,
-          },
-          {
-            label: "Registrations · awaiting review",
-            value: registrations.awaitingByCurrency[currency] ?? 0,
-          },
-          {
-            label: "Accommodation · confirmed",
-            value: bookings.revenueByCurrency[currency] ?? 0,
-          },
-          {
-            label: "Accommodation · awaiting review",
-            value: bookings.awaitingByCurrency[currency] ?? 0,
-          },
-        ];
-        const total = rows.reduce((sum, row) => sum + row.value, 0);
-        return (
-          <Card key={currency} className="overflow-hidden">
-            <div
-              className={cn(
-                "h-1 w-full",
-                currency === "GHS"
-                  ? "bg-amber-500"
-                  : "bg-emerald-600",
-              )}
-            />
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                {currency === "GHS"
-                  ? "Cedis (GHS)"
-                  : currency === "USD"
-                    ? "Dollars (USD)"
-                    : currency}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-1.5 text-sm">
-              {rows.map((row) => (
-                <p
-                  key={row.label}
-                  className="flex items-center justify-between gap-3"
-                >
-                  <span className="text-muted-foreground">{row.label}</span>
-                  <span className="font-medium tabular-nums text-ink">
-                    {formatMoneyByCurrency({ [currency]: row.value })}
-                  </span>
-                </p>
-              ))}
-              <p className="flex items-center justify-between gap-3 border-t border-border/70 pt-2">
-                <span className="font-medium">Total · confirmed + awaiting</span>
-                <span className="font-semibold tabular-nums text-ink">
-                  {formatMoneyByCurrency({ [currency]: total })}
-                </span>
-              </p>
-            </CardContent>
-          </Card>
-        );
-      })}
-    </div>
-  );
-}
-
 /** Human title for a currency ledger column. */
 function currencyTitle(currency: string): string {
   if (currency === "GHS") return "Cedis (GHS)";
@@ -356,13 +249,13 @@ function currencyTitle(currency: string): string {
 /**
  * One finance surface (registrations or accommodation) as a stat card:
  * volume headline and status chips on top, then every money line held per
- * currency — cedis and dollars are never summed into one number. The
+ * currency â€” cedis and dollars are never summed into one number. The
  * headline opens the surface's console; drill-down links open the review
  * queues pre-filtered (drill-downs can't nest inside the card link).
  */
 /**
  * Payment-on-arrival cash the venue desk must still collect at check-in.
- * Kept out of the registrations/accommodation "awaiting review" boards —
+ * Kept out of the registrations/accommodation "awaiting review" boards â€”
  * POA money is IOU cash on the day, not receipt-verification workload.
  */
 function PoaOutstandingCard({
@@ -409,7 +302,7 @@ function PoaOutstandingCard({
       >
         <CardHeader className="flex flex-row items-center justify-between pb-2">
           <CardTitle className="text-sm font-medium text-muted-foreground">
-            Payment on arrival · outstanding
+            Payment on arrival Â· outstanding
           </CardTitle>
           <span
             className={cn(
@@ -428,7 +321,7 @@ function PoaOutstandingCard({
             {poa.outstandingCount}
           </Link>
           <p className="-mt-2 text-xs text-muted-foreground">
-            IOU record{poa.outstandingCount === 1 ? "" : "s"} · cash to collect
+            IOU record{poa.outstandingCount === 1 ? "" : "s"} Â· cash to collect
             at check-in
           </p>
           <div className="flex flex-wrap gap-1.5">
@@ -464,7 +357,7 @@ function PoaOutstandingCard({
                     </p>
                     <p className="mt-0.5 text-[11px] text-muted-foreground tabular-nums">
                       Registrations {formatMoneyByCurrency({ [currency]: split.registrations })}
-                      {" · "}
+                      {" Â· "}
                       Accommodation {formatMoneyByCurrency({ [currency]: split.bookings })}
                     </p>
                   </div>
@@ -601,7 +494,7 @@ function FinanceSurfaceCard({
                 {formatMoneyByCurrency(confirmed)}
               </span>
             </p>
-            {formatMoneyByCurrency(awaiting) !== "—" && (
+            {formatMoneyByCurrency(awaiting) !== "â€”" && (
               <p className="text-muted-foreground">
                 Awaiting review:{" "}
                 <span className="font-medium tabular-nums text-amber-700">
@@ -610,7 +503,7 @@ function FinanceSurfaceCard({
               </p>
             )}
             <p className="text-muted-foreground">
-              Total · confirmed + awaiting:{" "}
+              Total Â· confirmed + awaiting:{" "}
               <span className="font-semibold tabular-nums text-ink">
                 {formatMoneyByCurrency(totalsByCurrency)}
               </span>
@@ -640,7 +533,7 @@ function FinanceSurfaceCard({
 }
 
 /**
- * All / GHS / USD focus control — one statement of which cedis-and-dollars
+ * All / GHS / USD focus control â€” one statement of which cedis-and-dollars
  * lens the finance stat cards read through.
  */
 function CurrencyFocusToggle({
@@ -687,7 +580,7 @@ function CurrencyFocusToggle({
 }
 
 /**
- * Awaiting-review ageing — how long money has sat unverified. Every bucket
+ * Awaiting-review ageing â€” how long money has sat unverified. Every bucket
  * keeps its money per currency; the 7+ day bucket is the escalator. Buckets
  * with money deep-link into the review queue pre-filtered to that age span.
  */
@@ -716,7 +609,7 @@ function AgeingTiles({
       <CardHeader className="pb-2">
         <CardTitle className="text-base">Awaiting review ageing</CardTitle>
         <CardDescription className="text-xs">
-          How long unverified money has been sitting — the 7+ day bucket needs
+          How long unverified money has been sitting â€” the 7+ day bucket needs
           chasing today.
         </CardDescription>
       </CardHeader>
@@ -758,7 +651,7 @@ function AgeingTiles({
                     )}
                   >
                     {bucket.count === 0
-                      ? "—"
+                      ? "â€”"
                       : formatMoneyByCurrency(bucket.moneyByCurrency)}
                   </span>
                 </>
@@ -788,7 +681,7 @@ function AgeingTiles({
 }
 
 /**
- * Per-hub money table — one row per hub across both surfaces, per currency.
+ * Per-hub money table â€” one row per hub across both surfaces, per currency.
  * USD splits into dedicated columns so cedis and dollar columns are never
  * forced to share a number; every column stays mono-currency. Exports as
  * one CSV row per hub and currency.
@@ -852,7 +745,7 @@ function HubMoneyTable({
         <CardTitle className="text-base">Money by hub</CardTitle>
         <CardDescription className="text-xs">
           Per-hub registrations and accommodation money. Every column stays in
-          one currency — showing {selectedCurrencyLabel}. Use the column picker
+          one currency â€” showing {selectedCurrencyLabel}. Use the column picker
           to focus a currency, and Export CSV for the full sheet.
         </CardDescription>
       </CardHeader>
@@ -861,7 +754,7 @@ function HubMoneyTable({
           <DataTable
             columns={columns}
             data={hubBreakdown}
-            searchPlaceholder="Search hub…"
+            searchPlaceholder="Search hubâ€¦"
             getRowId={(row) => row.hubId}
             exportFilename="finance-hub-money.csv"
             exportRow={(row) => ({
@@ -919,7 +812,7 @@ function HubMoneyTable({
 }
 
 /**
- * Finance totals block — stat cards for each money surface (registrations,
+ * Finance totals block â€” stat cards for each money surface (registrations,
  * accommodation) plus one board per currency (GHS, USD), where every number
  * stays inside a single currency so nothing is ever summed across cedis and
  * dollars.
@@ -959,30 +852,6 @@ function FinanceStatsCards({
   };
   currencyFilter: CurrencyFilter;
 }) {
-  const totalFor = (currency: string) =>
-    (registrations.revenueByCurrency[currency] ?? 0) +
-    (registrations.awaitingByCurrency[currency] ?? 0) +
-    (bookings.revenueByCurrency[currency] ?? 0) +
-    (bookings.awaitingByCurrency[currency] ?? 0);
-
-  // GHS and USD always get a board in the All view; unknown currencies join
-  // in stable order. A focused currency collapses the boards to that ledger.
-  const currencies = Array.from(
-    new Set([
-      "GHS",
-      "USD",
-      ...Object.keys(registrations.revenueByCurrency),
-      ...Object.keys(registrations.awaitingByCurrency),
-      ...Object.keys(bookings.revenueByCurrency),
-      ...Object.keys(bookings.awaitingByCurrency),
-    ]),
-  )
-    .sort(byCurrencyDesc)
-    .filter(
-      (currency) =>
-        currencyFilter === "ALL" || currency === currencyFilter,
-    );
-
   return (
     <div className="space-y-4">
       <div className="grid gap-4 lg:grid-cols-2">
@@ -992,7 +861,7 @@ function FinanceStatsCards({
           icon={<ClipboardList className="size-4" />}
           title="Registrations totals"
           headline={registrations.total}
-          headlineNote={`submission${registrations.total === 1 ? "" : "s"} · ${registrations.delegates} delegate${registrations.delegates === 1 ? "" : "s"}`}
+          headlineNote={`submission${registrations.total === 1 ? "" : "s"} Â· ${registrations.delegates} delegate${registrations.delegates === 1 ? "" : "s"}`}
           chips={
             <>
               <StatusChip
@@ -1034,7 +903,7 @@ function FinanceStatsCards({
           icon={<BedDouble className="size-4" />}
           title="Accommodation totals"
           headline={bookings.total}
-          headlineNote={`booking${bookings.total === 1 ? "" : "s"} · ${bookings.activeGuests} active guest${bookings.activeGuests === 1 ? "" : "s"}`}
+          headlineNote={`booking${bookings.total === 1 ? "" : "s"} Â· ${bookings.activeGuests} active guest${bookings.activeGuests === 1 ? "" : "s"}`}
           chips={
             <>
               <StatusChip
@@ -1066,76 +935,6 @@ function FinanceStatsCards({
         <PoaOutstandingCard poa={poa} currencyFilter={currencyFilter} />
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        {currencies.map((currency) => {
-          const rows = [
-            {
-              label: "Registrations · confirmed",
-              value: registrations.revenueByCurrency[currency] ?? 0,
-            },
-            {
-              label: "Registrations · awaiting review",
-              value: registrations.awaitingByCurrency[currency] ?? 0,
-            },
-            {
-              label: "Accommodation · confirmed",
-              value: bookings.revenueByCurrency[currency] ?? 0,
-            },
-            {
-              label: "Accommodation · awaiting review",
-              value: bookings.awaitingByCurrency[currency] ?? 0,
-            },
-          ];
-          return (
-            <Card key={currency} className="overflow-hidden">
-              <div
-                className={cn(
-                  "h-1 w-full",
-                  currency === "GHS"
-                    ? "bg-amber-500"
-                    : "bg-emerald-600",
-                )}
-              />
-              <CardHeader className="pb-2">
-                <CardTitle className="flex items-center justify-between text-sm font-medium text-muted-foreground">
-                  <span>{currencyTitle(currency)}</span>
-                  <span
-                    className={cn(
-                      "flex size-7 items-center justify-center rounded-lg",
-                      currency === "GHS"
-                        ? "bg-primary/10 text-primary"
-                        : "bg-sky-100 text-sky-700",
-                    )}
-                  >
-                    <Banknote className="size-4" />
-                  </span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-1.5 text-sm">
-                {rows.map((row) => (
-                  <p
-                    key={row.label}
-                    className="flex items-center justify-between gap-3"
-                  >
-                    <span className="text-muted-foreground">{row.label}</span>
-                    <span className="font-medium tabular-nums text-ink">
-                      {formatMoneyByCurrency({ [currency]: row.value })}
-                    </span>
-                  </p>
-                ))}
-                <p className="flex items-center justify-between gap-3 border-t border-border/70 pt-2">
-                  <span className="font-medium">
-                    Total · registrations + accommodation
-                  </span>
-                  <span className="font-semibold tabular-nums text-ink">
-                    {formatMoneyByCurrency({ [currency]: totalFor(currency) })}
-                  </span>
-                </p>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
     </div>
   );
 }
@@ -1171,7 +970,7 @@ function StatusChip({
  * arrival (POA) in a single row per hub, so a long hub list costs one table row
  * instead of four thumb-sized blocks. Amounts stay inside their own currency,
  * the busiest hubs sort first, and lists longer than ten fold to eight rows with
- * the totals always in view — the page stops growing with every new hub.
+ * the totals always in view â€” the page stops growing with every new hub.
  */
 function HubCollectionsCard({ data }: { data: HubCollections | undefined }) {
   const [expanded, setExpanded] = useState(false);
@@ -1209,7 +1008,7 @@ function HubCollectionsCard({ data }: { data: HubCollections | undefined }) {
           Registrations by hub
           <span className="text-[11px] font-normal tabular-nums text-muted-foreground">
             {data.totals.submissions} submission
-            {data.totals.submissions === 1 ? "" : "s"} · {data.totals.delegates}{" "}
+            {data.totals.submissions === 1 ? "" : "s"} Â· {data.totals.delegates}{" "}
             delegate{data.totals.delegates === 1 ? "" : "s"}
           </span>
         </CardTitle>
@@ -1257,7 +1056,7 @@ function HubCollectionsCard({ data }: { data: HubCollections | undefined }) {
                         )}
                       </p>
                       <p className="text-[10px] tabular-nums text-muted-foreground">
-                        {hub.submissions} sub · {hub.delegates} del
+                        {hub.submissions} sub Â· {hub.delegates} del
                       </p>
                     </td>
                     {cell(hub.paidByCurrency, hub.paidCount, "text-emerald-700")}
@@ -1277,7 +1076,7 @@ function HubCollectionsCard({ data }: { data: HubCollections | undefined }) {
                       All hubs
                     </p>
                     <p className="text-[10px] tabular-nums text-muted-foreground">
-                      {data.totals.submissions} sub · {data.totals.delegates} del
+                      {data.totals.submissions} sub Â· {data.totals.delegates} del
                     </p>
                   </td>
                   {cell(
@@ -1322,7 +1121,7 @@ export default function AdminOverviewPage() {
   const sessionArgs = useSessionArgs();
   const seedData = useMutation(api.seed.seed);
   const isDashboardOnly = role === "dashboard";
-  // The dashboard-only role never reads the full overview — its console is the
+  // The dashboard-only role never reads the full overview â€” its console is the
   // per-hub list below.
   const overview = useQuery(
     api.agcAdminData.getAgcOverview,
@@ -1344,38 +1143,26 @@ export default function AdminOverviewPage() {
   // Server truth once loaded; role check before then avoids flashing
   // non-finance widgets for the finance role.
   const isFinanceView = overview ? overview.financeView : role === "finance";
-  // Finance currency focus — All / GHS / USD lens for every finance widget.
+  // Finance currency focus â€” All / GHS / USD lens for every finance widget.
   const [currencyFilter, setCurrencyFilter] = useState<CurrencyFilter>("ALL");
   const firstName = user?.name?.split(" ")[0];
 
   return (
     <div className="space-y-6">
-      <AdminPageHeader
-        description={`Welcome back${firstName ? `, ${firstName}` : ""}. ${EVENT.dates} · ${EVENT.location}`}
-        actions={
-          <>
-            <Button
-              size="sm"
-              variant="outline"
-              nativeButton={false}
-              render={<Link href="/" target="_blank" rel="noopener noreferrer" />}
-            >
-              View public site
-              <ArrowUpRight className="size-4" />
-            </Button>
-            {canRegistration && (
-              <Button
-                size="sm"
-                nativeButton={false}
-                render={<Link href="/admin/registrations" />}
-              >
-                Registrations console
-                <ArrowUpRight className="size-4" />
-              </Button>
-            )}
-          </>
-        }
-      />
+      <section className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#2b1b12] via-[#4a2e1b] to-[#7a4a2a] px-6 py-6 text-[#fff8ec] shadow-elevate sm:px-8">
+        <div aria-hidden className="admin-sheen pointer-events-none absolute inset-0" />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -top-16 -right-10 size-56 rounded-full bg-gold-light/15 blur-3xl"
+        />
+        <p className="eyebrow relative !text-gold-light">Overview</p>
+        <h2 className="relative mt-1 text-2xl sm:text-3xl">
+          Welcome back{firstName ? `, ${firstName}` : ""}
+        </h2>
+        <p className="relative mt-1 text-sm text-[#e9dccb]">
+          {EVENT.name} Â· {EVENT.dates} Â· {EVENT.location}
+        </p>
+      </section>
 
       {isDashboardOnly ? (
         <HubCollectionsCard data={hubCollections} />
@@ -1394,7 +1181,7 @@ export default function AdminOverviewPage() {
         </div>
       ) : (
         <>
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="admin-stagger grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             {canRegistration && !isFinanceView && (
               <Link href="/admin/registrations" className="group">
                 <Card
@@ -1422,7 +1209,7 @@ export default function AdminOverviewPage() {
                       {overview.registrations.delegates}
                     </p>
                     <p className="-mt-2 text-xs text-muted-foreground">
-                      delegates · {overview.registrations.total} submission
+                      delegates Â· {overview.registrations.total} submission
                       {overview.registrations.total === 1 ? "" : "s"}
                     </p>
                     <div className="flex flex-wrap gap-1.5">
@@ -1453,7 +1240,7 @@ export default function AdminOverviewPage() {
                           )}
                         </span>
                       </p>
-                      {overview.registrations.awaitingLabel !== "—" && (
+                      {overview.registrations.awaitingLabel !== "â€”" && (
                         <p className="text-muted-foreground">
                           Awaiting review:{" "}
                           <span className="font-medium tabular-nums text-amber-700">
@@ -1497,7 +1284,7 @@ export default function AdminOverviewPage() {
                       {overview.bookings.activeGuests}
                     </p>
                     <p className="-mt-2 text-xs text-muted-foreground">
-                      active guests · {overview.bookings.confirmed} confirmed
+                      active guests Â· {overview.bookings.confirmed} confirmed
                       booking{overview.bookings.confirmed === 1 ? "" : "s"}
                     </p>
                     <div className="flex flex-wrap gap-1.5">
@@ -1515,9 +1302,9 @@ export default function AdminOverviewPage() {
                             overview.bookings.revenueByCurrency,
                           )}
                         </span>{" "}
-                        · +{overview.bookings.thisWeek} this week
+                        Â· +{overview.bookings.thisWeek} this week
                       </p>
-                      {overview.bookings.awaitingLabel !== "—" && (
+                      {overview.bookings.awaitingLabel !== "â€”" && (
                         <p className="text-muted-foreground">
                           Awaiting review:{" "}
                           <span className="font-medium tabular-nums text-amber-700">
@@ -1598,15 +1385,10 @@ export default function AdminOverviewPage() {
             )}
           </div>
 
-          {canRegistration && <HubCollectionsCard data={hubCollections} />}
-
           {canRegistration && !isFinanceView && (
-            <CurrencyMoneyTiles
-              registrations={overview.registrations}
-              bookings={overview.bookings}
-              currencyFilter={currencyFilter}
-            />
+            <HubCollectionsCard data={hubCollections} />
           )}
+
 
           {isFinanceView && (
             <div className="space-y-4">
@@ -1714,7 +1496,7 @@ export default function AdminOverviewPage() {
                         </Badge>
                       </div>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        {log.actorEmail ?? "System"} ·{" "}
+                        {log.actorEmail ?? "System"} Â·{" "}
                         {new Date(log.createdAt).toLocaleString()}
                       </p>
                     </div>
@@ -1780,7 +1562,7 @@ export default function AdminOverviewPage() {
                         </Badge>
                       </div>
                       <p className="mt-1 text-sm text-muted-foreground">
-                        {h.booked}/{h.capacityLimit} taken · {h.remaining} left
+                        {h.booked}/{h.capacityLimit} taken Â· {h.remaining} left
                       </p>
                       <p className="text-sm font-medium tabular-nums text-ink">
                         <Users className="mr-1 inline size-3.5" />
@@ -1817,7 +1599,7 @@ export default function AdminOverviewPage() {
               Seed / refresh default content
             </Button>
             <p className="text-sm text-muted-foreground">
-              Safe to re-run — only fills empty content collections.
+              Safe to re-run â€” only fills empty content collections.
             </p>
           </CardContent>
         </Card>

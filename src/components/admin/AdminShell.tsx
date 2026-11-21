@@ -128,7 +128,7 @@ function UserAvatar({
   return (
     <div
       className={cn(
-        "flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary",
+        "flex size-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-gold-light to-gold text-xs font-semibold text-[#2b1b12]",
         className,
       )}
     >
@@ -325,7 +325,7 @@ function AdminSidebar({
                 <span className="truncate font-semibold leading-snug text-sidebar-accent-foreground">
                   {EVENT.name}
                 </span>
-                <span className="truncate text-xs text-sidebar-foreground/60">
+                <span className="truncate text-xs text-gold-light/80">
                   Admin · {EVENT.dates}
                 </span>
               </div>
@@ -356,8 +356,9 @@ function AdminSidebar({
                         tooltip={item.label}
                         render={<Link href={item.href} />}
                         className={cn(
-                          "h-9 text-sidebar-foreground/80",
-                          active && "font-medium text-sidebar-accent-foreground",
+                          "h-9 text-sidebar-foreground/75 transition-colors",
+                          active &&
+                            "font-medium text-sidebar-accent-foreground shadow-[inset_2px_0_0_0_var(--gold-light)] [&_svg]:text-gold-light",
                         )}
                       >
                         <Icon />
@@ -450,14 +451,13 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   }
 
   if (!isAdminRole(user.role)) {
-    // Venue staff work only in their own workspace and the runbook; any other
+    // Venue staff work only in their own workspace; any other
     // console URL sends them back there.
     if (isValidStaffRole(user.role)) {
       const home = staffHomePath(user.role);
       const staffWorkspace =
         pathname === home ||
-        pathname.startsWith(`${home}/`) ||
-        pathname === "/admin/help";
+        pathname.startsWith(`${home}/`);
       if (!staffWorkspace) {
         return <VenueStaffRedirect to={home} />;
       }
@@ -485,13 +485,11 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     }
   }
 
-  // Dashboard-only accounts get the overview, their own account page and the
-  // runbook — every other console URL sends them back to the dashboard.
+  // Dashboard-only accounts get the overview, their own account page — every other console URL sends them back to the dashboard.
   if (user.role === "dashboard") {
     const dashboardPaths =
       pathname === "/admin" ||
-      pathname === "/admin/profile" ||
-      pathname.startsWith("/admin/help");
+      pathname === "/admin/profile";
     if (!dashboardPaths) {
       return <VenueStaffRedirect to="/admin" />;
     }
@@ -562,7 +560,7 @@ function AdminConsoleFrame({
       />
       <SidebarInset className="min-w-0 overflow-x-clip bg-background">
         <header
-          className="fixed top-0 right-0 z-30 border-b bg-background/85 backdrop-blur-md transition-[left] duration-200 ease-linear"
+          className="fixed top-0 right-0 z-30 border-b bg-background/85 shadow-[0_1px_0_0_color-mix(in_srgb,var(--gold)_25%,transparent)] backdrop-blur-md transition-[left] duration-200 ease-linear"
           style={{ left: headerLeft }}
         >
           <div className="flex h-14 w-full min-w-0 items-center gap-2 px-4 sm:px-6">
@@ -619,7 +617,10 @@ function AdminConsoleFrame({
         {/* overflow-x-clip, not hidden: hidden makes this a scroll container,
             which silently disables position: sticky in every admin page. */}
         <div className="min-w-0 flex-1 overflow-x-clip px-4 pt-[4.75rem] pb-6 sm:px-6 lg:px-8 lg:pb-10">
-          <div className="mx-auto w-full max-w-[1440px]">{children}</div>
+          {/* Keyed by route so each page rises in on navigation. */}
+          <div key={pathname} className="admin-rise mx-auto w-full max-w-[1440px]">
+            {children}
+          </div>
         </div>
       </SidebarInset>
     </>

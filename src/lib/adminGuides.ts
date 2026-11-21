@@ -7,7 +7,7 @@
  * current route (see `PageGuide`), so a page only needs a guide here — there is
  * no per-page wiring to forget.
  *
- * Keep the language identical to RUNBOOK-NOV3.md and HelpRunbook: if a screen
+ * Keep the language identical to RUNBOOK-NOV3.md: if a screen
  * and the runbook disagree, the screen is what staff will follow.
  */
 
@@ -27,8 +27,6 @@ export type AdminGuide = {
   /** One line on what the page is for. */
   intro: string;
   steps: GuideStep[];
-  /** Where the same job is written up in full. */
-  runbookLink?: boolean;
 };
 
 export const ADMIN_GUIDES: AdminGuide[] = [
@@ -104,7 +102,6 @@ export const ADMIN_GUIDES: AdminGuide[] = [
         text: "Never give out a reserved or faulty room from memory or an old printout; the server refuses it, and the pickers already exclude both.",
       },
     ],
-    runbookLink: true,
   },
   {
     href: "/admin/arrival",
@@ -132,7 +129,6 @@ export const ADMIN_GUIDES: AdminGuide[] = [
         text: "Payment not confirmed may only be checked in by Admin/Accommodation with a written override reason. Undoing a check-in never takes a key back — mark the key returned separately.",
       },
     ],
-    runbookLink: true,
   },
   {
     href: "/admin/desk-checkin",
@@ -175,7 +171,6 @@ export const ADMIN_GUIDES: AdminGuide[] = [
         text: "Reports only read. Corrections are made on the desk (Undo check-in, Correct check-in, Move delegate) so the audit trail keeps the reason.",
       },
     ],
-    runbookLink: true,
   },
   {
     href: "/admin/directory",
@@ -370,7 +365,6 @@ export const ADMIN_GUIDES: AdminGuide[] = [
         text: "Never let a desk share one account. Every check-in, key issue and override is stamped with the signed-in identity, and a shared login destroys that trail.",
       },
     ],
-    runbookLink: true,
   },
   {
     href: "/admin/audit",
@@ -441,25 +435,6 @@ export const ADMIN_GUIDES: AdminGuide[] = [
       {
         kind: "never",
         text: "A group is a convenience for the desk, not a check-in: nothing in a group is checked in automatically.",
-      },
-    ],
-  },
-  {
-    href: "/admin/help",
-    title: "Arrival runbook",
-    intro: "The full runbook, searchable, with the same words as the printed copy.",
-    steps: [
-      {
-        kind: "do",
-        text: "Search a keyword (override, offline, EBPV, keys, swap), open a section, or print the whole thing for the desk.",
-      },
-      {
-        kind: "do",
-        text: "Each section links to the screen it talks about, so you can read a step and be on the page in one tap.",
-      },
-      {
-        kind: "never",
-        text: "If a printed copy and this screen disagree, this screen wins — it ships with the console.",
       },
     ],
   },

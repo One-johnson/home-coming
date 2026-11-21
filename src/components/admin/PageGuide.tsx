@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   AlertTriangle,
@@ -126,20 +125,6 @@ export function PageGuide() {
             })}
           </ol>
 
-          <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
-            <p className="text-[11px] text-muted-foreground">
-              {guide.runbookLink
-                ? "The arrival runbook covers this job in full, with the failure cases."
-                : "The arrival runbook covers the arrival-day jobs in full."}
-            </p>
-            <Link
-              href="/admin/help"
-              className="inline-flex items-center gap-1 text-xs font-medium underline underline-offset-2"
-              onClick={() => setOpen(false)}
-            >
-              <BookOpen className="size-3.5" /> Open the runbook
-            </Link>
-          </div>
         </DialogContent>
       </Dialog>
     </>

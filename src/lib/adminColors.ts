@@ -102,20 +102,20 @@ export const HOUSING_TONE_CLASS = {
 } as const;
 
 /**
- * KPI card accents. The console keeps cards plain (white, hairline border) and
- * lets one small icon tile carry the colour, so status colours stay meaningful.
+ * KPI card accents — chocolate and gold. A warm tint behind each card and one
+ * icon tile carry the colour; status colours stay reserved for status.
  */
-const kpi = (icon: string) =>
+const kpi = (icon: string, tint: string) =>
   ({
     icon,
-    border: "group-hover:border-foreground/20",
-    tint: "from-card to-card",
+    border: "group-hover:ring-gold/40",
+    tint,
   }) as const;
 
 export const KPI_ACCENTS = {
-  registrations: kpi("bg-emerald-50 text-emerald-700"),
-  poa: kpi("bg-violet-50 text-violet-700"),
-  bookings: kpi("bg-amber-50 text-amber-700"),
-  faqs: kpi("bg-muted text-foreground/70"),
-  videos: kpi("bg-muted text-foreground/70"),
+  registrations: kpi("bg-gold/15 text-gold-dark", "from-[#fff4dc] to-card"),
+  poa: kpi("bg-amber-100 text-amber-800", "from-amber-50 to-card"),
+  bookings: kpi("bg-primary/10 text-primary", "from-[#f5e9dc] to-card"),
+  faqs: kpi("bg-secondary text-primary", "from-card to-card"),
+  videos: kpi("bg-secondary text-primary", "from-card to-card"),
 } as const;

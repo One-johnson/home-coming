@@ -112,7 +112,7 @@ const GROUPS: ReportGroup[] = [
   {
     id: "closeout",
     title: "Close-out — review & reconcile",
-    hint: "Work down the list in order; the runbook closes the day this way.",
+    hint: "Work down the list in order to close the day.",
     tone: "blocked",
     icon: ClipboardCheck,
     ordered: true,
@@ -348,12 +348,6 @@ export function OpsReportsPage() {
             href="/admin/arrival"
           >
             Arrival desk ↗
-          </a>
-          <a
-            className="inline-flex h-7 items-center rounded-md border px-2 text-[11px] font-medium hover:bg-muted"
-            href="/admin/help"
-          >
-            Runbook ↗
           </a>
         </div>
       </div>

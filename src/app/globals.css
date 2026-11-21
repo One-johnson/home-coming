@@ -61,44 +61,54 @@
 }
 
 /*
- * Admin console theme — a calm, neutral workspace. Scoped with :has() on the
- * root so dialogs, menus and toasts (portalled to <body>) pick it up too,
- * while the public site keeps its gold-and-serif look.
+ * Admin console + rep portal theme — chocolate and gold. Scoped with :has() on
+ * the root so dialogs, menus and toasts (portalled to <body>) pick it up too,
+ * while the public site keeps its own look.
  */
 :root:has(.admin-theme) {
-  --background: #f7f7f6;
-  --foreground: #18181b;
-  --card: #ffffff;
-  --card-foreground: #18181b;
-  --popover: #ffffff;
-  --popover-foreground: #18181b;
-  --primary: #1b4332;
-  --primary-foreground: #ffffff;
-  --secondary: #f4f4f5;
-  --secondary-foreground: #27272a;
-  --muted: #f4f4f5;
-  --muted-foreground: #71717a;
-  --accent: #f4f4f5;
-  --accent-foreground: #18181b;
-  --border: #e7e7e4;
-  --input: #e4e4e7;
-  --ring: #2d6a4f;
-  --radius: 0.625rem;
-  --chart-1: #1b4332;
-  --chart-2: #b8860b;
-  --chart-3: #0284c7;
-  --chart-4: #7c3aed;
-  --chart-5: #a1a1aa;
-  --shadow-soft: 0 1px 2px rgba(24, 24, 27, 0.04);
-  --shadow-elevate: 0 1px 3px rgba(24, 24, 27, 0.06), 0 8px 24px -12px rgba(24, 24, 27, 0.12);
-  --sidebar: #fbfbfa;
-  --sidebar-foreground: #3f3f46;
-  --sidebar-primary: #1b4332;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #efefed;
-  --sidebar-accent-foreground: #18181b;
-  --sidebar-border: #e7e7e4;
-  --sidebar-ring: #2d6a4f;
+  --choc-950: #1f130c;
+  --choc-900: #2b1b12;
+  --choc-800: #3d2617;
+  --choc-700: #5c3a21;
+  --choc-600: #7a4a2a;
+  --cream-50: #fffdf9;
+  --cream-100: #faf5ee;
+  --cream-200: #f3e9da;
+  --cream-300: #e9dccb;
+
+  --background: var(--cream-100);
+  --foreground: var(--choc-900);
+  --card: var(--cream-50);
+  --card-foreground: var(--choc-900);
+  --popover: var(--cream-50);
+  --popover-foreground: var(--choc-900);
+  --primary: var(--choc-700);
+  --primary-foreground: #fff8ec;
+  --secondary: var(--cream-200);
+  --secondary-foreground: var(--choc-800);
+  --muted: var(--cream-200);
+  --muted-foreground: #7a6555;
+  --accent: var(--cream-200);
+  --accent-foreground: var(--choc-900);
+  --border: var(--cream-300);
+  --input: #e3d4c0;
+  --ring: var(--gold);
+  --radius: 0.75rem;
+  --chart-1: var(--choc-700);
+  --chart-2: var(--gold);
+  --chart-3: #c08552;
+  --chart-4: #2d6a4f;
+  --chart-5: #a8977f;
+  --shadow-soft: 0 1px 2px rgba(43, 27, 18, 0.05);
+  --shadow-elevate: 0 2px 6px rgba(43, 27, 18, 0.06), 0 16px 32px -16px rgba(43, 27, 18, 0.22);
+  --sidebar: var(--choc-900);
+  --sidebar-foreground: #e9dccb;
+  --sidebar-primary: var(--gold-light);
+  --sidebar-primary-foreground: var(--choc-950);
+  --sidebar-accent: var(--choc-800);
+  --sidebar-accent-foreground: #fff8ec;
+  --sidebar-border: #3a2618;
+  --sidebar-ring: var(--gold-light);
 }
 
 :root:has(.admin-theme) body {
@@ -111,7 +121,7 @@
   font-family: var(--font-body), system-ui, sans-serif;
   font-weight: 600;
   letter-spacing: -0.015em;
-  color: var(--foreground);
+  color: inherit;
 }
 
 :root:has(.admin-theme) p {
@@ -119,13 +129,76 @@
 }
 
 :root:has(.admin-theme) .eyebrow {
-  color: var(--muted-foreground);
-  letter-spacing: 0.08em;
+  color: var(--gold-dark);
+  letter-spacing: 0.12em;
   font-size: 0.6875rem;
 }
 
 :root:has(.admin-theme) ::selection {
-  background: color-mix(in srgb, #2d6a4f 18%, transparent);
+  background: color-mix(in srgb, var(--gold) 30%, transparent);
+}
+
+/* Cards: soft warm shadow, gold edge and a small lift when they are links. */
+:root:has(.admin-theme) [data-slot="card"] {
+  box-shadow: var(--shadow-soft);
+  transition:
+    transform 0.35s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+:root:has(.admin-theme) a:hover > [data-slot="card"] {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-elevate);
+  --tw-ring-color: color-mix(in srgb, var(--gold) 45%, transparent);
+}
+
+/* Motion: each page rises in on navigation; grids of cards cascade. */
+@keyframes admin-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.admin-rise {
+  animation: admin-rise 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.admin-stagger > * {
+  animation: admin-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.admin-stagger > :nth-child(2) { animation-delay: 60ms; }
+.admin-stagger > :nth-child(3) { animation-delay: 120ms; }
+.admin-stagger > :nth-child(4) { animation-delay: 180ms; }
+.admin-stagger > :nth-child(5) { animation-delay: 240ms; }
+.admin-stagger > :nth-child(n + 6) { animation-delay: 300ms; }
+
+/* A slow gold sheen across the overview banner. */
+@keyframes admin-sheen {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+.admin-sheen {
+  background-image: linear-gradient(
+    110deg,
+    transparent 30%,
+    color-mix(in srgb, var(--gold-light) 18%, transparent) 50%,
+    transparent 70%
+  );
+  background-size: 200% 100%;
+  animation: admin-sheen 9s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-rise,
+  .admin-stagger > *,
+  .admin-sheen {
+    animation: none;
+  }
+  :root:has(.admin-theme) a:hover > [data-slot="card"] {
+    transform: none;
+  }
 }
 
 @theme inline {
