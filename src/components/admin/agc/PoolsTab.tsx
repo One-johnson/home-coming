@@ -283,8 +283,7 @@ export function PoolsTab() {
           <p className="mt-0.5 text-muted-foreground">
             Expired and cancelled reservations never count towards On hold or
             Available here, and the pool counters are rewritten to match the
-            reservations on their own — within minutes by the five-minute
-            check, and nightly at the latest. Run
+            reservations on their own every night. Run
             <span className="font-medium"> Move expired bookings back to pools</span>{" "}
             below to correct them right now.
           </p>

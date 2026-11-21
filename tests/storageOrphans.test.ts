@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { api, internal } from "../convex/_generated/api";
+import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { createTestConvex } from "./testUtils";
 
@@ -97,66 +97,6 @@ test("sweep deletes only unreferenced blobs past the grace window", async () => 
 
   const logs = await t.run((ctx) => ctx.db.query("auditLogs").collect());
   expect(logs.map((log) => log.action)).toContain("storage.orphans_swept");
-});
-
-test("the nightly cron sweeps orphans on its own, with a system audit entry", async () => {
-  const t = createTestConvex();
-
-  const referencedId = await t.run((ctx) =>
-    ctx.storage.store(new Blob(["live receipt"])),
-  );
-  const orphanId = await t.run((ctx) =>
-    ctx.storage.store(new Blob(["abandoned upload"])),
-  );
-  await t.run(async (ctx) => {
-    await ctx.db.insert("heroSlides", {
-      storageId: referencedId,
-      alt: "Referenced",
-      order: 0,
-    });
-  });
-
-  // Inside the grace window, so the cron leaves everything alone.
-  const tooEarly = await t.mutation(internal.crons.nightlyOrphanSweepTick, {});
-  expect(tooEarly.deleted).toBe(0);
-  expect(tooEarly.batches).toBe(1);
-
-  advanceDays(2);
-
-  // An upload made after the clock moved is still inside the window.
-  const freshId = await t.run((ctx) =>
-    ctx.storage.store(new Blob(["still in flight"])),
-  );
-
-  const result = await t.mutation(internal.crons.nightlyOrphanSweepTick, {});
-  expect(result.deleted).toBe(1);
-  expect(result.failed).toBe(0);
-  expect(result.remaining).toBe(0);
-
-  const [survivor, orphan, fresh] = await t.run((ctx) =>
-    Promise.all([
-      ctx.db.system.get(referencedId),
-      ctx.db.system.get(orphanId),
-      ctx.db.system.get(freshId),
-    ]),
-  );
-  expect(survivor).not.toBeNull();
-  expect(fresh).not.toBeNull();
-  expect(orphan).toBeNull();
-
-  // The log must show a machine did it, never a person.
-  const logs = await t.run((ctx) =>
-    ctx.db
-      .query("auditLogs")
-      .collect()
-      .then((rows) =>
-        rows.filter((row) => row.action === "storage.orphans_swept"),
-      ),
-  );
-  expect(logs).toHaveLength(1);
-  expect(logs[0].actorEmail).toBe("system:storage-sweep");
-  expect(logs[0].actorUserId).toBeUndefined();
-  expect(JSON.parse(logs[0].metadata ?? "{}").automatic).toBe(true);
 });
 
 test("discardUploadedFile removes an unclaimed upload but never a live file", async () => {
@@ -333,7 +273,9 @@ test("payment images delete 15 days after confirmation, one audit entry each", a
     },
   );
 
-  await t.mutation(internal.storageMaintenance.purgeExpiredPaymentImages, {});
+  await t.mutation(api.storageMaintenance.purgeExpiredPaymentImages, {
+    sessionToken: admin.token,
+  });
 
   const [expired, fresh, unverified, evidence] = await t.run((ctx) =>
     Promise.all([
@@ -375,7 +317,7 @@ test("payment images delete 15 days after confirmation, one audit entry each", a
   expect(logs).toHaveLength(2);
   const entityIds = logs.map((log) => log.entityId).sort();
   expect(entityIds).toEqual([expiredRegId, bookingId].sort());
-  expect(logs.every((log) => log.actorEmail === "system:receipt-retention")).toBe(
+  expect(logs.every((log) => log.actorEmail === "admin@example.com")).toBe(
     true,
   );
   expect(logs.map((log) => JSON.parse(log.metadata ?? "{}").kind).sort()).toEqual(

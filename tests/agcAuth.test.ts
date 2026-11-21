@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { api, internal } from "../convex/_generated/api";
+import { api } from "../convex/_generated/api";
 import type { RepAuthResult, RepLoginResult } from "../convex/agcAuth";
 import { createTestConvex } from "./testUtils";
 
@@ -616,7 +616,7 @@ test("soft delete hides the rep from logins and lists, restore revives it, purge
   });
   expect(deletedAfter.map((r) => r._id)).not.toContain(repId);
 
-  // Soft delete again, then purge via the cron tick.
+  // Soft delete again, then purge via the Housekeeping button.
   await t.mutation(api.agcAdminData.deleteRep, {
     sessionToken: adminToken,
     repId,
@@ -624,10 +624,9 @@ test("soft delete hides the rep from logins and lists, restore revives it, purge
   await t.run(async (ctx) => {
     await ctx.db.patch(repId, { deletedAt: Date.now() - 8 * 24 * 3_600_000 });
   });
-  const purged = await t.mutation(
-    internal.agcAdminData.purgeExpiredDeletedReps,
-    {},
-  );
+  const purged = await t.mutation(api.agcAdminData.purgeExpiredDeletedReps, {
+    sessionToken: adminToken,
+  });
   expect(purged.purged).toBeGreaterThanOrEqual(1);
   const gone = await t.run((ctx) => ctx.db.get(repId));
   expect(gone).toBeNull();

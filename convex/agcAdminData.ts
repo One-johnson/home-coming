@@ -1459,14 +1459,14 @@ export const resetRepCredentials = internalMutation({
 });
 
 /**
- * Reps soft-deleted more than this long ago are purged permanently by cron.
+ * Reps soft-deleted more than this long ago can be purged permanently (admin Housekeeping).
  */
 export const REP_SOFT_DELETE_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
 
 /**
  * Shared soft-delete: kills sessions/reset tokens/throttle rows and marks the
  * rep deleted. The record lingers for REP_SOFT_DELETE_TTL_MS so an admin can
- * undo; the cron purge removes it permanently afterwards.
+ * undo; the Housekeeping purge removes it permanently afterwards.
  */
 async function deleteRepInternal(
   ctx: MutationCtx,
@@ -1506,7 +1506,7 @@ async function deleteRepInternal(
 }
 
 /**
- * Permanently remove a soft-deleted rep (cron purge or explicit). Cascades
+ * Permanently remove a soft-deleted rep (Housekeeping purge or explicit). Cascades
  * session/reset-token cleanup; the hub record is always kept.
  */
 async function purgeRepInternal(ctx: MutationCtx, repId: Id<"agcRepresentatives">) {
@@ -1723,10 +1723,11 @@ export const listDeletedReps = query({
   },
 });
 
-/** Cron tick: permanently purge soft-deleted reps past the 7-day window. */
-export const purgeExpiredDeletedReps = internalMutation({
-  args: {},
-  handler: async (ctx) => {
+/** Admin button: permanently purge soft-deleted reps past the 7-day window. */
+export const purgeExpiredDeletedReps = mutation({
+  args: { sessionToken: sessionTokenValidator },
+  handler: async (ctx, args) => {
+    const actor = await requireAdmin(ctx, args.sessionToken);
     const cutoff = Date.now() - REP_SOFT_DELETE_TTL_MS;
     // Index range: only soft-deleted reps past the window are read, not the
     // whole table (live reps have no `deletedAt` and sort before 0).
@@ -1736,6 +1737,16 @@ export const purgeExpiredDeletedReps = internalMutation({
       .collect();
     for (const rep of expired) {
       await purgeRepInternal(ctx, rep._id);
+    }
+    if (expired.length > 0) {
+      await writeAuditLog(ctx, {
+        actorUserId: actor._id,
+        actorEmail: actor.email,
+        action: "agc_rep.purged",
+        entityType: "agcRepresentatives",
+        summary: `Permanently removed ${expired.length} representative account(s) deleted more than 7 days ago`,
+        metadata: { count: expired.length },
+      });
     }
     return { purged: expired.length };
   },
@@ -2879,14 +2890,6 @@ export const purgeExpiredTrash = mutation({
       });
     }
     return { purged };
-  },
-});
-
-/** Cron variant — same purge, no audit actor. */
-export const purgeExpiredTrashInternal = internalMutation({
-  args: {},
-  handler: async (ctx) => {
-    return { purged: await purgeExpiredTrashForCtx(ctx) };
   },
 });
 

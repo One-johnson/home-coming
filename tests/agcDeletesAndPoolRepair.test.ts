@@ -597,7 +597,7 @@ test("a reservation bounced back for correction still expires and returns its be
     return { bookingId, poolId };
   });
 
-  // The expiry sweep is the automatic path (the nightly maintenance pass).
+  // The expiry sweep is the automatic path (the nightly pool repair).
   // The counters were already right, so there is nothing for it to rewrite.
   const tick = await t.mutation(internal.crons.nightlyPoolRepairTick, {});
   expect(tick).toMatchObject({

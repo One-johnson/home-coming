@@ -1,10 +1,11 @@
 import { v } from "convex/values";
-import { internalMutation, mutation, query } from "./_generated/server";
+import { mutation, query } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { requireRole, sessionTokenValidator } from "./users";
 import { requireRep } from "./agcPortal";
 import { writeAuditLog } from "./lib/audit";
+import { REP_SOFT_DELETE_TTL_MS } from "./agcAdminData";
 
 /**
  * Orphaned file cleanup for Convex file storage.
@@ -27,11 +28,6 @@ import { writeAuditLog } from "./lib/audit";
 const DEFAULT_GRACE_MS = 24 * 60 * 60 * 1000;
 /** Files deleted per sweep call, so one click can't blow the mutation budget. */
 const MAX_BATCH = 500;
-/**
- * Batches the nightly cron runs (500 files each), so one night reclaims up to
- * 2,000 stranded uploads instead of taking a week at one batch a night.
- */
-export const MAX_NIGHTLY_BATCHES = 4;
 
 /**
  * A payment image is evidence only while the payment is being verified. Once
@@ -199,7 +195,14 @@ export const getStorageReport = query({
   handler: async (ctx, args) => {
     await requireRole(ctx, args.sessionToken, ["admin"]);
     const { blobs, orphans } = await findOrphans(ctx, DEFAULT_GRACE_MS);
-    const { scheduled } = await collectPaymentImages(ctx, Date.now());
+    const { due, scheduled } = await collectPaymentImages(ctx, Date.now());
+    // Soft-deleted reps past the 7-day restore window (index range, cheap).
+    const expiredReps = await ctx.db
+      .query("agcRepresentatives")
+      .withIndex("by_deleted_at", (q) =>
+        q.gt("deletedAt", 0).lt("deletedAt", Date.now() - REP_SOFT_DELETE_TTL_MS),
+      )
+      .collect();
 
     let totalBytes = 0;
     for (const blob of blobs) totalBytes += blob.size;
@@ -215,6 +218,8 @@ export const getStorageReport = query({
       oldestOrphanAt: orphans.length > 0 ? orphans[0]._creationTime : null,
       retentionDays: RECEIPT_RETENTION_DAYS,
       awaitingExpiry: scheduled.length,
+      expiredImages: due.length,
+      expiredDeletedReps: expiredReps.length,
       nextExpiryAt:
         scheduled.length > 0
           ? Math.min(...scheduled.map((image) => image.expiresAt))
@@ -228,21 +233,18 @@ export const getStorageReport = query({
   },
 });
 
-/** Who asked for the sweep — an admin in the console, or the nightly cron. */
+/** The admin who pressed the sweep button. */
 type SweepActor = {
-  actorUserId?: Id<"users">;
+  actorUserId: Id<"users">;
   actorEmail: string;
-  /** True for the cron, recorded in the audit entry so nobody is blamed. */
-  automatic: boolean;
 };
 
 /**
  * Delete up to `limit` orphaned blobs. Idempotent: each run re-reads the
  * reference set, so anything claimed since the last sweep is left alone.
  *
- * The admin button and the nightly cron share this, so both obey the same two
- * rules: never a blob a row points at, never one inside the grace window — and
- * either way an audit entry records what left storage.
+ * Two rules: never a blob a row points at, never one inside the grace window —
+ * and an audit entry records what left storage.
  */
 async function sweepOrphans(
   ctx: MutationCtx,
@@ -279,7 +281,6 @@ async function sweepOrphans(
         failed,
         bytesFreed,
         graceHours: args.graceMs / 3_600_000,
-        automatic: args.actor.automatic,
       },
     });
   }
@@ -311,30 +312,7 @@ export const sweepOrphanedFiles = mutation({
     return await sweepOrphans(ctx, {
       graceMs: graceHours * 3_600_000,
       limit,
-      actor: { actorUserId: actor._id, actorEmail: actor.email, automatic: false },
-    });
-  },
-});
-
-/**
- * One nightly batch, called by `crons.ts` under `nightlyOrphanSweepTick`.
- *
- * No session: the cron is the caller. The audit entry is attributed to
- * "system:storage-sweep" and flagged `automatic`, so the log never suggests a
- * person pressed anything. Each batch is its own transaction, which is why the
- * cron loops these instead of sweeping everything in one mutation.
- */
-export const sweepOrphanedFilesBatch = internalMutation({
-  args: { limit: v.optional(v.number()) },
-  handler: async (ctx, args) => {
-    const limit = Math.min(
-      MAX_BATCH,
-      Math.max(1, Math.floor(args.limit ?? MAX_BATCH)),
-    );
-    return await sweepOrphans(ctx, {
-      graceMs: DEFAULT_GRACE_MS,
-      limit,
-      actor: { actorEmail: "system:storage-sweep", automatic: true },
+      actor: { actorUserId: actor._id, actorEmail: actor.email },
     });
   },
 });
@@ -368,7 +346,7 @@ export const discardUploadedFile = mutation({
 });
 
 /**
- * Retention rule, run nightly by the cron in `convex/crons.ts`.
+ * Retention rule, run from the admin Housekeeping panel.
  *
  * Deletes the receipt photo / POA evidence of every confirmed payment once
  * RECEIPT_RETENTION_DAYS have passed since confirmation, clears the pointer on
@@ -414,9 +392,10 @@ async function clearPaymentImagePointer(
   }
 }
 
-export const purgeExpiredPaymentImages = internalMutation({
-  args: {},
-  handler: async (ctx) => {
+export const purgeExpiredPaymentImages = mutation({
+  args: { sessionToken: sessionTokenValidator },
+  handler: async (ctx, args) => {
+    const actor = await requireRole(ctx, args.sessionToken, ["admin"]);
     const now = Date.now();
     const { due } = await collectPaymentImages(ctx, now);
 
@@ -438,7 +417,8 @@ export const purgeExpiredPaymentImages = internalMutation({
       await clearPaymentImagePointer(ctx, image, now);
 
       await writeAuditLog(ctx, {
-        actorEmail: "system:receipt-retention",
+        actorUserId: actor._id,
+        actorEmail: actor.email,
         action: "storage.payment_image_expired",
         entityType: image.table,
         entityId: image.recordId,
