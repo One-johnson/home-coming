@@ -409,6 +409,12 @@ export function DelegateDirectory() {
     api.agcDirectory.listDelegateDirectory,
     sessionToken ? { sessionToken } : "skip",
   );
+  // Arrivals change only this small list, so the roster above does not re-run
+  // (and re-download) on every check-in.
+  const checkedInIds = useQuery(
+    api.agcDirectory.listCheckedInGuestIds,
+    sessionToken ? { sessionToken } : "skip",
+  );
 
   const [term, setTerm] = useState("");
   const [moreOpen, setMoreOpen] = useState(false);
@@ -420,9 +426,13 @@ export function DelegateDirectory() {
   const [roomFilter, setRoomFilter] = useState<RoomFilter>("all");
 
   const reps = useMemo<DirectoryRep[]>(() => directory?.reps ?? [], [directory]);
-  const delegates = useMemo<DirectoryDelegate[]>(() => directory?.delegates ?? [], [
-    directory,
-  ]);
+  const delegates = useMemo<DirectoryDelegate[]>(() => {
+    const checkedIn = new Set(checkedInIds ?? []);
+    return (directory?.delegates ?? []).map((delegate) => ({
+      ...delegate,
+      checkedIn: checkedIn.has(delegate.guestId),
+    }));
+  }, [directory, checkedInIds]);
 
   // Only the types actually booked, in catalogue order, so the filter never
   // offers a type nobody is in.

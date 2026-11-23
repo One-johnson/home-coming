@@ -10,6 +10,7 @@ import {
   InboxIcon,
   KeyRound,
   Loader2Icon,
+  LogOut,
   Mail,
   Pencil,
   Plus,
@@ -392,7 +393,31 @@ function RepActions({
   const deleteRepMutation = useMutation(api.agcAdminData.deleteRep);
   const restoreRepMutation = useMutation(api.agcAdminData.restoreRep);
   const issueTempPassword = useAction(api.agcAdmin.issueTempPassword);
+  const signOutReps = useMutation(api.agcAdminData.signOutReps);
+  // Same subscription as the page's (the client shares it), so this costs
+  // nothing extra.
+  const repSessions = useQuery(
+    api.agcAdminData.listRepSessionStatus,
+    isAdmin && sessionToken ? { sessionToken } : "skip",
+  );
+  const liveSession = repSessions?.[rep._id];
   const [busy, setBusy] = useState(false);
+
+  const signOut = async () => {
+    if (!sessionToken || busy) return;
+    setBusy(true);
+    try {
+      await signOutReps({
+        sessionToken,
+        repIds: [rep._id as Id<"agcRepresentatives">],
+      });
+      toast.success(`Signed out ${rep.username}`);
+    } catch (err) {
+      toast.error(...toastFriendlyErrorParts(err, "Failed to sign out rep"));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const toggleStatus = async () => {
     if (!sessionToken || busy) return;
@@ -471,6 +496,38 @@ function RepActions({
 
   return (
     <div className="mt-2 flex flex-wrap items-center gap-2">
+      {isAdmin && (
+        <span
+          className={cn(
+            "flex w-full items-center gap-1.5 text-xs",
+            liveSession
+              ? "font-medium text-emerald-700 dark:text-emerald-400"
+              : "text-muted-foreground",
+          )}
+        >
+          <span
+            className={cn(
+              "size-1.5 rounded-full",
+              liveSession ? "bg-emerald-500" : "bg-muted-foreground/40",
+            )}
+          />
+          {liveSession
+            ? `Signed in since ${new Date(liveSession.since).toLocaleString()}`
+            : "Not signed in"}
+        </span>
+      )}
+      {isAdmin && liveSession && (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={busy}
+          onClick={() => void signOut()}
+        >
+          <LogOut className="size-3.5" />
+          Sign out
+        </Button>
+      )}
       <Button
         type="button"
         variant="outline"
@@ -1246,6 +1303,23 @@ export function HubsRepsManager() {
   >(null);
   const [bulkCreateOpen, setBulkCreateOpen] = useState(false);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  /** Pending force sign-out: the selection, or every signed-in rep. */
+  const [signOutTarget, setSignOutTarget] = useState<
+    { all: true } | { all: false; repIds: string[] } | null
+  >(null);
+  const [signingOut, setSigningOut] = useState(false);
+  const signOutReps = useMutation(api.agcAdminData.signOutReps);
+  const repSessions = useQuery(
+    api.agcAdminData.listRepSessionStatus,
+    isAdmin && sessionToken ? { sessionToken } : "skip",
+  );
+  const signedInRepIds = useMemo(
+    () => new Set(Object.keys(repSessions ?? {})),
+    [repSessions],
+  );
+  const selectedSignedIn = [...selected.keys()].filter((id) =>
+    signedInRepIds.has(id),
+  );
   const [exportingReps, setExportingReps] = useState(false);
   // One-click migration of punctuation usernames to canonical slugs.
   const [migrateUsernamesOpen, setMigrateUsernamesOpen] = useState(false);
@@ -1493,6 +1567,28 @@ export function HubsRepsManager() {
                     >
                       <Sparkles className="size-4" />
                       Migrate legacy usernames…
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      disabled={selectedSignedIn.length === 0}
+                      title={
+                        selectedSignedIn.length === 0
+                          ? "None of the selected reps is signed in"
+                          : undefined
+                      }
+                      onClick={() =>
+                        setSignOutTarget({ all: false, repIds: selectedSignedIn })
+                      }
+                    >
+                      <LogOut className="size-4" />
+                      Sign out selected ({selectedSignedIn.length})
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      disabled={signedInRepIds.size === 0}
+                      onClick={() => setSignOutTarget({ all: true })}
+                    >
+                      <LogOut className="size-4" />
+                      Sign out all reps ({signedInRepIds.size} signed in)
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem
@@ -1789,6 +1885,67 @@ export function HubsRepsManager() {
           }}
         />
       )}
+      <Dialog
+        open={signOutTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !signingOut) setSignOutTarget(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {signOutTarget?.all
+                ? `Sign out all ${signedInRepIds.size} signed-in reps?`
+                : `Sign out ${signOutTarget?.repIds.length ?? 0} rep(s)?`}
+            </DialogTitle>
+            <DialogDescription>
+              Their portal tabs drop to the sign-in screen right away. Accounts
+              stay as they are, and reps can sign straight back in.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={signingOut}
+              onClick={() => setSignOutTarget(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={signingOut}
+              onClick={async () => {
+                if (!sessionToken || !signOutTarget) return;
+                setSigningOut(true);
+                try {
+                  const result = await signOutReps(
+                    signOutTarget.all
+                      ? { sessionToken, all: true }
+                      : {
+                          sessionToken,
+                          repIds: signOutTarget.repIds as Id<"agcRepresentatives">[],
+                        },
+                  );
+                  toast.success(`Signed out ${result.signedOut} rep(s)`);
+                  setSignOutTarget(null);
+                } catch (err) {
+                  toast.error(...toastFriendlyErrorParts(err, "Sign-out failed"));
+                } finally {
+                  setSigningOut(false);
+                }
+              }}
+            >
+              {signingOut ? (
+                <Loader2Icon className="size-4 animate-spin" />
+              ) : (
+                <LogOut className="size-4" />
+              )}
+              Sign out
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       {bulkDeleteOpen && (
         <BulkDeleteDialog
           selected={selected}

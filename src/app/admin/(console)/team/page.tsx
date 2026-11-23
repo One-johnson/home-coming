@@ -57,8 +57,8 @@ export default function AdminTeamPage() {
   );
   // Buildings come from the imported room inventory — a staff member is only
   // ever posted somewhere the rooms screen knows about.
-  const rooms = useQuery(
-    api.agcRoomAssignments.listRoomsAdmin,
+  const roomBuildings = useQuery(
+    api.agcRoomAssignments.listRoomBuildings,
     allowed ? sessionArgs : "skip",
   );
   const createUser = useAction(api.authActions.adminCreateUser);
@@ -72,19 +72,14 @@ export default function AdminTeamPage() {
     () =>
       [
         ...new Set([
-          ...(rooms ?? [])
-            .map((room) => room.building)
-            .filter(
-              (building): building is string =>
-                typeof building === "string" && building !== "",
-            ),
+          ...(roomBuildings ?? []),
           // Keep a posting visible even if its building has no rooms yet.
           ...(teamMembers ?? [])
             .map((member) => member.defaultLocation)
             .filter((building): building is string => !!building),
         ]),
       ].sort((a, b) => a.localeCompare(b)),
-    [rooms, teamMembers],
+    [roomBuildings, teamMembers],
   );
 
   const [addOpen, setAddOpen] = useState(false);

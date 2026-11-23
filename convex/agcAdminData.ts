@@ -511,8 +511,8 @@ export const listHubs = query({
 });
 
 /** Active hubs, name-sorted — shared with the rooms snapshot. */
-export async function buildActiveHubs(ctx: QueryCtx) {
-  const hubs = await ctx.db.query("agcHubs").collect();
+export async function buildActiveHubs(ctx: QueryCtx, preloaded?: Doc<"agcHubs">[]) {
+  const hubs = preloaded ?? (await ctx.db.query("agcHubs").collect());
   return hubs
     .filter((hub) => hub.active !== false)
     .map((hub) => ({
@@ -1796,6 +1796,82 @@ export const notifyAdminsOfPendingReview = internalMutation({
       notified += 1;
     }
     return { notified };
+  },
+});
+
+/**
+ * Which reps are signed in right now: repId → live session count and when the
+ * newest one started. Its own small query (the session table holds one row per
+ * signed-in rep), so a rep signing in never re-runs the heavy hub roster.
+ */
+export const listRepSessionStatus = query({
+  args: { sessionToken: sessionTokenValidator },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx, args.sessionToken);
+    const now = Date.now();
+    const byRep: Record<string, { sessions: number; since: number }> = {};
+    for (const session of await ctx.db.query("agcRepSessions").collect()) {
+      if (session.expiresAt <= now) continue;
+      const entry = byRep[session.repId] ?? { sessions: 0, since: 0 };
+      entry.sessions += 1;
+      entry.since = Math.max(entry.since, session.createdAt);
+      byRep[session.repId] = entry;
+    }
+    return byRep;
+  },
+});
+
+/**
+ * Force sign-out for representatives: their portal tabs drop to the sign-in
+ * screen at once. Pass `repIds` for a selection, or `all: true` for everyone.
+ * The account itself is untouched; they can sign straight back in.
+ */
+export const signOutReps = mutation({
+  args: {
+    sessionToken: sessionTokenValidator,
+    repIds: v.optional(v.array(v.id("agcRepresentatives"))),
+    all: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireAdmin(ctx, args.sessionToken);
+    const sessions = args.all
+      ? await ctx.db.query("agcRepSessions").collect()
+      : (
+          await Promise.all(
+            [...new Set(args.repIds ?? [])].map((repId) =>
+              ctx.db
+                .query("agcRepSessions")
+                .withIndex("by_rep", (q) => q.eq("repId", repId))
+                .collect(),
+            ),
+          )
+        ).flat();
+    const repIds = new Set<string>();
+    for (const session of sessions) {
+      await ctx.db.delete(session._id);
+      repIds.add(session.repId);
+    }
+    if (repIds.size > 0) {
+      const usernames: string[] = [];
+      for (const repId of repIds) {
+        const rep = await ctx.db.get(repId as Id<"agcRepresentatives">);
+        if (rep) usernames.push(rep.username);
+      }
+      await writeAuditLog(ctx, {
+        actorUserId: actor._id,
+        actorEmail: actor.email,
+        action: "agc_rep.signed_out",
+        entityType: "agcRepresentatives",
+        entityId: repIds.size === 1 ? [...repIds][0] : undefined,
+        summary: args.all
+          ? `Signed out all representatives (${repIds.size})`
+          : repIds.size === 1
+            ? `Signed out representative ${usernames[0] ?? ""}`.trim()
+            : `Signed out ${repIds.size} representatives`,
+        metadata: { usernames, sessionsEnded: sessions.length },
+      });
+    }
+    return { signedOut: repIds.size, sessionsEnded: sessions.length };
   },
 });
 
@@ -3292,8 +3368,13 @@ export const getAgcOverview = query({
     const bookings = canAccommodation
       ? (await ctx.db.query("agcBookings").collect()).filter((row) => !row.deletedAt)
       : [];
+    // Active guests only, through the status index: retired rows (closed
+    // bookings) were ~40% of the read and never counted below.
     const guests = canAccommodation
-      ? await ctx.db.query("agcGuests").collect()
+      ? await ctx.db
+          .query("agcGuests")
+          .withIndex("by_status", (q) => q.eq("status", "active"))
+          .collect()
       : [];
     const pools = canAccommodation
       ? await ctx.db.query("agcInventoryPools").collect()

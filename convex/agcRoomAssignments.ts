@@ -134,6 +134,49 @@ export type RoomsGridReads = {
   guests: Doc<"agcGuests">[];
 };
 
+/**
+ * The rows the rooms screen's builders share, read once. Without this the
+ * rooms snapshot read rooms three times, active guests and open assignments
+ * twice, every assignment ever made once, and point-read each seated guest
+ * twice: close to Convex's per-query read limit, and billed on every re-run.
+ */
+export type RoomsSharedReads = {
+  /** Every room row, deleted ones included (the bin needs them). */
+  allRooms: Doc<"agcRooms">[];
+  issues: Doc<"agcRoomIssues">[];
+  /** Open assignments only. */
+  assignments: Doc<"agcRoomAssignments">[];
+  activeGuests: Doc<"agcGuests">[];
+  roomableBookings: Doc<"agcBookings">[];
+  hubs: Doc<"agcHubs">[];
+  keys: Doc<"agcKeys">[];
+};
+
+export async function loadRoomsSharedReads(ctx: QueryCtx): Promise<RoomsSharedReads> {
+  const [allRooms, issues, assignments, guests, bookings, hubs, keys] =
+    await Promise.all([
+      ctx.db.query("agcRooms").collect(),
+      ctx.db.query("agcRoomIssues").collect(),
+      ctx.db
+        .query("agcRoomAssignments")
+        .withIndex("by_open", (q) => q.eq("open", true))
+        .collect(),
+      activeGuests(ctx),
+      roomableBookings(ctx),
+      ctx.db.query("agcHubs").collect(),
+      ctx.db.query("agcKeys").collect(),
+    ]);
+  return {
+    allRooms,
+    issues,
+    assignments: assignments.filter(isOpen),
+    activeGuests: guests,
+    roomableBookings: bookings,
+    hubs,
+    keys,
+  };
+}
+
 /** Every live room with live occupancy counts — shared by the room grid and
  * the arrival desk's single snapshot query. */
 export async function buildRoomsAdmin(ctx: QueryCtx, reads?: RoomsGridReads) {
@@ -213,6 +256,26 @@ export const listRoomsAdmin = query({
   handler: async (ctx, args) => {
     await requireRole(ctx, args.sessionToken, [...ASSIGN_ROLES]);
     return buildRoomsAdmin(ctx);
+  },
+});
+
+/**
+ * Distinct buildings in the live room inventory, for pickers (e.g. posting a
+ * staff member). Reads only the rooms table, so it does not re-run on every
+ * assignment the way the full room grid does.
+ */
+export const listRoomBuildings = query({
+  args: { sessionToken: sessionTokenValidator },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, args.sessionToken, [...ASSIGN_ROLES]);
+    const rooms = await ctx.db.query("agcRooms").collect();
+    return [
+      ...new Set(
+        rooms
+          .filter((room) => !room.deletedAt && room.building)
+          .map((room) => room.building as string),
+      ),
+    ].sort((a, b) => a.localeCompare(b));
   },
 });
 
@@ -419,8 +482,8 @@ export const deleteRooms = mutation({
  * duplicate a live room.
  */
 /** Trash view: soft-deleted rooms, newest deletion first. */
-export async function buildDeletedRooms(ctx: QueryCtx) {
-    const all = await ctx.db.query("agcRooms").collect();
+export async function buildDeletedRooms(ctx: QueryCtx, reads?: RoomsSharedReads) {
+    const all = reads?.allRooms ?? (await ctx.db.query("agcRooms").collect());
     const liveKeys = new Set(
       all
         .filter((room) => !room.deletedAt)
@@ -574,14 +637,22 @@ export async function roomableBookings(ctx: QueryCtx) {
  * Guests eligible for rooming: active guests whose booking is confirmed
  * (paid) and who have no assignment yet. Grouped by type + gender.
  */
-export async function buildUnassignedGuests(ctx: QueryCtx) {
-    const guests = await activeGuests(ctx);
-    const bookings = await roomableBookings(ctx);
+export async function buildUnassignedGuests(ctx: QueryCtx, reads?: RoomsSharedReads) {
+    const guests = reads?.activeGuests ?? (await activeGuests(ctx));
+    const bookings = reads?.roomableBookings ?? (await roomableBookings(ctx));
     const bookingById = new Map(bookings.map((b) => [b._id, b]));
+    // Open rows only: closed history (every move ever made) is most of the
+    // table and never decides who still needs a bed.
+    const openAssignments =
+      reads?.assignments ??
+      (await ctx.db
+        .query("agcRoomAssignments")
+        .withIndex("by_open", (q) => q.eq("open", true))
+        .collect());
     const assignedGuestIds = new Set(
-      (await ctx.db.query("agcRoomAssignments").collect()).filter(isOpen).map((a) => a.guestId),
+      openAssignments.filter(isOpen).map((a) => a.guestId),
     );
-    const hubs = await ctx.db.query("agcHubs").collect();
+    const hubs = reads?.hubs ?? (await ctx.db.query("agcHubs").collect());
     const hubName = new Map(hubs.map((hub) => [hub._id, hub.name]));
 
     return guests
@@ -1115,23 +1186,30 @@ export const releaseRoomHold = mutation({
  * it is counted from the live rows, so a fault or a hold changes the numbers
  * the moment it is raised.
  */
-export async function buildRoomingOverview(ctx: QueryCtx) {
-    const rooms = (await ctx.db.query("agcRooms").collect()).filter(
+export async function buildRoomingOverview(ctx: QueryCtx, reads?: RoomsSharedReads) {
+    const rooms = (reads?.allRooms ?? (await ctx.db.query("agcRooms").collect())).filter(
       (room) => !room.deletedAt,
     );
-    const blocked = await blockedRoomIds(ctx);
+    const blocked = reads
+      ? new Set(
+          reads.issues
+            .filter((issue) => issue.status === "open" && issue.blocksRoom)
+            .map((issue) => issue.roomId as string),
+        )
+      : await blockedRoomIds(ctx);
     const assignments = (
-      await ctx.db
+      reads?.assignments ??
+      (await ctx.db
         .query("agcRoomAssignments")
         .withIndex("by_open", (q) => q.eq("open", true))
-        .collect()
+        .collect())
     ).filter(isOpen);
     const occupiedByRoom = new Map<string, number>();
     for (const assignment of assignments) {
       occupiedByRoom.set(assignment.roomId, (occupiedByRoom.get(assignment.roomId) ?? 0) + 1);
     }
 
-    const keys = await ctx.db.query("agcKeys").collect();
+    const keys = reads?.keys ?? (await ctx.db.query("agcKeys").collect());
     const keysOut = keys.filter((key) => key.status === "issued" || key.status === "replaced").length;
     const keysReturned = keys.filter((key) => key.status === "returned").length;
 
@@ -1165,14 +1243,17 @@ export async function buildRoomingOverview(ctx: QueryCtx) {
     }
 
     // Delegates with a live booking who have no bed yet.
-    const guests = await activeGuests(ctx);
+    const guests = reads?.activeGuests ?? (await activeGuests(ctx));
     const assignedGuestIds = new Set(assignments.map((a) => a.guestId));
     // A bed whose guest row is gone still blocks the room, so it is reported on
     // its own rather than being folded into the free count. Only the guests that
     // hold a bed are looked up — never the whole roster.
+    // Seated guests already in memory (active ones) are not read again; only
+    // the rest (retired or missing rows) cost a point read.
+    const knownGuests = new Map(guests.map((guest) => [guest._id as string, guest]));
     const assignedGuestRows = await Promise.all(
-      [...new Set(assignments.map((a) => a.guestId))].map((guestId) =>
-        ctx.db.get(guestId),
+      [...new Set(assignments.map((a) => a.guestId))].map(
+        (guestId) => knownGuests.get(guestId) ?? ctx.db.get(guestId),
       ),
     );
     const orphaned = orphanedBedRows(
@@ -1182,7 +1263,7 @@ export async function buildRoomingOverview(ctx: QueryCtx) {
         .map((guest) => guest._id),
     );
     const bookings = new Map(
-      (await roomableBookings(ctx)).map((b) => [b._id, b]),
+      (reads?.roomableBookings ?? (await roomableBookings(ctx))).map((b) => [b._id, b]),
     );
     const awaitingRoom = guests.filter((guest) => {
       if (guest.status !== "active" || assignedGuestIds.has(guest._id)) return false;

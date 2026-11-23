@@ -8,6 +8,7 @@ import {
   buildRoomingSettings,
   buildRoomsAdmin,
   buildUnassignedGuests,
+  loadRoomsSharedReads,
 } from "./agcRoomAssignments";
 import { buildRoomIssues } from "./agcRoomIssues";
 
@@ -28,17 +29,24 @@ export const getRoomsSnapshot = query({
   args: { sessionToken: v.string() },
   handler: async (ctx, args) => {
     await requireRole(ctx, args.sessionToken, [...ROOM_SNAPSHOT_ROLES]);
+    // Every table is read once and handed to each builder.
+    const reads = await loadRoomsSharedReads(ctx);
     const [rooms, unassigned, settings, rooming, deletedRooms, issues, hubs] =
       await Promise.all([
-        buildRoomsAdmin(ctx),
-        buildUnassignedGuests(ctx),
+        buildRoomsAdmin(ctx, {
+          rooms: reads.allRooms,
+          issues: reads.issues,
+          assignments: reads.assignments,
+          guests: reads.activeGuests,
+        }),
+        buildUnassignedGuests(ctx, reads),
         buildRoomingSettings(ctx),
-        buildRoomingOverview(ctx),
-        buildDeletedRooms(ctx),
+        buildRoomingOverview(ctx, reads),
+        buildDeletedRooms(ctx, reads),
         // The rooms screen shows fixed faults too: a room repaired three times
         // is a different proposition from one with a single old repair.
-        buildRoomIssues(ctx, true),
-        buildActiveHubs(ctx),
+        buildRoomIssues(ctx, true, reads.issues),
+        buildActiveHubs(ctx, reads.hubs),
       ]);
     return { rooms, unassigned, settings, rooming, deletedRooms, issues, hubs };
   },

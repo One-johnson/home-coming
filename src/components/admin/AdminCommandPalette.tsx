@@ -128,10 +128,17 @@ export function AdminCommandPalette({
   const router = useRouter();
   const isCompact = useIsCompact();
   const { sessionToken } = useAdminSession();
+  // Each distinct search term is a fresh server query that scans bookings and
+  // registrations, so only search once typing pauses.
+  const [debouncedQ, setDebouncedQ] = useState("");
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQ(q), 300);
+    return () => clearTimeout(timer);
+  }, [q]);
   const results = useQuery(
     api.admin.searchQuick,
-    open && sessionToken && q.trim().length >= 2
-      ? { sessionToken, q }
+    open && sessionToken && debouncedQ.trim().length >= 2
+      ? { sessionToken, q: debouncedQ }
       : "skip",
   );
 

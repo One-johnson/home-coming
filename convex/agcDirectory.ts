@@ -26,6 +26,28 @@ function personName(firstName?: string, lastName?: string) {
   return [firstName, lastName].filter(Boolean).join(" ").trim();
 }
 
+/**
+ * Guests currently checked in (live, not checked out, not corrected): the
+ * fast-changing half of the directory, kept apart from the roster.
+ */
+export const listCheckedInGuestIds = query({
+  args: { sessionToken: sessionTokenValidator },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, args.sessionToken, [...DIRECTORY_ROLES]);
+    const checkIns = await ctx.db
+      .query("agcCheckIns")
+      .withIndex("by_live", (q) => q.eq("live", true))
+      .collect();
+    return [
+      ...new Set(
+        checkIns
+          .filter((checkIn) => !checkIn.checkedOutAt)
+          .map((checkIn) => checkIn.guestId as string),
+      ),
+    ];
+  },
+});
+
 export const listDelegateDirectory = query({
   args: { sessionToken: sessionTokenValidator },
   handler: async (ctx, args) => {
@@ -66,15 +88,9 @@ export const listDelegateDirectory = query({
     );
     const roomById = new Map(rooms.map((room) => [room._id as string, room]));
 
-    const checkIns = await ctx.db
-      .query("agcCheckIns")
-      .withIndex("by_live", (q) => q.eq("live", true))
-      .collect();
-    const checkedIn = new Set(
-      checkIns
-        .filter((checkIn) => !checkIn.checkedOutAt)
-        .map((checkIn) => checkIn.guestId as string),
-    );
+    // Check-in state is NOT read here: it changes on every arrival, and this
+    // query reads the whole roster (megabytes). `listCheckedInGuestIds`
+    // carries it separately so an arrival re-runs only that small query.
 
     const delegates = guests
       .map((guest) => {
@@ -106,7 +122,8 @@ export const listDelegateDirectory = query({
           typeLabel:
             AGC_ACCOMMODATION_LABELS[guest.accommodationType] ??
             guest.accommodationType,
-          checkedIn: checkedIn.has(guest._id),
+          /** Filled in on the client from `listCheckedInGuestIds`. */
+          checkedIn: false,
         };
       })
       .filter((row): row is NonNullable<typeof row> => row !== null);
