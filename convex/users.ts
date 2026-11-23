@@ -1,8 +1,9 @@
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
 import { mutation, query, internalMutation, internalQuery } from "./_generated/server";
+import { internal } from "./_generated/api";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { writeAuditLog } from "./lib/audit";
 import {
   LOCK_MS,
@@ -179,9 +180,129 @@ export const listTeamMembers = query({
   handler: async (ctx, args) => {
     await requireAdmin(ctx, args.sessionToken);
     const users = await ctx.db.query("users").collect();
-    return users
-      .map((user) => publicUser(user))
-      .sort((a, b) => a.email.localeCompare(b.email));
+    const now = Date.now();
+    const rows = await Promise.all(
+      users.map(async (user) => {
+        const sessions = await ctx.db
+          .query("sessions")
+          .withIndex("by_user", (q) => q.eq("userId", user._id))
+          .collect();
+        const live = sessions.filter((s) => s.expiresAt > now);
+        return {
+          ...publicUser(user),
+          /** Live (unexpired) sessions: the account is signed in somewhere. */
+          activeSessions: live.length,
+          lastSignInAt:
+            live.length > 0 ? Math.max(...live.map((s) => s.createdAt)) : null,
+        };
+      }),
+    );
+    return rows.sort((a, b) => a.email.localeCompare(b.email));
+  },
+});
+
+async function deleteSessionsForUser(ctx: MutationCtx, userId: Id<"users">) {
+  const sessions = await ctx.db
+    .query("sessions")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  for (const session of sessions) {
+    await ctx.db.delete(session._id);
+  }
+  return sessions.length;
+}
+
+/**
+ * Force sign-out for one or more staff accounts. Deleting the session rows
+ * drops every open tab of theirs to the sign-in screen at once (their live
+ * `currentUser` subscription re-runs and resolves to null). The admin's own
+ * account is skipped so a bulk action can't lock the actor out.
+ */
+export const signOutUsers = mutation({
+  args: {
+    sessionToken: sessionTokenValidator,
+    userIds: v.array(v.id("users")),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireAdmin(ctx, args.sessionToken);
+    let signedOut = 0;
+    let sessionsEnded = 0;
+    const emails: string[] = [];
+    for (const userId of new Set(args.userIds)) {
+      if (userId === actor._id) continue;
+      const target = await ctx.db.get(userId);
+      if (!target) continue;
+      const ended = await deleteSessionsForUser(ctx, userId);
+      if (ended > 0) {
+        signedOut += 1;
+        sessionsEnded += ended;
+        emails.push(target.email);
+      }
+    }
+    if (signedOut > 0) {
+      await writeAuditLog(ctx, {
+        actorUserId: actor._id,
+        actorEmail: actor.email,
+        action: "user.signed_out",
+        entityType: "users",
+        summary:
+          signedOut === 1
+            ? `Signed out ${emails[0]}`
+            : `Signed out ${signedOut} team members`,
+        metadata: { emails, sessionsEnded },
+      });
+    }
+    return { signedOut, sessionsEnded };
+  },
+});
+
+/**
+ * Permanently delete staff accounts with their sessions and reset tokens.
+ * Audit entries keep the actor's email, so history stays readable. The actor
+ * can't delete themselves, and the last active admin can't be removed.
+ */
+export const deleteUsers = mutation({
+  args: {
+    sessionToken: sessionTokenValidator,
+    userIds: v.array(v.id("users")),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireAdmin(ctx, args.sessionToken);
+    const ids = [...new Set(args.userIds)];
+    if (ids.includes(actor._id)) {
+      throw new ConvexError("You cannot delete your own account");
+    }
+    const targets = (await Promise.all(ids.map((id) => ctx.db.get(id)))).filter(
+      (u): u is Doc<"users"> => u !== null,
+    );
+    const adminsRemoved = targets.filter(
+      (u) => u.role === "admin" && u.active !== false,
+    ).length;
+    if (adminsRemoved > 0 && (await countAdmins(ctx)) - adminsRemoved < 1) {
+      throw new ConvexError("Cannot delete the last admin");
+    }
+
+    for (const target of targets) {
+      await deleteSessionsForUser(ctx, target._id);
+      const resets = await ctx.db
+        .query("adminPasswordResets")
+        .withIndex("by_user", (q) => q.eq("userId", target._id))
+        .collect();
+      for (const reset of resets) {
+        await ctx.db.delete(reset._id);
+      }
+      await ctx.db.delete(target._id);
+      await writeAuditLog(ctx, {
+        actorUserId: actor._id,
+        actorEmail: actor.email,
+        action: "user.deleted",
+        entityType: "users",
+        entityId: target._id,
+        summary: `Deleted account ${target.email}`,
+        metadata: { name: target.name, role: target.role },
+      });
+    }
+    return { deleted: targets.length };
   },
 });
 
@@ -400,12 +521,69 @@ export const createSessionRecord = internalMutation({
     expiresAt: v.number(),
   },
   handler: async (ctx, args) => {
-    await ctx.db.insert("sessions", {
+    const sessionId = await ctx.db.insert("sessions", {
       userId: args.userId,
       token: args.token,
       expiresAt: args.expiresAt,
       createdAt: Date.now(),
     });
+    // Queries cache Date.now(), so an open tab never notices a session's
+    // expiry on its own. Deleting the row at expiry re-runs the tab's
+    // `currentUser` subscription and signs it out.
+    await ctx.scheduler.runAt(args.expiresAt, internal.users.expireSession, {
+      sessionId,
+    });
+  },
+});
+
+export const expireSession = internalMutation({
+  args: { sessionId: v.id("sessions") },
+  handler: async (ctx, args) => {
+    const session = await ctx.db.get(args.sessionId);
+    if (session && session.expiresAt <= Date.now()) {
+      await ctx.db.delete(session._id);
+    }
+  },
+});
+
+/**
+ * One-off backfill for sessions created before expiry was scheduled:
+ * deletes the already-expired ones (signing those tabs out now) and schedules
+ * deletion for the rest. Covers staff and rep sessions. Safe to re-run (a
+ * duplicate scheduled delete is a no-op).
+ * `npx convex run users:backfillSessionExpiry --prod`
+ */
+export const backfillSessionExpiry = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    let deleted = 0;
+    let scheduled = 0;
+    for (const session of await ctx.db.query("sessions").collect()) {
+      if (session.expiresAt <= now) {
+        await ctx.db.delete(session._id);
+        deleted += 1;
+      } else {
+        await ctx.scheduler.runAt(session.expiresAt, internal.users.expireSession, {
+          sessionId: session._id,
+        });
+        scheduled += 1;
+      }
+    }
+    for (const session of await ctx.db.query("agcRepSessions").collect()) {
+      if (session.expiresAt <= now) {
+        await ctx.db.delete(session._id);
+        deleted += 1;
+      } else {
+        await ctx.scheduler.runAt(
+          session.expiresAt,
+          internal.agcAuthData.expireRepSession,
+          { sessionId: session._id },
+        );
+        scheduled += 1;
+      }
+    }
+    return { deleted, scheduled };
   },
 });
 

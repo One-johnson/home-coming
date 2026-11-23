@@ -8,11 +8,13 @@ import {
   type ReactNode,
 } from "react";
 import { useMutation, useQuery } from "convex/react";
+import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import {
   adminSessionStore,
   sessionExpiresAt,
   unwrapSessionToken,
+  useExpireAt,
   useSessionToken,
 } from "@/lib/sessionStore";
 import type { StaffRole } from "@/lib/adminRoles";
@@ -99,6 +101,15 @@ export function AdminSessionProvider({ children }: { children: ReactNode }) {
   // A stored token whose session no longer resolves (expired/revoked) clears
   // itself. useSyncExternalStore keeps this in sync without setState-in-effect.
   const expiresAt = sessionExpiresAt(stored);
+  // Sign out on time when the session's lifetime runs out in an open tab.
+  const expireNow = useCallback(() => {
+    void clearSession();
+    toast.info("Your session has ended", {
+      description: "Please sign in again to continue.",
+    });
+  }, [clearSession]);
+  useExpireAt(sessionToken ? expiresAt : null, expireNow);
+
   const value = useMemo(
     () => ({
       sessionToken,

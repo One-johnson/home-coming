@@ -189,6 +189,9 @@ export type TeamMemberRow = {
   active: boolean;
   createdAt: number;
   defaultLocation?: string | null;
+  /** Live sessions; 0 means signed out everywhere. */
+  activeSessions?: number;
+  lastSignInAt?: number | null;
 };
 
 /**
@@ -197,28 +200,75 @@ export type TeamMemberRow = {
  */
 export function teamTableColumns(
   onManage: (member: TeamMemberRow) => void,
+  onSignOut: (member: TeamMemberRow) => void,
+  currentUserId: string | null,
 ): ColumnDef<TeamMemberRow>[] {
   return [
     ...(teamColumns as ColumnDef<TeamMemberRow>[]),
+    {
+      id: "session",
+      accessorFn: (row) =>
+        (row.activeSessions ?? 0) > 0 ? "signed_in" : "signed_out",
+      header: "Session",
+      filterFn: multiSelectFilter,
+      cell: ({ row }) => {
+        const live = (row.original.activeSessions ?? 0) > 0;
+        return live ? (
+          <span className="flex flex-col">
+            <span className="flex items-center gap-1.5 text-sm font-medium text-emerald-700 dark:text-emerald-400">
+              <span className="size-1.5 rounded-full bg-emerald-500" />
+              Signed in
+            </span>
+            {row.original.lastSignInAt ? (
+              <span className="text-xs text-muted-foreground">
+                since {formatDate(row.original.lastSignInAt)}
+              </span>
+            ) : null}
+          </span>
+        ) : (
+          <span className="text-sm text-muted-foreground">Signed out</span>
+        );
+      },
+    },
     {
       id: "actions",
       header: "",
       enableSorting: false,
       enableHiding: false,
-      cell: ({ row }) => (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="h-8"
-          onClick={(event) => {
-            event.stopPropagation();
-            onManage(row.original);
-          }}
-        >
-          Manage
-        </Button>
-      ),
+      cell: ({ row }) => {
+        const live = (row.original.activeSessions ?? 0) > 0;
+        const isSelf = row.original._id === currentUserId;
+        return (
+          <div className="flex justify-end gap-2">
+            {live && !isSelf ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onSignOut(row.original);
+                }}
+              >
+                Sign out
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8"
+              onClick={(event) => {
+                event.stopPropagation();
+                onManage(row.original);
+              }}
+            >
+              Manage
+            </Button>
+          </div>
+        );
+      },
     },
   ];
 }

@@ -313,12 +313,29 @@ export const insertRepSession = internalMutation({
     expiresAt: v.number(),
   },
   handler: async (ctx, args) => {
-    await ctx.db.insert("agcRepSessions", {
+    const sessionId = await ctx.db.insert("agcRepSessions", {
       repId: args.repId,
       token: args.token,
       expiresAt: args.expiresAt,
       createdAt: Date.now(),
     });
+    // Delete the row at expiry so open portal tabs sign out on their own
+    // (queries cache Date.now() and would otherwise keep the rep signed in).
+    await ctx.scheduler.runAt(
+      args.expiresAt,
+      internal.agcAuthData.expireRepSession,
+      { sessionId },
+    );
+  },
+});
+
+export const expireRepSession = internalMutation({
+  args: { sessionId: v.id("agcRepSessions") },
+  handler: async (ctx, args) => {
+    const session = await ctx.db.get(args.sessionId);
+    if (session && session.expiresAt <= Date.now()) {
+      await ctx.db.delete(session._id);
+    }
   },
 });
 

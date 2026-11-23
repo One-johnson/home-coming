@@ -188,7 +188,7 @@ function AdminRegisterInner() {
     setSubmitting(true);
     try {
       const result = await register({ name, email, password });
-      setSession(result.sessionToken);
+      setSession(result.sessionToken, result.expiresAt);
       toast.success("Account created");
       router.replace("/admin");
     } catch (err) {

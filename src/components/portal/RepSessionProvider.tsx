@@ -14,6 +14,7 @@ import {
   repSessionStore,
   sessionExpiresAt,
   unwrapSessionToken,
+  useExpireAt,
   useSessionToken,
 } from "@/lib/sessionStore";
 import { isSessionExpired } from "@/lib/friendlyError";
@@ -123,6 +124,15 @@ export function RepSessionProvider({ children }: { children: ReactNode }) {
   );
 
   const expiresAt = sessionExpiresAt(stored);
+  // Sign out on time when the session's lifetime runs out in an open tab.
+  const expireNow = useCallback(() => {
+    void clearSession();
+    toast.info("Your session has ended", {
+      description: "Please sign in again to continue.",
+    });
+  }, [clearSession]);
+  useExpireAt(sessionToken ? expiresAt : null, expireNow);
+
   const value = useMemo(
     () => ({
       sessionToken,

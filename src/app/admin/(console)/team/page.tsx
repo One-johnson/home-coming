@@ -2,12 +2,13 @@
 
 import { useAction, useMutation, useQuery } from "convex/react";
 import { useCallback, useMemo, useState } from "react";
-import { Loader2, UserPlus } from "lucide-react";
+import { Loader2, LogOut, Trash2, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import { cleanErrorMessage } from "@/lib/friendlyError";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
+import { ConfirmDeleteDialog } from "@/components/admin/ConfirmDeleteDialog";
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/ui/data-table";
 import {
@@ -64,6 +65,8 @@ export default function AdminTeamPage() {
   const setUserRole = useMutation(api.users.setUserRole);
   const setUserActive = useMutation(api.users.setUserActive);
   const setUserLocation = useMutation(api.users.setUserDefaultLocation);
+  const signOutUsers = useMutation(api.users.signOutUsers);
+  const deleteUsers = useMutation(api.users.deleteUsers);
 
   const buildings = useMemo(
     () =>
@@ -109,7 +112,21 @@ export default function AdminTeamPage() {
       active: member.active,
     });
   }, []);
-  const columns = useMemo(() => teamTableColumns(openManage), [openManage]);
+  /** Members waiting on a confirm: sign-out or permanent delete. */
+  const [pending, setPending] = useState<{
+    kind: "signOut" | "delete";
+    members: TeamMemberRow[];
+    done?: () => void;
+  } | null>(null);
+  const [acting, setActing] = useState(false);
+
+  const askSignOut = useCallback((member: TeamMemberRow) => {
+    setPending({ kind: "signOut", members: [member] });
+  }, []);
+  const columns = useMemo(
+    () => teamTableColumns(openManage, askSignOut, user?._id ?? null),
+    [openManage, askSignOut, user?._id],
+  );
 
   if (!allowed) {
     return (
@@ -181,6 +198,41 @@ export default function AdminTeamPage() {
     }
   };
 
+  const confirmPending = async () => {
+    if (!pending || !sessionToken) return;
+    const userIds = pending.members.map((m) => m._id as Id<"users">);
+    setActing(true);
+    try {
+      if (pending.kind === "signOut") {
+        const result = await signOutUsers({ sessionToken, userIds });
+        toast.success(
+          result.signedOut === 0
+            ? "Nobody to sign out: those accounts were already signed out"
+            : `Signed out ${result.signedOut} member${result.signedOut === 1 ? "" : "s"}`,
+        );
+      } else {
+        const result = await deleteUsers({ sessionToken, userIds });
+        toast.success(
+          `Deleted ${result.deleted} account${result.deleted === 1 ? "" : "s"}`,
+        );
+        if (managing && userIds.includes(managing._id as Id<"users">)) {
+          setManaging(null);
+        }
+      }
+      pending.done?.();
+      setPending(null);
+    } catch (err) {
+      toast.error(cleanErrorMessage(err) || "Something went wrong");
+    } finally {
+      setActing(false);
+    }
+  };
+
+  const pendingCount = pending?.members.length ?? 0;
+  const pendingName =
+    pendingCount === 1 ? pending!.members[0].name : `${pendingCount} members`;
+  const selfId = user?._id ?? null;
+
   return (
     <div className="w-full space-y-4">
       <AdminPageHeader
@@ -208,6 +260,44 @@ export default function AdminTeamPage() {
           createdAt: new Date(m.createdAt).toISOString(),
         })}
         getRowId={(row) => row._id}
+        bulkActions={({ selectedRows, clearSelection }) => {
+          const others = selectedRows.filter((m) => m._id !== selfId);
+          const signedIn = others.filter((m) => (m.activeSessions ?? 0) > 0);
+          return (
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={signedIn.length === 0}
+                onClick={() =>
+                  setPending({
+                    kind: "signOut",
+                    members: signedIn,
+                    done: clearSelection,
+                  })
+                }
+              >
+                <LogOut className="size-4" />
+                Sign out{signedIn.length > 0 ? ` (${signedIn.length})` : ""}
+              </Button>
+              <Button
+                size="sm"
+                variant="destructive"
+                disabled={others.length === 0}
+                onClick={() =>
+                  setPending({
+                    kind: "delete",
+                    members: others,
+                    done: clearSelection,
+                  })
+                }
+              >
+                <Trash2 className="size-4" />
+                Delete{others.length > 0 ? ` (${others.length})` : ""}
+              </Button>
+            </>
+          );
+        }}
         facetFilters={[
           {
             columnId: "role",
@@ -223,6 +313,14 @@ export default function AdminTeamPage() {
             options: [
               { label: "Active", value: "active" },
               { label: "Inactive", value: "inactive" },
+            ],
+          },
+          {
+            columnId: "session",
+            title: "Session",
+            options: [
+              { label: "Signed in", value: "signed_in" },
+              { label: "Signed out", value: "signed_out" },
             ],
           },
         ]}
@@ -388,6 +486,53 @@ export default function AdminTeamPage() {
                 {draft.active ? "Deactivate" : "Activate"}
               </Button>
             </div>
+            {managing && managing._id !== selfId ? (
+              <div className="space-y-2 rounded-lg border border-border px-3 py-2">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium">Session</p>
+                    <p className="text-sm text-muted-foreground">
+                      {(managing.activeSessions ?? 0) > 0
+                        ? "Signed in now. Signing out ends every open tab."
+                        : "Not signed in anywhere."}
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={(managing.activeSessions ?? 0) === 0}
+                    onClick={() =>
+                      setPending({ kind: "signOut", members: [managing] })
+                    }
+                  >
+                    <LogOut className="size-4" />
+                    Sign out
+                  </Button>
+                </div>
+                <div className="flex items-center justify-between gap-3 border-t border-border pt-2">
+                  <div>
+                    <p className="text-sm font-medium text-destructive">
+                      Delete account
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      Removes the account for good. Audit history is kept.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    onClick={() =>
+                      setPending({ kind: "delete", members: [managing] })
+                    }
+                  >
+                    <Trash2 className="size-4" />
+                    Delete
+                  </Button>
+                </div>
+              </div>
+            ) : null}
           </div>
           <DialogFooter>
             <Button
@@ -404,6 +549,57 @@ export default function AdminTeamPage() {
             >
               {saving ? <Loader2 className="size-4 animate-spin" /> : null}
               Save changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <ConfirmDeleteDialog
+        open={pending?.kind === "delete"}
+        onOpenChange={(open) => {
+          if (!open) setPending(null);
+        }}
+        title={`Delete ${pendingName}?`}
+        description={
+          pendingCount === 1
+            ? "This account is removed for good and signed out everywhere. It cannot be undone; add the person again to restore access."
+            : "These accounts are removed for good and signed out everywhere. It cannot be undone."
+        }
+        confirmLabel={pendingCount === 1 ? "Delete account" : `Delete ${pendingCount}`}
+        loading={acting}
+        onConfirm={() => void confirmPending()}
+      />
+
+      <Dialog
+        open={pending?.kind === "signOut"}
+        onOpenChange={(open) => {
+          if (!open && !acting) setPending(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Sign out {pendingName}?</DialogTitle>
+            <DialogDescription>
+              Every open tab drops to the sign-in screen right away. They can
+              sign in again with their password.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={acting}
+              onClick={() => setPending(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={acting}
+              onClick={() => void confirmPending()}
+            >
+              {acting ? <Loader2 className="size-4 animate-spin" /> : null}
+              Sign out
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 
 /**
  * A tiny external store backed by localStorage, for use with
@@ -124,4 +124,29 @@ export function useSessionToken(store: LocalValueStore): string | null {
     store.getSnapshot,
     store.getServerSnapshot,
   );
+}
+
+/** setTimeout overflows past ~24.8 days and would fire at once; cap the wait. */
+const MAX_TIMEOUT_MS = 2_147_483_647;
+
+/**
+ * Run `onExpire` when `expiresAt` passes. Convex queries cache Date.now(), so
+ * a long-open tab never learns from the server alone that its session ended;
+ * this timer signs it out on time. Long waits re-arm until the real expiry.
+ */
+export function useExpireAt(expiresAt: number | null, onExpire: () => void) {
+  useEffect(() => {
+    if (expiresAt === null) return;
+    let timer: ReturnType<typeof setTimeout>;
+    const arm = () => {
+      const left = expiresAt - Date.now();
+      if (left <= 0) {
+        onExpire();
+        return;
+      }
+      timer = setTimeout(arm, Math.min(left, MAX_TIMEOUT_MS));
+    };
+    arm();
+    return () => clearTimeout(timer);
+  }, [expiresAt, onExpire]);
 }
