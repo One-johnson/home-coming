@@ -373,6 +373,28 @@ function StatCell({
  * Inline rep actions for the detail panel: enable/disable the account,
  * issue fresh credentials, edit the contact email, and delete the account.
  */
+/** Small "signed in / signed out" marker for a rep row. */
+function SignedInDot({ live }: { live: boolean }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 text-[11px]",
+        live
+          ? "font-medium text-emerald-700 dark:text-emerald-400"
+          : "text-muted-foreground",
+      )}
+    >
+      <span
+        className={cn(
+          "size-1.5 rounded-full",
+          live ? "bg-emerald-500" : "bg-muted-foreground/40",
+        )}
+      />
+      {live ? "signed in" : "signed out"}
+    </span>
+  );
+}
+
 function RepActions({
   rep,
   hubName,
@@ -1294,6 +1316,10 @@ export function HubsRepsManager() {
   };
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<HubFilterId>("all");
+  /** Admin-only: narrow the roster by whether the rep is signed in now. */
+  const [sessionFilter, setSessionFilter] = useState<
+    "any" | "signed_in" | "signed_out"
+  >("any");
   const [sort, setSort] = useState<HubSortId>("name");
   const [detailHub, setDetailHub] = useState<HubRow | null>(null);
   const [addHubOpen, setAddHubOpen] = useState(false);
@@ -1332,12 +1358,38 @@ export function HubsRepsManager() {
   );
 
   const rows = useMemo(() => {
-    const list = (roster ?? []).filter(
-      (hub) =>
-        matchesHubFilter(filter, hub) && hubMatchesSearch(hub, search),
-    );
+    const list = (roster ?? []).filter((hub) => {
+      if (!matchesHubFilter(filter, hub) || !hubMatchesSearch(hub, search)) {
+        return false;
+      }
+      if (sessionFilter === "any") return true;
+      const live = !!hub.rep && signedInRepIds.has(hub.rep._id);
+      return sessionFilter === "signed_in" ? live : !!hub.rep && !live;
+    });
     return sortHubRows(sort, list);
-  }, [roster, filter, search, sort]);
+  }, [roster, filter, search, sort, sessionFilter, signedInRepIds]);
+
+  /** Reps on screen right now: what "select all" picks up. */
+  const visibleReps = useMemo(
+    () =>
+      rows.flatMap((hub) =>
+        hub.rep ? [{ id: hub.rep._id, username: hub.rep.username }] : [],
+      ),
+    [rows],
+  );
+  const allVisibleSelected =
+    visibleReps.length > 0 && visibleReps.every((r) => selected.has(r.id));
+  const someVisibleSelected = visibleReps.some((r) => selected.has(r.id));
+  const toggleAllVisible = (checked: boolean) => {
+    setSelected((prev) => {
+      const next = new Map(prev);
+      for (const r of visibleReps) {
+        if (checked) next.set(r.id, r.username);
+        else next.delete(r.id);
+      }
+      return next;
+    });
+  };
 
   const withoutRep = useMemo(
     () => (roster ?? []).filter((hub) => hub.rep === null && hub.active).length,
@@ -1648,6 +1700,89 @@ export function HubsRepsManager() {
               </button>
             ))}
           </div>
+          {isAdmin && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="mr-1 text-xs font-medium text-muted-foreground">
+                Session
+              </span>
+              {(
+                [
+                  { id: "any", label: "Any" },
+                  { id: "signed_in", label: `Signed in (${signedInRepIds.size})` },
+                  { id: "signed_out", label: "Signed out" },
+                ] as const
+              ).map((f) => (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setSessionFilter(f.id)}
+                  className={cn(
+                    "rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+                    sessionFilter === f.id
+                      ? "border-gold bg-primary/10 text-ink"
+                      : "text-muted-foreground hover:border-primary/20 hover:text-foreground",
+                  )}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {isAdmin && visibleReps.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-muted/40 px-3 py-2">
+              <label className="flex items-center gap-2 text-sm">
+                <Checkbox
+                  checked={allVisibleSelected}
+                  indeterminate={someVisibleSelected && !allVisibleSelected}
+                  onCheckedChange={(v) => toggleAllVisible(v === true)}
+                  aria-label="Select every rep shown"
+                />
+                {selected.size > 0
+                  ? `${selected.size} selected`
+                  : `Select all shown (${visibleReps.length})`}
+              </label>
+              {selected.size > 0 && (
+                <>
+                  <div className="h-4 w-px bg-border" />
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={selectedSignedIn.length === 0}
+                    title={
+                      selectedSignedIn.length === 0
+                        ? "None of the selected reps is signed in"
+                        : undefined
+                    }
+                    onClick={() =>
+                      setSignOutTarget({ all: false, repIds: selectedSignedIn })
+                    }
+                  >
+                    <LogOut className="size-4" />
+                    Sign out ({selectedSignedIn.length})
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="destructive"
+                    onClick={() => setBulkDeleteOpen(true)}
+                  >
+                    <Trash2 className="size-4" />
+                    Delete ({selected.size})
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setSelected(new Map())}
+                  >
+                    Clear
+                  </Button>
+                </>
+              )}
+            </div>
+          )}
 
           {rows.length === 0 ? (
             <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed p-10 text-center">
@@ -1656,7 +1791,7 @@ export function HubsRepsManager() {
               </span>
               <p className="text-sm font-medium">No hubs match</p>
               <p className="max-w-xs text-xs text-muted-foreground">
-                {search || filter !== "all"
+                {search || filter !== "all" || sessionFilter !== "any"
                   ? "Try a different search or filter chip."
                   : "Hubs appear here once seeded or imported."}
               </p>
@@ -1684,7 +1819,7 @@ export function HubsRepsManager() {
                                 v === true,
                               )
                             }
-                            aria-label={`Select ${hub.rep.username} for bulk delete`}
+                            aria-label={`Select ${hub.rep.username}`}
                             className="mt-0.5"
                           />
                         )}
@@ -1715,6 +1850,9 @@ export function HubsRepsManager() {
                       </div>
                       <div className="mt-2 flex flex-wrap items-center gap-1.5">
                         {hub.rep && <RepStatusBadge status={hub.rep.status} />}
+                        {isAdmin && hub.rep && (
+                          <SignedInDot live={signedInRepIds.has(hub.rep._id)} />
+                        )}
                         <QuietBadge hub={hub} />
                         {hub.poaEnabled && (
                           <Badge variant="outline" className="text-[10px]">
@@ -1732,7 +1870,16 @@ export function HubsRepsManager() {
                 <Table>
                   <TableHeader>
                     <TableRow className="hover:bg-transparent">
-                      {isAdmin && <TableHead className="w-8" />}
+                      {isAdmin && (
+                        <TableHead className="w-8">
+                          <Checkbox
+                            checked={allVisibleSelected}
+                            indeterminate={someVisibleSelected && !allVisibleSelected}
+                            onCheckedChange={(v) => toggleAllVisible(v === true)}
+                            aria-label="Select every rep shown"
+                          />
+                        </TableHead>
+                      )}
                       <TableHead>Hub</TableHead>
                       <TableHead>Region</TableHead>
                       <TableHead>Representative</TableHead>
@@ -1768,7 +1915,7 @@ export function HubsRepsManager() {
                                     )
                                   }
                                   onClick={(e) => e.stopPropagation()}
-                                  aria-label={`Select ${hub.rep.username} for bulk delete`}
+                                  aria-label={`Select ${hub.rep.username}`}
                                 />
                               )}
                             </TableCell>
@@ -1793,7 +1940,14 @@ export function HubsRepsManager() {
                           <TableCell>
                             {hub.rep ? (
                               <span className="flex flex-col gap-0.5">
-                                <RepStatusBadge status={hub.rep.status} />
+                                <span className="flex flex-wrap items-center gap-1.5">
+                                  <RepStatusBadge status={hub.rep.status} />
+                                  {isAdmin && (
+                                    <SignedInDot
+                                      live={signedInRepIds.has(hub.rep._id)}
+                                    />
+                                  )}
+                                </span>
                                 <span className="flex items-center gap-1 text-xs text-muted-foreground">
                                   <Mail className="size-3" />
                                   {hub.rep.email ?? "no email"}
@@ -1928,6 +2082,7 @@ export function HubsRepsManager() {
                         },
                   );
                   toast.success(`Signed out ${result.signedOut} rep(s)`);
+                  if (!signOutTarget.all) setSelected(new Map());
                   setSignOutTarget(null);
                 } catch (err) {
                   toast.error(...toastFriendlyErrorParts(err, "Sign-out failed"));
